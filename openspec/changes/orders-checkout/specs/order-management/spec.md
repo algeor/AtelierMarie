@@ -85,3 +85,17 @@ The system SHALL store orders with: id (auto-increment), user_id (nullable FK to
 #### Scenario: Schema includes all required fields
 - **WHEN** the orders and order_items tables are created
 - **THEN** they include all specified columns with correct types, constraints, and foreign keys including payment_method TEXT NOT NULL DEFAULT 'cod'
+
+### Requirement: Order state is never cached
+
+The system SHALL always read order state directly from SQLite on every request. Orders are a stateful resource with transitions (pending → confirmed → shipped → delivered) that must reflect immediately. Caching introduces risk of showing stale status to customers or admins, which is unacceptable for a transactional system. SQLite WAL reads complete in <5ms, making caching unnecessary.
+
+#### Scenario: Status change reflects immediately
+- **WHEN** an admin updates an order status to "shipped"
+- **AND** the customer immediately requests GET /v1/orders/{id}
+- **THEN** the response shows the updated "shipped" status with no stale delay
+
+#### Scenario: No in-memory caching layer applied to order endpoints
+- **WHEN** the application serves GET /v1/orders, GET /v1/orders/{id}, or PATCH /v1/orders/{id}/status
+- **THEN** every request reads from SQLite directly
+- **AND** no TTL cache, response cache, or memoization layer is applied

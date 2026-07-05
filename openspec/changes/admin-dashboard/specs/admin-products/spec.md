@@ -6,6 +6,8 @@
 
 GET /v1/admin/products returns all products from the catalog enriched with computed metrics from event data.
 
+The `total_views`, `total_cart_adds`, and `total_orders` metrics are read from `analytics_product_metrics` joined with the SQLite products table, rather than computed per-request from the events table.
+
 #### Scenario: Products returned with performance metrics
 
 WHEN an admin requests GET /v1/admin/products

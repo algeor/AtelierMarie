@@ -65,6 +65,12 @@ The system SHALL verify Google's ID token by validating the RS256 signature usin
 - **WHEN** the JWKS fetch fails (network error, timeout) AND no cached keys exist
 - **THEN** the ID token verification fails with HTTP 503 `{"detail": "Unable to verify Google credentials. Please retry."}`
 
+#### Scenario: Google JWKS endpoint unreachable but stale cache exists
+- **WHEN** the JWKS refresh attempt fails (network error, timeout)
+- **AND** stale keys exist in cache (older than 6 hours)
+- **THEN** the stale keys are used for verification (with a warning logged)
+- **AND** retry of the refresh is attempted on the next verification request
+
 ### Requirement: State tokens expire and are cleaned up
 The system SHALL automatically discard state tokens older than 10 minutes. Expired tokens SHALL NOT be accepted in callback requests. The system SHALL periodically clean expired entries to prevent unbounded memory growth.
 

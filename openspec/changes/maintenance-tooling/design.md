@@ -1,6 +1,6 @@
 ## Context
 
-AtelierMarie is a production e-commerce ML platform running on a single Oracle Free Tier VPS with 200GB storage. The system uses a dual-database architecture: SQLite for transactional data (users, products, orders) and DuckDB for the analytics/ML layer (events, session_identity, feature tables). Processed event files are retained as JSONL archives for disaster recovery.
+AtelierMarie is a production e-commerce ML platform running on a single Oracle Free Tier VPS with 200GB storage. The system uses a dual-database architecture: SQLite for transactional data (users, products, orders) and DuckDB for the analytics/ML layer (events, session_identity, analytics tables). Processed event files are retained as JSONL archives for disaster recovery.
 
 The application layer is fully deployed. What's missing are operational CLI tools for:
 - Preventing unbounded storage growth (events accumulate ~10MB/day)
@@ -43,14 +43,14 @@ The platform processes personal data (user profiles, behavioral events) under EU
 
 ### 2. File-based mutual exclusion via `fcntl.flock()`
 
-**Choice**: Advisory file lock at `app/data/.maintenance.lock` using Python's `fcntl.flock(LOCK_EX | LOCK_NB)`.
+**Choice**: Maintenance operations acquire `app/data/.batch.lock` using Python's `fcntl.flock(LOCK_EX | LOCK_NB)`. This is the single unified lock that guards all DuckDB writes — including the event batch loader, session expiry flush, and analytics compute job.
 
 **Alternatives considered**:
 - PID file with stale-PID detection → race conditions, doesn't prevent concurrent DuckDB writers
 - Database-level locking → DuckDB doesn't support multi-process locking natively
 - systemd oneshot + conflicts → too coupled to deployment mechanism
 
-**Rationale**: The batch loader and ML compute already need to coordinate DuckDB writes. A shared file lock is the simplest cross-process coordination that works on Linux. Non-blocking acquisition means maintenance tools fail fast if something else holds the lock, rather than deadlocking.
+**Rationale**: All DuckDB writers coordinate through `.batch.lock`. Maintenance operations need exclusive DuckDB access, so they acquire the same lock. Non-blocking acquisition means maintenance tools fail fast if another writer holds the lock, rather than deadlocking.
 
 ### 3. GDPR deletion uses NULL-ification rather than cascading deletes
 
@@ -72,6 +72,8 @@ The platform processes personal data (user profiles, behavioral events) under EU
 
 **Rationale**: The rebuild is a disaster recovery tool. The operator needs to verify row counts, check for anomalies, and only then consciously swap the file. Automation here introduces risk for minimal convenience benefit.
 
+**Note:** After rebuilding the events table from the JSONL archive, the `rebuild-duckdb` command should trigger an analytics recompute to regenerate the `analytics_*` tables (session metrics, funnel stages, etc.) that are derived from events. Without this step, the rebuilt database would be missing all computed analytics data.
+
 ### 5. Streaming file processing for archive rebuild
 
 **Choice**: Process JSONL archive files one at a time, line by line. Never load the full archive into memory.
@@ -84,7 +86,7 @@ The platform processes personal data (user profiles, behavioral events) under EU
 
 ### 6. Diagnostics reads process table for service status
 
-**Choice**: Use `psutil` (already likely available) or parse `/proc` directly to check if API, batch loader, and ML compute processes are running.
+**Choice**: Use `psutil` (already likely available) or parse `/proc` directly to check if API and batch loader processes are running.
 
 **Alternatives considered**:
 - systemd status queries → couples to deployment mechanism
@@ -95,7 +97,7 @@ The platform processes personal data (user profiles, behavioral events) under EU
 
 ## Risks / Trade-offs
 
-**[File lock contention]** → Maintenance operations will fail if the batch loader or ML compute holds the lock. **Mitigation**: Schedule cleanup at 3am when batch activity is lowest. Lock acquisition has a short timeout (5s) with a clear error message suggesting retry.
+**[File lock contention]** → Maintenance operations will fail if the batch loader, session expiry, or analytics compute holds `.batch.lock`. **Mitigation**: Schedule cleanup at 3am when batch activity is lowest. Lock acquisition has a short timeout (5s) with a clear error message suggesting retry.
 
 **[GDPR deletion is irreversible]** → Once session_identity is unlinked, there's no way to re-associate events with a user. **Mitigation**: Require `--confirm` flag, show a preview of what will be deleted, log everything to `deletion_log.jsonl` for audit purposes.
 

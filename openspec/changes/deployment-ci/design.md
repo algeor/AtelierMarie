@@ -59,7 +59,7 @@ AtelierMarie is a FastAPI (Python 3.11) e-commerce ML platform using SQLite + Du
 
 **Decision:** `uvicorn main:app --workers 2` in the systemd service.
 
-**Rationale:** Oracle Free Tier has 4 vCPUs. 2 workers for the API leaves 2 CPUs for: DuckDB batch loader, ML compute job, nginx, OS. If the batch loader runs in-process (file-lock guarded), one worker handles API while the other's event loop is briefly busy with the batch. Under-provisioning (1 worker) risks blocking; over-provisioning (4 workers) starves background jobs.
+**Rationale:** Oracle Free Tier has 4 vCPUs. 2 workers for the API leaves 2 CPUs for: DuckDB batch loader, analytics compute, nginx, OS. The batch loader and analytics compute both run inside the main API process lifespan (file-lock guarded) — no separate systemd service is needed for ML compute or analytics. One worker handles API while the other's event loop is briefly busy with the batch. Under-provisioning (1 worker) risks blocking; over-provisioning (4 workers) starves background jobs.
 
 ### 4. Nginx for SSL termination (not uvicorn --ssl)
 
@@ -80,8 +80,10 @@ AtelierMarie is a FastAPI (Python 3.11) e-commerce ML platform using SQLite + Du
 
 ```
 # /etc/sudoers.d/atelier
-atelier ALL=(ALL) NOPASSWD: /bin/systemctl restart atelier-api, /bin/systemctl restart atelier-ml, /bin/systemctl reload nginx
+atelier ALL=(ALL) NOPASSWD: /bin/systemctl restart atelier-api, /bin/systemctl reload nginx
 ```
+
+**Note:** The `atelier-ml` systemd service previously referenced here is no longer needed. The ML batch job (recommendation precomputation) and analytics compute both run inside the main API process lifespan as asyncio tasks — they share `.batch.lock` for DuckDB write coordination. No separate systemd service is required for ML compute or analytics.
 
 ### 6. SQLite backup via `.backup` command
 

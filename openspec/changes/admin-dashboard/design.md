@@ -30,15 +30,15 @@ The admin dashboard aggregates data across all stores to provide a unified busin
 
 ### 1. DuckDB for aggregates, SQLite for entity data
 
-All aggregate queries (event counts, session breakdowns, search term frequencies, recommendation CTR) run against DuckDB. Product and order entity lookups use SQLite. Cross-DB joins (e.g., product names for top-viewed products) are performed in the Python service layer — fetch IDs from DuckDB, then batch-lookup details from SQLite.
+All aggregate metrics (event counts, session breakdowns, search term frequencies, recommendation CTR) are read from pre-materialized `analytics_*` tables computed by the shared analytics layer. DuckDB aggregate queries are no longer run per-request. Direct DuckDB queries are only used for: (a) the paginated event log, and (b) custom date-range requests that don't match the default 30-day window. Product and order entity lookups use SQLite. Cross-DB joins (e.g., product names for top-viewed products) are performed in the Python service layer — fetch IDs from analytics tables, then batch-lookup details from SQLite.
 
-**Rationale**: DuckDB excels at analytical aggregation over columnar event data. SQLite holds normalized relational data. Mixing in application code is simpler than maintaining a denormalized view.
+**Rationale**: DuckDB excels at analytical aggregation over columnar event data, but running these queries per-request is unnecessary now that the analytics layer materializes results every 5 minutes. SQLite holds normalized relational data. Reading from pre-materialized tables is simpler and faster than running aggregate queries on each dashboard load.
 
-### 2. In-memory cache with 5-minute TTL
+### 2. Analytics tables replace per-request caching
 
-Dashboard metrics are cached in a module-level dict with timestamp. On request: if cache age < 5 min, serve cached. Otherwise, recompute asynchronously and serve stale until ready.
+Since the analytics layer materializes tables every 5 minutes, the dashboard no longer needs its own caching layer for aggregate metrics. The pre-materialized `analytics_*` tables serve as the primary "cache." A lightweight 30-second in-memory cache may be used to deduplicate rapid-fire requests from a single page load (e.g., multiple metric cards fetching simultaneously), but this is purely for request deduplication, not for freshness management.
 
-**Rationale**: Dashboard queries scan potentially millions of events. A 5-minute window is acceptable for a single-operator boutique. Avoids need for Redis or external cache.
+**Rationale**: Eliminates duplicate caching logic (analytics layer already refreshes on a 5-minute schedule). Guarantees consistency between what ML services and the admin dashboard see — both read the same materialized tables. Removes a source of cache invalidation bugs that existed when the dashboard maintained its own independent cache.
 
 ### 3. Single admin page with metric cards and tables
 
@@ -66,11 +66,17 @@ All metric computations live in a dedicated service module (e.g., `services/admi
 
 **Rationale**: Testability — service functions can be unit-tested with mock DB connections. Route handlers stay thin. Reusable if we add scheduled reports later.
 
+### 6. Fallback to direct query for custom date ranges
+
+The default dashboard view (last 30 days) reads from analytics tables. When the user specifies custom `from`/`to` query parameters that don't match the materialized window, the dashboard falls through to a direct DuckDB query against the raw events table. This is expected to be rare (admin checking specific historical periods) and acceptable to compute on-demand since it only occurs on explicit user action, not on every page load.
+
+**Rationale**: The analytics layer materializes a fixed 30-day window to serve the common case efficiently. Supporting arbitrary date ranges without pre-computation keeps the analytics layer simple while still giving admins full flexibility when needed.
+
 ## Risks
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| DuckDB aggregate queries slow with >1M events | Medium | High (dashboard timeout) | 5-min cache + time-bounded queries (default 30d window) |
+| Analytics layer failure degrades dashboard | Low | High (dashboard shows stale data) | Dashboard shows last available data from analytics tables with a staleness warning in response headers |
 | Admin role escalation if first-user logic exploited | Low | Medium | Acceptable for single-operator boutique; add manual override env var |
 | Cross-DB consistency (events reference product IDs that don't exist in SQLite) | Low | Low | Graceful handling — show "Unknown Product" for missing IDs |
 | Cache serving very stale data if recomputation fails | Low | Medium | Log errors, expose cache age in response headers |

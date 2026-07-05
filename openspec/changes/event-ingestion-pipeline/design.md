@@ -78,6 +78,8 @@ Worker 2 lifespan → batch_loader_loop():
 
 **Implementation detail:** The lock file lives at `app/data/.batch.lock` (same filesystem as buffer/archive, so no cross-device issues). Lock is held only during the batch operation (~1–5 seconds), not for the entire sleep interval.
 
+**Note:** `.batch.lock` is a unified lock shared with multiple DuckDB writers: the session expiry flush and the analytics compute job also acquire this lock before writing. The event loader's usage is unchanged — it uses a non-blocking try (`LOCK_NB`) with a 1-second retry interval, skipping cycles when the lock is held by another job.
+
 ### 4. Transaction-per-file with INSERT OR IGNORE
 
 **Decision:** Each JSONL file is loaded in a single DuckDB transaction. Deduplication uses `INSERT OR IGNORE` on the `event_id` primary key. File is moved to `archive/` only after commit.

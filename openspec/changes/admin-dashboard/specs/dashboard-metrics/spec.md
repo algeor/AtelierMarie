@@ -6,6 +6,8 @@
 
 The GET /v1/admin/dashboard endpoint must return total_views, unique_sessions, total_orders, conversion_rate (orders divided by sessions), add_to_cart_rate (add_to_cart events divided by sessions), and total_revenue.
 
+For the default 30-day window, these metrics are read from pre-materialized `analytics_funnel` and `analytics_session_metrics` tables computed by the analytics layer. Direct DuckDB queries are only executed when custom date range parameters (`from`/`to`) are provided.
+
 #### Scenario: Dashboard returns all core metrics for default 30-day window
 
 WHEN an admin requests GET /v1/admin/dashboard without date parameters
@@ -34,6 +36,8 @@ AND add_to_cart_rate is returned as 0.0
 ### Requirement: Top 10 products by views, add-to-cart, and purchases
 
 The dashboard returns three ranked lists: top 10 products by view count, top 10 by add-to-cart count, and top 10 by purchase count.
+
+For the default 30-day window, product metrics are read from `analytics_product_metrics`. Product names are resolved via batch SQLite lookup.
 
 #### Scenario: Top products by views returns ranked list with product details
 
@@ -118,6 +122,8 @@ THEN it is counted in authenticated_count, not anonymous_count
 
 The dashboard computes CTR for product recommendations: impressions (recommendation shown) vs clicks (recommended product clicked).
 
+CTR metrics are read from `analytics_ctr` table for the default view.
+
 #### Scenario: Recommendation CTR computed from events
 
 WHEN an admin requests GET /v1/admin/dashboard
@@ -163,26 +169,52 @@ AND the error message indicates the expected date format is YYYY-MM-DD
 
 ---
 
-### Requirement: Metrics are cached for 5 minutes
+### Requirement: Metrics freshness reflects analytics layer schedule
 
-Dashboard metrics are served from cache if the cache is less than 5 minutes old. Stale cache is served while recomputation occurs in the background.
+Dashboard metrics for the default view are served from pre-materialized analytics tables (refreshed every 5 minutes by the analytics layer). The response includes freshness metadata.
 
-#### Scenario: Cached response served within TTL
-
+#### Scenario: Response includes freshness metadata
 WHEN an admin requests GET /v1/admin/dashboard
-AND the cache was populated 3 minutes ago
-THEN the cached metrics are returned immediately
-AND no database queries are executed
+THEN the response includes `analytics_computed_at` (ISO timestamp of last analytics run)
+AND the response includes `analytics_age_seconds` indicating staleness
 
-#### Scenario: Cache miss triggers fresh computation
+#### Scenario: Default view reads from analytics tables
+WHEN an admin requests GET /v1/admin/dashboard without date parameters
+THEN metrics are read from analytics_funnel and analytics_session_metrics tables
+AND no aggregate DuckDB queries are executed against the raw events table
 
-WHEN an admin requests GET /v1/admin/dashboard
-AND the cache is empty or older than 5 minutes
-THEN fresh metrics are computed from the databases
-AND the result is stored in cache with the current timestamp
+#### Scenario: Custom date range triggers direct query
+WHEN an admin requests GET /v1/admin/dashboard?from=2026-06-01&to=2026-06-15
+THEN metrics are computed via direct DuckDB query against the events table (not from analytics tables)
+AND the response includes `source: "direct_query"` instead of `source: "analytics_layer"`
 
-#### Scenario: Response includes cache metadata
+---
 
-WHEN an admin requests GET /v1/admin/dashboard
-THEN the response includes a cached_at ISO timestamp
-AND the response includes a cache_age_seconds integer indicating cache freshness
+### Requirement: Direct-query results are cached in-memory per date range
+
+Custom date range queries hit DuckDB directly and are expensive. The system SHALL cache these results in-memory with a 5-minute TTL, keyed by the (from, to) parameter pair. The cache is bounded to prevent unbounded memory growth.
+
+#### Scenario: Repeated date-range query served from cache
+
+WHEN an admin requests GET /v1/admin/dashboard?from=2026-06-01&to=2026-06-30
+AND the same date range was queried less than 5 minutes ago
+THEN the cached result is returned without querying DuckDB
+AND the response includes `source: "direct_query"` and `cached: true`
+
+#### Scenario: Cache miss triggers DuckDB query
+
+WHEN an admin requests GET /v1/admin/dashboard?from=2026-06-01&to=2026-06-30
+AND no cache entry exists for that date range or it is older than 5 minutes
+THEN fresh metrics are computed from DuckDB
+AND the result is stored in cache with a 5-minute TTL
+
+#### Scenario: Date-range cache limited to 10 entries
+
+WHEN more than 10 distinct date-range query results are cached
+THEN the least recently used entry is evicted to prevent unbounded memory growth
+
+#### Scenario: Default view (no date range) is not cached in-memory
+
+WHEN an admin requests GET /v1/admin/dashboard without date parameters
+THEN the response is served from the pre-materialized analytics tables
+AND no in-memory caching layer is involved (the analytics layer IS the cache)

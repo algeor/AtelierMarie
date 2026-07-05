@@ -74,12 +74,20 @@
                                    │   └─────┬────┘  └────────┬────────┘             │
                                    │         │                 │                      │
                                    │   ┌─────▼─────────────────▼─────┐               │
-                                   │   │   ML Feature Tables          │               │
-                                   │   │   (rebuilt every 30min)      │               │
-                                   │   │   • item_popularity          │               │
-                                   │   │   • co_occurrence            │               │
-                                   │   │   • session_sequences        │               │
-                                   │   │   • click_through_rates      │               │
+                                   │   │   Shared Analytics Layer      │               │
+                                   │   │   (materialized tables)       │               │
+                                   │   │                               │               │
+                                   │   │   TIER 1 (every 5 min):       │               │
+                                   │   │   • analytics_product_metrics │               │
+                                   │   │   • analytics_session_metrics │               │
+                                   │   │   • analytics_search_terms    │               │
+                                   │   │   • analytics_funnel          │               │
+                                   │   │                               │               │
+                                   │   │   TIER 2 (every 30 min):      │               │
+                                   │   │   • analytics_popularity      │               │
+                                   │   │   • analytics_cooccurrence    │               │
+                                   │   │   • analytics_session_sequences│              │
+                                   │   │   • analytics_ctr             │               │
                                    │   └─────────────────────────────┘               │
                                    └────────────────────────────────────────────────┘
 ```
@@ -91,7 +99,7 @@ The single most important architectural decision: **SQLite for transactions, Duc
 | Concern | SQLite (atelier.db) | DuckDB (analytics.db) |
 |---------|--------------------|-----------------------|
 | **Role** | OLTP — source of truth for entities | OLAP — analytical read layer |
-| **Data** | Products, users, orders, cart | Events, sessions, ML features |
+| **Data** | Products, users, orders, cart | Events, sessions, analytics tables |
 | **Access** | WAL mode (unlimited readers + 1 writer) | Single-writer, file-lock guarded |
 | **Latency** | <5ms reads/writes | Batch-optimized (60s ingestion cycles) |
 | **Backup** | `.backup` command (consistent) | File copy during lock acquisition |
@@ -148,18 +156,44 @@ The single most important architectural decision: **SQLite for transactions, Duc
 
 **Key insight:** Events are never backfilled. Identity resolution happens at query time via JOINs on `session_identity` — events remain immutable.
 
+## Shared Analytics Layer
+
+A single compute job materializes event aggregates into DuckDB tables, consumed by multiple services. Eliminates duplicate computation where ML and admin would independently aggregate the same events.
+
+```
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │              Analytics Compute Job (every 5 min)                          │
+  │              acquires .batch.lock (blocking, 60s timeout)                 │
+  │                                                                         │
+  │   Source: events + session_identity tables                               │
+  │                                                                         │
+  │   TIER 1 (every run, ~2s):              TIER 2 (every 30 min, ~30s):    │
+  │   ├── analytics_product_metrics         ├── analytics_popularity         │
+  │   ├── analytics_session_metrics         ├── analytics_cooccurrence       │
+  │   ├── analytics_search_terms            ├── analytics_session_sequences  │
+  │   └── analytics_funnel                  └── analytics_ctr               │
+  │                                                                         │
+  └────────────────────────┬──────────────────────────────────┬─────────────┘
+                           │                                  │
+              ┌────────────┴─────────────┐       ┌────────────┴────────────┐
+              │  Tier 1 Consumers         │       │  Tier 2 Consumers       │
+              │  • Admin Dashboard        │       │  • ML Recommendations   │
+              │  • Storefront ("trending")│       │  • Admin (CTR metrics)  │
+              │  • Diagnostics            │       │  • Future A/B testing   │
+              └──────────────────────────┘       └─────────────────────────┘
+```
+
 ## ML Recommendations Pipeline
+
+The ML service is a **read-only consumer** of the analytics layer — it no longer computes features.
 
 ```
   ┌─────────────────────────────────────────────────────────────┐
-  │              Batch Job (every 30 min)                        │
-  │              .ml-compute.lock acquired                       │
-  │                                                             │
-  │   DuckDB ──▶ Feature Engineering (pure SQL) ──▶ Feature     │
-  │              • item_popularity                   Tables      │
-  │              • co_occurrence_matrix                          │
-  │              • session_sequences                             │
-  │              • click_through_rates                           │
+  │   Reads from analytics_* tables (no lock needed):            │
+  │   • analytics_popularity     → fallback scoring              │
+  │   • analytics_cooccurrence   → candidate generation          │
+  │   • analytics_ctr            → ranking weights               │
+  │   • analytics_session_sequences → session-based recs         │
   └───────────────────────────────────────────────┬─────────────┘
                                                   │
                                                   ▼
@@ -177,6 +211,8 @@ The single most important architectural decision: **SQLite for transactions, Duc
   │   Personalized (≥20 events) → Session (≥3) → Popular → Featured │
   │                                                             │
   │   Cache: In-memory dict, TTL 5-30min, LRU @ 10K entries     │
+  │   Precomputation: batch job (30min) warms cache for active   │
+  │   sessions — reads analytics tables, no DuckDB writes        │
   └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -186,21 +222,23 @@ The zero-budget constraint means no Redis, no message queue — coordination is 
 
 ```
   ┌──────────────────────────────────────────────────────────────┐
-  │                    Lock Hierarchy                              │
+  │                    Unified Lock Strategy                       │
   │                                                               │
-  │   .batch.lock ─────────── Guards DuckDB writes                │
-  │   ├── Event Batch Loader (every 60s)                          │
-  │   ├── Session Flush (every 5 min)                             │
+  │   .batch.lock ─────────── Guards ALL DuckDB writes            │
+  │   ├── Event Batch Loader (every 60s, ~100ms hold)             │
+  │   │   Strategy: non-blocking try, retry in 1s                 │
+  │   ├── Session Expiry Flush (every 5 min, ~50ms hold)          │
+  │   │   Strategy: non-blocking try, skip cycle if held          │
+  │   ├── Analytics Compute (every 5 min, ~2-30s hold)            │
+  │   │   Strategy: blocking wait, 60s timeout                    │
   │   └── Backup Script (daily 3am)                               │
+  │       Strategy: blocking wait                                 │
   │                                                               │
-  │   .ml-compute.lock ────── Guards ML feature rebuild            │
-  │   └── ML Batch Job (every 30 min)                             │
-  │                                                               │
-  │   .maintenance.lock ───── Guards destructive ops               │
+  │   .maintenance.lock ───── Guards destructive CLI ops           │
   │   └── Maintenance CLI (cleanup, rebuild, GDPR)                │
+  │       Acquires .batch.lock first, then .maintenance.lock      │
   │                                                               │
-  │   Ordering: maintenance acquires BOTH .batch + .ml-compute    │
-  │             before proceeding (prevents deadlocks)             │
+  │   DELETED: .ml-compute.lock (ML is now read-only consumer)    │
   └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -215,11 +253,12 @@ The zero-budget constraint means no Redis, no message queue — coordination is 
   │  │   :80 → :443   │───────▶│                             │       │
   │  │   Let's Encrypt │        │   atelier-api.service       │       │
   │  │   rate limiting │        │   └── uvicorn × 2 workers   │       │
-  │  └────────────────┘        │                             │       │
-  │                            │   atelier-ml.service         │       │
-  │  ┌────────────────┐        │   └── ML batch (30min loop)  │       │
-  │  │   Cron Jobs    │        │                             │       │
-  │  │   3am: cleanup │        └────────────────────────────┘       │
+  │  └────────────────┘        │       ├── event batch loader │       │
+  │                            │       ├── session expiry      │       │
+  │  ┌────────────────┐        │       ├── analytics compute  │       │
+  │  │   Cron Jobs    │        │       └── ML precomputation  │       │
+  │  │   3am: cleanup │        │                             │       │
+  │  │   weekly: vacuum│        └────────────────────────────┘       │
   │  │   weekly: vacuum│                                            │
   │  │   hourly: disk  │        ┌────────────────────────────┐       │
   │  │     monitor     │        │   Data                     │       │
@@ -283,12 +322,12 @@ The zero-budget constraint means no Redis, no message queue — coordination is 
 | 2 | **Anonymous-first** | Full functionality without login. Identity is optional overlay |
 | 3 | **Fire-and-forget events** | Business transactions never blocked by analytics pipeline |
 | 4 | **Read-time resolution** | Identity linking via JOINs, not event mutation |
-| 5 | **Batch over stream** | JSONL buffer → DuckDB every 60s. ML features every 30min. Metrics cached 5min |
+| 5 | **Batch over stream** | JSONL buffer → DuckDB every 60s. Analytics layer every 5min. ML recs cached 5-30min |
 | 6 | **Soft deletes everywhere** | Products deactivated not deleted. GDPR = nullify, not cascade |
 | 7 | **Service layer abstraction** | Route handlers thin, business logic testable independently |
 | 8 | **Graceful degradation** | Every system has a fallback chain (recommendations, sessions, events) |
 | 9 | **API-first** | JSON responses, header-based sessions, no server-side rendering dependencies |
-| 10 | **Single-writer protection** | File locks serialize DuckDB access across API, batch, ML, and maintenance |
+| 10 | **Single-writer protection** | One `.batch.lock` serializes all DuckDB writes; ML is read-only consumer |
 
 ## Technology Stack
 
@@ -301,7 +340,7 @@ The zero-budget constraint means no Redis, no message queue — coordination is 
 | OLTP DB | SQLite WAL | Free, embedded, reliable, zero-config |
 | OLAP DB | DuckDB | Columnar analytics, embedded, SQL-native |
 | Buffer | JSONL files (O_APPEND) | Crash-safe, zero-latency writes |
-| ML | Pure SQL features + weighted linear ranker | No pandas/numpy, auditable, fast |
+| ML | Shared analytics layer (SQL-as-files) + weighted linear ranker | No pandas/numpy, auditable, zero duplication |
 | Reverse Proxy | Nginx + Let's Encrypt | SSL termination, rate limiting |
 | Process Mgmt | systemd | Auto-restart, logging, socket activation |
 | CI/CD | GitHub Actions → SSH deploy | Free tier, sub-60s deploys |
@@ -392,11 +431,18 @@ CREATE TABLE session_identity (
     is_expired BOOLEAN DEFAULT FALSE
 );
 
--- ML Feature Tables (rebuilt every 30min)
-CREATE TABLE item_popularity AS ...;
-CREATE TABLE co_occurrence AS ...;
-CREATE TABLE session_sequences AS ...;
-CREATE TABLE click_through_rates AS ...;
+-- Analytics Layer (materialized by compute job)
+-- Tier 1 (rebuilt every 5 min)
+CREATE TABLE analytics_product_metrics (product_id VARCHAR, view_count INT, cart_count INT, purchase_count INT, unique_sessions INT, revenue DECIMAL(10,2));
+CREATE TABLE analytics_session_metrics (total_sessions INT, anonymous_sessions INT, authenticated_sessions INT, converted_sessions INT, avg_events_per_session DECIMAL(6,2));
+CREATE TABLE analytics_search_terms (query VARCHAR, search_count INT, avg_result_count DECIMAL(6,2));
+CREATE TABLE analytics_funnel (total_views INT, total_carts INT, total_checkouts INT, total_purchases INT, unique_sessions INT, conversion_rate DECIMAL(6,4), cart_rate DECIMAL(6,4), total_revenue DECIMAL(12,2));
+
+-- Tier 2 (rebuilt every 30 min)
+CREATE TABLE analytics_popularity (product_id VARCHAR, popularity_score DECIMAL(10,2), view_count INT, cart_count INT, purchase_count INT, unique_sessions INT, recency_boost DECIMAL(6,2));
+CREATE TABLE analytics_cooccurrence (product_a VARCHAR, product_b VARCHAR, co_count INT);
+CREATE TABLE analytics_session_sequences (session_id VARCHAR, product_sequence VARCHAR[], event_sequence VARCHAR[]);
+CREATE TABLE analytics_ctr (product_id VARCHAR, impressions INT, clicks INT, purchases INT, ctr DECIMAL(6,4), conversion_rate DECIMAL(6,4));
 ```
 
 ## API Surface
@@ -432,9 +478,10 @@ CREATE TABLE click_through_rates AS ...;
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| DuckDB single-writer bottleneck | Analytics freshness delayed if lock contention | Lock timeout + retry; batch jobs stagger schedules |
+| DuckDB single-writer bottleneck | Analytics compute holds lock for 2-30s, blocking event loader | Event loader retries in 1s; events buffer safely in JSONL during lock hold |
+| Analytics layer failure | ML and admin both degrade if compute job fails | Graceful degradation — ML fallback chain, admin shows stale data with staleness warning |
 | In-memory session cache lost on restart | All active sessions invalidated | Acceptable for MVP; could persist to SQLite later |
 | SQLite write contention under load | Cart/order writes queue behind each other | WAL mode + fast transactions (<5ms); unlikely to matter at expected scale |
-| No real-time updates | Admin dashboard stale for up to 5 minutes | Acceptable for single-operator; add SSE later if needed |
+| No real-time updates | Admin dashboard stale for up to 5 minutes | Acceptable for single-operator; analytics refresh matches this window |
 | No payment gateway | COD-only limits conversion | Extensible status enum; payment integration is a future change |
 | Oracle Free Tier reliability | VPS may be reclaimed or throttled | Daily backups; git-based deploy allows quick re-provision |

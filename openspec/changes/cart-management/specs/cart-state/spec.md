@@ -183,3 +183,21 @@ AND product 5 has stock_quantity=7
 THEN the response status is 409  
 AND the response body includes "Insufficient stock" with available_quantity=7  
 AND the cart item quantity remains at 5  
+
+---
+
+### Requirement: Cart state is never cached
+
+The system SHALL always read cart state directly from SQLite on every request. Cart data is highly mutable and personal — caching introduces correctness risks (stale quantities, phantom items after removal) that outweigh any latency benefit given SQLite WAL reads complete in <5ms. This is an intentional architectural decision, not an oversight.
+
+#### Scenario: Concurrent cart modifications reflect immediately
+
+WHEN a user adds an item via POST /v1/cart/items  
+AND immediately sends GET /v1/cart  
+THEN the added item appears in the response with no stale delay
+
+#### Scenario: No in-memory caching layer applied to cart endpoints
+
+WHEN the application serves GET /v1/cart, POST /v1/cart/items, PATCH /v1/cart/items/{id}, or DELETE /v1/cart/items/{id}  
+THEN every request reads from and writes to SQLite directly  
+AND no TTL cache, response cache, or memoization layer is applied

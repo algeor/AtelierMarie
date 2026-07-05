@@ -78,3 +78,47 @@ The system SHALL provide an internal service function `decrement_stock(product_i
 #### Scenario: Concurrent decrement safety
 - **WHEN** two concurrent requests both attempt to decrement stock for the same product
 - **THEN** SQLite's transaction serialization ensures only one succeeds if stock is insufficient for both
+
+### Requirement: Public product responses are served from in-memory cache
+
+The system SHALL maintain an in-memory TTL cache for public product endpoints to stabilize response latency under load. Cache entries are keyed by (endpoint, query_params). Each worker process maintains its own independent cache (shared-nothing).
+
+#### Scenario: Product list served from cache within TTL
+- **WHEN** a user sends GET `/v1/products?category=candles`
+- **AND** the same query was served less than 60 seconds ago
+- **THEN** the response is returned from cache without querying SQLite
+
+#### Scenario: Cache miss queries SQLite
+- **WHEN** a user sends GET `/v1/products?category=candles`
+- **AND** no cache entry exists or the entry is older than 60 seconds
+- **THEN** the system queries SQLite, returns the result, and caches it with a 60-second TTL
+
+#### Scenario: Product detail served from cache
+- **WHEN** a user sends GET `/v1/products/{id}`
+- **AND** the product was fetched less than 60 seconds ago
+- **THEN** the cached product is returned without querying SQLite
+
+#### Scenario: Search results cached with short TTL
+- **WHEN** a user sends GET `/v1/products/search?q=vanilla`
+- **AND** the identical query was served less than 30 seconds ago
+- **THEN** the cached search results are returned
+
+#### Scenario: Cache invalidated on admin write
+- **WHEN** an admin creates, updates, soft-deletes, or imports products via any `/v1/admin/products` endpoint
+- **THEN** all product cache entries are immediately invalidated in the current worker
+- **AND** the next public request triggers a fresh SQLite query
+
+#### Scenario: Stock decrement invalidates only the affected product
+- **WHEN** `decrement_stock()` is called during checkout
+- **THEN** only the cache entry for that specific product_id is invalidated
+- **AND** list/search cache entries containing that product are also invalidated
+
+#### Scenario: Cache operates per-worker (shared-nothing)
+- **WHEN** the application runs with multiple uvicorn workers
+- **THEN** each worker maintains its own independent product cache
+- **AND** a cache invalidation in one worker does not propagate to others
+- **AND** eventual consistency across workers is acceptable (max 60s staleness)
+
+#### Scenario: Cache bounded by LRU eviction
+- **WHEN** the product cache exceeds 256 entries
+- **THEN** the least recently used entry is evicted to make room

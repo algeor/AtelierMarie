@@ -88,20 +88,13 @@ WHERE si.user_id = ?
 
 **Rationale:** Server generates the rotation UUID because it atomically closes the old session. 409 Conflict on re-link-to-different-user is the backstop — even if the client ignores the rotation header, the old session can never be claimed by another user.
 
-### 5. Separate file lock for expiry batch job
+### 5. Shared file lock for all DuckDB writers
 
-**Decision:** Expiry job uses `app/data/.session-expiry.lock` (separate from `.batch.lock` used by the event loader). Both jobs can run concurrently.
+**Decision:** The session expiry job acquires `app/data/.batch.lock` — the same unified lock used by the event batch loader. This serializes all DuckDB writes through a single lock.
 
-**Rationale:** The expiry job writes to two things: (a) DuckDB `session_identity` table (marking is_expired), and (b) JSONL buffer (synthesizing session_end events). For (b), it uses the same `O_APPEND` writer as the API — no lock needed. For (a), it needs DuckDB write access — the file lock prevents multiple expiry job instances from writing simultaneously.
+**Rationale:** DuckDB is single-writer. All jobs that write to DuckDB (event batch loader, session expiry flush, analytics compute) must coordinate via the same lock. The expiry job acquires `.batch.lock`, runs its DuckDB operations (mark expired + flush dirty cache to `session_identity`), then releases. It also appends synthesized `session_end` events to the JSONL buffer (which is lock-free via `O_APPEND`).
 
-**The two jobs don't conflict** because:
-- Event batch loader: reads from `buffer/*.jsonl`, writes to `events` table
-- Session expiry job: reads/writes `session_identity` table, appends to `buffer/*.jsonl`
-- DuckDB allows multiple tables to be written in separate transactions (no table-level locking needed — only process-level single-writer protection)
-
-**Wait — DuckDB IS single-writer.** Both jobs need exclusive write access. They CANNOT run simultaneously.
-
-**Revised decision:** Both jobs share `.batch.lock`. The expiry job acquires the same lock, runs its DuckDB operations (mark expired + any housekeeping), then releases. This serializes all DuckDB writes through one lock. The expiry job also appends to JSONL (which is lock-free via O_APPEND).
+**Note:** The analytics layer also shares `.batch.lock` with a blocking wait strategy (it waits for the lock rather than skipping), since analytics compute runs on a longer interval and must complete its write. The event loader and session expiry job both use non-blocking try with skip/retry semantics.
 
 ### 6. Session_identity upsert batched (not per-request)
 
