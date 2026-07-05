@@ -4,18 +4,35 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AtelierMarie is a luxury candle e-commerce platform with event-driven analytics, ML recommendations, and zero-budget infrastructure. It uses a dual-database architecture (SQLite for OLTP, DuckDB for OLAP) with a JSONL buffer layer between them.
+AtelierMarie is a luxury candle e-commerce platform for a small family business. The primary goal is selling candles reliably. A secondary goal is learning ML/analytics through an optional sandbox layer.
 
 **Status:** Planning phase complete; implementation not yet started beyond a skeleton FastAPI app in `main.py`.
+
+## Architecture: Two Strict Layers
+
+### Layer 1 — Production E-Commerce (Critical Path)
+- Products, cart, checkout, orders, auth, admin
+- SQLite only (WAL mode) — never touches DuckDB
+- Must work perfectly if Layer 2 is completely OFF
+- All responses <200ms
+
+### Layer 2 — Analytics & ML Sandbox (Non-Critical)
+- Event collection (async, fire-and-forget)
+- DuckDB for analytics storage
+- ML recommendations (pre-computed cache, fallback to popular)
+- Can crash, be disabled, or be deleted without affecting the store
+
+**Core rule:** Layer 1 code never imports from Layer 2 modules.
+
+See `ARCHITECTURE.md` for full system design and `IMPLEMENTATION_PLAN.md` for the build sequence.
 
 ## Technology Stack
 
 - **Backend:** Python 3.11, FastAPI, Pydantic 2, Uvicorn
-- **OLTP Database:** SQLite (WAL mode)
-- **OLAP Database:** DuckDB (single-writer)
-- **Frontend (planned):** Next.js 14, React Server Components, Tailwind CSS
-- **Browser SDK (planned):** Vanilla JS (~5KB, zero-dependency)
-- **Auth:** Google OAuth 2.0 + JWT (HS256)
+- **Database:** SQLite (WAL mode) — system of record
+- **Auth:** Google OAuth 2.0 + JWT (PyJWT)
+- **Frontend:** Next.js 14 (separate app in `frontend/`)
+- **Analytics (optional):** DuckDB
 - **Hosting:** Oracle Cloud Free Tier (single VPS), Nginx, systemd
 
 ## Development Commands
@@ -24,62 +41,56 @@ AtelierMarie is a luxury candle e-commerce platform with event-driven analytics,
 # Activate virtual environment
 source .venv/bin/activate
 
-# Run the backend (current skeleton)
-uvicorn main:app --reload --port 8000
+# Run the backend
+uvicorn app.main:app --reload --port 8000
 
-# Once implementation starts, the entrypoint will move:
-# uvicorn app.main:app --reload --port 8000
+# Run tests
+pytest
+
+# Lint
+ruff check .
 ```
 
-Build configuration (pyproject.toml, requirements.txt, Makefile) does not exist yet — create it when beginning implementation.
-
-## Architecture
-
-See `ARCHITECTURE.md` for the full system design. Key points:
-
-- **Anonymous-first:** Full cart/checkout works without login. Identity is an optional overlay linked at read-time via JOINs, never by mutating stored events.
-- **Fire-and-forget events:** `POST /v1/events` returns 202 immediately; events write to daily JSONL files (`O_APPEND` atomic). A batch loader moves them into DuckDB every 60 seconds.
-- **Dual-database split:** SQLite handles transactional data (products, orders, users, cart). DuckDB handles analytics (events, ML features, session identity).
-- **File-lock coordination:** No Redis/Kafka. Concurrency uses `fcntl.flock` with lock files (`.batch.lock`, `.ml-compute.lock`, `.maintenance.lock`).
-- **Fallback chains:** Recommendations degrade gracefully: ML → popularity → manual picks → random.
-
-## Planned Application Structure
+## Application Structure
 
 ```
 app/
-├── main.py              # App factory + lifespan (background jobs)
+├── main.py              # FastAPI app factory + lifespan
 ├── config.py            # pydantic-settings (env vars)
-├── constants.py         # Lock paths, timeouts, limits
-├── database.py          # SQLite + DuckDB connection management
-├── middleware/session.py
-├── models/              # Pydantic schemas (shared contracts)
-├── routes/              # FastAPI routers (thin — delegate to services)
-├── services/            # Business logic (testable, no HTTP concerns)
-├── jobs/                # Background tasks (batch_loader, ml_compute, session_expiry)
-└── maintenance/         # CLI module (cleanup, GDPR, rebuild, diagnostics)
+├── database.py          # SQLite connection management
+├── middleware/
+│   └── session.py       # Session cookie middleware
+├── models/              # Pydantic schemas
+├── routes/              # FastAPI routers (thin)
+├── services/            # Business logic (testable, no HTTP)
+├── analytics/           # Layer 2: event collection + DuckDB (optional)
+└── ml/                  # Layer 2: recommendations (experimental)
+
+frontend/                # Next.js app (separate)
+deploy/                  # Nginx, systemd, provisioning scripts
 ```
-
-## Implementation Plan
-
-See `IMPLEMENTATION_PLAN.md`. Designed for two parallel developers over 7 sprints (~14 weeks):
-- **Dev A:** product-catalog → session-identity → google-oauth → cart → orders → admin → maintenance
-- **Dev B:** event-ingestion → frontend-sdk → ml-recommendations → storefront-ui → deployment-ci
-
-Phase 0 (Day 1) requires co-authoring shared contracts in `app/models/`, `app/config.py`, `app/database.py`, and `app/constants.py`.
-
-## Feature Specifications
-
-Detailed specs live in `openspec/changes/`. Each feature directory contains:
-- `proposal.md` — Motivation and scope
-- `design.md` — Technical design
-- `tasks.md` — Task breakdown with hour estimates
-- `specs/` — Individual feature specs with acceptance criteria
 
 ## Key Design Decisions
 
-- **Session ID:** Client-generated UUID v4 sent via `X-Session-ID` header on every request.
+- **Anonymous-first:** Full cart/checkout works without login. Session cookie = identity.
+- **Prices in cents:** All monetary values stored as integers to avoid float errors.
+- **Order snapshots:** `order_items` stores product name + price at purchase time.
+- **Order state machine:** pending → confirmed → shipped → delivered. Invalid transitions rejected.
+- **Stock validation on cart add:** Tells user immediately if out of stock (not just at checkout).
+- **Session rotation on logout:** New session ID issued, old one invalidated. Prevents reuse.
+- **Dual admin auth:** JWT (is_admin) for browser, API key for scripts/automation.
+- **First-user-is-admin:** First Google OAuth login auto-promoted. No manual DB edits.
+- **CSV bulk import:** For initial product catalog load (`POST /v1/admin/products/import`).
 - **API prefix:** All routes under `/v1/`.
-- **Admin auth:** Bearer token (`ATELIER_ADMIN_API_KEY` env var). First Google OAuth user becomes admin.
-- **Soft deletes:** All SQLite tables use `deleted_at` column.
-- **Event dedup:** `INSERT OR IGNORE` on `event_id` (client-generated UUID) in DuckDB.
-- **ML refresh:** Background job every 30 minutes recomputes co-occurrence, popularity, and session sequences.
+- **Event collection:** Fire-and-forget JSONL append (O_APPEND, crash-safe, multi-worker safe). Background thread loads into DuckDB every 60s.
+- **Recommendations:** Pre-computed cache. Fallback: ML → popularity → featured → random. Never errors.
+- **GDPR:** NULL-ification of PII fields (not cascade delete) — preserves order structure.
+
+## Feature Specifications
+
+Lean specs live in `openspec/changes/`:
+- `core-ecommerce/` — Products, cart, checkout, orders, auth, admin
+- `analytics-sandbox/` — Event collection, DuckDB, admin stats
+- `ml-experiments/` — Recommendations (experimental)
+
+Archived v1 (ML-first) specs: `openspec/changes/archive/v1-ml-first/`

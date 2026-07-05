@@ -1,487 +1,423 @@
 # Atelier Marie — System Architecture
 
-> Luxury candle e-commerce platform with event-driven analytics, ML recommendations, and zero-budget infrastructure.
+> Luxury candle e-commerce platform. Optional analytics & ML sandbox for learning.
+
+## Core Principle
+
+**Build a reliable e-commerce system first. ML is a detachable intelligence layer, not part of the core product.**
+
+The system is split into two strict layers:
+- **Layer 1 (Production):** Sells candles. Must be fast, reliable, and work perfectly with Layer 2 completely OFF.
+- **Layer 2 (Sandbox):** Collects events, runs analytics, experiments with ML. Async-only, non-blocking, allowed to fail silently.
+
+---
 
 ## System Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              BROWSER / CLIENT                                    │
-│                                                                                 │
-│  ┌──────────────────────────────┐    ┌─────────────────────────────────────┐    │
-│  │   Next.js 14 Storefront      │    │   Frontend Event SDK (~5KB)         │    │
-│  │   App Router + RSC + Tailwind│    │   Vanilla JS, zero-dep             │    │
-│  │                              │    │   Batch queue → sendBeacon fallback │    │
-│  │  • Homepage / Hero           │    │   Consent-gated, localStorage      │    │
-│  │  • Product Grid / PDP        │    │   session, client-gen event_id     │    │
-│  │  • Cart Drawer (optimistic)  │    │                                     │    │
-│  │  • Search Overlay            │    └───────────────┬─────────────────────┘    │
-│  │  • Admin Dashboard           │                    │                           │
-│  └──────────────┬───────────────┘                    │                           │
-│                 │ fetch + X-Session-ID                │ POST /v1/events (batched) │
-└─────────────────┼────────────────────────────────────┼───────────────────────────┘
-                  │                                    │
-══════════════════╪════════════════════════════════════╪═══════════════════════════════
-                  │            NGINX + SSL             │
-══════════════════╪════════════════════════════════════╪═══════════════════════════════
-                  │                                    │
-┌─────────────────▼────────────────────────────────────▼───────────────────────────┐
-│                         FastAPI Application (Uvicorn × 2)                         │
-│                                                                                   │
-│  ┌─────────────┐ ┌─────────────┐ ┌──────────────┐ ┌───────────────────────────┐ │
-│  │  Products   │ │    Cart     │ │   Orders     │ │   Auth (Google OAuth)     │ │
-│  │  /v1/prods  │ │  /v1/cart   │ │  /v1/orders  │ │  /v1/auth/*              │ │
-│  │             │ │             │ │              │ │  JWT HS256 + JWKS RS256   │ │
-│  │  CRUD+Search│ │ Add/Remove  │ │ Checkout     │ │  Session linking          │ │
-│  │  CSV Import │ │ Stock check │ │ State machine│ │  First-user-is-admin      │ │
-│  └──────┬──────┘ └──────┬──────┘ └──────┬───────┘ └────────────┬────────────┘ │
-│         │                │               │                      │               │
-│  ┌──────▼──────┐ ┌──────▼──────┐ ┌──────▼───────┐             │               │
-│  │  Sessions   │ │   Events    │ │    Admin     │◄────────────┘               │
-│  │  /v1/sess   │ │  /v1/events │ │  /v1/admin   │                             │
-│  │             │ │             │ │              │                             │
-│  │ In-memory   │ │ 202 Accept  │ │ Metrics      │                             │
-│  │ cache+flush │ │ JSONL write │ │ Event log    │                             │
-│  │ Header-based│ │ <10ms       │ │ Product perf │                             │
-│  └──────┬──────┘ └──────┬──────┘ └──────┬───────┘                             │
-│         │                │               │                                     │
-│  ┌──────▼────────────────▼───────────────▼───────────────────────────────────┐ │
-│  │                       SERVICE LAYER                                        │ │
-│  │   • Stock validation    • Event emission (fire-and-forget)                 │ │
-│  │   • Order lifecycle     • Identity resolution (read-time JOINs)            │ │
-│  │   • Recommendation engine (fallback chain)                                 │ │
-│  └───────┬──────────────────────────────────────────┬────────────────────────┘ │
-│          │                                          │                           │
-└──────────┼──────────────────────────────────────────┼───────────────────────────┘
-           │                                          │
-┌──────────▼──────────────────┐    ┌──────────────────▼─────────────────────────────┐
-│     SQLite (atelier.db)     │    │              JSONL Buffer Layer                 │
-│     WAL Mode — OLTP         │    │                                                 │
-│                             │    │   events_2024-01-15.jsonl  ← O_APPEND atomic    │
-│  ┌─────────┐ ┌───────────┐ │    │   events_2024-01-16.jsonl                       │
-│  │products │ │ cart_items │ │    │                                                 │
-│  ├─────────┤ ├───────────┤ │    │   .batch.lock  (fcntl.flock)                    │
-│  │ orders  │ │order_items│ │    └────────────────────┬────────────────────────────┘
-│  ├─────────┤ └───────────┘ │                         │ Batch loader (60s interval)
-│  │  users  │               │                         │ INSERT OR IGNORE (dedup)
-│  └─────────┘               │                         ▼
-└─────────────────────────────┘    ┌────────────────────────────────────────────────┐
-                                   │          DuckDB (analytics.db)                   │
-                                   │          Single-writer — OLAP                   │
-                                   │                                                 │
-                                   │   ┌──────────┐  ┌─────────────────┐             │
-                                   │   │  events  │  │session_identity │             │
-                                   │   └─────┬────┘  └────────┬────────┘             │
-                                   │         │                 │                      │
-                                   │   ┌─────▼─────────────────▼─────┐               │
-                                   │   │   Shared Analytics Layer      │               │
-                                   │   │   (materialized tables)       │               │
-                                   │   │                               │               │
-                                   │   │   TIER 1 (every 5 min):       │               │
-                                   │   │   • analytics_product_metrics │               │
-                                   │   │   • analytics_session_metrics │               │
-                                   │   │   • analytics_search_terms    │               │
-                                   │   │   • analytics_funnel          │               │
-                                   │   │                               │               │
-                                   │   │   TIER 2 (every 30 min):      │               │
-                                   │   │   • analytics_popularity      │               │
-                                   │   │   • analytics_cooccurrence    │               │
-                                   │   │   • analytics_session_sequences│              │
-                                   │   │   • analytics_ctr             │               │
-                                   │   └─────────────────────────────┘               │
-                                   └────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           BROWSER                                        │
+│                                                                         │
+│   ┌──────────────────────────┐          ┌─────────────────────────┐     │
+│   │   Next.js Storefront     │          │  Event tracking          │     │
+│   │   (separate app)         │          │  (simple fetch calls)    │     │
+│   │                          │          │                          │     │
+│   │  • Product pages         │          │  Fires AFTER page loads  │     │
+│   │  • Cart                  │          │  Never blocks UI         │     │
+│   │  • Checkout              │          │  Can fail silently       │     │
+│   │  • Account               │          │                          │     │
+│   └──────────┬───────────────┘          └──────────┬──────────────┘     │
+│              │ API calls (JSON)                     │ POST /v1/events    │
+└──────────────┼─────────────────────────────────────┼────────────────────┘
+               │                                     │
+═══════════════╪═════════════════════════════════════╪═════════════════════
+               │              NGINX + SSL             │
+═══════════════╪═════════════════════════════════════╪═════════════════════
+               │                                     │
+┌──────────────▼─────────────────────────────────────▼────────────────────┐
+│                    FastAPI Application (Uvicorn)                          │
+│                                                                          │
+│  ┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐   │
+│  │ LAYER 1 — PRODUCTION (synchronous, <200ms)                     │   │
+│  │                                                                 │   │
+│  │  GET /v1/products          GET /v1/cart                         │   │
+│  │  GET /v1/products/{id}     POST /v1/cart/items                  │   │
+│  │  POST /v1/admin/products   PATCH /v1/cart/items/{id}            │   │
+│  │  PUT /v1/admin/products    DELETE /v1/cart/items/{id}           │   │
+│  │                                                                 │   │
+│  │  POST /v1/orders           GET /v1/auth/login                   │   │
+│  │  GET /v1/orders            GET /v1/auth/callback                │   │
+│  │  GET /v1/orders/{id}       GET /v1/auth/me                      │   │
+│  │                                                                 │   │
+│  │  GET /v1/admin/orders      GET /v1/admin/dashboard              │   │
+│  │                                                                 │   │
+│  └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘   │
+│         │                                                                │
+│         │  SQLite only                                                   │
+│         ▼                                                                │
+│  ┌─────────────────────┐                                                 │
+│  │   SQLite (WAL)       │  ← System of Record                            │
+│  │   atelier.db         │                                                 │
+│  │                      │                                                 │
+│  │   products           │                                                 │
+│  │   users              │                                                 │
+│  │   sessions           │                                                 │
+│  │   cart_items          │                                                 │
+│  │   orders             │                                                 │
+│  │   order_items        │                                                 │
+│  └─────────────────────┘                                                 │
+│                                                                          │
+│  ┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐   │
+│  │ LAYER 2 — SANDBOX (async, non-blocking, can fail)              │   │
+│  │                                                                 │   │
+│  │  POST /v1/events (202 Accepted, fire-and-forget)                │   │
+│  │  GET /v1/recommendations (best-effort, fallback to popular)     │   │
+│  │  GET /v1/admin/analytics (reads DuckDB, admin-only)             │   │
+│  │                                                                 │   │
+│  │  Background thread: flush event queue → DuckDB                  │   │
+│  │  Background job (30min): compute recommendations → cache        │   │
+│  │                                                                 │   │
+│  └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘   │
+│         │                                                                │
+│         ▼                                                                │
+│  ┌─────────────────────┐      ┌────────────────────────────┐            │
+│  │   DuckDB             │      │  Recommendation Cache       │            │
+│  │   analytics.db       │      │  (SQLite table or JSON)     │            │
+│  │                      │      │                             │            │
+│  │   events             │      │  Pre-computed by bg job     │            │
+│  │   session_identity   │      │  Read synchronously         │            │
+│  └─────────────────────┘      └────────────────────────────┘            │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Dual-Database Architecture
+---
 
-The single most important architectural decision: **SQLite for transactions, DuckDB for analytics.**
+## Layer 1: Production E-Commerce
 
-| Concern | SQLite (atelier.db) | DuckDB (analytics.db) |
-|---------|--------------------|-----------------------|
-| **Role** | OLTP — source of truth for entities | OLAP — analytical read layer |
-| **Data** | Products, users, orders, cart | Events, sessions, analytics tables |
-| **Access** | WAL mode (unlimited readers + 1 writer) | Single-writer, file-lock guarded |
-| **Latency** | <5ms reads/writes | Batch-optimized (60s ingestion cycles) |
-| **Backup** | `.backup` command (consistent) | File copy during lock acquisition |
+### Design Requirements
 
-## Data Flow: Event Lifecycle
+| Requirement | Target |
+|-------------|--------|
+| Product page load | <50ms |
+| Add to cart | <50ms |
+| Checkout (create order) | <200ms |
+| Zero dependency on Layer 2 | Must work if DuckDB is deleted |
+| Zero dependency on external services | Except Google OAuth (optional) |
 
-```
- Browser Click              API (< 10ms)           JSONL Buffer            DuckDB (60s)
- ───────────── ──────────── ──────────── ──────────── ──────────── ──────────────────
-
- page_view ──────┐
- add_to_cart ────┤  SDK batches   POST /v1/events    append to         Batch loader
- purchase ──────┤  (10 events    ────────────────▶   events_DATE.jsonl ────────────▶  INSERT OR IGNORE
- search ────────┘   or 5s)        202 Accepted       (O_APPEND safe)      (dedup via event_id)
-
-                                  Server stamps:                      Archives processed
-                                  - received_at                       files after load
-                                  - validates schema
-```
-
-## Identity Model
-
-```
-                         Anonymous-First Architecture
-                         ═══════════════════════════
-
-  ┌───────────┐                    ┌──────────────┐
-  │  Browser  │ ── X-Session-ID ──▶│  Session     │
-  │ (SDK gen  │    (every request) │  Middleware   │
-  │  UUID v4) │                    └──────┬───────┘
-  └───────────┘                           │
-                                          ▼
-                             ┌─────────────────────────┐
-                             │   In-Memory Session Cache │
-                             │   {session_id → state}   │
-                             │   30min idle / 24h hard   │
-                             └────────────┬────────────┘
-                                          │
-           ┌──────────────────────────────┼──────────────────────────┐
-           │                              │                          │
-           ▼                              ▼                          ▼
-  ┌─────────────────┐        ┌──────────────────────┐    ┌──────────────────┐
-  │ Anonymous User   │        │   Google OAuth Login  │    │  Session Expiry   │
-  │ (session only)   │        │   POST /v1/auth/login │    │  Background job   │
-  │                  │        │                       │    │  (5 min interval) │
-  │ Can: browse,     │        │  On success:          │    │                   │
-  │ cart, checkout   │        │  link(session, user)  │    │  Synthesizes      │
-  │                  │        │  ▼                    │    │  session_end      │
-  └──────────────────┘        │  Retroactive          │    │  events           │
-                              │  attribution via      │    └──────────────────┘
-                              │  read-time JOINs      │
-                              └──────────────────────┘
-```
-
-**Key insight:** Events are never backfilled. Identity resolution happens at query time via JOINs on `session_identity` — events remain immutable.
-
-## Shared Analytics Layer
-
-A single compute job materializes event aggregates into DuckDB tables, consumed by multiple services. Eliminates duplicate computation where ML and admin would independently aggregate the same events.
-
-```
-  ┌─────────────────────────────────────────────────────────────────────────┐
-  │              Analytics Compute Job (every 5 min)                          │
-  │              acquires .batch.lock (blocking, 60s timeout)                 │
-  │                                                                         │
-  │   Source: events + session_identity tables                               │
-  │                                                                         │
-  │   TIER 1 (every run, ~2s):              TIER 2 (every 30 min, ~30s):    │
-  │   ├── analytics_product_metrics         ├── analytics_popularity         │
-  │   ├── analytics_session_metrics         ├── analytics_cooccurrence       │
-  │   ├── analytics_search_terms            ├── analytics_session_sequences  │
-  │   └── analytics_funnel                  └── analytics_ctr               │
-  │                                                                         │
-  └────────────────────────┬──────────────────────────────────┬─────────────┘
-                           │                                  │
-              ┌────────────┴─────────────┐       ┌────────────┴────────────┐
-              │  Tier 1 Consumers         │       │  Tier 2 Consumers       │
-              │  • Admin Dashboard        │       │  • ML Recommendations   │
-              │  • Storefront ("trending")│       │  • Admin (CTR metrics)  │
-              │  • Diagnostics            │       │  • Future A/B testing   │
-              └──────────────────────────┘       └─────────────────────────┘
-```
-
-## ML Recommendations Pipeline
-
-The ML service is a **read-only consumer** of the analytics layer — it no longer computes features.
-
-```
-  ┌─────────────────────────────────────────────────────────────┐
-  │   Reads from analytics_* tables (no lock needed):            │
-  │   • analytics_popularity     → fallback scoring              │
-  │   • analytics_cooccurrence   → candidate generation          │
-  │   • analytics_ctr            → ranking weights               │
-  │   • analytics_session_sequences → session-based recs         │
-  └───────────────────────────────────────────────┬─────────────┘
-                                                  │
-                                                  ▼
-  ┌─────────────────────────────────────────────────────────────┐
-  │              API Request: GET /v1/recommendations            │
-  │                                                             │
-  │   ┌─────────────┐    ┌─────────────┐    ┌──────────────┐   │
-  │   │  Candidate  │───▶│   Ranking   │───▶│  Filtering   │   │
-  │   │ Generation  │    │  (weighted  │    │  (remove     │   │
-  │   │ (50-100     │    │   linear)   │    │   seen,      │   │
-  │   │  items)     │    │             │    │   inactive)  │   │
-  │   └─────────────┘    └─────────────┘    └──────────────┘   │
-  │                                                             │
-  │   Fallback Chain:                                           │
-  │   Personalized (≥20 events) → Session (≥3) → Popular → Featured │
-  │                                                             │
-  │   Cache: In-memory dict, TTL 5-30min, LRU @ 10K entries     │
-  │   Precomputation: batch job (30min) warms cache for active   │
-  │   sessions — reads analytics tables, no DuckDB writes        │
-  └─────────────────────────────────────────────────────────────┘
-```
-
-## Concurrency & Coordination
-
-The zero-budget constraint means no Redis, no message queue — coordination is file-lock based:
-
-```
-  ┌──────────────────────────────────────────────────────────────┐
-  │                    Unified Lock Strategy                       │
-  │                                                               │
-  │   .batch.lock ─────────── Guards ALL DuckDB writes            │
-  │   ├── Event Batch Loader (every 60s, ~100ms hold)             │
-  │   │   Strategy: non-blocking try, retry in 1s                 │
-  │   ├── Session Expiry Flush (every 5 min, ~50ms hold)          │
-  │   │   Strategy: non-blocking try, skip cycle if held          │
-  │   ├── Analytics Compute (every 5 min, ~2-30s hold)            │
-  │   │   Strategy: blocking wait, 60s timeout                    │
-  │   └── Backup Script (daily 3am)                               │
-  │       Strategy: blocking wait                                 │
-  │                                                               │
-  │   .maintenance.lock ───── Guards destructive CLI ops           │
-  │   └── Maintenance CLI (cleanup, rebuild, GDPR)                │
-  │       Acquires .batch.lock first, then .maintenance.lock      │
-  │                                                               │
-  │   DELETED: .ml-compute.lock (ML is now read-only consumer)    │
-  └──────────────────────────────────────────────────────────────┘
-```
-
-## Deployment Topology
-
-```
-  ┌─────────────────────────────────────────────────────────────────┐
-  │  Oracle Cloud Free Tier VPS (4 vCPU / 24GB RAM / 200GB disk)    │
-  │                                                                 │
-  │  ┌────────────────┐        ┌────────────────────────────┐       │
-  │  │   Nginx        │        │   Systemd Services          │       │
-  │  │   :80 → :443   │───────▶│                             │       │
-  │  │   Let's Encrypt │        │   atelier-api.service       │       │
-  │  │   rate limiting │        │   └── uvicorn × 2 workers   │       │
-  │  └────────────────┘        │       ├── event batch loader │       │
-  │                            │       ├── session expiry      │       │
-  │  ┌────────────────┐        │       ├── analytics compute  │       │
-  │  │   Cron Jobs    │        │       └── ML precomputation  │       │
-  │  │   3am: cleanup │        │                             │       │
-  │  │   weekly: vacuum│        └────────────────────────────┘       │
-  │  │   weekly: vacuum│                                            │
-  │  │   hourly: disk  │        ┌────────────────────────────┐       │
-  │  │     monitor     │        │   Data                     │       │
-  │  └────────────────┘        │   /opt/atelier/             │       │
-  │                            │   ├── atelier.db (SQLite)   │       │
-  │                            │   ├── analytics.db (DuckDB) │       │
-  │                            │   ├── events/*.jsonl        │       │
-  │                            │   └── backups/ (7-day)      │       │
-  │                            └────────────────────────────┘       │
-  └─────────────────────────────────────────────────────────────────┘
-
-  ┌──────────────────────────────────────┐
-  │  GitHub Actions (Free Tier)           │
-  │                                       │
-  │  Push to main:                        │
-  │  ┌──────┐  ┌──────┐  ┌──────────┐    │
-  │  │ Lint │─▶│ Test │─▶│ Deploy   │    │
-  │  │(ruff)│  │(pytest)│  │(SSH pull)│    │
-  │  └──────┘  └──────┘  └──────────┘    │
-  └──────────────────────────────────────┘
-```
-
-## Implementation Order
-
-```
-  Phase 1 (Foundations)           Phase 2 (Core Commerce)        Phase 3 (Intelligence)
-  ═══════════════════            ═══════════════════════         ═══════════════════════
-
-  ┌──────────────────┐           ┌──────────────────┐           ┌──────────────────┐
-  │ product-catalog  │◄──────────│  cart-management │           │ml-recommendations│
-  └──────────────────┘           └──────────────────┘           └──────────────────┘
-                                         │                              ▲
-  ┌──────────────────┐                   ▼                              │
-  │ session-identity │◄──────────┌──────────────────┐           ┌──────┴───────────┐
-  └──────────────────┘           │ orders-checkout  │           │ admin-dashboard  │
-         ▲                       └──────────────────┘           └──────────────────┘
-         │                                                              ▲
-  ┌──────┴───────────┐                                                  │
-  │   google-oauth   │──────────────────────────────────────────────────┘
-  └──────────────────┘
-
-  ┌──────────────────┐           ┌──────────────────┐           ┌──────────────────┐
-  │event-ingestion   │           │frontend-event-sdk│           │ storefront-ui    │
-  │    pipeline      │◄──────────│                  │───────────│                  │
-  └──────────────────┘           └──────────────────┘           └──────────────────┘
-
-  Phase 4 (Operations)
-  ═══════════════════
-  ┌──────────────────┐           ┌──────────────────┐
-  │  deployment-ci   │           │maintenance-tooling│
-  └──────────────────┘           └──────────────────┘
-```
-
-**Critical path:** `product-catalog` → `session-identity` → `event-ingestion-pipeline` → everything else.
-
-## Architectural Principles
-
-| # | Principle | Rationale |
-|---|-----------|-----------|
-| 1 | **Zero-budget** | No Redis, no Kafka, no paid APIs. SQLite + DuckDB + file locks + in-memory caches |
-| 2 | **Anonymous-first** | Full functionality without login. Identity is optional overlay |
-| 3 | **Fire-and-forget events** | Business transactions never blocked by analytics pipeline |
-| 4 | **Read-time resolution** | Identity linking via JOINs, not event mutation |
-| 5 | **Batch over stream** | JSONL buffer → DuckDB every 60s. Analytics layer every 5min. ML recs cached 5-30min |
-| 6 | **Soft deletes everywhere** | Products deactivated not deleted. GDPR = nullify, not cascade |
-| 7 | **Service layer abstraction** | Route handlers thin, business logic testable independently |
-| 8 | **Graceful degradation** | Every system has a fallback chain (recommendations, sessions, events) |
-| 9 | **API-first** | JSON responses, header-based sessions, no server-side rendering dependencies |
-| 10 | **Single-writer protection** | One `.batch.lock` serializes all DuckDB writes; ML is read-only consumer |
-
-## Technology Stack
-
-| Layer | Technology | Why |
-|-------|-----------|-----|
-| Frontend | Next.js 14, React Server Components, Tailwind CSS | SEO, performance, luxury aesthetic control |
-| Event SDK | Vanilla JS, sendBeacon | Zero dependencies, <5KB |
-| API | FastAPI + Uvicorn | Async-native, great DX, auto-docs |
-| Auth | Google OAuth 2.0, JWT HS256, httpx | No third-party auth libs, minimal deps |
-| OLTP DB | SQLite WAL | Free, embedded, reliable, zero-config |
-| OLAP DB | DuckDB | Columnar analytics, embedded, SQL-native |
-| Buffer | JSONL files (O_APPEND) | Crash-safe, zero-latency writes |
-| ML | Shared analytics layer (SQL-as-files) + weighted linear ranker | No pandas/numpy, auditable, zero duplication |
-| Reverse Proxy | Nginx + Let's Encrypt | SSL termination, rate limiting |
-| Process Mgmt | systemd | Auto-restart, logging, socket activation |
-| CI/CD | GitHub Actions → SSH deploy | Free tier, sub-60s deploys |
-| Hosting | Oracle Cloud Free Tier | 4 vCPU, 24GB RAM, $0/month |
-
-## Data Models
-
-### SQLite (atelier.db)
+### SQLite Schema (System of Record)
 
 ```sql
--- Product Catalog
+-- Products: The core business entity
 CREATE TABLE products (
-    id          TEXT PRIMARY KEY,   -- business identifier / SKU
+    id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL,
     description TEXT,
-    price       REAL NOT NULL,
+    price_cents INTEGER NOT NULL,
     category    TEXT,
     image_url   TEXT,
-    stock       INTEGER DEFAULT 0,
-    is_active   INTEGER DEFAULT 1,  -- soft delete
-    is_featured INTEGER DEFAULT 0,
-    created_at  TEXT DEFAULT (datetime('now')),
-    updated_at  TEXT DEFAULT (datetime('now'))
+    stock       INTEGER NOT NULL DEFAULT 0,
+    is_active   INTEGER NOT NULL DEFAULT 1,
+    is_featured INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Users (Google OAuth)
+-- Users: Optional (Google OAuth)
 CREATE TABLE users (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    google_id     TEXT UNIQUE NOT NULL,
-    email         TEXT UNIQUE NOT NULL,
-    name          TEXT,
-    avatar_url    TEXT,
-    is_admin      INTEGER DEFAULT 0,
-    created_at    TEXT DEFAULT (datetime('now')),
+    id          TEXT PRIMARY KEY,
+    google_id   TEXT UNIQUE NOT NULL,
+    email       TEXT UNIQUE NOT NULL,
+    name        TEXT,
+    avatar_url  TEXT,
+    is_admin    INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     last_login_at TEXT
 );
 
--- Cart (session-keyed)
+-- Sessions: Cookie-based, for cart persistence
+CREATE TABLE sessions (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT REFERENCES users(id),
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at  TEXT NOT NULL
+);
+
+-- Cart: Session-keyed
 CREATE TABLE cart_items (
-    session_id TEXT NOT NULL,
-    product_id TEXT NOT NULL REFERENCES products(id),
-    quantity   INTEGER NOT NULL DEFAULT 1,
-    added_at   TEXT DEFAULT (datetime('now')),
+    session_id  TEXT NOT NULL REFERENCES sessions(id),
+    product_id  TEXT NOT NULL REFERENCES products(id),
+    quantity    INTEGER NOT NULL DEFAULT 1,
+    added_at    TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (session_id, product_id)
 );
 
 -- Orders
 CREATE TABLE orders (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id     TEXT NOT NULL,
-    user_id        INTEGER REFERENCES users(id),
-    total          REAL NOT NULL,
-    status         TEXT NOT NULL DEFAULT 'pending',
-    payment_method TEXT NOT NULL DEFAULT 'cod',
-    created_at     TEXT DEFAULT (datetime('now')),
-    updated_at     TEXT DEFAULT (datetime('now'))
+    id          TEXT PRIMARY KEY,
+    session_id  TEXT NOT NULL,
+    user_id     TEXT REFERENCES users(id),
+    status      TEXT NOT NULL DEFAULT 'pending',
+    total_cents INTEGER NOT NULL,
+    customer_email TEXT NOT NULL,
+    customer_name  TEXT,
+    shipping_address TEXT,
+    notes       TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Order Items: Snapshot at purchase time
 CREATE TABLE order_items (
-    order_id          INTEGER NOT NULL REFERENCES orders(id),
-    product_id        TEXT NOT NULL REFERENCES products(id),
-    quantity          INTEGER NOT NULL,
-    price_at_purchase REAL NOT NULL,
+    order_id    TEXT NOT NULL REFERENCES orders(id),
+    product_id  TEXT NOT NULL,
+    product_name TEXT NOT NULL,
+    price_cents INTEGER NOT NULL,
+    quantity    INTEGER NOT NULL,
     PRIMARY KEY (order_id, product_id)
 );
 ```
 
-### DuckDB (analytics.db)
+### Data Flows (Synchronous)
 
-```sql
--- Events (append-only)
-CREATE TABLE events (
-    event_id    VARCHAR PRIMARY KEY,  -- client-generated UUID
-    session_id  VARCHAR NOT NULL,
-    user_id     VARCHAR,
-    event_type  VARCHAR NOT NULL,
-    payload     JSON,
-    timestamp   TIMESTAMP NOT NULL,
-    received_at TIMESTAMP NOT NULL
-);
-
--- Session Identity (batch-flushed from memory)
-CREATE TABLE session_identity (
-    session_id VARCHAR PRIMARY KEY,
-    user_id    VARCHAR,
-    first_seen TIMESTAMP NOT NULL,
-    last_seen  TIMESTAMP NOT NULL,
-    is_expired BOOLEAN DEFAULT FALSE
-);
-
--- Analytics Layer (materialized by compute job)
--- Tier 1 (rebuilt every 5 min)
-CREATE TABLE analytics_product_metrics (product_id VARCHAR, view_count INT, cart_count INT, purchase_count INT, unique_sessions INT, revenue DECIMAL(10,2));
-CREATE TABLE analytics_session_metrics (total_sessions INT, anonymous_sessions INT, authenticated_sessions INT, converted_sessions INT, avg_events_per_session DECIMAL(6,2));
-CREATE TABLE analytics_search_terms (query VARCHAR, search_count INT, avg_result_count DECIMAL(6,2));
-CREATE TABLE analytics_funnel (total_views INT, total_carts INT, total_checkouts INT, total_purchases INT, unique_sessions INT, conversion_rate DECIMAL(6,4), cart_rate DECIMAL(6,4), total_revenue DECIMAL(12,2));
-
--- Tier 2 (rebuilt every 30 min)
-CREATE TABLE analytics_popularity (product_id VARCHAR, popularity_score DECIMAL(10,2), view_count INT, cart_count INT, purchase_count INT, unique_sessions INT, recency_boost DECIMAL(6,2));
-CREATE TABLE analytics_cooccurrence (product_a VARCHAR, product_b VARCHAR, co_count INT);
-CREATE TABLE analytics_session_sequences (session_id VARCHAR, product_sequence VARCHAR[], event_sequence VARCHAR[]);
-CREATE TABLE analytics_ctr (product_id VARCHAR, impressions INT, clicks INT, purchases INT, ctr DECIMAL(6,4), conversion_rate DECIMAL(6,4));
+**Browse products:**
+```
+Browser → GET /v1/products → SELECT FROM products WHERE is_active=1 → JSON response (~30ms)
 ```
 
-## API Surface
+**Add to cart:**
+```
+Browser → POST /v1/cart/items {product_id, quantity}
+  → Validate stock (SELECT stock FROM products)
+  → INSERT/UPDATE cart_items
+  → Return updated cart (~50ms)
+```
+
+**Checkout:**
+```
+Browser → POST /v1/orders {email, address, ...}
+  → BEGIN TRANSACTION
+    → Validate all cart items still in stock
+    → INSERT INTO orders
+    → INSERT INTO order_items (snapshot prices)
+    → UPDATE products SET stock = stock - quantity
+    → DELETE FROM cart_items WHERE session_id = ?
+  → COMMIT
+  → Return order confirmation (~150ms)
+  → AFTER RESPONSE: queue "purchase" event (fire-and-forget, Layer 2)
+```
+
+### Identity Model
+
+```
+Anonymous-first: Full functionality without login.
+
+1. User visits → session cookie created (UUID v4)
+2. User browses, carts, checks out → all keyed to session_id
+3. User optionally logs in (Google OAuth) → session.user_id updated
+4. Cart persists across the transition — it's session-keyed, already there
+5. Orders show in "My Orders" if user_id matches
+
+Login is an OVERLAY, not a prerequisite.
+```
+
+### API Surface (Layer 1)
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| GET | `/v1/products` | Public | List/search products |
+| GET | `/v1/products` | Public | List/search active products |
 | GET | `/v1/products/{id}` | Public | Product detail |
-| POST | `/v1/products` | API Key | Create product |
-| PUT | `/v1/products/{id}` | API Key | Update product |
-| DELETE | `/v1/products/{id}` | API Key | Deactivate product |
-| POST | `/v1/products/import` | API Key | CSV bulk import |
-| GET | `/v1/cart` | Session | Get cart contents |
-| POST | `/v1/cart` | Session | Add item |
-| PATCH | `/v1/cart/{product_id}` | Session | Update quantity |
-| DELETE | `/v1/cart/{product_id}` | Session | Remove item |
-| POST | `/v1/cart/checkout` | Session | Checkout cart |
+| GET | `/v1/cart` | Session | Get cart contents with product info |
+| POST | `/v1/cart/items` | Session | Add item to cart |
+| PATCH | `/v1/cart/items/{product_id}` | Session | Update quantity |
+| DELETE | `/v1/cart/items/{product_id}` | Session | Remove from cart |
+| POST | `/v1/orders` | Session | Create order (checkout) |
 | GET | `/v1/orders` | Session/JWT | List orders |
 | GET | `/v1/orders/{id}` | Session/JWT | Order detail |
-| POST | `/v1/orders/{id}/cancel` | Session/JWT | Cancel order |
-| POST | `/v1/events` | Session | Ingest event batch |
-| GET | `/v1/auth/login` | Public | Get OAuth redirect URL |
+| GET | `/v1/auth/login` | Public | Google OAuth redirect |
 | GET | `/v1/auth/callback` | Public | OAuth callback |
-| GET | `/v1/auth/me` | JWT | Current user profile |
-| POST | `/v1/auth/logout` | JWT | Logout + rotate session |
-| GET | `/v1/recommendations` | Session | Get recommendations |
-| GET | `/v1/admin/metrics` | Admin | Dashboard metrics |
-| GET | `/v1/admin/events` | Admin | Paginated event log |
-| GET | `/v1/admin/products` | Admin | Product performance |
-| GET | `/v1/admin/orders` | Admin | Order management |
+| GET | `/v1/auth/me` | JWT | Current user |
+| POST | `/v1/admin/products` | Admin | Create product |
+| PUT | `/v1/admin/products/{id}` | Admin | Update product |
+| POST | `/v1/admin/products/import` | Admin | CSV bulk import |
+| DELETE | `/v1/admin/products/{id}` | Admin | Deactivate product |
+| GET | `/v1/admin/orders` | Admin | All orders (paginated) |
+| PATCH | `/v1/admin/orders/{id}/status` | Admin | Update order status |
 
-## Risks & Open Questions
+---
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| DuckDB single-writer bottleneck | Analytics compute holds lock for 2-30s, blocking event loader | Event loader retries in 1s; events buffer safely in JSONL during lock hold |
-| Analytics layer failure | ML and admin both degrade if compute job fails | Graceful degradation — ML fallback chain, admin shows stale data with staleness warning |
-| In-memory session cache lost on restart | All active sessions invalidated | Acceptable for MVP; could persist to SQLite later |
-| SQLite write contention under load | Cart/order writes queue behind each other | WAL mode + fast transactions (<5ms); unlikely to matter at expected scale |
-| No real-time updates | Admin dashboard stale for up to 5 minutes | Acceptable for single-operator; analytics refresh matches this window |
-| No payment gateway | COD-only limits conversion | Extensible status enum; payment integration is a future change |
-| Oracle Free Tier reliability | VPS may be reclaimed or throttled | Daily backups; git-based deploy allows quick re-provision |
+## Layer 2: Analytics & ML Sandbox
+
+### Design Requirements
+
+| Requirement | How |
+|-------------|-----|
+| Never blocks user-facing requests | All writes async (background thread) |
+| Can crash without affecting checkout | Wrapped in try/except, failures logged not raised |
+| Can be completely disabled | Feature flag `ANALYTICS_ENABLED=false` |
+| Data is rebuildable | Events are the source; analytics are derived |
+
+### Event Collection
+
+Events are appended to daily JSONL files (crash-safe, multi-worker safe via `O_APPEND`), then loaded into DuckDB by a background thread every 60 seconds.
+
+```
+User action completes → HTTP response sent → append to JSONL (O_APPEND, atomic)
+                                                    │
+                                          Background thread (every 60s)
+                                                    │  reads JSONL → INSERT OR IGNORE
+                                                    ▼
+                                              DuckDB (analytics.db)
+```
+
+**Why JSONL (not in-memory queue):**
+- Crash-safe: if the process dies, events on disk survive
+- Multi-worker safe: 2 uvicorn workers can both append to the same file (O_APPEND)
+- Debuggable: `cat events_2026-07-05.jsonl | wc -l`
+- Rebuildable: if DuckDB corrupts, replay all JSONL files to reconstruct it
+
+Still simple — one file append per event, one background thread for loading. No Kafka, no Redis.
+
+### DuckDB Schema (Analytics Only)
+
+```sql
+-- Raw events: append-only log
+CREATE TABLE events (
+    event_id    VARCHAR PRIMARY KEY,
+    event_type  VARCHAR NOT NULL,
+    session_id  VARCHAR NOT NULL,
+    user_id     VARCHAR,
+    product_id  VARCHAR,
+    payload     JSON,
+    timestamp   TIMESTAMP NOT NULL,
+    received_at TIMESTAMP DEFAULT now()
+);
+
+-- Session identity: links anonymous sessions to users (on login)
+CREATE TABLE session_identity (
+    session_id  VARCHAR NOT NULL,
+    user_id     VARCHAR NOT NULL,
+    linked_at   TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (session_id, user_id)
+);
+```
+
+### Event Types
+
+| Event | Triggered By | Payload |
+|-------|-------------|---------|
+| `page_view` | Product page loaded | `{product_id}` |
+| `add_to_cart` | Item added to cart | `{product_id, quantity}` |
+| `remove_from_cart` | Item removed | `{product_id}` |
+| `purchase` | Order completed | `{order_id, total_cents, item_count}` |
+| `search` | Search performed | `{query, result_count}` |
+
+### ML Recommendations (Experimental)
+
+A background job runs every 30 minutes:
+1. Reads events from DuckDB (co-occurrence, popularity)
+2. Computes simple recommendation scores
+3. Writes results to a `recommendations` table (SQLite or JSON cache)
+
+Product pages read from this cache **synchronously**:
+- If cache has recommendations → show them
+- If cache is empty/stale → show "Popular products" (sorted by order count from SQLite)
+- If that fails too → show random 4 active products
+
+**The recommendation system is a learning exercise. It must NEVER be on the critical path.**
+
+### Identity Resolution (Analytics-Only)
+
+When a user logs in via Google OAuth:
+1. SQLite `sessions.user_id` is updated (Layer 1 — for cart/order association)
+2. DuckDB `session_identity` gets a row (Layer 2 — for analytics attribution)
+
+Old events are NEVER mutated. Analytics queries JOIN through `session_identity` to attribute anonymous behavior to users at read time.
+
+---
+
+## System Boundaries
+
+### ✅ ALLOWED in Production Path (Layer 1)
+
+- SQLite reads/writes
+- Session cookie operations
+- Google OAuth external call (login only)
+- Any operation completing in <200ms
+
+### ❌ FORBIDDEN in Production Path (Layer 1)
+
+- Any DuckDB query or write
+- Any operation from `app/analytics/` or `app/ml/`
+- Any background job dependency
+- Any operation whose failure would prevent browsing or checkout
+- Any `import` from Layer 2 modules in Layer 1 route handlers
+
+### ⚡ ASYNC ONLY (Layer 2)
+
+- Event ingestion (queued after response sent)
+- DuckDB writes (background thread)
+- ML computation (scheduled job)
+- Analytics queries (admin dashboard only, never user-facing)
+
+---
+
+## Concurrency Model
+
+**Layer 1:** SQLite WAL mode handles concurrency natively. Multiple readers, single writer. 2 uvicorn workers can serve requests concurrently — reads are parallel, writes serialize naturally (and are fast, <5ms).
+
+**Layer 2:** JSONL writes are append-only (`O_APPEND` — atomic for small writes, multi-worker safe). A single background thread reads JSONL files and loads into DuckDB. Only one writer to DuckDB at a time — no locks needed, it's just one thread.
+
+**No file locks, no Kafka, no Redis.** JSONL + O_APPEND handles multi-worker writes. Single loader thread handles DuckDB.
+
+---
+
+## Deployment
+
+```
+Oracle Cloud Free Tier VPS (4 vCPU / 24GB RAM)
+├── Nginx (reverse proxy + SSL + static files)
+├── FastAPI (Uvicorn, 2 workers + background loader thread)
+├── SQLite (atelier.db) — OLTP
+├── DuckDB (analytics.db) — OLAP (optional, rebuildable from JSONL)
+├── JSONL event files (data/events/) — crash-safe buffer
+├── Next.js frontend (Node.js process, port 3000)
+└── GitHub Actions (lint + test + deploy on push to main)
+```
+
+### Backup Strategy
+- SQLite: daily `.backup` command → stored 7 days
+- DuckDB: rebuildable from JSONL archives (no backup needed)
+- JSONL archives: retained 30 days (gzipped)
+
+---
+
+## Technology Stack
+
+| Layer | Technology | Why |
+|-------|-----------|-----|
+| Backend | FastAPI + Uvicorn (Python 3.11) | Async-native, auto-docs, fast enough |
+| Validation | Pydantic 2 | Type safety, serialization |
+| OLTP DB | SQLite (WAL mode) | Embedded, zero-config, reliable, fast |
+| Auth | Google OAuth 2.0 + JWT (PyJWT) | No password management needed |
+| Frontend | Next.js 14 (separate app) | Rich UI, SEO, luxury aesthetic |
+| OLAP DB | DuckDB (Layer 2 only) | Columnar analytics, embedded |
+| Scheduling | APScheduler (in-process) | Background jobs without external deps |
+| Reverse Proxy | Nginx + Let's Encrypt | SSL, rate limiting, static serving |
+| Hosting | Oracle Cloud Free Tier | $0/month, 4 vCPU, 24GB RAM |
+| CI/CD | GitHub Actions | Free, lint + test + deploy |
+
+---
+
+## Architectural Principles
+
+| # | Principle | Rationale |
+|---|-----------|-----------|
+| 1 | **E-commerce first** | The store must work perfectly without analytics or ML |
+| 2 | **Layer separation** | Layer 1 code never imports Layer 2 modules |
+| 3 | **Anonymous-first** | Full functionality without login |
+| 4 | **Simple over clever** | No JSONL buffers, no file locks, no tiered refresh — not needed at this scale |
+| 5 | **Async analytics** | Events are fire-and-forget; ML is pre-computed; never on the critical path |
+| 6 | **Graceful degradation** | Recommendations: ML → popularity → random. Never an error. |
+| 7 | **Zero-budget** | No paid services. SQLite + DuckDB + Oracle Free Tier |
+| 8 | **Single developer** | Architecture sized for one person to build and maintain |

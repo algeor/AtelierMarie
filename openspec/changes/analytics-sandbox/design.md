@@ -1,0 +1,305 @@
+# Analytics Sandbox — Design
+
+## Architecture
+
+```
+                     ┌────────────────────────────────────────────┐
+                     │  FRONTEND (Next.js)                         │
+                     │                                             │
+                     │  Simple fetch() calls after user actions    │
+                     │  + sendBeacon() on page unload (tab close)  │
+                     └──────────────────┬─────────────────────────┘
+                                        │ POST /v1/events
+                                        ▼
+┌───────────────────────────────────────────────────────────────────────┐
+│  FASTAPI                                                               │
+│                                                                        │
+│  Layer 1 routes (response already sent)                                │
+│         │                                                              │
+│         │  fire-and-forget: analytics.collect(event)                   │
+│         ▼                                                              │
+│  ┌─────────────────────────┐                                           │
+│  │  JSONL Buffer            │  Append-only, crash-safe (O_APPEND)      │
+│  │  data/events/            │  One file per day: events_2026-07-05.jsonl│
+│  │  (immediate disk write)  │                                          │
+│  └──────────┬──────────────┘                                           │
+│             │  Background thread (every 60s)                           │
+│             │  Reads JSONL → batch INSERT OR IGNORE → archives file    │
+│             ▼                                                          │
+│  ┌─────────────────────────┐                                           │
+│  │  DuckDB (analytics.db)   │                                          │
+│  │  • events                │                                          │
+│  │  • session_identity      │                                          │
+│  └──────────┬──────────────┘                                           │
+│             │                                                          │
+│             ▼                                                          │
+│  ┌─────────────────────────┐                                           │
+│  │  Admin Dashboard         │  (GET /v1/admin/analytics)               │
+│  │  Queries DuckDB directly │                                          │
+│  └─────────────────────────┘                                           │
+└───────────────────────────────────────────────────────────────────────┘
+```
+
+### Why JSONL Buffer (Not Pure In-Memory Queue)
+
+The previous version of this spec used an in-memory asyncio.Queue. Switched to JSONL because:
+
+1. **Crash-safe:** If the process dies, events on disk survive. In-memory queue loses everything.
+2. **Zero-latency writes:** `O_APPEND` to a file is atomic on Linux for writes <4KB (one JSON line). No lock needed.
+3. **Multi-worker safe:** 2 uvicorn workers can both append to the same JSONL file safely (O_APPEND guarantees).
+4. **Debuggable:** You can `cat events_2026-07-05.jsonl | wc -l` to see how many events came in.
+5. **Rebuildable:** If DuckDB corrupts, replay all JSONL files to rebuild it from scratch.
+
+Still simple — no Kafka, no Redis, just one file append per event.
+
+---
+
+## DuckDB Schema
+
+```sql
+CREATE TABLE events (
+    event_id    VARCHAR PRIMARY KEY,   -- UUID for dedup (client-generated)
+    event_type  VARCHAR NOT NULL,      -- page_view, add_to_cart, purchase, search, remove_from_cart
+    session_id  VARCHAR NOT NULL,
+    user_id     VARCHAR,
+    product_id  VARCHAR,
+    payload     JSON,                  -- flexible per-event-type data
+    timestamp   TIMESTAMP NOT NULL,    -- client timestamp (when action happened)
+    received_at TIMESTAMP DEFAULT now() -- server timestamp (when ingested)
+);
+
+CREATE TABLE session_identity (
+    session_id  VARCHAR NOT NULL,
+    user_id     VARCHAR NOT NULL,
+    linked_at   TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (session_id, user_id)
+);
+```
+
+---
+
+## Event Types
+
+| Type | When | Payload | Generated By |
+|------|------|---------|-------------|
+| `page_view` | Product detail page loads | `{product_id}` | Frontend |
+| `add_to_cart` | Item added to cart | `{product_id, quantity}` | Backend (after route) |
+| `remove_from_cart` | Item removed from cart | `{product_id}` | Backend (after route) |
+| `purchase` | Order completed | `{order_id, total_cents, item_count}` | Backend (after checkout) |
+| `search` | Search performed | `{query, result_count}` | Backend (after search) |
+
+**Client-generated events** (from frontend via `POST /v1/events`): `page_view`
+**Server-generated events** (fire-and-forget after Layer 1 route completes): `add_to_cart`, `remove_from_cart`, `purchase`, `search`
+
+---
+
+## Event Ingestion: Two Paths
+
+### Path 1: Frontend → API Endpoint
+
+```
+POST /v1/events
+Content-Type: application/json
+
+{
+  "events": [
+    {"event_id": "uuid", "event_type": "page_view", "product_id": "lavender-300ml", "timestamp": "..."}
+  ]
+}
+
+Response: 202 Accepted (always, even if analytics is disabled — just drops silently)
+```
+
+- Frontend batches events (send every 5s or on 10 accumulated events)
+- On page unload/tab close: use `navigator.sendBeacon()` to flush remaining events
+- Client generates `event_id` (UUID v4) for dedup — retries are safe
+
+### Path 2: Backend Fire-and-Forget
+
+```python
+# In a Layer 1 route handler, AFTER the response:
+from app.analytics import collect
+
+@router.post("/v1/cart/items")
+async def add_to_cart(request: AddToCartRequest, background_tasks: BackgroundTasks):
+    # ... Layer 1 logic (SQLite) ...
+    result = cart_service.add_item(session_id, request.product_id, request.quantity)
+
+    # Fire-and-forget: never awaited, never blocks, can fail silently
+    background_tasks.add_task(collect, Event(
+        event_type="add_to_cart",
+        session_id=session_id,
+        product_id=request.product_id,
+        payload={"quantity": request.quantity}
+    ))
+
+    return result
+```
+
+---
+
+## JSONL Buffer Layer
+
+### Write Path (Per Event)
+
+```python
+import os, json, time
+
+def write_event_to_jsonl(event: dict):
+    """Append one event as a JSON line. Atomic via O_APPEND."""
+    today = time.strftime("%Y-%m-%d")
+    path = f"data/events/events_{today}.jsonl"
+    line = json.dumps(event) + "\n"
+
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    try:
+        os.write(fd, line.encode())
+    finally:
+        os.close(fd)
+```
+
+### Batch Loader (Background Thread, Every 60s)
+
+```
+1. List all .jsonl files in data/events/ (sorted by date)
+2. For each file (excluding today's — still being written to):
+   a. Read all lines, parse JSON, validate
+   b. INSERT OR IGNORE INTO events (batch of ~1000 rows at a time)
+   c. Move processed file to data/events/archive/ (retain 30 days)
+3. For today's file:
+   a. Read all lines accumulated so far
+   b. INSERT OR IGNORE (dedup handles re-reads safely)
+   c. DON'T move/delete (still being appended to)
+```
+
+**Dedup guarantee:** `event_id` is PRIMARY KEY + `INSERT OR IGNORE`. Re-reading the same JSONL file multiple times is safe.
+
+**Multi-worker safety:** Each worker appends to the same file (O_APPEND). The single batch loader thread reads and loads. No lock file needed — there's only one loader thread (started in the lifespan of worker 0 only, or via a separate systemd timer).
+
+---
+
+## Session Identity
+
+On Google OAuth login:
+1. **Layer 1:** `sessions.user_id = user.id` (SQLite — for cart/orders)
+2. **Layer 2:** Write to JSONL: `{"event_type": "_session_link", "session_id": "...", "user_id": "..."}`
+3. Batch loader inserts into `session_identity` table on next flush
+
+Analytics queries that need user attribution:
+```sql
+SELECT e.*, si.user_id as resolved_user_id
+FROM events e
+LEFT JOIN session_identity si ON e.session_id = si.session_id
+WHERE e.event_type = 'page_view'
+```
+
+Events are NEVER mutated. Old anonymous events stay anonymous in the raw table — linked only at query time.
+
+---
+
+## Frontend Event Tracking (Simple, No SDK)
+
+In the Next.js frontend, a single utility function handles all tracking:
+
+```typescript
+// lib/analytics.ts (~20 lines, not a separate package)
+
+const BUFFER: Event[] = [];
+let timer: ReturnType<typeof setTimeout> | null = null;
+
+export function track(type: string, data?: Record<string, any>) {
+  BUFFER.push({
+    event_id: crypto.randomUUID(),
+    event_type: type,
+    timestamp: new Date().toISOString(),
+    ...data,
+  });
+
+  if (BUFFER.length >= 10) flush();
+  else if (!timer) timer = setTimeout(flush, 5000);
+}
+
+function flush() {
+  if (!BUFFER.length) return;
+  const events = BUFFER.splice(0);
+  // sendBeacon for reliability (works on tab close), fetch as fallback
+  const ok = navigator.sendBeacon('/v1/events', JSON.stringify({ events }));
+  if (!ok) fetch('/v1/events', { method: 'POST', body: JSON.stringify({ events }), keepalive: true });
+  if (timer) { clearTimeout(timer); timer = null; }
+}
+
+// Flush on page unload
+if (typeof window !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flush();
+  });
+}
+```
+
+**No separate SDK package.** No build step. No npm dependency. Just 20 lines in the frontend.
+
+---
+
+## Admin Analytics Queries
+
+| Metric | Query |
+|--------|-------|
+| Revenue/day (30 days) | `SELECT DATE_TRUNC('day', timestamp)::DATE as day, SUM(CAST(payload->>'total_cents' AS INT)) as revenue FROM events WHERE event_type='purchase' AND timestamp > now() - INTERVAL 30 DAY GROUP BY 1 ORDER BY 1` |
+| Top products (by views) | `SELECT product_id, COUNT(*) as views FROM events WHERE event_type='page_view' AND timestamp > now() - INTERVAL 30 DAY GROUP BY 1 ORDER BY 2 DESC LIMIT 20` |
+| Conversion funnel | Unique sessions at each stage: page_view → add_to_cart → purchase |
+| Top search terms | `SELECT payload->>'query' as term, COUNT(*) as searches FROM events WHERE event_type='search' GROUP BY 1 ORDER BY 2 DESC LIMIT 20` |
+| Daily active sessions | `SELECT DATE_TRUNC('day', timestamp)::DATE, COUNT(DISTINCT session_id) FROM events GROUP BY 1` |
+
+---
+
+## Failure Modes
+
+| Failure | Impact on Store | Recovery |
+|---------|----------------|----------|
+| DuckDB corrupted | **None** (Layer 1 uses SQLite only) | Delete analytics.db, replay JSONL archive |
+| JSONL write fails | Single event lost | Log warning, continue |
+| Batch loader dies | JSONL files accumulate (disk space) | Restart process, loader catches up |
+| DuckDB write timeout | Batch skipped, retried next cycle | Self-healing |
+| `data/events/` disk full | New events fail to write | Alert on disk usage, clean archive |
+
+### Rebuild from JSONL
+
+If DuckDB is lost, full rebuild is one command:
+```bash
+# Replay all archived + current JSONL files into a fresh DuckDB
+python -m app.analytics.rebuild
+```
+
+This is why we keep JSONL archives for 30 days — they're the durable source of truth for analytics data.
+
+---
+
+## Configuration
+
+```python
+# In app/config.py (pydantic-settings)
+ANALYTICS_ENABLED: bool = True              # Master kill switch
+ANALYTICS_DB_PATH: str = "data/analytics.db"
+ANALYTICS_EVENTS_DIR: str = "data/events"   # JSONL files written here
+ANALYTICS_ARCHIVE_DIR: str = "data/events/archive"
+ANALYTICS_FLUSH_INTERVAL: int = 60          # seconds between batch loads
+ANALYTICS_ARCHIVE_RETENTION_DAYS: int = 30  # days to keep archived JSONL
+```
+
+---
+
+## Disk Layout
+
+```
+data/
+├── atelier.db                    # SQLite (Layer 1 — system of record)
+├── analytics.db                  # DuckDB (Layer 2 — can be rebuilt)
+├── events/
+│   ├── events_2026-07-05.jsonl   # Today's events (being appended to)
+│   ├── events_2026-07-04.jsonl   # Yesterday (loaded but not yet archived)
+│   └── archive/
+│       ├── events_2026-07-03.jsonl.gz  # Compressed, 30-day retention
+│       └── events_2026-07-02.jsonl.gz
+└── backups/
+    └── atelier-2026-07-05.db     # Daily SQLite backup
+```
