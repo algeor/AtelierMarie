@@ -1,0 +1,71 @@
+## ADDED Requirements
+
+### Requirement: Session middleware validates X-Session-ID header
+The system SHALL read the `X-Session-ID` header from every incoming HTTP request. For event endpoints (`/v1/events/*`) and session endpoints (`/v1/sessions/*`), the system SHALL reject requests with a missing or invalid header with HTTP 400. For all other endpoints, missing session headers SHALL be silently ignored.
+
+#### Scenario: Valid session_id on event endpoint
+- **WHEN** a request to `POST /v1/events` includes header `X-Session-ID: <valid-uuid-v4>`
+- **THEN** the request proceeds to the handler with `session_id` available in request state
+
+#### Scenario: Missing session_id on event endpoint
+- **WHEN** a request to `POST /v1/events` has no `X-Session-ID` header
+- **THEN** the system returns HTTP 400 with error body `{"detail": "X-Session-ID header required"}`
+
+#### Scenario: Invalid session_id format
+- **WHEN** a request includes `X-Session-ID: not-a-uuid`
+- **THEN** the system returns HTTP 400 with error body `{"detail": "X-Session-ID must be a valid UUID v4"}`
+
+#### Scenario: Missing session_id on public endpoint
+- **WHEN** a request to `GET /v1/products` has no `X-Session-ID` header
+- **THEN** the request proceeds normally without session tracking
+
+### Requirement: Session middleware upserts session state in memory cache
+The system SHALL maintain an in-memory cache of active sessions. On every valid request with a session_id, the system SHALL update the session's `last_seen` timestamp. If the session_id is not in the cache, the system SHALL create a new entry with `first_seen` and `last_seen` set to the current UTC time.
+
+#### Scenario: First request from new session
+- **WHEN** a request arrives with a session_id not present in the cache
+- **THEN** a new session record is created with `first_seen = now()`, `last_seen = now()`, `user_id = None`, `is_expired = False`
+
+#### Scenario: Subsequent request from existing session
+- **WHEN** a request arrives with a session_id already in the cache
+- **THEN** the session's `last_seen` is updated to the current UTC time
+
+### Requirement: Session middleware communicates expiry via response header
+The system SHALL include `X-Session-Expired: true` in the response headers when the session_id in the request corresponds to an expired session. The system SHALL still process the request normally (graceful degradation).
+
+#### Scenario: Request with expired session
+- **WHEN** a request arrives with a session_id that is marked as expired in the cache
+- **THEN** the response includes header `X-Session-Expired: true` AND the request is processed normally
+
+#### Scenario: Request with active session
+- **WHEN** a request arrives with a session_id that is not expired
+- **THEN** the response does NOT include the `X-Session-Expired` header
+
+### Requirement: Session status endpoint
+The system SHALL expose `GET /v1/sessions/{session_id}/status` returning the current state of a session including user_id, expiry status, first_seen, and last_seen timestamps.
+
+#### Scenario: Query existing session
+- **WHEN** `GET /v1/sessions/{session_id}/status` is called with a known session_id
+- **THEN** the response is HTTP 200 with body `{"session_id": "...", "user_id": null | "...", "is_expired": bool, "first_seen": "ISO8601", "last_seen": "ISO8601"}`
+
+#### Scenario: Query unknown session
+- **WHEN** `GET /v1/sessions/{session_id}/status` is called with an unknown session_id
+- **THEN** the response is HTTP 404 with body `{"detail": "Session not found"}`
+
+### Requirement: Session cache rebuilds on startup
+The system SHALL rebuild the in-memory session cache from DuckDB's `session_identity` table on application startup. Only active (non-expired) sessions SHALL be loaded into the cache.
+
+#### Scenario: Application startup with existing sessions
+- **WHEN** the application starts and DuckDB contains active sessions in `session_identity`
+- **THEN** all active sessions are loaded into the in-memory cache with their persisted state
+
+#### Scenario: Application startup with empty database
+- **WHEN** the application starts and `session_identity` table is empty or does not exist
+- **THEN** the cache starts empty and the table is created if it does not exist
+
+### Requirement: Session cache flushes on graceful shutdown
+The system SHALL flush all dirty cache entries to DuckDB during graceful shutdown (SIGTERM/lifespan shutdown) to minimize data loss.
+
+#### Scenario: Graceful shutdown with dirty cache
+- **WHEN** the application receives SIGTERM and the cache has entries not yet persisted
+- **THEN** all dirty entries are written to `session_identity` in DuckDB before the process exits
