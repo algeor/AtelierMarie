@@ -16,7 +16,7 @@ AtelierMarie has an event pipeline (JSONL → DuckDB), a product catalog (SQLite
 **Goals:**
 - Capture orders as ACID-guaranteed transactional records in SQLite
 - Emit purchase events to ML pipeline (fire-and-forget, post-commit)
-- Support stateless checkout — no server-side cart
+- Support both cart-based checkout (POST /v1/cart/checkout, primary user flow) and direct order creation (POST /v1/orders, programmatic/API use)
 - Enforce valid order status transitions via state machine
 - Snapshot price at purchase time (immutable once ordered)
 - Allow anonymous checkout with session_id linkage
@@ -24,8 +24,7 @@ AtelierMarie has an event pipeline (JSONL → DuckDB), a product catalog (SQLite
 
 **Non-Goals:**
 - Online payment processing (no Stripe, PayPal, Google Pay, Apple Pay)
-- Server-side cart management or reservation/hold system
-- Inventory tracking or stock validation
+- Inventory tracking or stock validation (delegated to product-catalog and cart-management)
 - Order notifications (email, push)
 - Discount codes or pricing rules
 - Multi-currency or tax calculation
@@ -53,15 +52,19 @@ AtelierMarie has an event pipeline (JSONL → DuckDB), a product catalog (SQLite
 
 **Rationale:** Simple, compact, naturally ordered (newest = highest). The anonymous access pattern (session_id match required) provides sufficient security for MVP. Migration to UUIDs is trivial if the platform goes public.
 
-### 3. Stateless checkout (no server-side cart)
+### 3. Dual checkout paths (cart-based + direct)
 
-**Decision:** Checkout endpoint receives the full items list directly. No cart table, no cart sessions.
+**Decision:** Two ways to create orders:
+1. `POST /v1/cart/checkout` — primary user flow. Reads items from server-side cart (managed by cart-management change). No request body needed.
+2. `POST /v1/orders` — programmatic/API flow. Accepts items array directly in request body.
+
+Both use the same `order_service.create_order()` function underneath. The difference is only in where items come from.
 
 **Alternatives considered:**
-- *Server-side cart with expiry*: Adds table, cleanup job, TTL management. Cart events for ML are already captured via the event pipeline without needing a cart table. Rejected.
-- *Redis cart*: External dependency, zero-budget violation. Rejected.
+- *Cart-only checkout*: Forces all order creation through cart. Blocks programmatic bulk ordering, testing, and admin operations. Rejected.
+- *Stateless-only (no server cart)*: Frontend holds all cart state; checkout sends full items list. Loses cart persistence across tabs/devices, requires client-side stock validation. Rejected for luxury UX.
 
-**Rationale:** The frontend holds cart state. Cart behavioral signals (`add_to_cart`, `remove_from_cart`) are already captured as events. The server only needs the final purchase intent. Eliminates an entire class of cart lifecycle complexity.
+**Rationale:** The server-side cart (from cart-management) gives the luxury UX expected — persistent, multi-tab, server-validated. The direct endpoint keeps the API flexible for future integrations (POS, wholesale, admin order creation).
 
 ### 4. Fire-and-forget event emission with structured logging
 

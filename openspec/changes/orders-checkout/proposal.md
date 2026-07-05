@@ -5,7 +5,7 @@ AtelierMarie needs to capture purchases as transactional records to serve as the
 ## What Changes
 
 - New `orders` and `order_items` SQLite tables with full status lifecycle
-- `POST /v1/orders` — stateless checkout endpoint (no server-side cart)
+- `POST /v1/orders` — direct order creation endpoint (accepts items in request body for programmatic/API use)
 - `GET /v1/orders` — paginated order history for authenticated users
 - `GET /v1/orders/{id}` — order detail with items (auth or session-match for anonymous)
 - `PATCH /v1/orders/{id}/status` — admin-only status transitions with state machine validation
@@ -14,6 +14,7 @@ AtelierMarie needs to capture purchases as transactional records to serve as the
 - Price snapshot at purchase time (`price_at_purchase` per item, immutable)
 - Order status state machine: pending → confirmed → shipped → delivered, with cancel/refund branches
 - `payment_method` enum field on orders (MVP: "cod" only, extensible for future methods)
+- Integration with cart-management: `POST /v1/cart/checkout` delegates to order creation service (items sourced from server cart)
 
 ## Capabilities
 

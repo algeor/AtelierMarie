@@ -51,3 +51,29 @@ The system SHALL provide an internal service function `get_user_by_id(user_id: i
 #### Scenario: Lookup non-existent user
 - **WHEN** `get_user_by_id(999)` is called and no user with id=999 exists
 - **THEN** `None` is returned
+
+### Requirement: First user auto-promoted to admin
+The system SHALL automatically set `is_admin = TRUE` on the first user record created via Google OAuth. This bootstraps admin access for the platform operator without manual database intervention. Subsequent users SHALL have `is_admin = FALSE` by default.
+
+#### Scenario: First Google sign-in becomes admin
+- **WHEN** the OAuth callback creates a user AND the `users` table was previously empty (no rows)
+- **THEN** the new user record is created with `is_admin = TRUE`
+
+#### Scenario: Subsequent sign-ins are not admin
+- **WHEN** the OAuth callback creates a new user AND at least one user already exists
+- **THEN** the new user record is created with `is_admin = FALSE`
+
+#### Scenario: Admin flag persists on returning user
+- **WHEN** an existing admin user (is_admin=TRUE) logs in again
+- **THEN** the `is_admin` flag is NOT modified during the upsert (remains TRUE)
+
+### Requirement: Users table includes is_admin column
+The system SHALL include an `is_admin` (BOOLEAN DEFAULT FALSE) column in the `users` table for role-based access control of admin endpoints (dashboard, product management).
+
+#### Scenario: Default non-admin user
+- **WHEN** a user record is created without explicit is_admin value
+- **THEN** `is_admin` defaults to FALSE
+
+#### Scenario: Admin check available via user object
+- **WHEN** the `get_current_user` dependency resolves a user from JWT
+- **THEN** the returned user object includes the `is_admin` field for downstream authorization checks

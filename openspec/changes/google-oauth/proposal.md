@@ -4,7 +4,7 @@ The platform tracks anonymous behavior via sessions and events, but has no conce
 
 ## What Changes
 
-- Add a `users` table in SQLite (google_id, email, name, avatar_url, timestamps)
+- Add a `users` table in SQLite (google_id, email, name, avatar_url, is_admin, timestamps)
 - Implement Google OAuth 2.0 authorization code flow via direct HTTP calls (no third-party OAuth libraries)
 - Add four auth endpoints: `GET /v1/auth/google/login`, `GET /v1/auth/google/callback`, `POST /v1/auth/logout`, `GET /v1/auth/me`
 - Issue JWT session tokens (HS256, 7-day lifetime) containing user_id + session_id for lightweight session-validated auth
@@ -21,7 +21,7 @@ The platform tracks anonymous behavior via sessions and events, but has no conce
 
 - `oauth-flow`: Google OAuth 2.0 authorization code flow — login redirect, callback handling, state token CSRF protection, Google ID token verification via JWKS, and user record upsert
 - `jwt-auth`: JWT session token issuance and validation — HS256 signing, session-validated decode, FastAPI auth dependencies (optional and required), and logout/session-rotation integration
-- `user-profile`: User management — SQLite users table, create-or-update on OAuth login, profile read endpoint (`/auth/me`)
+- `user-profile`: User management — SQLite users table with is_admin flag, create-or-update on OAuth login, profile read endpoint (`/auth/me`), first-user-as-admin bootstrap logic
 
 ### Modified Capabilities
 

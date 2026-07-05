@@ -16,7 +16,7 @@ AtelierMarie is event-first, but events reference product IDs that don't exist y
 ### New Capabilities
 
 - `product-crud`: Admin CRUD operations (create, read, update, soft-delete) with pagination and filtering
-- `product-public-api`: Public read-only endpoint serving active products with category filtering
+- `product-public-api`: Public read-only endpoint serving active products with category filtering, text search (GET /v1/products/search?q=), stock quantity visibility, and atomic stock decrement service for cart/checkout
 - `product-import`: CSV bulk import with upsert semantics, streaming parse, and error reporting
 - `admin-auth`: API key bearer token authentication for `/v1/admin/*` routes
 
