@@ -224,6 +224,36 @@ CSV columns: id, name, description, price_cents, category, stock, image_url
 - Returns: `{created: N, updated: N, errors: [{row, message}]}`
 - Skips rows with validation errors, continues processing
 
+### Product Image Upload
+
+Admin uploads product photos through the admin panel (or API):
+
+```
+POST /v1/admin/products/{id}/image
+Content-Type: multipart/form-data
+Body: file (JPEG or PNG, max 5MB)
+```
+
+**Processing pipeline:**
+1. Validate file type (JPEG/PNG only) and size (≤5MB)
+2. Resize to standard dimensions:
+   - **Main image:** max 1200×1500px (preserving aspect ratio)
+   - **Thumbnail:** 400×500px (for product grid cards)
+3. Convert to WebP (smaller file size, modern browser support) with JPEG fallback
+4. Save to disk:
+   - `/opt/atelier/static/products/{product_id}.webp` (main)
+   - `/opt/atelier/static/products/{product_id}_thumb.webp` (thumbnail)
+5. Update `products.image_url` → `/static/products/{product_id}.webp`
+
+**Serving:**
+- Nginx serves `/static/` directly from disk (no Python involvement)
+- `Cache-Control: public, max-age=2592000` (30 days — images rarely change)
+- Next.js `<Image>` component handles lazy loading + responsive `srcset`
+
+**If no image uploaded:** Show a styled placeholder (CSS gradient in brand colors with product name overlaid). No broken image icons ever.
+
+**Dependencies:** Pillow (Python image library) for resize + WebP conversion.
+
 ### Product Search
 
 `GET /v1/products?q=lavender&category=dessert&sort=price_asc&page=1&limit=20`

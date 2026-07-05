@@ -56,6 +56,15 @@
 - [ ] Link session to user on login (update sessions.user_id)
 - [ ] Write tests for auth (mock Google OAuth, first-admin, session rotation)
 
+## Product Images (Day 5, alongside auth)
+
+- [ ] Add Pillow dependency
+- [ ] Create `app/services/image_service.py` (validate, resize to 1200×1500 + 400×500 thumb, convert to WebP)
+- [ ] Create `POST /v1/admin/products/{id}/image` endpoint (multipart upload, max 5MB)
+- [ ] Create `/static/products/` directory, configure Nginx to serve it with 30-day cache
+- [ ] Styled CSS placeholder for products without images (brand gradient + product name)
+- [ ] Write tests (upload JPEG, verify WebP output, reject oversized/wrong type)
+
 ## Frontend (Days 6–9)
 
 - [ ] Init Next.js project in `frontend/`
