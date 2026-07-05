@@ -1,3 +1,7 @@
 .venv
 .claude
 .idea
+__pycache__/
+*.pyc
+*.egg-info/
+*.db
