@@ -48,7 +48,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         aria-disabled={isDisabled || undefined}
         className={cn(
           "inline-flex items-center justify-center gap-2 rounded-brand font-medium",
-          "transition-all duration-fast ease-brand",
+          "transition-colors duration-fast ease-brand",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory",
           "disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:no-underline",
           variantStyles[variant],
@@ -60,7 +60,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         {isLoading && (
           <svg
             aria-hidden="true"
-            className="h-4 w-4 animate-spin"
+            className="h-4 w-4 animate-spin motion-reduce:animate-none"
             xmlns="http://www.w3.org/2000/svg"
             fill="none"
             viewBox="0 0 24 24"
