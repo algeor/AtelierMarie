@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 *.egg-info/
 *.db
+node_modules/
 
 # Environment files (may contain secrets)
 .env
