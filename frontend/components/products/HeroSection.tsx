@@ -4,10 +4,7 @@ import { Button } from "@/components/ui/Button";
 export function HeroSection() {
   return (
     <section
-      className="w-full py-24 md:py-32 lg:py-40 px-4 sm:px-6 lg:px-8 flex flex-col items-center text-center"
-      style={{
-        background: "linear-gradient(135deg, #FFFDF7 0%, #E8C4B8 100%)",
-      }}
+      className="w-full py-24 md:py-32 lg:py-40 px-4 sm:px-6 lg:px-8 flex flex-col items-center text-center bg-brand-gradient"
     >
       <h1 className="font-heading text-4xl md:text-5xl lg:text-6xl text-charcoal max-w-3xl">
         Luxury Handcrafted Candles

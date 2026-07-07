@@ -29,12 +29,9 @@ export function ProductImage({
         role="img"
         aria-label={name}
         className={cn(
-          "relative w-full aspect-[4/5] rounded-brand overflow-hidden flex items-center justify-center px-4",
+          "relative w-full aspect-[4/5] rounded-brand overflow-hidden flex items-center justify-center px-4 bg-brand-gradient",
           className
         )}
-        style={{
-          background: "linear-gradient(135deg, #FFFDF7 0%, #E8C4B8 100%)",
-        }}
       >
         <span className="font-heading text-lg text-charcoal/80 text-center line-clamp-2">
           {name}

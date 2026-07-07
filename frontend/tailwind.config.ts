@@ -34,6 +34,9 @@ const config: Config = {
       transitionTimingFunction: {
         brand: "cubic-bezier(0.4, 0, 0.2, 1)",
       },
+      backgroundImage: {
+        "brand-gradient": "linear-gradient(135deg, #FFFDF7 0%, #E8C4B8 100%)",
+      },
     },
   },
   plugins: [],

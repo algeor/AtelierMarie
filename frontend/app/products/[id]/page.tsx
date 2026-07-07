@@ -15,9 +15,9 @@ export async function generateMetadata({
 }: ProductPageProps): Promise<Metadata> {
   try {
     const product = await getProduct(params.id);
-    return { title: `${product.name} | Atelier Marie` };
+    return { title: product.name };
   } catch {
-    return { title: "Product Not Found | Atelier Marie" };
+    return { title: "Product Not Found" };
   }
 }
 
@@ -81,7 +81,8 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
                 Crafting Time
               </h2>
               <p className="text-soft-brown text-sm">
-                Lovingly handcrafted over {product.days_to_craft} days
+                Lovingly handcrafted over {product.days_to_craft}{" "}
+                {product.days_to_craft === 1 ? "day" : "days"}
               </p>
             </div>
           )}
