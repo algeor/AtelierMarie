@@ -11,11 +11,14 @@ export function cn(...inputs: ClassValue[]) {
 
 /**
  * Format a price in cents to a display string.
- * Example: formatPrice(3200) => "$32.00"
+ * Uses euro prefix with period decimal separator (luxury brand aesthetic).
+ * Example: formatPrice(3200) => "€32.00"
+ * Throws on negative, NaN, or Infinity.
  */
 export function formatPrice(cents: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(cents / 100);
+  if (!Number.isFinite(cents) || cents < 0) {
+    throw new Error(`Invalid price value: ${cents}`);
+  }
+  const euros = cents / 100;
+  return `€${euros.toFixed(2)}`;
 }

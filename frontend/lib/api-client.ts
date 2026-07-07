@@ -63,6 +63,7 @@ export async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     credentials: "include",
     headers: { Accept: "application/json" },
+    cache: "no-store",
   });
   return handleResponse<T>(res);
 }

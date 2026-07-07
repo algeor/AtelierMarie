@@ -18,8 +18,10 @@ const config: Config = {
         "muted-gold": "#C4A265",
       },
       fontFamily: {
-        heading: ["var(--font-heading)", "serif"],
-        body: ["var(--font-body)", "sans-serif"],
+        heading: ["var(--font-playfair)", "serif"],
+        body: ["var(--font-inter)", "sans-serif"],
+        sans: ["var(--font-inter)", "sans-serif"],
+        serif: ["var(--font-playfair)", "serif"],
       },
       borderRadius: {
         brand: "8px",
@@ -31,6 +33,9 @@ const config: Config = {
       },
       transitionTimingFunction: {
         brand: "cubic-bezier(0.4, 0, 0.2, 1)",
+      },
+      backgroundImage: {
+        "brand-gradient": "linear-gradient(135deg, #FFFDF7 0%, #E8C4B8 100%)",
       },
     },
   },
