@@ -23,7 +23,7 @@
 ## Session + Cart (Day 3)
 
 - [ ] Define `sessions` and `cart_items` table schemas
-- [ ] Create `app/middleware/session.py` (cookie-based session creation/validation, sliding 30-day expiry)
+- [ ] Upgrade `app/middleware/session.py` to eager DB sessions: INSERT row on new visit, validate + UPDATE expires_at on returning visit, import `get_db()`, handle expired/invalid cookies as new visitors
 - [ ] Create `app/models/cart.py` (CartItem, CartResponse, AddToCartRequest)
 - [ ] Create `app/services/cart_service.py` (get_cart, add_item, update_quantity, remove_item)
 - [ ] Stock validation on add (immediate 409 if out of stock, not just at checkout)

@@ -41,15 +41,17 @@ The system is split into two strict layers:
 │  │ LAYER 1 — PRODUCTION (synchronous, <200ms)                     │   │
 │  │                                                                 │   │
 │  │  GET /v1/products          GET /v1/cart                         │   │
-│  │  GET /v1/products/{id}     POST /v1/cart/items                  │   │
-│  │  POST /v1/admin/products   PATCH /v1/cart/items/{id}            │   │
-│  │  PUT /v1/admin/products    DELETE /v1/cart/items/{id}           │   │
+│  │  GET /v1/products/{id}     POST /v1/cart                        │   │
+│  │  POST /v1/admin/products   PATCH /v1/cart/{product_id}          │   │
+│  │  PUT /v1/admin/products    DELETE /v1/cart/{product_id}         │   │
 │  │                                                                 │   │
 │  │  POST /v1/orders           GET /v1/auth/login                   │   │
 │  │  GET /v1/orders            GET /v1/auth/callback                │   │
 │  │  GET /v1/orders/{id}       GET /v1/auth/me                      │   │
+│  │                            POST /v1/auth/logout                 │   │
 │  │                                                                 │   │
 │  │  GET /v1/admin/orders      GET /v1/admin/dashboard              │   │
+│  │                            POST /v1/admin/products/{id}/image   │   │
 │  │                                                                 │   │
 │  └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘   │
 │         │                                                                │
@@ -187,7 +189,7 @@ Browser → GET /v1/products → SELECT FROM products WHERE is_active=1 → JSON
 
 **Add to cart:**
 ```
-Browser → POST /v1/cart/items {product_id, quantity}
+Browser → POST /v1/cart {product_id, quantity}
   → Validate stock (SELECT stock FROM products)
   → INSERT/UPDATE cart_items
   → Return updated cart (~50ms)
@@ -228,18 +230,20 @@ Login is an OVERLAY, not a prerequisite.
 | GET | `/v1/products` | Public | List/search active products |
 | GET | `/v1/products/{id}` | Public | Product detail |
 | GET | `/v1/cart` | Session | Get cart contents with product info |
-| POST | `/v1/cart/items` | Session | Add item to cart |
-| PATCH | `/v1/cart/items/{product_id}` | Session | Update quantity |
-| DELETE | `/v1/cart/items/{product_id}` | Session | Remove from cart |
+| POST | `/v1/cart` | Session | Add item to cart |
+| PATCH | `/v1/cart/{product_id}` | Session | Update quantity |
+| DELETE | `/v1/cart/{product_id}` | Session | Remove from cart |
 | POST | `/v1/orders` | Session | Create order (checkout) |
 | GET | `/v1/orders` | Session/JWT | List orders |
 | GET | `/v1/orders/{id}` | Session/JWT | Order detail |
 | GET | `/v1/auth/login` | Public | Google OAuth redirect |
 | GET | `/v1/auth/callback` | Public | OAuth callback |
 | GET | `/v1/auth/me` | JWT | Current user |
+| POST | `/v1/auth/logout` | JWT/Session | Logout (clear JWT, rotate session) |
 | POST | `/v1/admin/products` | Admin | Create product |
 | PUT | `/v1/admin/products/{id}` | Admin | Update product |
 | POST | `/v1/admin/products/import` | Admin | CSV bulk import |
+| POST | `/v1/admin/products/{id}/image` | Admin | Upload product image |
 | DELETE | `/v1/admin/products/{id}` | Admin | Deactivate product |
 | GET | `/v1/admin/orders` | Admin | All orders (paginated) |
 | PATCH | `/v1/admin/orders/{id}/status` | Admin | Update order status |

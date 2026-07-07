@@ -1,6 +1,5 @@
 """Shared test fixtures for Atelier Marie."""
 
-import os
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -17,13 +16,13 @@ def db_path(tmp_path) -> str:
 
 
 @pytest.fixture()
-def app(db_path):
+def app(db_path, monkeypatch):
     """Create a FastAPI app configured for testing with an isolated database.
 
     Initializes the DB here because ASGITransport does not trigger ASGI
     lifespan events — the lifespan's init_db() only runs in production.
     """
-    os.environ["DATABASE_PATH"] = db_path
+    monkeypatch.setenv("DATABASE_PATH", db_path)
 
     # Clear the cached settings so it rebuilds from the new env var
     get_settings.cache_clear()
@@ -64,12 +63,16 @@ async def client(app) -> AsyncGenerator[AsyncClient, None]:
 def session_id(app, db_path) -> str:
     """Insert a valid session row and return its ID for use in authenticated requests."""
     import sqlite3
+    from datetime import UTC, datetime, timedelta
 
-    sid = "test-session-id"
+    sid = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+    now = datetime.now(UTC)
+    expires_at = now + timedelta(days=30)
+    fmt = "%Y-%m-%d %H:%M:%S"
     conn = sqlite3.connect(db_path)
     conn.execute(
-        "INSERT INTO sessions (id, expires_at) VALUES (?, datetime('now', '+30 days'))",
-        (sid,),
+        "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
+        (sid, now.strftime(fmt), expires_at.strftime(fmt)),
     )
     conn.commit()
     conn.close()

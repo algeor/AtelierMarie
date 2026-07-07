@@ -1,7 +1,12 @@
 .venv
-.claude
 .idea
 __pycache__/
 *.pyc
 *.egg-info/
 *.db
+
+# Environment files (may contain secrets)
+.env
+.env.*
+!.env.example
+!frontend/.env.local.example

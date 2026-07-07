@@ -126,6 +126,22 @@ Edge cases:
 - **Expiry:** 30-day sliding window. Each request extends `expires_at` by 30 days.
 - **Cleanup:** Expired sessions cleaned up by a periodic query (daily, or on-read check)
 
+#### Decision: Eager DB Row Creation (Option A)
+
+The session middleware creates the `sessions` DB row **on first request** (not lazily on first cart action). Rationale:
+
+- FK constraint `cart_items.session_id → sessions.id` requires the row to exist before any cart insert
+- Sliding expiry needs the row to UPDATE `expires_at` on every request
+- SQLite INSERT is <1ms — negligible cost at this scale (~100 customers, not millions of bots)
+- Downstream code can always assume `request.state.session_id` has a matching DB row
+
+The middleware imports `get_db()` directly. On each request:
+1. **No cookie / cookie not in DB / expired row** → generate UUID, INSERT session row, set cookie
+2. **Valid cookie, row exists** → UPDATE `expires_at` to now+30 days (sliding window)
+3. Always set `request.state.session_id`
+
+Stale/bot sessions are handled by periodic cleanup (DELETE WHERE expires_at < now).
+
 ### Session Rotation on Logout
 
 When a user logs out:
