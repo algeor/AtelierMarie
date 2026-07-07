@@ -18,8 +18,10 @@ const config: Config = {
         "muted-gold": "#C4A265",
       },
       fontFamily: {
-        heading: ["var(--font-heading)", "serif"],
-        body: ["var(--font-body)", "sans-serif"],
+        heading: ["var(--font-playfair)", "serif"],
+        body: ["var(--font-inter)", "sans-serif"],
+        sans: ["var(--font-inter)", "sans-serif"],
+        serif: ["var(--font-playfair)", "serif"],
       },
       borderRadius: {
         brand: "8px",
