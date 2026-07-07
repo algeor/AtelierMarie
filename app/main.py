@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from app.config import settings
+from app.config import get_settings
 from app.database import init_db
 from app.middleware.session import SessionMiddleware
 
@@ -14,7 +14,7 @@ from app.middleware.session import SessionMiddleware
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: initialize database on startup."""
-    init_db(settings.database_path)
+    init_db(get_settings().database_path)
     yield
 
 

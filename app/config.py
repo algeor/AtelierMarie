@@ -1,5 +1,7 @@
 """Application configuration via environment variables."""
 
+from functools import lru_cache
+
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
@@ -39,5 +41,8 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         return self
 
+@lru_cache
+def get_settings() -> Settings:
+    """Return cached Settings instance. Call get_settings.cache_clear() in tests."""
+    return Settings()
 
-settings = Settings()
