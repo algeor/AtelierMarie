@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-warm-ivory text-soft-brown font-body antialiased;
+    scroll-behavior: smooth;
+  }
+
+  h1 {
+    @apply font-heading text-3xl leading-tight text-charcoal;
+  }
+
+  h2 {
+    @apply font-heading text-2xl leading-tight text-charcoal;
+  }
+
+  h3 {
+    @apply font-heading text-xl leading-snug text-charcoal;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

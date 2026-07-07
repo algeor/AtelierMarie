@@ -1,6 +1,13 @@
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
 /**
- * Shared utility functions.
+ * Merge Tailwind classes with conflict resolution.
+ * Uses clsx for conditional logic and tailwind-merge for deduplication.
  */
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
 
 /**
  * Format a price in cents to a display string.
