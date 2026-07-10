@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useCart } from "@/contexts/CartContext";
 import { Button } from "@/components/ui/Button";
 import { QuantitySelector } from "./QuantitySelector";
 
@@ -10,21 +11,27 @@ interface AddToCartSectionProps {
 }
 
 export function AddToCartSection({ productId, stock }: AddToCartSectionProps) {
+  const { addToCart, openDrawer } = useCart();
   const [quantity, setQuantity] = useState(1);
-  const [isConfirming, setIsConfirming] = useState(false);
+  const [status, setStatus] = useState<"idle" | "loading" | "success">("idle");
 
   const isOutOfStock = stock === 0;
 
-  function handleAddToCart() {
-    if (isConfirming || isOutOfStock) return;
+  async function handleAddToCart() {
+    if (status !== "idle" || isOutOfStock) return;
 
-    // Day 3 stub — will wire to cart API in Day 4
-    console.log(`[stub] Add to cart: ${productId} x${quantity}`);
-
-    setIsConfirming(true);
-    setTimeout(() => {
-      setIsConfirming(false);
-    }, 1500);
+    setStatus("loading");
+    try {
+      await addToCart(productId, quantity);
+      setStatus("success");
+      openDrawer();
+      setTimeout(() => {
+        setStatus("idle");
+        setQuantity(1);
+      }, 1500);
+    } catch {
+      setStatus("idle");
+    }
   }
 
   return (
@@ -39,20 +46,23 @@ export function AddToCartSection({ productId, stock }: AddToCartSectionProps) {
 
       <Button
         onClick={handleAddToCart}
-        disabled={isOutOfStock || isConfirming}
+        disabled={isOutOfStock || status !== "idle"}
+        isLoading={status === "loading"}
         size="lg"
         className="w-full sm:w-auto"
       >
         {isOutOfStock
           ? "Out of Stock"
-          : isConfirming
+          : status === "success"
             ? "Added ✓"
             : "Add to Cart"}
       </Button>
 
       {/* Screen reader announcement */}
       <div aria-live="polite" role="status" className="sr-only">
-        {isConfirming ? `Added ${quantity} item${quantity > 1 ? "s" : ""} to cart` : ""}
+        {status === "success"
+          ? `Added ${quantity} item${quantity > 1 ? "s" : ""} to cart`
+          : ""}
       </div>
     </div>
   );

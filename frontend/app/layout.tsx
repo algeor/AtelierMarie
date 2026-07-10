@@ -3,6 +3,8 @@ import { Playfair_Display, Inter } from "next/font/google";
 import { AnnouncementBar } from "@/components/layout/AnnouncementBar";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
+import { CartProvider } from "@/contexts/CartContext";
+import { CartDrawer } from "@/components/cart/CartDrawer";
 import "./globals.css";
 
 const playfair = Playfair_Display({
@@ -36,10 +38,13 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${playfair.variable} ${inter.variable}`}>
       <body className="font-sans">
-        <AnnouncementBar />
-        <Header />
-        <main>{children}</main>
-        <Footer />
+        <CartProvider>
+          <AnnouncementBar />
+          <Header />
+          <CartDrawer />
+          <main>{children}</main>
+          <Footer />
+        </CartProvider>
       </body>
     </html>
   );

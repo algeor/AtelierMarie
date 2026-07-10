@@ -37,6 +37,21 @@ const config: Config = {
       backgroundImage: {
         "brand-gradient": "linear-gradient(135deg, #FFFDF7 0%, #E8C4B8 100%)",
       },
+      keyframes: {
+        "badge-bounce": {
+          "0%, 100%": { transform: "scale(1)" },
+          "50%": { transform: "scale(1.3)" },
+        },
+        checkmark: {
+          "0%": { transform: "scale(0)", opacity: "0" },
+          "50%": { transform: "scale(1.2)", opacity: "1" },
+          "100%": { transform: "scale(1)", opacity: "1" },
+        },
+      },
+      animation: {
+        "badge-bounce": "badge-bounce 300ms ease-in-out",
+        checkmark: "checkmark 400ms ease-out forwards",
+      },
     },
   },
   plugins: [],

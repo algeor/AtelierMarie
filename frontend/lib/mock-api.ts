@@ -5,6 +5,7 @@
 
 import type {
   AuthTokenResponse,
+  CartItemResponse,
   CartResponse,
   CreateOrderRequest,
   OrderListResponse,
@@ -19,6 +20,19 @@ import { ApiError } from "./api-client";
 
 function mockError(code: string, message: string): never {
   throw new ApiError({ error: { code, message, details: null } });
+}
+
+/** Simulate network latency (50–150ms). */
+function delay(): Promise<void> {
+  const ms = 50 + Math.floor(Math.random() * 100);
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Generate a UUID-like identifier for orders. */
+function generateOrderId(): string {
+  const hex = () => Math.floor(Math.random() * 16).toString(16);
+  const seg = (n: number) => Array.from({ length: n }, hex).join("");
+  return `${seg(8)}-${seg(4)}-4${seg(3)}-${seg(4)}-${seg(12)}`;
 }
 
 // --- Mock Data ---
@@ -102,13 +116,16 @@ interface MockCartItem {
   added_at: string;
 }
 
-let mockCart: MockCartItem[] = [
-  { product_id: "lavender-dreams-300ml", quantity: 2, added_at: "2024-06-10T15:30:00Z" },
-  { product_id: "midnight-amber-300ml", quantity: 1, added_at: "2024-06-10T15:32:00Z" },
-];
+let mockCartItems: MockCartItem[] = [];
+
+// --- In-Memory Order Store ---
+
+const mockOrders: OrderResponse[] = [];
+
+// --- Cart Helpers ---
 
 function buildCartResponse(): CartResponse {
-  const items = mockCart
+  const items: CartItemResponse[] = mockCartItems
     .map((ci) => {
       const product = MOCK_PRODUCTS.find((p) => p.id === ci.product_id);
       if (!product) return null;
@@ -138,6 +155,7 @@ export async function getProducts(
   page = 1,
   limit = 20
 ): Promise<ProductListResponse> {
+  await delay();
   if (limit > 100) mockError("VALIDATION_ERROR", "Limit exceeds maximum of 100");
   const active = MOCK_PRODUCTS.filter((p) => p.is_active);
   const start = (page - 1) * limit;
@@ -153,12 +171,14 @@ export async function getProducts(
 export async function getProduct(
   productId: string
 ): Promise<ProductResponse> {
+  await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId && p.is_active);
   if (!product) mockError("NOT_FOUND", `Product ${productId} not found`);
   return product;
 }
 
 export async function getCart(): Promise<CartResponse> {
+  await delay();
   return buildCartResponse();
 }
 
@@ -166,17 +186,22 @@ export async function addToCart(
   productId: string,
   quantity = 1
 ): Promise<CartResponse> {
+  await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId && p.is_active);
   if (!product) mockError("NOT_FOUND", `Product ${productId} not found`);
-  if (product.stock < quantity) {
+
+  const existing = mockCartItems.find((ci) => ci.product_id === productId);
+  const currentQty = existing ? existing.quantity : 0;
+  const requestedTotal = currentQty + quantity;
+
+  if (requestedTotal > product.stock) {
     mockError("CONFLICT", `Insufficient stock for ${productId}`);
   }
 
-  const existing = mockCart.find((ci) => ci.product_id === productId);
   if (existing) {
-    existing.quantity += quantity;
+    existing.quantity = requestedTotal;
   } else {
-    mockCart.push({
+    mockCartItems.push({
       product_id: productId,
       quantity,
       added_at: new Date().toISOString(),
@@ -189,11 +214,17 @@ export async function updateCartItem(
   productId: string,
   quantity: number
 ): Promise<CartResponse> {
+  await delay();
+  const existing = mockCartItems.find((ci) => ci.product_id === productId);
+  if (!existing) mockError("NOT_FOUND", `Cart item ${productId} not found`);
+
   if (quantity === 0) {
-    mockCart = mockCart.filter((ci) => ci.product_id !== productId);
+    mockCartItems = mockCartItems.filter((ci) => ci.product_id !== productId);
   } else {
-    const existing = mockCart.find((ci) => ci.product_id === productId);
-    if (!existing) mockError("NOT_FOUND", `Cart item ${productId} not found`);
+    const product = MOCK_PRODUCTS.find((p) => p.id === productId);
+    if (product && quantity > product.stock) {
+      mockError("CONFLICT", `Insufficient stock for ${productId}`);
+    }
     existing.quantity = quantity;
   }
   return buildCartResponse();
@@ -202,81 +233,75 @@ export async function updateCartItem(
 export async function removeFromCart(
   productId: string
 ): Promise<CartResponse> {
-  mockCart = mockCart.filter((ci) => ci.product_id !== productId);
+  await delay();
+  const existing = mockCartItems.find((ci) => ci.product_id === productId);
+  if (!existing) mockError("NOT_FOUND", `Cart item ${productId} not found`);
+
+  mockCartItems = mockCartItems.filter((ci) => ci.product_id !== productId);
   return buildCartResponse();
 }
 
 export async function createOrder(
-  _data: CreateOrderRequest
+  data: CreateOrderRequest
 ): Promise<OrderResponse> {
-  return {
-    id: "order-001",
+  await delay();
+  if (mockCartItems.length === 0) {
+    mockError("VALIDATION_ERROR", "Cart is empty");
+  }
+
+  const cart = buildCartResponse();
+  const now = new Date().toISOString();
+
+  const order: OrderResponse = {
+    id: generateOrderId(),
     status: "pending",
-    total_cents: 3200 * 2 + 4500 * 1,
-    customer_email: _data.customer_email,
-    customer_name: _data.customer_name ?? null,
-    shipping_address: _data.shipping_address ?? null,
-    notes: _data.notes ?? null,
-    items: [
-      {
-        product_id: "lavender-dreams-300ml",
-        product_name: "Lavender Dreams",
-        price_cents: 3200,
-        quantity: 2,
-      },
-      {
-        product_id: "midnight-amber-300ml",
-        product_name: "Midnight Amber",
-        price_cents: 4500,
-        quantity: 1,
-      },
-    ],
-    created_at: "2024-06-10T16:00:00Z",
-    updated_at: "2024-06-10T16:00:00Z",
+    total_cents: cart.total_cents,
+    customer_email: data.customer_email,
+    customer_name: data.customer_name ?? null,
+    shipping_address: data.shipping_address ?? null,
+    notes: data.notes ?? null,
+    items: cart.items.map((item) => ({
+      product_id: item.product_id,
+      product_name: item.product.name,
+      price_cents: item.product.price_cents,
+      quantity: item.quantity,
+    })),
+    created_at: now,
+    updated_at: now,
   };
+
+  mockOrders.push(order);
+  mockCartItems = [];
+
+  return order;
 }
 
 export async function getOrders(
   page = 1,
   limit = 20
 ): Promise<OrderListResponse> {
+  await delay();
   if (limit > 100) mockError("VALIDATION_ERROR", "Limit exceeds maximum of 100");
-  const order: OrderResponse = {
-    id: "order-001",
-    status: "confirmed",
-    total_cents: 2 * 3200 + 4500,
-    customer_email: "customer@example.com",
-    customer_name: "Test Customer",
-    shipping_address: "123 Main St, Paris",
-    notes: null,
-    items: [
-      {
-        product_id: "lavender-dreams-300ml",
-        product_name: "Lavender Dreams",
-        price_cents: 3200,
-        quantity: 2,
-      },
-      {
-        product_id: "midnight-amber-300ml",
-        product_name: "Midnight Amber",
-        price_cents: 4500,
-        quantity: 1,
-      },
-    ],
-    created_at: "2024-06-10T16:00:00Z",
-    updated_at: "2024-06-11T09:00:00Z",
+
+  const start = (page - 1) * limit;
+  const slice = mockOrders.slice(start, start + limit);
+  return {
+    orders: slice,
+    total: mockOrders.length,
+    page,
+    limit,
   };
-  return { orders: [order], total: 1, page, limit };
 }
 
 export async function getOrder(orderId: string): Promise<OrderResponse> {
-  const list = await getOrders();
-  const order = list.orders.find((o) => o.id === orderId);
+  await delay();
+  const order = mockOrders.find((o) => o.id === orderId);
   if (!order) mockError("NOT_FOUND", `Order ${orderId} not found`);
   return order;
 }
 
 export async function getCurrentUser(): Promise<UserResponse | null> {
+  await delay();
   return MOCK_USER;
 }
 
@@ -284,6 +309,7 @@ export async function login(
   _code: string,
   _redirectUri: string
 ): Promise<AuthTokenResponse> {
+  await delay();
   return {
     access_token: "mock-jwt-token",
     token_type: "bearer",
