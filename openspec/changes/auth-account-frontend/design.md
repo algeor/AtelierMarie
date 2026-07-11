@@ -46,7 +46,19 @@ interface AuthState {
   user: UserResponse | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  error: string | null; // auto-clears after 5s (matches CartContext)
 }
+
+type AuthAction =
+  | { type: "HYDRATE_START" }
+  | { type: "HYDRATE_SUCCESS"; user: UserResponse }
+  | { type: "HYDRATE_FAILURE"; error: string }
+  | { type: "LOGIN_COMPLETE"; user: UserResponse }
+  | { type: "LOGOUT_START" }
+  | { type: "LOGOUT_SUCCESS" }
+  | { type: "LOGOUT_FAILURE"; error: string }
+  | { type: "SESSION_REFRESH"; user: UserResponse | null }
+  | { type: "CLEAR_ERROR" };
 ```
 
 **Alternatives considered:**
@@ -56,21 +68,30 @@ interface AuthState {
 
 **Rationale:** Consistency with CartContext. No new dependencies. The pattern is proven in this codebase.
 
-### 2. OAuth flow via redirect (not popup)
+### 2. OAuth flow via server-side callback (not frontend code exchange)
 
-**Decision:** Login button navigates to `{API_URL}/v1/auth/login` which redirects to Google. After Google consent, the backend redirects back to `/auth/callback?code=...&state=...`. The callback page:
-1. Extracts `code` and `state` from URL params
-2. Calls `POST /v1/auth/google` with the code
-3. Backend sets JWT as HttpOnly cookie in the response
-4. Frontend receives the user object in the response body
-5. Updates AuthContext state
-6. Redirects to the page the user was on before login (stored in `state` param or localStorage)
+**Decision:** Login button navigates to `{API_URL}/v1/auth/login?redirect_to={currentPath}` using `window.location.href` (full-page navigation, not router.push). The backend handles the entire OAuth flow server-side:
+1. `GET /v1/auth/login` redirects to Google with signed state token (containing session_id, nonce, return_to path)
+2. Google redirects back to `GET /v1/auth/callback` (a **backend route**)
+3. Backend exchanges the code, verifies ID token, creates/updates user, sets JWT HttpOnly cookie
+4. Backend redirects browser to `{FRONTEND_URL}/auth/callback?success=true&redirect_to={return_to}`
+5. Frontend callback page reads success indicator, refreshes AuthContext via `GET /v1/auth/me`, navigates to redirect_to path
+
+The frontend **never sees the authorization code** — it's exchanged server-side. This aligns with the existing backend spec (`auth-image-upload/specs/google-oauth/spec.md`).
 
 **Alternatives considered:**
+- *Frontend code exchange (POST /v1/auth/google):* Exposes authorization code to frontend JS, increases attack surface. Rejected — backend already handles this.
 - *Popup window:* Blocked by many browsers, worse mobile UX. Rejected.
 - *Client-side token storage (localStorage):* Less secure than HttpOnly cookie. Rejected — backend owns token storage.
 
-**Rationale:** Standard OAuth redirect flow. The backend handles the security-sensitive parts (token storage, cookie flags). Frontend only exchanges the code and receives the user object.
+**Rationale:** Server-side callback is more secure (code never in browser JS), aligns with existing backend spec, and is the standard pattern for confidential OAuth clients. Frontend only needs to detect success and refresh auth state.
+
+**Security notes:**
+- `redirect_to` values MUST be validated server-side (must start with `/`, must not start with `//`) to prevent open redirects
+- Frontend login() function validates redirect path is relative before passing it
+- State token is backend-generated, session-bound, and opaque to the frontend
+
+**Error callback:** On OAuth failure (invalid state, code exchange error, Google error), backend redirects to `{FRONTEND_URL}/auth/callback?error=<error_code>` (e.g., `error=invalid_state`, `error=token_exchange_failed`). Frontend callback page checks for `error` param on mount — if present, shows error state immediately without calling `getCurrentUser()`.
 
 ### 3. JWT stored as HttpOnly cookie (backend-managed)
 
@@ -85,6 +106,8 @@ interface AuthState {
 **Decision:** When the backend rotates the session (on logout, or login replacing anonymous session), it includes `X-Session-Rotated: true` in the response. The API client's `handleResponse` function checks for this header and triggers:
 1. Cart state refresh (`refreshCart()` from CartContext)
 2. Auth state refresh (re-call `GET /v1/auth/me`)
+
+**Logout response contract:** `POST /v1/auth/logout` returns **200 JSON** (`{ "message": "Logged out" }`) with the `X-Session-Rotated: true` header — it does NOT redirect. The frontend `logout()` function must proactively clear local auth state (dispatch LOGOUT_SUCCESS) immediately after a successful API call, rather than relying solely on the `session-rotated` event. The event serves as a secondary signal for other contexts (e.g., CartContext) that may need to refresh.
 
 Implementation: the API client emits a custom event (`session-rotated`) that both CartContext and AuthContext listen for.
 
@@ -106,7 +129,7 @@ if (res.headers.get("X-Session-Rotated") === "true") {
 
 **Decision:** Before redirecting to `/v1/auth/login`, store the current path in `sessionStorage` under key `auth_redirect_to`. The callback page reads this after successful auth and redirects there. Falls back to `/` if no stored path.
 
-The backend's `/v1/auth/login` endpoint accepts a `?redirect_to=` query parameter that it passes through the OAuth `state` parameter. The callback page reads from the `state` param first (preferred — survives session storage clearing), falling back to sessionStorage.
+The backend's `/v1/auth/login` endpoint accepts a `?redirect_to=` query parameter that it passes through the OAuth `state` parameter. The callback page reads `redirect_to` from the query param first (the backend extracts it from the state JWT and passes it as a query param in the redirect to the frontend), falling back to sessionStorage `auth_redirect_to`, then `/`.
 
 **Rationale:** Users should land back where they were. sessionStorage is tab-scoped so doesn't leak across tabs. State param is the OAuth-standard mechanism.
 
