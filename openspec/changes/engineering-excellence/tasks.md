@@ -93,74 +93,74 @@
 
 > Files: `app/services/auth_service.py` (JWKS lock only), `app/services/order_service.py` (checkout), `app/services/product_service.py` (FTS5 + search rewrite), `app/utils/circuit_breaker.py` (new), `app/routes/admin.py` (CSV bounds + health endpoint)
 
-- [ ] B.1 Add `threading.Lock` to `_JwksCache` with double-checked locking pattern
-- [ ] B.2 Change checkout in `order_service.py` to use `BEGIN IMMEDIATE`
+- [x] B.1 Add `threading.Lock` to `_JwksCache` with double-checked locking pattern
+- [x] B.2 Change checkout in `order_service.py` to use `BEGIN IMMEDIATE`
 - [x] B.3 Fix background task lifecycle in `app/main.py` — cancel + await with 5s timeout, catch `CancelledError`
-- [ ] B.4 Create FTS5 sanitization helper — quote-wrap each token, handle empty/whitespace input
-- [ ] B.5 Apply sanitization to `search_products()` before FTS5 query
-- [ ] B.6 Rewrite `search_products()` to push category/stock filters + LIMIT/OFFSET into SQL (not in-memory)
-- [ ] B.7 Add pagination clamping to `list_products()`, `list_orders()` — cap page at MAX_PAGE, limit at MAX_LIMIT
-- [ ] B.8 Add `MAX_PRICE_CENTS` and `MAX_STOCK` validation to CSV import
-- [ ] B.9 Create defensive row-access helper for service-layer transformations
-- [ ] B.10 Create `app/utils/circuit_breaker.py` — CLOSED/OPEN/HALF_OPEN states (3 failures/30s → open 60s)
-- [ ] B.11 Integrate circuit breaker wrapping Google OAuth HTTP calls (token exchange, JWKS fetch)
-- [ ] B.12 Add `GET /v1/admin/health/oauth` admin endpoint exposing circuit breaker state
-- [ ] B.13 HTTP 4xx from Google does NOT count toward failure threshold (only 5xx and timeouts)
+- [x] B.4 Create FTS5 sanitization helper — quote-wrap each token, handle empty/whitespace input
+- [x] B.5 Apply sanitization to `search_products()` before FTS5 query
+- [x] B.6 Rewrite `search_products()` to push category/stock filters + LIMIT/OFFSET into SQL (not in-memory)
+- [x] B.7 Add pagination clamping to `list_products()`, `list_orders()` — cap page at MAX_PAGE, limit at MAX_LIMIT
+- [x] B.8 Add `MAX_PRICE_CENTS` and `MAX_STOCK` validation to CSV import
+- [x] B.9 Create defensive row-access helper for service-layer transformations
+- [x] B.10 Create `app/utils/circuit_breaker.py` — CLOSED/OPEN/HALF_OPEN states (3 failures/30s → open 60s)
+- [x] B.11 Integrate circuit breaker wrapping Google OAuth HTTP calls (token exchange, JWKS fetch)
+- [x] B.12 Add `GET /v1/admin/health/oauth` admin endpoint exposing circuit breaker state
+- [x] B.13 HTTP 4xx from Google does NOT count toward failure threshold (only 5xx and timeouts)
 
 ### Agent C: Backend Deduplication + Query Optimization
 
 > Files: `app/models/products.py`, `app/routes/auth.py`, `app/routes/orders.py`, `app/routes/products.py`, `app/services/order_service.py` (list_orders only), `app/dependencies/session.py` (new)
 
-- [ ] C.1 Create `_ProductFieldValidators` mixin in `app/models/products.py` with shared validators
-- [ ] C.2 Refactor `CreateProductRequest` and `UpdateProductRequest` to inherit mixin
-- [ ] C.3 Create `_unauthorized(message)` helper in `app/routes/auth.py`, replace inline JSONResponse blocks
-- [ ] C.4 Create `get_session_user_id` FastAPI dependency in `app/dependencies/session.py`
-- [ ] C.5 Refactor `app/routes/orders.py` to use `get_session_user_id` dependency
-- [ ] C.6 Extract `_build_field_map(data)` helper in `product_service.py` for upsert/update
-- [ ] C.7 Remove redundant `limit = min(limit, 100)` from `app/routes/products.py` and `app/routes/admin.py`
-- [ ] C.8 Refactor list endpoints to use `PaginationParams` from `app/models/common.py`
-- [ ] C.9 Refactor `list_orders` to batch-fetch order items with `WHERE order_id IN (...)`
-- [ ] C.10 Refactor `list_orders_admin` similarly
-- [ ] C.11 Refactor CSV import to pre-fetch existing product IDs in one batch query
-- [ ] C.12 Convert order route handlers from `def` to `async def`
+- [x] C.1 Create `_ProductFieldValidators` mixin in `app/models/products.py` with shared validators
+- [x] C.2 Refactor `CreateProductRequest` and `UpdateProductRequest` to inherit mixin
+- [x] C.3 Create `_unauthorized(message)` helper in `app/routes/auth.py`, replace inline JSONResponse blocks
+- [x] C.4 Create `get_session_user_id` FastAPI dependency in `app/dependencies/session.py`
+- [x] C.5 Refactor `app/routes/orders.py` to use `get_session_user_id` dependency
+- [x] C.6 Extract `_build_field_map(data)` helper in `product_service.py` for upsert/update
+- [x] C.7 Remove redundant `limit = min(limit, 100)` from `app/routes/products.py` and `app/routes/admin.py`
+- [x] C.8 Refactor list endpoints to use `PaginationParams` from `app/models/common.py`
+- [x] C.9 Refactor `list_orders` to batch-fetch order items with `WHERE order_id IN (...)`
+- [x] C.10 Refactor `list_orders_admin` similarly
+- [x] C.11 Refactor CSV import to pre-fetch existing product IDs in one batch query
+- [x] C.12 Convert order route handlers from `def` to `async def`
 
 ### Agent D: Frontend (Performance + Deduplication + Conventions)
 
 > Files: `frontend/contexts/`, `frontend/hooks/` (new), `frontend/lib/constants.ts`, `frontend/components/`, `frontend/app/checkout/`, `frontend/app/account/`
 
-- [ ] D.1 Wrap AuthContext provider `value` in `useMemo` with appropriate dependency array
-- [ ] D.2 Wrap CartContext provider `value` in `useMemo` with appropriate dependency array
-- [ ] D.3 Refactor `AdminProvider` to consume `useAuth()` instead of calling `getCurrentUser()`
-- [ ] D.4 Create `frontend/hooks/useAddToCart.ts` — idle→loading→success→reset state machine
-- [ ] D.5 Refactor `AddToCartButton` to use `useAddToCart` hook
-- [ ] D.6 Refactor `AddToCartSection` to use `useAddToCart` hook
-- [ ] D.7 Create `ORDER_STATUS_STYLES` constant in `frontend/lib/constants.ts`
-- [ ] D.8 Refactor `OrderStatusBadge` and admin orders to use shared constant
-- [ ] D.9 Replace inline button classes with `Button` component in orders/account/callback pages
-- [ ] D.10 Replace raw `<img>` with `next/image` in `UserMenu.tsx` (+ configure remotePatterns)
-- [ ] D.11 Replace raw `<img>` with `next/image` in `app/account/page.tsx`
-- [ ] D.12 Refactor `StatusTimeline.tsx` to use `cn()` utility
-- [ ] D.13 Replace hand-rolled inputs in checkout with `Input` component
-- [ ] D.14 Add rollback logic to CartContext — store prev state, revert on API failure
+- [x] D.1 Wrap AuthContext provider `value` in `useMemo` with appropriate dependency array
+- [x] D.2 Wrap CartContext provider `value` in `useMemo` with appropriate dependency array
+- [x] D.3 Refactor `AdminProvider` to consume `useAuth()` instead of calling `getCurrentUser()`
+- [x] D.4 Create `frontend/hooks/useAddToCart.ts` — idle→loading→success→reset state machine
+- [x] D.5 Refactor `AddToCartButton` to use `useAddToCart` hook
+- [x] D.6 Refactor `AddToCartSection` to use `useAddToCart` hook
+- [x] D.7 Create `ORDER_STATUS_STYLES` constant in `frontend/lib/constants.ts`
+- [x] D.8 Refactor `OrderStatusBadge` and admin orders to use shared constant
+- [x] D.9 Replace inline button classes with `Button` component in orders/account/callback pages
+- [x] D.10 Replace raw `<img>` with `next/image` in `UserMenu.tsx` (+ configure remotePatterns)
+- [x] D.11 Replace raw `<img>` with `next/image` in `app/account/page.tsx`
+- [x] D.12 Refactor `StatusTimeline.tsx` to use `cn()` utility
+- [x] D.13 Replace hand-rolled inputs in checkout with `Input` component
+- [x] D.14 Add rollback logic to CartContext — store prev state, revert on API failure
 
 ### Agent E: New Hardening Tests
 
 > Files: `tests/test_sanitization.py`, `tests/test_circuit_breaker.py`, `tests/test_pagination.py`, `tests/test_concurrency.py`, `tests/test_request_id.py` (all new)
 
-- [ ] E.1 Write tests for FTS5 sanitization (operators, wildcards, empty input, normal queries)
-- [ ] E.2 Write tests for circuit breaker state transitions (CLOSED→OPEN→HALF_OPEN→CLOSED, timeout counting, 4xx exclusion)
-- [ ] E.3 Write tests for pagination clamping (extreme values, boundary values, normal values)
-- [ ] E.4 Write test for BEGIN IMMEDIATE race condition (simulate concurrent checkout)
-- [ ] E.5 Write test for JWKS cache thread safety (concurrent access during refresh)
-- [ ] E.6 Write test for background task graceful shutdown
-- [ ] E.7 Write tests for CSV import value bounds (extreme price, negative stock, boundary values)
-- [ ] E.8 Write test for request-ID middleware (generation, passthrough, invalid header)
+- [x] E.1 Write tests for FTS5 sanitization (operators, wildcards, empty input, normal queries)
+- [x] E.2 Write tests for circuit breaker state transitions (CLOSED→OPEN→HALF_OPEN→CLOSED, timeout counting, 4xx exclusion)
+- [x] E.3 Write tests for pagination clamping (extreme values, boundary values, normal values)
+- [x] E.4 Write test for BEGIN IMMEDIATE race condition (simulate concurrent checkout)
+- [x] E.5 Write test for JWKS cache thread safety (concurrent access during refresh)
+- [x] E.6 Write test for background task graceful shutdown
+- [x] E.7 Write tests for CSV import value bounds (extreme price, negative stock, boundary values)
+- [x] E.8 Write test for request-ID middleware (generation, passthrough, invalid header)
 
 ---
 
 ## Wave 3 — Verification (Sequential, after all Wave 2 agents complete)
 
-- [ ] 3.1 Resolve any merge conflicts between agents (see conflict matrix in design.md)
+- [x] 3.1 Resolve any merge conflicts between agents (see conflict matrix in design.md)
 - [ ] 3.2 Run `ruff check . && ruff format --check .` — zero violations
 - [ ] 3.3 Run full `pytest` — all tests pass (fast, thanks to Wave 1)
 - [ ] 3.4 Run frontend tests — `cd frontend && npx vitest run`

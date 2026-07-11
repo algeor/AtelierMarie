@@ -2,12 +2,12 @@
 
 import csv
 import io
-import sqlite3
 from typing import get_args
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.responses import JSONResponse
 
+from app.constants import MAX_PRICE_CENTS, MAX_STOCK
 from app.database import get_db
 from app.dependencies.auth import require_admin
 from app.models.admin import DashboardResponse
@@ -26,6 +26,7 @@ from app.models.products import (
     UpdateProductRequest,
 )
 from app.services import admin_service, product_service
+from app.services.auth_service import get_oauth_circuit_breaker
 from app.services.order_service import (
     InvalidStateTransitionError,
     OrderNotFoundError,
@@ -160,9 +161,9 @@ _ALL_CSV_HEADERS = _REQUIRED_CSV_HEADERS | _OPTIONAL_CSV_HEADERS
     summary="Bulk import products (CSV)",
     description=(
         "Upload a CSV file to create/update products in bulk. "
-        "Uses upsert semantics — existing product IDs are updated, new ones are created. "
-        "Rows with validation errors are skipped; results report created/updated counts "
-        "and per-row errors."
+        "Uses upsert semantics — existing product IDs are updated, "
+        "new ones are created. Rows with validation errors are skipped; "
+        "results report created/updated counts and per-row errors."
     ),
 )
 async def admin_import_products(
@@ -231,6 +232,8 @@ async def admin_import_products(
                 price_cents = int(price_str)
                 if price_cents <= 0:
                     row_errors.append("price_cents must be positive")
+                elif price_cents > MAX_PRICE_CENTS:
+                    row_errors.append(f"price_cents exceeds maximum ({MAX_PRICE_CENTS})")
             except ValueError:
                 row_errors.append("price_cents must be an integer")
 
@@ -242,6 +245,8 @@ async def admin_import_products(
                 stock = int(stock_str)
                 if stock < 0:
                     row_errors.append("stock must be non-negative")
+                elif stock > MAX_STOCK:
+                    row_errors.append(f"stock exceeds maximum ({MAX_STOCK})")
             except ValueError:
                 row_errors.append("stock must be an integer")
 
@@ -277,7 +282,7 @@ async def admin_import_products(
                 updated += 1
             else:
                 created += 1
-        except (ValueError, sqlite3.Error) as e:
+        except Exception as e:
             errors.append(CSVImportError(row=row_num, message=str(e)))
 
     return CSVImportResponse(created=created, updated=updated, errors=errors)
@@ -399,3 +404,15 @@ async def admin_dashboard() -> DashboardResponse:
     """
     stats = admin_service.get_dashboard_stats()
     return DashboardResponse(**stats)
+
+
+@router.get(
+    "/health/oauth",
+    summary="OAuth circuit breaker health",
+    description="Returns the current state of the Google OAuth circuit breaker, "
+    "including failure count and recovery timing. Admin-only.",
+)
+async def admin_health_oauth() -> JSONResponse:
+    """Expose Google OAuth circuit breaker state for admin diagnostics."""
+    breaker = get_oauth_circuit_breaker()
+    return JSONResponse(content=breaker.get_health())

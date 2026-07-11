@@ -3,6 +3,7 @@
 import sqlite3
 from datetime import UTC, datetime
 
+from app.constants import MAX_LIMIT, MAX_PAGE
 from app.database import get_db
 
 
@@ -24,6 +25,37 @@ def _now_utc() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _sanitize_fts5_query(query: str) -> str:
+    """Sanitize user input for FTS5 MATCH expressions.
+
+    Strategy: Split on whitespace, wrap each token in double quotes to
+    escape all FTS5 special characters (*, OR, AND, NOT, NEAR, etc.),
+    then rejoin with spaces (implicit AND).
+
+    Returns an empty string if no valid tokens remain.
+    """
+    tokens = query.strip().split()
+    if not tokens:
+        return ""
+    # Remove any embedded double quotes from individual tokens
+    sanitized = [f'"{token.replace(chr(34), "")}"' for token in tokens if token.replace('"', "")]
+    return " ".join(sanitized)
+
+
+def _clamp_pagination(page: int, limit: int) -> tuple[int, int]:
+    """Clamp pagination values to configured bounds.
+
+    Values exceeding MAX_PAGE/MAX_LIMIT are reduced (not rejected).
+    """
+    if page < 1:
+        page = 1
+    page = min(page, MAX_PAGE)
+    if limit < 1:
+        limit = 1
+    limit = min(limit, MAX_LIMIT)
+    return page, limit
+
+
 def list_products(
     *,
     category: str | None = None,
@@ -36,6 +68,8 @@ def list_products(
 
     Returns (products, total_count).
     """
+    page, limit = _clamp_pagination(page, limit)
+
     conditions = ["is_active = 1"]
     params: list = []
 
@@ -301,29 +335,53 @@ def deactivate_product(product_id: str) -> dict:
     return _row_to_dict(row)
 
 
-def search_products(query: str, *, limit: int = 20) -> list[dict]:
+def search_products(
+    query: str,
+    *,
+    category: str | None = None,
+    in_stock: bool | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> list[dict]:
     """Full-text search on product name and description using FTS5.
 
     Returns active products ranked by relevance.
+    Filters (category, in_stock) and LIMIT/OFFSET are pushed into SQL
+    rather than applied in Python post-fetch.
     """
     if not query or not query.strip():
         return []
 
-    # Escape FTS5 special characters and append wildcard for prefix matching
-    clean_query = query.strip()
+    # B.4/B.5: Sanitize input for safe FTS5 MATCH
+    sanitized = _sanitize_fts5_query(query)
+    if not sanitized:
+        return []
+
+    # Build dynamic WHERE conditions pushed into SQL (B.6)
+    conditions = ["products_fts MATCH ?", "p.is_active = 1"]
+    params: list = [sanitized]
+
+    if category:
+        conditions.append("p.category = ?")
+        params.append(category)
+
+    if in_stock:
+        conditions.append("p.stock > 0")
+
+    where_clause = " AND ".join(conditions)
+    params.extend([limit, offset])
 
     with get_db() as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT p.*
             FROM products_fts fts
             JOIN products p ON p.rowid = fts.rowid
-            WHERE products_fts MATCH ?
-              AND p.is_active = 1
+            WHERE {where_clause}
             ORDER BY rank
-            LIMIT ?
-            """,
-            (clean_query, limit),
+            LIMIT ? OFFSET ?
+            """,  # noqa: S608
+            params,
         ).fetchall()
 
     return [_row_to_dict(r) for r in rows]

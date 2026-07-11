@@ -5,8 +5,10 @@ Functions accept explicit parameters (conn, settings, etc.).
 """
 
 import hashlib
+import logging
 import secrets
 import sqlite3
+import threading
 import time
 import uuid
 from base64 import urlsafe_b64encode
@@ -15,13 +17,13 @@ from urllib.parse import urlencode
 
 import httpx
 import jwt
-import structlog
 from jwt.algorithms import RSAAlgorithm
 
 from app.config import get_settings
 from app.models.users import UserResponse
+from app.utils.circuit_breaker import CircuitBreaker
 
-logger = structlog.get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 # --- Constants ---
 _GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -64,11 +66,16 @@ class AuthServiceUnavailableError(AuthServiceError):
 
 
 class _JwksCache:
-    """In-memory cache for Google's public keys (RS256)."""
+    """Thread-safe in-memory cache for Google's public keys (RS256).
+
+    Uses a threading.Lock to serialize concurrent refreshes — only one
+    thread fetches while others wait and reuse the result.
+    """
 
     def __init__(self) -> None:
         self._keys: dict[str, dict] = {}  # kid -> JWK dict
         self._fetched_at: float = 0.0
+        self._lock = threading.Lock()
 
     @property
     def is_expired(self) -> bool:
@@ -79,14 +86,30 @@ class _JwksCache:
         return not self._keys
 
     def get_key(self, kid: str) -> dict | None:
-        return self._keys.get(kid)
+        with self._lock:
+            return self._keys.get(kid)
 
     def update(self, jwks_response: dict) -> None:
-        self._keys = {k["kid"]: k for k in jwks_response.get("keys", [])}
-        self._fetched_at = time.time()
+        with self._lock:
+            self._keys = {k["kid"]: k for k in jwks_response.get("keys", [])}
+            self._fetched_at = time.time()
+
+    def needs_refresh(self, kid: str) -> bool:
+        """Check if a refresh is needed (expired or key not found)."""
+        with self._lock:
+            return self.is_expired or kid not in self._keys
 
 
 _jwks_cache = _JwksCache()
+
+# --- Circuit Breaker for Google OAuth ---
+
+_google_oauth_breaker = CircuitBreaker(
+    name="google_oauth",
+    failure_threshold=3,
+    failure_window=30.0,
+    recovery_timeout=60.0,
+)
 
 
 # --- Public Functions ---
@@ -183,7 +206,13 @@ async def exchange_code_for_tokens(code: str, code_verifier: str) -> str:
 
     Raises:
         TokenExchangeError: On HTTP error or missing id_token.
+        AuthServiceUnavailableError: If circuit breaker is open.
     """
+    if not _google_oauth_breaker.allow_request():
+        raise AuthServiceUnavailableError(
+            "Google OAuth circuit breaker is open — service temporarily unavailable"
+        )
+
     settings = get_settings()
     data = {
         "code": code,
@@ -197,11 +226,29 @@ async def exchange_code_for_tokens(code: str, code_verifier: str) -> str:
     try:
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
             response = await client.post(_GOOGLE_TOKEN_URL, data=data)
+            # B.13: HTTP 4xx does NOT count toward failure threshold
+            if response.status_code >= 500:
+                _google_oauth_breaker.record_failure()
+                raise httpx.HTTPStatusError(
+                    f"Server error: {response.status_code}",
+                    request=response.request,
+                    response=response,
+                )
             response.raise_for_status()
+    except httpx.TimeoutException as e:
+        _google_oauth_breaker.record_failure()
+        logger.error("Google token exchange timed out: %s", e)
+        raise TokenExchangeError(f"Token exchange request timed out: {e}") from e
+    except httpx.HTTPStatusError as e:
+        logger.error("Google token exchange failed: %s", e)
+        raise TokenExchangeError(f"Token exchange request failed: {e}") from e
     except httpx.HTTPError as e:
+        # Network-level errors (connection refused, DNS, etc.)
+        _google_oauth_breaker.record_failure()
         logger.error("Google token exchange failed: %s", e)
         raise TokenExchangeError(f"Token exchange request failed: {e}") from e
 
+    _google_oauth_breaker.record_success()
     body = response.json()
     id_token = body.get("id_token")
     if not id_token:
@@ -236,7 +283,7 @@ async def verify_google_id_token(id_token: str) -> dict:
         raise IdTokenVerificationError("No kid in token header")
 
     # Get signing key from cache (refresh if needed)
-    if _jwks_cache.is_expired or _jwks_cache.get_key(kid) is None:
+    if _jwks_cache.needs_refresh(kid):
         await _fetch_jwks()
 
     jwk_data = _jwks_cache.get_key(kid)
@@ -318,9 +365,8 @@ def upsert_user(
             (user_id, google_id, email, name, avatar_url, is_admin, now),
         )
         conn.execute("COMMIT")
-    except (sqlite3.IntegrityError, sqlite3.OperationalError):
+    except Exception:
         conn.execute("ROLLBACK")
-        logger.exception("User upsert failed", email=email, google_id=google_id)
         raise
 
     return UserResponse(
@@ -423,15 +469,55 @@ async def _fetch_jwks() -> None:
 
     Falls back to stale cache if fetch fails and cache is not empty.
     Raises AuthServiceUnavailableError if fetch fails AND cache is empty.
+    Integrates with circuit breaker — 5xx and timeouts count as failures,
+    4xx does NOT.
     """
+    if not _google_oauth_breaker.allow_request():
+        if _jwks_cache.is_empty:
+            raise AuthServiceUnavailableError(
+                "Google OAuth circuit breaker is open and no cached JWKS available"
+            )
+        logger.warning("JWKS fetch skipped — circuit breaker open, using stale cache")
+        return
+
     try:
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
             response = await client.get(_GOOGLE_JWKS_URL)
+            # B.13: 4xx does not count toward failure threshold
+            if response.status_code >= 500:
+                _google_oauth_breaker.record_failure()
+                raise httpx.HTTPStatusError(
+                    f"Server error: {response.status_code}",
+                    request=response.request,
+                    response=response,
+                )
             response.raise_for_status()
+        _google_oauth_breaker.record_success()
         _jwks_cache.update(response.json())
-    except httpx.HTTPError as e:
+    except httpx.TimeoutException as e:
+        _google_oauth_breaker.record_failure()
+        if _jwks_cache.is_empty:
+            raise AuthServiceUnavailableError(
+                f"Cannot fetch Google JWKS (timeout) and no cached keys available: {e}"
+            ) from e
+        logger.warning("JWKS fetch timed out, using stale cache: %s", e)
+    except httpx.HTTPStatusError as e:
+        # Already recorded failure for 5xx above; 4xx falls through here without recording
         if _jwks_cache.is_empty:
             raise AuthServiceUnavailableError(
                 f"Cannot fetch Google JWKS and no cached keys available: {e}"
             ) from e
         logger.warning("JWKS fetch failed, using stale cache: %s", e)
+    except httpx.HTTPError as e:
+        # Network-level errors count as failures
+        _google_oauth_breaker.record_failure()
+        if _jwks_cache.is_empty:
+            raise AuthServiceUnavailableError(
+                f"Cannot fetch Google JWKS and no cached keys available: {e}"
+            ) from e
+        logger.warning("JWKS fetch failed, using stale cache: %s", e)
+
+
+def get_oauth_circuit_breaker() -> CircuitBreaker:
+    """Expose the OAuth circuit breaker for health endpoint access."""
+    return _google_oauth_breaker

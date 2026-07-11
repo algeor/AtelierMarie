@@ -68,7 +68,7 @@ The design is highly custom (luxury brand). Starting from scratch with Tailwind 
 ### 6. Component file conventions
 
 - One component per file in `frontend/components/ui/`
-- Named exports (not default): `export function Button(...)` 
+- Named exports (not default): `export function Button(...)`
 - No barrel `index.ts` file — import directly from component file (avoids circular deps, better tree-shaking)
 - Co-located tests when testing framework is added: `Button.test.tsx` alongside `Button.tsx`
 

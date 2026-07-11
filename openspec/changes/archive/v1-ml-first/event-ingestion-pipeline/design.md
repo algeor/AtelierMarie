@@ -62,7 +62,7 @@ This makes the system multi-worker safe from day 1 — no architecture change ne
 Worker 1 lifespan → batch_loader_loop():
     acquire flock(LOCK_EX | LOCK_NB) on .batch.lock
       → SUCCESS: run batch, release lock
-      
+
 Worker 2 lifespan → batch_loader_loop():
     acquire flock(LOCK_EX | LOCK_NB) on .batch.lock
       → EWOULDBLOCK: skip this cycle, sleep, try again next interval
@@ -84,7 +84,7 @@ Worker 2 lifespan → batch_loader_loop():
 
 **Decision:** Each JSONL file is loaded in a single DuckDB transaction. Deduplication uses `INSERT OR IGNORE` on the `event_id` primary key. File is moved to `archive/` only after commit.
 
-**Rationale:** 
+**Rationale:**
 - Transaction-per-file means a failed load leaves the file in `buffer/` for automatic retry (crash safety).
 - `INSERT OR IGNORE` handles: (a) client retries sending same event_id, (b) replay if a file is accidentally loaded twice, (c) partial loads where some events from a prior attempt were committed.
 

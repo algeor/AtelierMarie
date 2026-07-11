@@ -261,10 +261,11 @@ def _clean_tables(db_path, app):
     # Delete sessions except the fake middleware session
     if fake_session_id:
         conn.execute("DELETE FROM sessions WHERE id != ?", (fake_session_id,))
+        # Unlink fake session from user before deleting users
+        conn.execute("UPDATE sessions SET user_id = NULL WHERE id = ?", (fake_session_id,))
     else:
         conn.execute("DELETE FROM sessions")
     conn.execute("DELETE FROM products")
-    # Also clean users table
     conn.execute("DELETE FROM users")
     conn.commit()
     conn.close()
