@@ -15,9 +15,6 @@ from app.database import get_db
 
 logger = logging.getLogger(__name__)
 
-# Paths that don't need a session (monitoring, health checks, docs)
-_SESSION_SKIP_PATHS = frozenset({"/v1/health", "/docs", "/redoc", "/openapi.json", "/metrics"})
-
 # Bug #1 fix: UUID v4 format validation — reject garbage before DB lookup
 _UUID4_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 
@@ -35,6 +32,25 @@ def _parse_dt(s: str) -> datetime:
     return datetime.strptime(s, _SQLITE_DT_FMT).replace(tzinfo=UTC)
 
 
+def _should_skip_path(path: str, skip_paths: list[str]) -> bool:
+    """Determine if a request path should skip session processing.
+
+    Matching semantics (from design Decision 8):
+    - Exact match for leaf paths (/health, /docs, /openapi.json)
+    - Prefix-with-trailing-slash for directory paths (/docs/, /metrics/)
+    - /health-records does NOT match /health (exact match only)
+    - /docs matches exactly AND /docs/swagger matches /docs/ prefix
+    """
+    for skip_path in skip_paths:
+        # Exact match (handles leaf paths like /health, /openapi.json)
+        if path == skip_path:
+            return True
+        # Prefix match with trailing slash (handles sub-paths like /docs/swagger)
+        if path.startswith(skip_path + "/"):
+            return True
+    return False
+
+
 class SessionMiddleware(BaseHTTPMiddleware):
     """Reads or creates a session cookie, sets request.state.session_id."""
 
@@ -43,12 +59,13 @@ class SessionMiddleware(BaseHTTPMiddleware):
         if request.method == "OPTIONS":
             return await call_next(request)
 
-        # Skip session for health/monitoring/docs endpoints
-        if request.url.path in _SESSION_SKIP_PATHS:
+        settings = get_settings()
+
+        # Skip session for health/monitoring/docs endpoints (config-driven)
+        if _should_skip_path(request.url.path, settings.session_skip_paths):
             request.state.session_id = None
             return await call_next(request)
 
-        settings = get_settings()
         session_id = request.cookies.get(settings.session_cookie_name)
         is_new = session_id is None
 
@@ -87,8 +104,8 @@ class SessionMiddleware(BaseHTTPMiddleware):
                         past_absolute = absolute_limit < now
 
                         if expired or past_absolute:
-                            # Delete the stale session row
-                            conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+                            # Expired/past-absolute — issue fresh session.
+                            # Do NOT delete old row (deferred to cleanup job).
                             session_id = None
                             is_new = True
                         else:
@@ -114,11 +131,11 @@ class SessionMiddleware(BaseHTTPMiddleware):
                         (session_id, _format_dt(now), _format_dt(expires_at)),
                     )
         except sqlite3.Error:
-            # Bug #9 fix: return 503 instead of silently proceeding with None
+            # DB unavailable — return error without exposing internals
             logger.exception("Session middleware DB error")
             return Response(
-                content='{"detail":"Service temporarily unavailable"}',
-                status_code=503,
+                content='{"error":{"code":"INTERNAL_ERROR","message":"An unexpected error occurred","details":null}}',
+                status_code=500,
                 media_type="application/json",
             )
 
@@ -132,8 +149,50 @@ class SessionMiddleware(BaseHTTPMiddleware):
             value=session_id,
             max_age=settings.session_max_age,
             httponly=True,
-            secure=settings.environment != "development",
+            secure=settings.session_cookie_secure and settings.environment != "development",
             samesite="lax",
         )
 
         return response
+
+
+def rotate_session(conn: "sqlite3.Connection", old_session_id: str, user_id: str) -> str:
+    """Rotate session ID on login to prevent session fixation.
+
+    IMPORTANT: Caller must pass a connection with NO active transaction.
+    This function manages its own BEGIN IMMEDIATE / COMMIT / ROLLBACK.
+    Do NOT call this inside a ``with get_db() as conn:`` block — pass a raw
+    ``sqlite3.connect()`` connection instead (with row_factory and FK enabled).
+
+    Steps executed atomically:
+    1. INSERT new session with user_id
+    2. UPDATE cart_items to new session_id
+    3. DELETE old session row
+
+    Returns the new session ID.
+    """
+    settings = get_settings()
+    new_session_id = str(uuid.uuid4())
+    now = datetime.now(UTC)
+    expires_at = now + timedelta(seconds=settings.session_max_age)
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        # Step 1: Insert new session row with user_id
+        conn.execute(
+            "INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            (new_session_id, user_id, _format_dt(now), _format_dt(expires_at)),
+        )
+        # Step 2: Migrate cart items (UPDATE before DELETE to avoid FK issues)
+        conn.execute(
+            "UPDATE cart_items SET session_id = ? WHERE session_id = ?",
+            (new_session_id, old_session_id),
+        )
+        # Step 3: Delete old session
+        conn.execute("DELETE FROM sessions WHERE id = ?", (old_session_id,))
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+    return new_session_id

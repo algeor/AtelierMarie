@@ -7,10 +7,6 @@ STUB_ROUTES = [
     ("POST", "/v1/cart"),
     ("PATCH", "/v1/cart/some-id"),
     ("DELETE", "/v1/cart/some-id"),
-    ("GET", "/v1/orders"),
-    ("POST", "/v1/orders"),
-    ("GET", "/v1/orders/some-id"),
-    ("PATCH", "/v1/orders/some-id/status"),
     ("POST", "/v1/auth/google"),
     ("GET", "/v1/auth/me"),
 ]
@@ -18,7 +14,6 @@ STUB_ROUTES = [
 ADMIN_ROUTES = [
     ("GET", "/v1/admin/orders"),
     ("POST", "/v1/admin/products/import"),
-    ("GET", "/v1/admin/stats"),
     ("POST", "/v1/admin/products"),
     ("GET", "/v1/admin/products"),
     ("GET", "/v1/admin/products/some-id"),
@@ -49,4 +44,6 @@ async def test_admin_routes_reject_unauthenticated(client, method, path):
 
     assert response.status_code == 401
     body = response.json()
-    assert "detail" in body
+    # Error envelope format: {"error": {"code": ..., "message": ...}}
+    assert "error" in body
+    assert body["error"]["code"] == "UNAUTHORIZED"

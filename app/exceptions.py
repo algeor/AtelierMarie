@@ -11,6 +11,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.services.cart_service import (
+    CartFullError,
+    CartItemNotFoundError,
+    InsufficientStockError,
+    ProductNotFoundError,
+    QuantityLimitError,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,11 +37,18 @@ def register_exception_handlers(app: FastAPI) -> None:
         # objects (ValueError instances) in the 'ctx' field
         sanitized_errors = []
         for err in errors:
+            # Ensure input is JSON-serializable (bytes from form data isn't)
+            raw_input = err.get("input")
+            if isinstance(raw_input, bytes):
+                raw_input = raw_input.decode("utf-8", errors="replace")
+            elif not isinstance(raw_input, (str, int, float, bool, list, dict, type(None))):
+                raw_input = str(raw_input)
+
             sanitized = {
                 "type": err.get("type"),
                 "loc": err.get("loc"),
                 "msg": err.get("msg"),
-                "input": err.get("input"),
+                "input": raw_input,
             }
             sanitized_errors.append(sanitized)
 
@@ -86,6 +101,75 @@ def register_exception_handlers(app: FastAPI) -> None:
                     "code": error_code,
                     "message": detail,
                     "details": None,
+                }
+            },
+        )
+
+    # --- Cart service exception handlers ---
+
+    @app.exception_handler(ProductNotFoundError)
+    async def product_not_found_handler(
+        request: Request, exc: ProductNotFoundError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=404,
+            content={"error": {"code": "PRODUCT_NOT_FOUND", "message": str(exc), "details": None}},
+        )
+
+    @app.exception_handler(CartItemNotFoundError)
+    async def cart_item_not_found_handler(
+        request: Request, exc: CartItemNotFoundError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=404,
+            content={"error": {"code": "CART_ITEM_NOT_FOUND", "message": str(exc), "details": None}},
+        )
+
+    @app.exception_handler(InsufficientStockError)
+    async def insufficient_stock_handler(
+        request: Request, exc: InsufficientStockError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": {
+                    "code": "INSUFFICIENT_STOCK",
+                    "message": str(exc),
+                    "details": {
+                        "product_id": exc.product_id,
+                        "requested": exc.requested,
+                        "available": exc.available,
+                    },
+                }
+            },
+        )
+
+    @app.exception_handler(QuantityLimitError)
+    async def quantity_limit_handler(
+        request: Request, exc: QuantityLimitError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "QUANTITY_LIMIT_EXCEEDED",
+                    "message": str(exc),
+                    "details": {"max_quantity": exc.max_quantity},
+                }
+            },
+        )
+
+    @app.exception_handler(CartFullError)
+    async def cart_full_handler(
+        request: Request, exc: CartFullError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "CART_FULL",
+                    "message": str(exc),
+                    "details": {"max_items": exc.max_items},
                 }
             },
         )

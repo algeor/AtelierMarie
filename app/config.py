@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     session_max_age: int = 30 * 24 * 60 * 60  # 30 days in seconds
     session_absolute_lifetime: int = 180 * 24 * 60 * 60  # 180 days in seconds
     session_sliding_threshold: int = 7 * 24 * 60 * 60  # 7 days in seconds
+    session_cookie_secure: bool = True
+    session_skip_paths: list[str] = ["/health", "/v1/health", "/metrics", "/docs", "/openapi.json", "/v1/docs", "/v1/redoc", "/v1/openapi.json"]
+
+    # Cart limits
+    cart_max_quantity_per_item: int = 10
+    cart_max_distinct_items: int = 20
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
