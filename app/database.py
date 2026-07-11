@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS cart_items (
     PRIMARY KEY (session_id, product_id)
 );
 
+CREATE INDEX IF NOT EXISTS idx_cart_items_session_id ON cart_items(session_id);
+
 CREATE TABLE IF NOT EXISTS orders (
     id          TEXT PRIMARY KEY,
     session_id  TEXT NOT NULL,
