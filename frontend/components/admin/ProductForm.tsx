@@ -5,7 +5,9 @@ import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { ApiError } from "@/lib/api-client";
 import type { AdminProductResponse } from "@/lib/types";
+import { useLocalizedError } from "@/lib/useLocalizedError";
 
 const CATEGORIES = ["Floral", "Woody", "Fresh", "Gourmand", "Spicy", "Citrus"];
 
@@ -48,6 +50,7 @@ function eurToCents(value: string): number {
 export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps) {
   const t = useTranslations("admin");
   const tCommon = useTranslations("common");
+  const getLocalizedError = useLocalizedError();
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,19 +82,19 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
 
   function validate(): boolean {
     const newErrors: Record<string, string> = {};
-    if (!formData.name_en.trim()) newErrors.name_en = "English name is required";
-    if (!formData.id.trim() && !product) newErrors.id = "Product ID is required";
+    if (!formData.name_en.trim()) newErrors.name_en = t("validation.nameEnRequired");
+    if (!formData.id.trim() && !product) newErrors.id = t("validation.idRequired");
     if (!product && formData.id.trim() && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(formData.id)) {
-      newErrors.id = "ID must be lowercase letters, numbers, and hyphens only";
+      newErrors.id = t("validation.idFormat");
     }
-    if (formData.price_cents <= 0) newErrors.price_cents = "Price must be greater than 0";
-    if (!formData.category) newErrors.category = "Category is required";
-    if (formData.stock < 0) newErrors.stock = "Stock cannot be negative";
+    if (formData.price_cents <= 0) newErrors.price_cents = t("validation.pricePositive");
+    if (!formData.category) newErrors.category = t("validation.categoryRequired");
+    if (formData.stock < 0) newErrors.stock = t("validation.stockNonNegative");
     if (formData.image_file) {
       const validType = ["image/jpeg", "image/png"].includes(formData.image_file.type);
-      if (!validType) newErrors.image_file = "Image must be a JPEG or PNG file";
+      if (!validType) newErrors.image_file = t("validation.imageType");
       if (formData.image_file.size > MAX_IMAGE_SIZE) {
-        newErrors.image_file = "Image must be 5MB or smaller";
+        newErrors.image_file = t("validation.imageSize");
       }
     }
     setErrors(newErrors);
@@ -109,7 +112,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
       const successParam = product ? "updated" : "created";
       router.push(`/admin/products?success=${successParam}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save product");
+      setError(err instanceof ApiError ? getLocalizedError(err.code) : t("errors.saveProduct"));
     } finally {
       setIsSubmitting(false);
     }
@@ -140,8 +143,8 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
       {/* Product ID (only on create) */}
       {!product && (
         <Input
-          label="Product ID (slug)"
-          placeholder="e.g., lavender-dreams-300ml"
+          label={t("productId")}
+          placeholder={t("productIdPlaceholder")}
           value={formData.id}
           onChange={(e) => updateField("id", e.target.value)}
           error={errors.id}
@@ -153,7 +156,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
         <div className="relative">
           <Input
             label={t("nameEn")}
-            placeholder="Product name (English)"
+            placeholder={t("nameEnPlaceholder")}
             value={formData.name_en}
             onChange={(e) => updateField("name_en", e.target.value)}
             error={errors.name_en}
@@ -167,7 +170,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
         <div className="relative">
           <Input
             label={t("nameBg")}
-            placeholder="Име на продукт (български)"
+            placeholder={t("nameBgPlaceholder")}
             value={formData.name_bg}
             onChange={(e) => updateField("name_bg", e.target.value)}
           />
@@ -191,7 +194,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
             onChange={(e) => updateField("description_en", e.target.value)}
             rows={4}
             className="w-full rounded-brand border border-champagne-beige bg-cream px-3 py-2 text-soft-brown placeholder:text-soft-brown/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
-            placeholder="Describe this product..."
+            placeholder={t("descriptionEnPlaceholder")}
           />
           {translationStaleEn && (
             <span className="absolute top-0 right-0 text-xs bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-brand" title={t("translationStale")}>
@@ -209,7 +212,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
             onChange={(e) => updateField("description_bg", e.target.value)}
             rows={4}
             className="w-full rounded-brand border border-champagne-beige bg-cream px-3 py-2 text-soft-brown placeholder:text-soft-brown/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
-            placeholder="Описание на продукта..."
+            placeholder={t("descriptionBgPlaceholder")}
           />
           {translationStaleBg && (
             <span className="absolute top-0 right-0 text-xs bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-brand" title={t("translationStale")}>
@@ -231,7 +234,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
             onChange={(e) => updateField("category", e.target.value)}
             className="h-10 w-full rounded-brand border border-champagne-beige bg-cream px-3 text-soft-brown focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
           >
-            <option value="">Select category...</option>
+            <option value="">{t("selectCategory")}</option>
             {CATEGORIES.map((cat) => (
               <option key={cat} value={cat}>
                 {cat}
@@ -243,7 +246,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
           )}
         </div>
         <Input
-          label="Price (EUR)"
+          label={t("priceEur")}
           type="number"
           step="0.01"
           min="0"
@@ -268,7 +271,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
         />
         <div className="sm:col-span-2">
           <label htmlFor="image_file" className="mb-1.5 block text-sm font-medium text-soft-brown">
-            Product image
+            {t("productImage")}
           </label>
           <input
             id="image_file"
@@ -281,23 +284,27 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
             <p className="mt-1.5 text-sm text-red-700">{errors.image_file}</p>
           )}
           {formData.image_url && !formData.image_file && (
-            <p className="mt-1.5 text-xs text-soft-brown/70">Current image: {formData.image_url}</p>
+            <p className="mt-1.5 text-xs text-soft-brown/70">
+              {t("currentImage", { url: formData.image_url })}
+            </p>
           )}
           {formData.image_file && (
-            <p className="mt-1.5 text-xs text-soft-brown/70">Selected: {formData.image_file.name}</p>
+            <p className="mt-1.5 text-xs text-soft-brown/70">
+              {t("selectedFile", { name: formData.image_file.name })}
+            </p>
           )}
         </div>
         <Input
-          label="Materials"
-          placeholder="e.g., Soy wax, lavender oil"
+          label={t("materials")}
+          placeholder={t("materialsPlaceholder")}
           value={formData.materials}
           onChange={(e) => updateField("materials", e.target.value)}
         />
         <Input
-          label="Days to Craft"
+          label={t("daysToCraft")}
           type="number"
           min="1"
-          placeholder="Optional"
+          placeholder={t("optional")}
           value={formData.days_to_craft !== null ? String(formData.days_to_craft) : ""}
           onChange={(e) => {
             const val = e.target.value ? parseInt(e.target.value) : null;
@@ -315,7 +322,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
           className="h-4 w-4 rounded border-champagne-beige text-muted-gold focus:ring-muted-gold"
         />
         <label htmlFor="is_featured" className="text-sm text-soft-brown">
-          Featured product (shown on homepage)
+          {t("featuredProduct")}
         </label>
       </div>
 

@@ -108,7 +108,7 @@ def seed_products(conn: sqlite3.Connection, products: list[dict] | None = None) 
     items = products if products is not None else DEFAULT_PRODUCTS
     for p in items:
         conn.execute(
-            "INSERT INTO products (id, name, description, price_cents, "
+            "INSERT INTO products (id, name_en, description_en, price_cents, "
             "category, stock, is_active, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
             (

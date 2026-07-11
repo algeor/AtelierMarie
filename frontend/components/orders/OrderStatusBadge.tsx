@@ -1,3 +1,6 @@
+"use client";
+
+import { useTranslations } from "next-intl";
 import { Badge } from "@/components/ui/Badge";
 import type { OrderStatus } from "@/lib/types";
 
@@ -9,22 +12,16 @@ const STATUS_STYLES: Record<OrderStatus, string> = {
   cancelled: "bg-red-100 text-red-800",
 };
 
-const STATUS_LABELS: Record<OrderStatus, string> = {
-  pending: "Pending",
-  confirmed: "Confirmed",
-  shipped: "Shipped",
-  delivered: "Delivered",
-  cancelled: "Cancelled",
-};
-
 interface OrderStatusBadgeProps {
   status: OrderStatus;
 }
 
 export function OrderStatusBadge({ status }: OrderStatusBadgeProps) {
+  const t = useTranslations("orders.status");
+
   return (
     <Badge className={STATUS_STYLES[status]}>
-      {STATUS_LABELS[status]}
+      {t(status)}
     </Badge>
   );
 }

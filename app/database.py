@@ -206,6 +206,63 @@ BEGIN
 END;
 """
 
+_PRODUCTS_TABLE_SQL = """\
+CREATE TABLE products_new (
+    id          TEXT PRIMARY KEY,
+    name_en     TEXT NOT NULL,
+    name_bg     TEXT,
+    description_en TEXT,
+    description_bg TEXT,
+    materials   TEXT,
+    days_to_craft INTEGER,
+    price_cents INTEGER NOT NULL CHECK (price_cents > 0),
+    category    TEXT,
+    image_url   TEXT,
+    stock       INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
+    is_active   INTEGER NOT NULL DEFAULT 1,
+    is_featured INTEGER NOT NULL DEFAULT 0,
+    translation_stale_bg INTEGER NOT NULL DEFAULT 0,
+    translation_stale_en INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"""
+
+_PRODUCT_COLUMNS = (
+    "id",
+    "name_en",
+    "name_bg",
+    "description_en",
+    "description_bg",
+    "materials",
+    "days_to_craft",
+    "price_cents",
+    "category",
+    "image_url",
+    "stock",
+    "is_active",
+    "is_featured",
+    "translation_stale_bg",
+    "translation_stale_en",
+    "created_at",
+    "updated_at",
+)
+
+_PRODUCT_FTS_RESET_SQL = """\
+DROP TRIGGER IF EXISTS products_fts_insert;
+DROP TRIGGER IF EXISTS products_fts_delete;
+DROP TRIGGER IF EXISTS products_fts_update;
+DROP TRIGGER IF EXISTS products_fts_en_insert;
+DROP TRIGGER IF EXISTS products_fts_en_delete;
+DROP TRIGGER IF EXISTS products_fts_en_update;
+DROP TRIGGER IF EXISTS products_fts_bg_insert;
+DROP TRIGGER IF EXISTS products_fts_bg_delete;
+DROP TRIGGER IF EXISTS products_fts_bg_update;
+DROP TABLE IF EXISTS products_fts;
+DROP TABLE IF EXISTS products_fts_en;
+DROP TABLE IF EXISTS products_fts_bg;
+"""
+
 # Module-level database path — set during app startup via init_db()
 _db_path: str = ""
 
@@ -222,13 +279,125 @@ def init_db(path: str) -> None:
     try:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
+        _migrate_existing_schema(conn)
         conn.executescript(_SCHEMA_SQL)
+        _rebuild_product_fts(conn)
         conn.commit()
     finally:
         conn.close()
 
     # Restrict DB file permissions (owner read/write only)
     os.chmod(path, 0o600)
+
+
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table,),
+    ).fetchone()
+    return row is not None
+
+
+def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()  # noqa: S608
+    return {str(row[1]) for row in rows}
+
+
+def _column_expr(columns: set[str], name: str, default: str = "NULL") -> str:
+    return f'"{name}"' if name in columns else default
+
+
+def _add_column_if_missing(
+    conn: sqlite3.Connection,
+    table: str,
+    columns: set[str],
+    column: str,
+    definition: str,
+) -> None:
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {definition}")  # noqa: S608
+        columns.add(column)
+
+
+def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
+    """Bring pre-bilingual SQLite files up to the current schema."""
+    conn.executescript(_PRODUCT_FTS_RESET_SQL)
+
+    if _table_exists(conn, "products"):
+        _migrate_products_table(conn)
+
+    if _table_exists(conn, "sessions"):
+        session_columns = _table_columns(conn, "sessions")
+        _add_column_if_missing(
+            conn,
+            "sessions",
+            session_columns,
+            "preferred_locale",
+            "preferred_locale TEXT NOT NULL DEFAULT 'en'",
+        )
+
+
+def _migrate_products_table(conn: sqlite3.Connection) -> None:
+    columns = _table_columns(conn, "products")
+    if columns == set(_PRODUCT_COLUMNS):
+        return
+
+    name_en_expr = _column_expr(columns, "name_en", _column_expr(columns, "name", "''"))
+    if "name_en" in columns and "name" in columns:
+        name_en_expr = "COALESCE(NULLIF(name_en, ''), name)"
+
+    description_en_expr = _column_expr(
+        columns,
+        "description_en",
+        _column_expr(columns, "description"),
+    )
+    if "description_en" in columns and "description" in columns:
+        description_en_expr = "COALESCE(description_en, description)"
+
+    price_expr = _column_expr(columns, "price_cents")
+    if "price_cents" not in columns and "price" in columns:
+        price_expr = "CAST(ROUND(price * 100) AS INTEGER)"
+
+    select_exprs = [
+        _column_expr(columns, "id"),
+        name_en_expr,
+        _column_expr(columns, "name_bg"),
+        description_en_expr,
+        _column_expr(columns, "description_bg"),
+        _column_expr(columns, "materials"),
+        _column_expr(columns, "days_to_craft"),
+        price_expr,
+        _column_expr(columns, "category"),
+        _column_expr(columns, "image_url"),
+        _column_expr(columns, "stock", "0"),
+        _column_expr(columns, "is_active", "1"),
+        _column_expr(columns, "is_featured", "0"),
+        _column_expr(columns, "translation_stale_bg", "0"),
+        _column_expr(columns, "translation_stale_en", "0"),
+        _column_expr(columns, "created_at", "datetime('now')"),
+        _column_expr(columns, "updated_at", "datetime('now')"),
+    ]
+
+    conn.execute("PRAGMA foreign_keys=OFF")
+    try:
+        conn.executescript(_PRODUCTS_TABLE_SQL)
+        conn.execute(
+            f"""
+            INSERT INTO products_new ({", ".join(_PRODUCT_COLUMNS)})
+            SELECT {", ".join(select_exprs)} FROM products
+            """
+        )
+        conn.execute("DROP TABLE products")
+        conn.execute("ALTER TABLE products_new RENAME TO products")
+    finally:
+        conn.execute("PRAGMA foreign_keys=ON")
+
+
+def _rebuild_product_fts(conn: sqlite3.Connection) -> None:
+    if not _table_exists(conn, "products"):
+        return
+    conn.execute("INSERT INTO products_fts_en(products_fts_en) VALUES ('rebuild')")
+    conn.execute("INSERT INTO products_fts_bg(products_fts_bg) VALUES ('rebuild')")
 
 
 @contextmanager

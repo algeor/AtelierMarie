@@ -1,10 +1,13 @@
+"use client";
+
+import { useTranslations } from "next-intl";
 import type { OrderStatus } from "@/lib/types";
 
-const STEPS: { status: OrderStatus; label: string }[] = [
-  { status: "pending", label: "Pending" },
-  { status: "confirmed", label: "Confirmed" },
-  { status: "shipped", label: "Shipped" },
-  { status: "delivered", label: "Delivered" },
+const STEPS: OrderStatus[] = [
+  "pending",
+  "confirmed",
+  "shipped",
+  "delivered",
 ];
 
 const STATUS_INDEX: Record<OrderStatus, number> = {
@@ -20,12 +23,14 @@ interface StatusTimelineProps {
 }
 
 export function StatusTimeline({ currentStatus }: StatusTimelineProps) {
+  const t = useTranslations("orders.status");
+
   // For cancelled orders, show simplified timeline
   if (currentStatus === "cancelled") {
     return (
       <div className="space-y-4">
-        <TimelineStep label="Pending" isCompleted isCurrent={false} />
-        <TimelineStep label="Cancelled" isCompleted isCurrent isCancelled />
+        <TimelineStep label={t("pending")} isCompleted isCurrent={false} />
+        <TimelineStep label={t("cancelled")} isCompleted isCurrent isCancelled />
       </div>
     );
   }
@@ -34,10 +39,10 @@ export function StatusTimeline({ currentStatus }: StatusTimelineProps) {
 
   return (
     <div className="space-y-4">
-      {STEPS.map((step, index) => (
+      {STEPS.map((status, index) => (
         <TimelineStep
-          key={step.status}
-          label={step.label}
+          key={status}
+          label={t(status)}
           isCompleted={index <= currentIndex}
           isCurrent={index === currentIndex}
         />

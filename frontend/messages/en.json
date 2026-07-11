@@ -38,13 +38,24 @@
   },
   "auth": {
     "signIn": "Sign In",
+    "signInWithGoogle": "Sign In with Google",
     "signOut": "Sign Out",
     "myAccount": "My Account",
     "myOrders": "My Orders",
-    "signInToSeeOrders": "Sign in to see all your orders"
+    "signInToSeeOrders": "Sign in to see all your orders",
+    "signInToViewAccount": "Sign in to view your account and order history",
+    "userAvatar": "User avatar",
+    "userFallback": "User"
+  },
+  "home": {
+    "heroTitle": "Luxury Handcrafted Candles",
+    "heroSubtitle": "Each candle is lovingly made by hand, using the finest natural ingredients to bring warmth and elegance to your home.",
+    "shopCollection": "Shop Collection",
+    "featured": "Featured"
   },
   "products": {
     "title": "Our Collection",
+    "notFound": "Product Not Found",
     "noProducts": "No products found in this category.",
     "allCategories": "All",
     "showing": "Showing {count} {count, plural, one {product} other {products}}",
@@ -58,6 +69,9 @@
     "search": "Search products...",
     "sortBy": "Sort by",
     "featured": "Featured",
+    "materials": "Materials & Ingredients",
+    "craftingTime": "Crafting Time",
+    "craftingTimeDays": "Lovingly handcrafted over {count} {count, plural, one {day} other {days}}",
     "priceLowHigh": "Price: Low to High",
     "priceHighLow": "Price: High to Low",
     "newest": "Newest"
@@ -105,6 +119,13 @@
     "orderConfirmation": "Order Confirmed",
     "orderConfirmationMessage": "Thank you for your order!",
     "trackOrder": "Track your order",
+    "notFound": "Order not found",
+    "notFoundDescription": "We couldn't find this order. It may not exist or you may not have access.",
+    "backToOrders": "Back to Orders",
+    "progress": "Order Progress",
+    "items": "Items",
+    "total": "Total",
+    "contact": "Contact",
     "status": {
       "pending": "Pending",
       "confirmed": "Confirmed",
@@ -137,10 +158,45 @@
     "descriptionEn": "Description (English)",
     "descriptionBg": "Description (Bulgarian)",
     "translationStale": "Translation may be outdated",
+    "productId": "Product ID (slug)",
+    "productIdPlaceholder": "e.g., lavender-dreams-300ml",
+    "nameEnPlaceholder": "Product name (English)",
+    "nameBgPlaceholder": "Product name (Bulgarian)",
+    "descriptionEnPlaceholder": "Describe this product...",
+    "descriptionBgPlaceholder": "Describe this product in Bulgarian...",
     "price": "Price (cents)",
+    "priceEur": "Price (EUR)",
     "stock": "Stock",
     "category": "Category",
-    "imageUrl": "Image URL"
+    "selectCategory": "Select category...",
+    "imageUrl": "Image URL",
+    "productImage": "Product image",
+    "currentImage": "Current image: {url}",
+    "selectedFile": "Selected: {name}",
+    "materials": "Materials",
+    "materialsPlaceholder": "e.g., Soy wax, lavender oil",
+    "daysToCraft": "Days to Craft",
+    "optional": "Optional",
+    "featuredProduct": "Featured product (shown on homepage)",
+    "validation": {
+      "nameEnRequired": "English name is required",
+      "idRequired": "Product ID is required",
+      "idFormat": "ID must be lowercase letters, numbers, and hyphens only",
+      "pricePositive": "Price must be greater than 0",
+      "categoryRequired": "Category is required",
+      "stockNonNegative": "Stock cannot be negative",
+      "imageType": "Image must be a JPEG or PNG file",
+      "imageSize": "Image must be 5MB or smaller"
+    },
+    "errors": {
+      "saveProduct": "Failed to save product",
+      "loadStats": "Failed to load stats",
+      "loadOrders": "Failed to load orders",
+      "updateOrderStatus": "Failed to update order status",
+      "loadProducts": "Failed to load products",
+      "updateProduct": "Failed to update product",
+      "loadProduct": "Failed to load product"
+    }
   },
   "locale": {
     "switchToEnglish": "Switch to English",

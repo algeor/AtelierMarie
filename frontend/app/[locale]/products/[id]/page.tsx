@@ -1,31 +1,35 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 import { getProduct } from "@/lib/api";
 import { ProductImage } from "@/components/products/ProductImage";
 import { Badge } from "@/components/ui/Badge";
 import { formatPrice } from "@/lib/utils";
 import { AddToCartSection } from "@/components/products/AddToCartSection";
 import { ProductSocialSection } from "@/components/products/ProductSocialSection";
+import type { Locale } from "@/i18n/routing";
 
 interface ProductPageProps {
-  params: { id: string };
+  params: { id: string; locale: Locale };
 }
 
 export async function generateMetadata({
   params,
 }: ProductPageProps): Promise<Metadata> {
   try {
-    const product = await getProduct(params.id);
+    const product = await getProduct(params.id, params.locale);
     return { title: product.name };
   } catch {
-    return { title: "Product Not Found" };
+    const t = await getTranslations({ locale: params.locale, namespace: "products" });
+    return { title: t("notFound") };
   }
 }
 
 export default async function ProductDetailPage({ params }: ProductPageProps) {
+  const t = await getTranslations({ locale: params.locale, namespace: "products" });
   let product;
   try {
-    product = await getProduct(params.id);
+    product = await getProduct(params.id, params.locale);
   } catch {
     notFound();
   }
@@ -70,7 +74,7 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
           {product.materials && (
             <div>
               <h2 className="font-heading text-lg text-charcoal mb-2">
-                Materials & Ingredients
+                {t("materials")}
               </h2>
               <p className="text-soft-brown text-sm">{product.materials}</p>
             </div>
@@ -79,11 +83,10 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
           {product.days_to_craft !== null && (
             <div>
               <h2 className="font-heading text-lg text-charcoal mb-2">
-                Crafting Time
+                {t("craftingTime")}
               </h2>
               <p className="text-soft-brown text-sm">
-                Lovingly handcrafted over {product.days_to_craft}{" "}
-                {product.days_to_craft === 1 ? "day" : "days"}
+                {t("craftingTimeDays", { count: product.days_to_craft })}
               </p>
             </div>
           )}

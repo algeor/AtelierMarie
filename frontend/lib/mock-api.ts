@@ -171,7 +171,8 @@ function buildCartResponse(): CartResponse {
 
 export async function getProducts(
   page = 1,
-  limit = 20
+  limit = 20,
+  _locale?: string
 ): Promise<ProductListResponse> {
   await delay();
   if (limit > 100) mockError("VALIDATION_ERROR", "Limit exceeds maximum of 100");
@@ -187,7 +188,8 @@ export async function getProducts(
 }
 
 export async function getProduct(
-  productId: string
+  productId: string,
+  _locale?: string
 ): Promise<ProductResponse> {
   await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId && p.is_active);

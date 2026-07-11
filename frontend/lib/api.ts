@@ -4,6 +4,7 @@
  */
 
 import * as apiClient from "./api-client";
+import type { Locale } from "@/i18n/routing";
 import type {
   AdminProductListResponse,
   AdminProductResponse,
@@ -38,20 +39,31 @@ function getMock() {
 
 export async function getProducts(
   page = 1,
-  limit = 20
+  limit = 20,
+  locale?: Locale
 ): Promise<ProductListResponse> {
-  if (USE_MOCK) return (await getMock()).getProducts(page, limit);
+  if (USE_MOCK) return (await getMock()).getProducts(page, limit, locale);
   const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (locale) params.set("locale", locale);
   return apiClient.get<ProductListResponse>(`/v1/products?${params}`);
 }
 
 export async function getProduct(
-  productId: string
+  productId: string,
+  locale?: Locale
 ): Promise<ProductResponse> {
-  if (USE_MOCK) return (await getMock()).getProduct(productId);
+  if (USE_MOCK) return (await getMock()).getProduct(productId, locale);
+  const params = new URLSearchParams();
+  if (locale) params.set("locale", locale);
+  const query = params.size > 0 ? `?${params}` : "";
   return apiClient.get<ProductResponse>(
-    `/v1/products/${encodeURIComponent(productId)}`
+    `/v1/products/${encodeURIComponent(productId)}${query}`
   );
+}
+
+export async function updateLocalePreference(locale: Locale): Promise<{ locale: Locale }> {
+  if (USE_MOCK) return { locale };
+  return apiClient.patch<{ locale: Locale }>("/v1/locale", { locale });
 }
 
 export async function getCart(): Promise<CartResponse> {

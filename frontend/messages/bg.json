@@ -38,13 +38,24 @@
   },
   "auth": {
     "signIn": "Вход",
+    "signInWithGoogle": "Вход с Google",
     "signOut": "Изход",
     "myAccount": "Моят профил",
     "myOrders": "Моите поръчки",
-    "signInToSeeOrders": "Влезте, за да видите всички поръчки"
+    "signInToSeeOrders": "Влезте, за да видите всички поръчки",
+    "signInToViewAccount": "Влезте, за да видите профила и историята на поръчките си",
+    "userAvatar": "Аватар на потребител",
+    "userFallback": "Потребител"
+  },
+  "home": {
+    "heroTitle": "Луксозни ръчно изработени свещи",
+    "heroSubtitle": "Всяка свещ е изработена ръчно с най-фините натурални съставки, за да внесе топлина и елегантност в дома ви.",
+    "shopCollection": "Разгледай колекцията",
+    "featured": "Препоръчани"
   },
   "products": {
     "title": "Нашата колекция",
+    "notFound": "Продуктът не е намерен",
     "noProducts": "Няма продукти в тази категория.",
     "allCategories": "Всички",
     "showing": "Показване на {count} {count, plural, one {продукт} other {продукта}}",
@@ -58,6 +69,9 @@
     "search": "Търсене на продукти...",
     "sortBy": "Сортирай по",
     "featured": "Препоръчани",
+    "materials": "Материали и съставки",
+    "craftingTime": "Време за изработка",
+    "craftingTimeDays": "Ръчно изработено за {count} {count, plural, one {ден} other {дни}}",
     "priceLowHigh": "Цена: ниска към висока",
     "priceHighLow": "Цена: висока към ниска",
     "newest": "Най-нови"
@@ -105,6 +119,13 @@
     "orderConfirmation": "Поръчката е потвърдена",
     "orderConfirmationMessage": "Благодарим ви за поръчката!",
     "trackOrder": "Проследи поръчката",
+    "notFound": "Поръчката не е намерена",
+    "notFoundDescription": "Не можахме да намерим тази поръчка. Възможно е да не съществува или да нямате достъп.",
+    "backToOrders": "Назад към поръчките",
+    "progress": "Напредък на поръчката",
+    "items": "Артикули",
+    "total": "Общо",
+    "contact": "Контакт",
     "status": {
       "pending": "Изчакваща",
       "confirmed": "Потвърдена",
@@ -137,10 +158,45 @@
     "descriptionEn": "Описание (английски)",
     "descriptionBg": "Описание (български)",
     "translationStale": "Преводът може да е остарял",
+    "productId": "ID на продукт (slug)",
+    "productIdPlaceholder": "напр. lavender-dreams-300ml",
+    "nameEnPlaceholder": "Име на продукт (английски)",
+    "nameBgPlaceholder": "Име на продукт (български)",
+    "descriptionEnPlaceholder": "Опишете продукта на английски...",
+    "descriptionBgPlaceholder": "Опишете продукта на български...",
     "price": "Цена (стотинки)",
+    "priceEur": "Цена (EUR)",
     "stock": "Наличност",
     "category": "Категория",
-    "imageUrl": "URL на изображение"
+    "selectCategory": "Изберете категория...",
+    "imageUrl": "URL на изображение",
+    "productImage": "Изображение на продукт",
+    "currentImage": "Текущо изображение: {url}",
+    "selectedFile": "Избран файл: {name}",
+    "materials": "Материали",
+    "materialsPlaceholder": "напр. соев восък, лавандулово масло",
+    "daysToCraft": "Дни за изработка",
+    "optional": "По избор",
+    "featuredProduct": "Препоръчан продукт (показва се на началната страница)",
+    "validation": {
+      "nameEnRequired": "Името на английски е задължително",
+      "idRequired": "ID на продукта е задължително",
+      "idFormat": "ID трябва да съдържа само малки латински букви, цифри и тирета",
+      "pricePositive": "Цената трябва да е по-голяма от 0",
+      "categoryRequired": "Категорията е задължителна",
+      "stockNonNegative": "Наличността не може да бъде отрицателна",
+      "imageType": "Изображението трябва да е JPEG или PNG файл",
+      "imageSize": "Изображението трябва да е 5MB или по-малко"
+    },
+    "errors": {
+      "saveProduct": "Неуспешно запазване на продукта",
+      "loadStats": "Неуспешно зареждане на статистиките",
+      "loadOrders": "Неуспешно зареждане на поръчките",
+      "updateOrderStatus": "Неуспешно обновяване на статуса на поръчката",
+      "loadProducts": "Неуспешно зареждане на продуктите",
+      "updateProduct": "Неуспешно обновяване на продукта",
+      "loadProduct": "Неуспешно зареждане на продукта"
+    }
   },
   "locale": {
     "switchToEnglish": "Switch to English",

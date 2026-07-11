@@ -6,6 +6,7 @@ import { useRouter } from "@/i18n/navigation";
 import { useCart } from "@/contexts/CartContext";
 import { createOrder } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
+import { useLocalizedError } from "@/lib/useLocalizedError";
 import { formatPrice } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -15,6 +16,7 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export default function CheckoutPage() {
   const t = useTranslations("checkout");
   const tCart = useTranslations("cart");
+  const getLocalizedError = useLocalizedError();
   const router = useRouter();
   const { items, total_cents, isLoading, refreshCart } = useCart();
 
@@ -86,8 +88,8 @@ export default function CheckoutPage() {
         });
         router.push(`/orders/${order.id}/confirmation`);
       } catch (error) {
-        if (error instanceof ApiError && error.code === "CONFLICT") {
-          setSubmitError(t("unavailableItems"));
+        if (error instanceof ApiError) {
+          setSubmitError(getLocalizedError(error.code));
         } else {
           setSubmitError(t("genericError"));
         }
@@ -95,7 +97,7 @@ export default function CheckoutPage() {
         setIsSubmitting(false);
       }
     },
-    [email, name, address, notes, validateEmail, router, t]
+    [email, name, address, notes, validateEmail, router, t, getLocalizedError]
   );
 
   // Loading skeleton

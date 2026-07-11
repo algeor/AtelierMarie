@@ -3,6 +3,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { usePathname, useRouter } from "@/i18n/navigation";
 import type { Locale } from "@/i18n/routing";
+import { updateLocalePreference } from "@/lib/api";
 
 /**
  * Language toggle button showing the flag of the OTHER locale.
@@ -26,13 +27,7 @@ export function LanguageToggle() {
     // Navigate to same page in other locale
     router.replace(pathname, { locale: otherLocale });
 
-    // Fire-and-forget locale preference update to backend
-    fetch("/v1/session/locale", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ preferred_locale: otherLocale }),
-      credentials: "include",
-    }).catch(() => {
+    updateLocalePreference(otherLocale).catch(() => {
       // Non-critical — best effort
     });
   }
