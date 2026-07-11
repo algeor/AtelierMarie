@@ -1,98 +1,53 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
-### Requirement: Admin can create a product
-The system SHALL expose `POST /v1/admin/products` accepting a JSON body matching CreateProductRequest. The endpoint SHALL return 201 with the created ProductResponse. The endpoint SHALL return 409 if a product with the given ID already exists. The product ID SHALL be provided in the request body as a slug/SKU string.
+### Requirement: Create product endpoint
+The system SHALL expose `POST /v1/admin/products` accepting product data with dual-language content fields: `name_en`, `name_bg`, `description_en`, `description_bg`. At minimum, `name_en` SHALL be required. The `name_bg` and `description_bg` fields are optional (fallback applies on display).
 
-#### Scenario: Successful product creation
-- **WHEN** `POST /v1/admin/products` is called with valid product data and admin auth
-- **THEN** the response is 201 with the full product, and the product exists in the database
+#### Scenario: Create product with both languages
+- **WHEN** admin POSTs a product with `name_en`, `name_bg`, `description_en`, `description_bg`
+- **THEN** the product is created with content in both languages and staleness flags set to false
 
-#### Scenario: Duplicate product ID
-- **WHEN** `POST /v1/admin/products` is called with an ID that already exists
-- **THEN** the response is 409 with `{error: {code: "DUPLICATE", message: "Product with this ID already exists"}}`
+#### Scenario: Create product with English only
+- **WHEN** admin POSTs a product with only `name_en` and `description_en`
+- **THEN** the product is created with BG fields as NULL; `translation_stale_bg` is set to false (nothing to be stale against)
 
-#### Scenario: Invalid product data (missing required fields)
-- **WHEN** `POST /v1/admin/products` is called without `name` or `price_cents`
-- **THEN** the response is 422 with validation error details
+### Requirement: Update product endpoint
+The system SHALL expose `PATCH /v1/admin/products/{product_id}` accepting partial updates including dual-language content fields. When content in one language is updated, the system SHALL set the other language's staleness flag to true.
 
-### Requirement: Admin can update a product
-The system SHALL expose `PUT /v1/admin/products/{product_id}` accepting a JSON body matching UpdateProductRequest (all fields optional). The endpoint SHALL partially update only the provided fields. The endpoint SHALL return 200 with the updated ProductResponse. The endpoint SHALL return 404 if the product does not exist.
+#### Scenario: Update English description flags Bulgarian as stale
+- **WHEN** admin PATCHes `description_en` for a product
+- **THEN** `translation_stale_bg` is set to true
 
-#### Scenario: Partial update (name only)
-- **WHEN** `PUT /v1/admin/products/lavender-dream-300ml` is called with `{name: "Lavender Dream XL"}`
-- **THEN** only name is changed, other fields are preserved, updated_at is refreshed
+#### Scenario: Update Bulgarian name flags English as stale
+- **WHEN** admin PATCHes `name_bg` for a product
+- **THEN** `translation_stale_en` is set to true
 
-#### Scenario: Update non-existent product
-- **WHEN** `PUT /v1/admin/products/no-such-id` is called
-- **THEN** the response is 404
+#### Scenario: Update Bulgarian content clears its staleness flag
+- **WHEN** admin PATCHes `description_bg` for a product that has `translation_stale_bg = true`
+- **THEN** `translation_stale_bg` is set to false
 
-### Requirement: Admin can deactivate a product
-The system SHALL expose `DELETE /v1/admin/products/{product_id}` which sets `is_active=0` (soft delete). The endpoint SHALL return 200 with the deactivated product. The endpoint SHALL return 404 if the product does not exist. The product row SHALL remain in the database.
+#### Scenario: Update both languages simultaneously
+- **WHEN** admin PATCHes both `name_en` and `name_bg` in the same request
+- **THEN** neither staleness flag is set (both sides updated together)
 
-#### Scenario: Successful deactivation
-- **WHEN** `DELETE /v1/admin/products/lavender-dream-300ml` is called with admin auth
-- **THEN** the product's is_active is set to 0, response is 200 with updated product
+### Requirement: Product response includes staleness metadata for admin
+The system SHALL include `translation_stale_en` and `translation_stale_bg` boolean fields in admin product responses (not in public API responses).
 
-#### Scenario: Deactivate non-existent product
-- **WHEN** `DELETE /v1/admin/products/no-such-id` is called
-- **THEN** the response is 404
+#### Scenario: Admin gets product with staleness info
+- **WHEN** admin GETs a product via admin endpoint
+- **THEN** the response includes `translation_stale_en` and `translation_stale_bg` fields
 
-### Requirement: Admin can bulk import products via CSV
-The system SHALL expose `POST /v1/admin/products/import` accepting a CSV file as multipart/form-data. The CSV SHALL have columns: `id`, `name`, `description`, `price_cents`, `category`, `stock`, `image_url`. The endpoint SHALL use upsert semantics (create new, update existing). The endpoint SHALL skip rows with validation errors and continue processing. The endpoint SHALL return `{created: N, updated: N, errors: [{row: N, message: "..."}]}`.
+#### Scenario: Public API excludes staleness info
+- **WHEN** a public client GETs a product via `/v1/products/{id}`
+- **THEN** the response does NOT include staleness fields
 
-#### Scenario: Import new products
-- **WHEN** a CSV with 5 new valid products is uploaded
-- **THEN** all 5 are created and response shows `{created: 5, updated: 0, errors: []}`
+### Requirement: CSV import supports dual-language columns
+The `POST /v1/admin/products/import` endpoint SHALL accept CSV files with columns `name_en`, `name_bg`, `description_en`, `description_bg`. The `name_en` column is required; BG columns are optional.
 
-#### Scenario: Import with upsert (mixed new and existing)
-- **WHEN** a CSV contains 3 new products and 2 products with existing IDs
-- **THEN** 3 are created, 2 are updated, response shows `{created: 3, updated: 2, errors: []}`
+#### Scenario: Import CSV with both languages
+- **WHEN** admin uploads a CSV with `name_en`, `name_bg`, `description_en`, `description_bg` columns
+- **THEN** products are created/upserted with content in both languages
 
-#### Scenario: Import with validation errors
-- **WHEN** a CSV contains rows with missing `name` or negative `price_cents`
-- **THEN** invalid rows are skipped, valid rows are processed, errors array contains row numbers and messages
-
-#### Scenario: Import with missing required columns
-- **WHEN** a CSV is uploaded without the `id` or `name` column headers
-- **THEN** the response is 400 with an error message listing missing columns
-
-#### Scenario: Import empty CSV (headers only)
-- **WHEN** a CSV with only headers and no data rows is uploaded
-- **THEN** the response is 200 with `{created: 0, updated: 0, errors: []}`
-
-### Requirement: Admin endpoints require admin authentication
-All admin endpoints (`/v1/admin/*`) SHALL require admin authentication. The system SHALL accept EITHER a valid JWT cookie with `is_admin=true` OR a valid `Authorization: Bearer <ATELIER_ADMIN_API_KEY>` header. If neither is provided, the response SHALL be 401 Unauthorized. If credentials are provided but the user is not admin, the response SHALL be 403 Forbidden.
-
-#### Scenario: Access with valid API key
-- **WHEN** an admin endpoint is called with `Authorization: Bearer <valid_key>`
-- **THEN** the request is authorized and proceeds
-
-#### Scenario: Access without any credentials
-- **WHEN** an admin endpoint is called without auth headers
-- **THEN** the response is 401
-
-#### Scenario: Access with invalid API key
-- **WHEN** an admin endpoint is called with `Authorization: Bearer wrong-key`
-- **THEN** the response is 401
-
-#### Scenario: Empty API key configuration denies all access
-- **WHEN** `ATELIER_ADMIN_API_KEY` is not configured (empty string) AND a request is made with `Authorization: Bearer ` (empty value)
-- **THEN** the response is 401 (empty key MUST NOT match empty config)
-
-### Requirement: Admin can list all products including inactive
-The system SHALL expose `GET /v1/admin/products` returning a paginated list of ALL products (active and inactive). This allows admins to see deactivated products and re-activate them.
-
-#### Scenario: Admin list includes inactive products
-- **WHEN** `GET /v1/admin/products` is called with admin auth and inactive products exist
-- **THEN** both active and inactive products appear in the response
-
-### Requirement: Admin can get a single product including inactive
-The system SHALL expose `GET /v1/admin/products/{product_id}` returning a single product regardless of its active status. This allows admins to view deactivated products for re-activation or inspection. The endpoint SHALL return 404 if the product does not exist.
-
-#### Scenario: Admin gets inactive product
-- **WHEN** `GET /v1/admin/products/discontinued-candle` is called with admin auth and the product exists but is inactive
-- **THEN** the response is 200 with the full ProductResponse (is_active=false visible)
-
-#### Scenario: Admin gets non-existent product
-- **WHEN** `GET /v1/admin/products/no-such-id` is called with admin auth
-- **THEN** the response is 404
+#### Scenario: Import CSV with English only
+- **WHEN** admin uploads a CSV with only `name_en` and `description_en` columns
+- **THEN** products are created with BG fields as NULL
