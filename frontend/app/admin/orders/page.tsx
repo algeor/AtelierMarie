@@ -1,0 +1,223 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { getAdminOrders, updateOrderStatus } from "@/lib/api";
+import { cn, formatPrice } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/Skeleton";
+import type { OrderResponse, OrderStatus } from "@/lib/types";
+
+const STATUS_FILTERS: { label: string; value: string }[] = [
+  { label: "All", value: "" },
+  { label: "Pending", value: "pending" },
+  { label: "Confirmed", value: "confirmed" },
+  { label: "Shipped", value: "shipped" },
+  { label: "Delivered", value: "delivered" },
+  { label: "Cancelled", value: "cancelled" },
+];
+
+const STATUS_COLORS: Record<OrderStatus, string> = {
+  pending: "bg-amber-100 text-amber-800",
+  confirmed: "bg-blue-100 text-blue-800",
+  shipped: "bg-purple-100 text-purple-800",
+  delivered: "bg-green-100 text-green-800",
+  cancelled: "bg-red-100 text-red-800",
+};
+
+const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
+  pending: ["confirmed", "cancelled"],
+  confirmed: ["shipped", "cancelled"],
+  shipped: ["delivered"],
+  delivered: [],
+  cancelled: [],
+};
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+export default function AdminOrdersPage() {
+  const [orders, setOrders] = useState<OrderResponse[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function loadOrders() {
+      try {
+        setIsLoading(true);
+        setError(null);
+        const data = await getAdminOrders(1, 100, statusFilter || undefined);
+        setOrders(data.orders);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load orders");
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    loadOrders();
+  }, [statusFilter]);
+
+  async function handleStatusChange(order: OrderResponse, newStatus: OrderStatus) {
+    const previousStatus = order.status;
+    setUpdatingId(order.id);
+    setError(null);
+
+    // Optimistic update
+    setOrders((prev) =>
+      prev.map((o) =>
+        o.id === order.id ? { ...o, status: newStatus } : o
+      )
+    );
+
+    try {
+      await updateOrderStatus(order.id, newStatus);
+    } catch (err) {
+      // Rollback
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === order.id ? { ...o, status: previousStatus } : o
+        )
+      );
+      setError(err instanceof Error ? err.message : "Failed to update order status");
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+  return (
+    <div>
+      <div className="mb-8">
+        <h1 className="font-heading text-2xl font-semibold text-charcoal">
+          Orders
+        </h1>
+        <p className="mt-1 text-sm text-soft-brown">
+          Manage customer orders
+        </p>
+      </div>
+
+      {/* Status Filter Pills */}
+      <div className="mb-6 flex flex-wrap gap-2">
+        {STATUS_FILTERS.map((filter) => (
+          <button
+            key={filter.value}
+            onClick={() => setStatusFilter(filter.value)}
+            className={cn(
+              "rounded-pill px-4 py-1.5 text-sm font-medium transition-colors duration-fast",
+              statusFilter === filter.value
+                ? "bg-muted-gold text-charcoal"
+                : "bg-champagne-beige/50 text-soft-brown hover:bg-champagne-beige"
+            )}
+            aria-pressed={statusFilter === filter.value}
+          >
+            {filter.label}
+          </button>
+        ))}
+      </div>
+
+      {error && (
+        <div className="mb-6 rounded-brand border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      {/* Orders Table */}
+      <div className="overflow-hidden rounded-brand border border-champagne-beige bg-cream">
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr className="border-b border-champagne-beige bg-champagne-beige/30">
+              <th className="px-4 py-3 font-medium text-charcoal">Order ID</th>
+              <th className="px-4 py-3 font-medium text-charcoal">Customer</th>
+              <th className="px-4 py-3 font-medium text-charcoal">Total</th>
+              <th className="px-4 py-3 font-medium text-charcoal">Status</th>
+              <th className="px-4 py-3 font-medium text-charcoal">Date</th>
+              <th className="px-4 py-3 font-medium text-charcoal">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading ? (
+              Array.from({ length: 4 }).map((_, i) => (
+                <tr key={i} className="border-b border-champagne-beige/50">
+                  <td className="px-4 py-3"><Skeleton className="h-4 w-20" /></td>
+                  <td className="px-4 py-3"><Skeleton className="h-4 w-32" /></td>
+                  <td className="px-4 py-3"><Skeleton className="h-4 w-16" /></td>
+                  <td className="px-4 py-3"><Skeleton className="h-5 w-20" /></td>
+                  <td className="px-4 py-3"><Skeleton className="h-4 w-24" /></td>
+                  <td className="px-4 py-3"><Skeleton className="h-8 w-28" /></td>
+                </tr>
+              ))
+            ) : orders.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-soft-brown">
+                  No orders found.
+                </td>
+              </tr>
+            ) : (
+              orders.map((order) => (
+                <tr
+                  key={order.id}
+                  className="border-b border-champagne-beige/50 last:border-0"
+                >
+                  <td className="px-4 py-3 font-mono text-xs text-soft-brown">
+                    {order.id.slice(0, 8)}…
+                  </td>
+                  <td className="px-4 py-3 text-charcoal">
+                    {order.customer_email}
+                  </td>
+                  <td className="px-4 py-3 text-soft-brown">
+                    {formatPrice(order.total_cents)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={cn(
+                        "inline-flex items-center rounded-pill px-2.5 py-0.5 text-xs font-medium capitalize",
+                        STATUS_COLORS[order.status]
+                      )}
+                    >
+                      {order.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-soft-brown">
+                    {formatDate(order.created_at)}
+                  </td>
+                  <td className="px-4 py-3">
+                    {VALID_TRANSITIONS[order.status].length > 0 ? (
+                      <select
+                        value=""
+                        disabled={updatingId === order.id}
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            handleStatusChange(
+                              order,
+                              e.target.value as OrderStatus
+                            );
+                          }
+                        }}
+                        className="h-8 rounded-brand border border-champagne-beige bg-cream px-2 text-xs text-soft-brown focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown disabled:opacity-50"
+                      >
+                        <option value="">Update status…</option>
+                        {VALID_TRANSITIONS[order.status].map((s) => (
+                          <option key={s} value={s}>
+                            {s.charAt(0).toUpperCase() + s.slice(1)}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-xs text-soft-brown/50">
+                        No actions
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}

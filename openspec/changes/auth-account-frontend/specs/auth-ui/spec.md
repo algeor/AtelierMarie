@@ -26,19 +26,23 @@ The system SHALL display a "Sign In" button in the header when the user is not a
 - **WHEN** user clicks "Sign In" on `/products/lavender-dreams-300ml`
 - **THEN** the browser SHALL navigate to `{API_URL}/v1/auth/login?redirect_to=/products/lavender-dreams-300ml`
 
-### Requirement: OAuth callback page exchanges code
-The system SHALL have a page at `/auth/callback` that handles the OAuth redirect. It SHALL extract the `code` parameter from the URL, exchange it via `POST /v1/auth/google`, update AuthContext with the returned user, and redirect to the stored redirect path.
+### Requirement: OAuth callback page detects login success (server-side code exchange)
+The system SHALL have a page at `/auth/callback` that handles the post-OAuth redirect from the backend. The backend exchanges the authorization code server-side and redirects the browser to this page with `success=true` or `error=<code>` query params. The frontend NEVER sees the authorization code — it only detects the outcome and hydrates auth state.
 
 #### Scenario: Successful callback
-- **WHEN** Google redirects to `/auth/callback?code=abc123&state=...`
-- **THEN** the page SHALL call `POST /v1/auth/google` with the code, AuthContext SHALL update with the returned user, and the browser SHALL redirect to the path stored in the OAuth state parameter (or `/` if none)
+- **WHEN** the backend redirects to `/auth/callback?success=true&redirect_to=/products`
+- **THEN** the page SHALL call `GET /v1/auth/me` to hydrate the user, call `loginComplete(user)` on AuthContext, and navigate to the `redirect_to` path (or `/` if none)
 
-#### Scenario: Callback error
-- **WHEN** the code exchange fails (invalid code, network error)
-- **THEN** the page SHALL display an error message "Sign in failed. Please try again." with a link to retry login
+#### Scenario: OAuth error from backend
+- **WHEN** the backend redirects to `/auth/callback?error=invalid_state` (or any error code)
+- **THEN** the page SHALL immediately display "Sign in failed. Please try again." with a link to retry login, WITHOUT calling `GET /v1/auth/me`
+
+#### Scenario: getCurrentUser failure after success
+- **WHEN** the callback page receives `success=true` but `GET /v1/auth/me` fails (network error, 500)
+- **THEN** the page SHALL display "Sign in failed. Please try again." with a link to retry login
 
 #### Scenario: Callback loading state
-- **WHEN** the callback page is exchanging the code
+- **WHEN** the callback page is hydrating auth state after a successful redirect
 - **THEN** the page SHALL display a loading indicator (spinner or text "Signing you in...")
 
 ### Requirement: Authenticated user sees user menu in header

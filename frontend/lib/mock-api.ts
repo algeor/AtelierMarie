@@ -4,14 +4,18 @@
  */
 
 import type {
+  AdminStats,
   AuthTokenResponse,
   CartItemResponse,
   CartResponse,
   CreateOrderRequest,
+  CreateProductRequest,
   OrderListResponse,
   OrderResponse,
+  OrderStatus,
   ProductListResponse,
   ProductResponse,
+  UpdateProductRequest,
   UserResponse,
 } from "./types";
 import { ApiError } from "./api-client";
@@ -325,4 +329,188 @@ export async function login(
     token_type: "bearer",
     user: MOCK_USER,
   };
+}
+
+// --- Admin Functions ---
+
+const MOCK_ORDERS_SEEDED: OrderResponse[] = [
+  {
+    id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+    status: "pending",
+    total_cents: 7700,
+    customer_email: "alice@example.com",
+    customer_name: "Alice Johnson",
+    shipping_address: "123 Main St, Paris, FR",
+    notes: null,
+    items: [
+      { product_id: "lavender-dreams-300ml", product_name: "Lavender Dreams", price_cents: 3200, quantity: 1 },
+      { product_id: "midnight-amber-300ml", product_name: "Midnight Amber", price_cents: 4500, quantity: 1 },
+    ],
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  {
+    id: "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+    status: "confirmed",
+    total_cents: 5600,
+    customer_email: "bob@example.com",
+    customer_name: "Bob Smith",
+    shipping_address: "456 Oak Ave, Lyon, FR",
+    notes: "Gift wrapping please",
+    items: [
+      { product_id: "citrus-garden-200ml", product_name: "Citrus Garden", price_cents: 2800, quantity: 2 },
+    ],
+    created_at: new Date(Date.now() - 86400000).toISOString(),
+    updated_at: new Date(Date.now() - 43200000).toISOString(),
+  },
+  {
+    id: "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f",
+    status: "shipped",
+    total_cents: 3200,
+    customer_email: "carol@example.com",
+    customer_name: "Carol Davis",
+    shipping_address: "789 Pine Rd, Marseille, FR",
+    notes: null,
+    items: [
+      { product_id: "lavender-dreams-300ml", product_name: "Lavender Dreams", price_cents: 3200, quantity: 1 },
+    ],
+    created_at: new Date(Date.now() - 172800000).toISOString(),
+    updated_at: new Date(Date.now() - 86400000).toISOString(),
+  },
+  {
+    id: "d4e5f6a7-b8c9-4d0e-1f2a-3b4c5d6e7f8a",
+    status: "delivered",
+    total_cents: 9000,
+    customer_email: "dave@example.com",
+    customer_name: "Dave Wilson",
+    shipping_address: "321 Elm St, Nice, FR",
+    notes: null,
+    items: [
+      { product_id: "midnight-amber-300ml", product_name: "Midnight Amber", price_cents: 4500, quantity: 2 },
+    ],
+    created_at: new Date(Date.now() - 604800000).toISOString(),
+    updated_at: new Date(Date.now() - 259200000).toISOString(),
+  },
+];
+
+export async function getAdminStats(): Promise<AdminStats> {
+  await delay();
+  const today = new Date().toISOString().split("T")[0]!;
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders];
+  const ordersToday = allOrders.filter(
+    (o) => o.created_at.startsWith(today)
+  ).length;
+  const weekAgo = Date.now() - 7 * 86400000;
+  const revenueThisWeek = allOrders
+    .filter((o) => new Date(o.created_at).getTime() > weekAgo && o.status !== "cancelled")
+    .reduce((sum, o) => sum + o.total_cents, 0);
+  const activeProducts = MOCK_PRODUCTS.filter((p) => p.is_active).length;
+  return {
+    orders_today: ordersToday,
+    revenue_this_week_cents: revenueThisWeek,
+    active_product_count: activeProducts,
+  };
+}
+
+export async function getAdminProducts(
+  page = 1,
+  limit = 20
+): Promise<ProductListResponse> {
+  await delay();
+  const start = (page - 1) * limit;
+  const slice = MOCK_PRODUCTS.slice(start, start + limit);
+  return {
+    products: slice,
+    total: MOCK_PRODUCTS.length,
+    page,
+    limit,
+  };
+}
+
+export async function getAdminProduct(productId: string): Promise<ProductResponse> {
+  await delay();
+  const product = MOCK_PRODUCTS.find((p) => p.id === productId);
+  if (!product) mockError("NOT_FOUND", `Product ${productId} not found`);
+  return product;
+}
+
+export async function createProduct(data: CreateProductRequest): Promise<ProductResponse> {
+  await delay();
+  const existing = MOCK_PRODUCTS.find((p) => p.id === data.id);
+  if (existing) mockError("CONFLICT", `Product ${data.id} already exists`);
+  const now = new Date().toISOString();
+  const product: ProductResponse = {
+    id: data.id,
+    name: data.name,
+    description: data.description ?? null,
+    materials: data.materials ?? null,
+    days_to_craft: data.days_to_craft ?? null,
+    price_cents: data.price_cents,
+    category: data.category,
+    image_url: data.image_url ?? null,
+    stock: data.stock,
+    is_active: true,
+    is_featured: data.is_featured ?? false,
+    created_at: now,
+    updated_at: now,
+  };
+  MOCK_PRODUCTS.push(product);
+  return product;
+}
+
+export async function updateProduct(
+  productId: string,
+  data: UpdateProductRequest
+): Promise<ProductResponse> {
+  await delay();
+  const product = MOCK_PRODUCTS.find((p) => p.id === productId);
+  if (!product) mockError("NOT_FOUND", `Product ${productId} not found`);
+  Object.assign(product, data, { updated_at: new Date().toISOString() });
+  return product;
+}
+
+export async function getAdminOrders(
+  page = 1,
+  limit = 20,
+  status?: string
+): Promise<OrderListResponse> {
+  await delay();
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders];
+  const filtered = status
+    ? allOrders.filter((o) => o.status === status)
+    : allOrders;
+  const start = (page - 1) * limit;
+  const slice = filtered.slice(start, start + limit);
+  return {
+    orders: slice,
+    total: filtered.length,
+    page,
+    limit,
+  };
+}
+
+export async function updateOrderStatus(
+  orderId: string,
+  status: OrderStatus
+): Promise<OrderResponse> {
+  await delay();
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders];
+  const order = allOrders.find((o) => o.id === orderId);
+  if (!order) mockError("NOT_FOUND", `Order ${orderId} not found`);
+
+  const validTransitions: Record<OrderStatus, OrderStatus[]> = {
+    pending: ["confirmed", "cancelled"],
+    confirmed: ["shipped", "cancelled"],
+    shipped: ["delivered"],
+    delivered: [],
+    cancelled: [],
+  };
+
+  if (!validTransitions[order.status].includes(status)) {
+    mockError("VALIDATION_ERROR", `Cannot transition from ${order.status} to ${status}`);
+  }
+
+  order.status = status;
+  order.updated_at = new Date().toISOString();
+  return order;
 }

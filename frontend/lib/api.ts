@@ -6,13 +6,17 @@
 import * as mockApi from "./mock-api";
 import * as apiClient from "./api-client";
 import type {
+  AdminStats,
   AuthTokenResponse,
   CartResponse,
   CreateOrderRequest,
+  CreateProductRequest,
   OrderListResponse,
   OrderResponse,
+  OrderStatus,
   ProductListResponse,
   ProductResponse,
+  UpdateProductRequest,
   UserResponse,
 } from "./types";
 
@@ -123,4 +127,63 @@ export async function login(
     code,
     redirect_uri: redirectUri,
   });
+}
+
+// --- Admin ---
+
+export async function getAdminStats(): Promise<AdminStats> {
+  if (USE_MOCK) return mockApi.getAdminStats();
+  return apiClient.get<AdminStats>("/v1/admin/stats");
+}
+
+export async function getAdminProducts(
+  page = 1,
+  limit = 20
+): Promise<ProductListResponse> {
+  if (USE_MOCK) return mockApi.getAdminProducts(page, limit);
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  return apiClient.get<ProductListResponse>(`/v1/admin/products?${params}`);
+}
+
+export async function getAdminProduct(productId: string): Promise<ProductResponse> {
+  if (USE_MOCK) return mockApi.getAdminProduct(productId);
+  return apiClient.get<ProductResponse>(`/v1/admin/products/${encodeURIComponent(productId)}`);
+}
+
+export async function createProduct(data: CreateProductRequest): Promise<ProductResponse> {
+  if (USE_MOCK) return mockApi.createProduct(data);
+  return apiClient.post<ProductResponse>("/v1/admin/products", data);
+}
+
+export async function updateProduct(
+  productId: string,
+  data: UpdateProductRequest
+): Promise<ProductResponse> {
+  if (USE_MOCK) return mockApi.updateProduct(productId, data);
+  return apiClient.patch<ProductResponse>(
+    `/v1/admin/products/${encodeURIComponent(productId)}`,
+    data
+  );
+}
+
+export async function getAdminOrders(
+  page = 1,
+  limit = 20,
+  status?: string
+): Promise<OrderListResponse> {
+  if (USE_MOCK) return mockApi.getAdminOrders(page, limit, status);
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (status) params.set("status", status);
+  return apiClient.get<OrderListResponse>(`/v1/admin/orders?${params}`);
+}
+
+export async function updateOrderStatus(
+  orderId: string,
+  status: OrderStatus
+): Promise<OrderResponse> {
+  if (USE_MOCK) return mockApi.updateOrderStatus(orderId, status);
+  return apiClient.patch<OrderResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/status`,
+    { status }
+  );
 }

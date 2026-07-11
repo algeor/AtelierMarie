@@ -119,3 +119,37 @@ export interface AuthTokenResponse {
   token_type: string;
   user: UserResponse;
 }
+
+// --- Admin ---
+
+export interface AdminStats {
+  orders_today: number;
+  revenue_this_week_cents: number;
+  active_product_count: number;
+}
+
+export interface CreateProductRequest {
+  id: string;
+  name: string;
+  description?: string | null;
+  materials?: string | null;
+  days_to_craft?: number | null;
+  price_cents: number;
+  category: string;
+  image_url?: string | null;
+  stock: number;
+  is_featured?: boolean;
+}
+
+export interface UpdateProductRequest {
+  name?: string;
+  description?: string | null;
+  materials?: string | null;
+  days_to_craft?: number | null;
+  price_cents?: number;
+  category?: string;
+  image_url?: string | null;
+  stock?: number;
+  is_active?: boolean;
+  is_featured?: boolean;
+}

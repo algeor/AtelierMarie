@@ -45,9 +45,10 @@ The identity model is anonymous-first: full functionality works without login. L
 interface AuthState {
   user: UserResponse | null;
   isLoading: boolean;
-  isAuthenticated: boolean;
   error: string | null; // auto-clears after 5s (matches CartContext)
 }
+// isAuthenticated is derived (not stored): computed as `state.user !== null`
+// in the context value to prevent desync bugs.
 
 type AuthAction =
   | { type: "HYDRATE_START" }
@@ -152,7 +153,7 @@ The backend's `/v1/auth/login` endpoint accepts a `?redirect_to=` query paramete
 **Decision:** Order detail page shows a vertical timeline/stepper with all states in sequence. Current and past states are filled/colored. Future states are gray/empty. Cancelled orders show a strike-through on skipped states.
 
 States in order: Pending → Confirmed → Shipped → Delivered
-Cancelled is shown as a branch from wherever it happened.
+For MVP, cancelled orders show a simplified "Pending → Cancelled" timeline (the backend only stores final status, not transition history, so the exact cancellation point is unknown). Future enhancement: store status transition history to show accurate cancellation point.
 
 **Rationale:** Gives users a clear sense of progress. Common e-commerce pattern (Amazon, Shopify). Better than just a badge for the detail page.
 
@@ -195,7 +196,8 @@ Cancelled is shown as a branch from wherever it happened.
 | **JWT cookie expiry while user is active** | `GET /v1/auth/me` returns 401 → AuthContext sets user to null → UI reverts to anonymous state. No jarring error — just seamless degradation. Cart persists (session-keyed, not user-keyed). |
 | **Cart state stale after login (new session may have different cart)** | session-rotated event triggers cart refresh. If the backend merges carts on login (future feature), the refreshed cart reflects the merge. |
 | **Order list empty for anonymous users** | Show a friendly message: "Sign in to see your order history" with login CTA. Orders placed in this session still visible via the session-keyed endpoint. |
-| **Multiple tabs open during logout** | session-rotated is a window event, scoped to the tab that made the request. Other tabs won't refresh until their next API call fails with 401, at which point their AuthContext resets. Acceptable for MVP. |
+| **Multiple tabs open during logout** | session-rotated is a window event, scoped to the tab that made the request. Other tabs won't refresh until their next API call fails with 401, at which point their AuthContext resets. Acceptable for MVP. Post-MVP: use BroadcastChannel API for cross-tab sync. |
+| **DOM event spoofing (session-rotated)** | Any script on the page can dispatch `new Event("session-rotated")`, triggering redundant API calls. Consequence is extra fetch requests, not auth bypass (getCurrentUser validates server-side). Acceptable for MVP. Post-MVP: consider callback registry pattern instead of DOM events. |
 | **Google OAuth consent screen shows different redirect_uri than expected** | Backend configures allowed redirect URIs. Frontend must use the same callback URL consistently. Use `window.location.origin + "/auth/callback"` as the redirect_uri. |
 
 ## Open Questions
