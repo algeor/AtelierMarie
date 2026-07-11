@@ -6,12 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AtelierMarie is a luxury candle e-commerce platform for a small family business. The primary goal is selling candles reliably. A secondary goal is learning ML/analytics through an optional sandbox layer.
 
-**Status:** Planning phase complete; implementation in progress (skeleton FastAPI app with models, routes stubs, session middleware).
+**Status:** Core e-commerce backend fully implemented (products, cart, checkout, orders, auth, admin, reactions, comments). Next.js frontend with full page coverage (products, cart, checkout, orders, admin, auth/account). Layer 2 (analytics/ML) deferred — not yet started.
 
 ## Architecture: Two Strict Layers
 
 ### Layer 1 — Production E-Commerce (Critical Path)
-- Products, cart, checkout, orders, auth, admin
+- Products, cart, checkout, orders, auth, admin, reactions, comments
 - SQLite only (WAL mode) — never touches DuckDB
 - Must work perfectly if Layer 2 is completely OFF
 - All responses <200ms
@@ -21,6 +21,7 @@ AtelierMarie is a luxury candle e-commerce platform for a small family business.
 - DuckDB for analytics storage
 - ML recommendations (pre-computed cache, fallback to popular)
 - Can crash, be disabled, or be deleted without affecting the store
+- **Currently deferred** — no code exists yet
 
 **Cardinal rule:** Layer 1 code NEVER imports from Layer 2 modules (`app/analytics/`, `app/ml/`). This is a hard blocker in code review — no exceptions.
 
@@ -28,85 +29,149 @@ See `ARCHITECTURE.md` for full system design and `IMPLEMENTATION_PLAN.md` for th
 
 ## Technology Stack
 
-- **Backend:** Python 3.11, FastAPI, Pydantic 2, Uvicorn
+- **Backend:** Python 3.11, FastAPI, Pydantic 2, Uvicorn, structlog
 - **Database:** SQLite (WAL mode) — system of record
 - **Auth:** Google OAuth 2.0 + JWT (PyJWT)
 - **Frontend:** Next.js 14 (App Router, TypeScript, Tailwind CSS)
-- **Analytics (optional):** DuckDB
+- **Testing:** pytest + pytest-xdist (parallel), vitest (frontend)
+- **Analytics (deferred):** DuckDB
 - **Hosting:** Oracle Cloud Free Tier (single VPS), Nginx, systemd
 
 ## Development Commands
 
 ```bash
-# Activate virtual environment
-source .venv/bin/activate
+# NEVER use `source .venv/bin/activate` — use .venv/bin/ prefix or make targets
 
-# Run the backend
-uvicorn app.main:app --reload --port 8000
+# Setup
+make setup              # Install all deps (backend + frontend)
+make setup-backend      # Python venv + pip install
+make setup-frontend     # npm install
 
-# Run tests
-pytest
+# Run servers
+make dev-backend        # FastAPI on port 8001 (uvicorn --reload)
+make dev-frontend       # Next.js on port 3000
 
-# Run tests with coverage
-pytest --cov=app --cov-report=term-missing
+# Tests
+make test               # Run ALL tests (backend + frontend)
+make test-backend       # pytest (parallel via xdist)
+make test-backend-cov   # pytest with coverage report
+make test-frontend      # vitest run
 
-# Lint
-ruff check .
+# Lint & format
+make lint               # Lint everything (ruff + eslint)
+make format             # Auto-format Python (ruff format + ruff check --fix)
 
-# Format
-ruff format .
+# Direct commands (when make isn't preferred)
+.venv/bin/pytest tests/ -v --tb=short
+.venv/bin/ruff check .
+.venv/bin/ruff format .
 ```
 
 ## Application Structure
 
 ```
 app/
-├── main.py              # FastAPI app factory + lifespan
+├── main.py              # FastAPI app factory + lifespan (session cleanup task)
 ├── config.py            # pydantic-settings (env vars)
-├── database.py          # SQLite connection management + schema
+├── constants.py         # Cross-module constants (single source of truth)
+├── database.py          # SQLite connection management + schema + session cleanup
+├── exceptions.py        # Global exception handlers (standard error envelope)
+├── logging_config.py    # structlog configuration
 ├── middleware/
-│   └── session.py       # Session cookie middleware (eager DB row creation)
+│   ├── session.py       # Session cookie middleware (eager DB row creation)
+│   └── request_id.py    # X-Request-Id middleware
+├── dependencies/        # FastAPI Depends() callables
+│   ├── auth.py          # require_admin, get_current_user
+│   └── session.py       # require_session
 ├── models/              # Pydantic request/response schemas
 │   ├── products.py
 │   ├── cart.py
 │   ├── orders.py
 │   ├── users.py
 │   ├── auth.py
-│   └── common.py       # Shared types (pagination, errors)
+│   ├── comments.py
+│   ├── reactions.py
+│   ├── admin.py
+│   └── common.py        # Shared types (pagination, errors)
 ├── routes/              # FastAPI routers (thin — HTTP only)
 │   ├── products.py
 │   ├── cart.py
 │   ├── orders.py
 │   ├── auth.py
-│   └── admin.py
+│   ├── admin.py
+│   ├── comments.py
+│   └── reactions.py
 ├── services/            # Business logic (testable, no HTTP)
 │   ├── product_service.py
 │   ├── cart_service.py
 │   ├── order_service.py
-│   └── auth_service.py
-├── analytics/           # Layer 2: event collection + DuckDB (optional)
-└── ml/                  # Layer 2: recommendations (experimental)
+│   ├── auth_service.py
+│   ├── admin_service.py
+│   ├── comment_service.py
+│   └── reaction_service.py
+└── utils/               # Shared utilities
+    ├── blocklist.py     # Session/token blocklist
+    ├── circuit_breaker.py
+    ├── row_access.py    # Dict-like access for sqlite3.Row
+    └── sanitize.py      # Input sanitization (HTML/XSS)
 
-frontend/                # Next.js 14 app (separate)
+frontend/                # Next.js 14 app
 ├── app/                 # App Router pages
-├── components/          # React components
+│   ├── products/        # Product listing + detail
+│   ├── checkout/        # Checkout flow
+│   ├── orders/          # Order history + detail
+│   ├── admin/           # Admin dashboard + product management
+│   ├── auth/            # Login/callback
+│   ├── account/         # User account
+│   └── design-system/   # Component gallery
+├── components/
+│   ├── ui/              # Base components (Button, Input, Badge, Skeleton)
+│   ├── products/        # ProductCard, ProductGrid, ReactionBar, CommentThread
+│   ├── cart/            # CartDrawer, CartItem, AddToCartButton, CartBadge
+│   ├── admin/           # AdminGuard, AdminSidebar, ProductForm, StatsCard
+│   ├── orders/          # OrderStatusBadge, StatusTimeline
+│   ├── auth/            # LoginButton, UserMenu
+│   └── layout/          # Header, Footer, AnnouncementBar
+├── contexts/            # React contexts
+│   ├── CartContext.tsx
+│   ├── AuthContext.tsx
+│   └── AdminContext.tsx
 ├── lib/
 │   ├── types.ts         # TypeScript interfaces (mirrors Pydantic models)
 │   ├── api-client.ts    # Real API client
 │   ├── mock-api.ts      # Mock API for dev without backend
-│   └── api.ts           # Switches between real/mock via env
+│   ├── api.ts           # Switches between real/mock via env
+│   ├── utils.ts         # cn() helper, formatters
+│   └── validateRedirectPath.ts
+├── __tests__/           # Frontend unit tests (vitest + testing-library)
 ├── next.config.js
-└── tailwind.config.ts
+├── tailwind.config.ts
+└── vitest.config.ts
 
-deploy/                  # Nginx, systemd, provisioning scripts
+tests/                   # Backend tests
+├── conftest.py          # Shared fixtures (module-scoped app/client/db)
+├── test_*.py            # Unit/service/route tests (mocked session middleware)
+└── realapp/             # Integration tests (real middleware, real DB flow)
+    ├── conftest.py      # Real app fixtures (no fake middleware)
+    └── test_*.py        # End-to-end route tests
+
+scripts/
+└── seed_products.py     # Seed product catalog
+
+deploy/
+└── nginx-ratelimit.conf
+
 openspec/                # Feature specifications
-├── changes/             # Active and archived specs
-│   ├── core-ecommerce/  # Main e-commerce spec
-│   ├── product-catalog/ # Product catalog spec (Day 2)
-│   ├── frontend-init-design-system/
-│   ├── analytics-sandbox/
-│   └── ml-experiments/
-└── specs/               # Shared reference specs
+├── config.yaml
+├── changes/             # Active specs
+│   ├── core-ecommerce/
+│   ├── product-reactions-comments/
+│   ├── admin-polish-edge-cases/
+│   ├── auth-image-upload/
+│   ├── add-ons/         # owner-stories-blog, shipping, social buttons
+│   └── deferred/        # analytics-sandbox, ml-experiments
+├── changes/archive/     # Completed/superseded specs
+└── specs/               # Shared reference specs (per-feature)
 ```
 
 ## Coding Standards — Python Backend
@@ -128,6 +193,8 @@ openspec/                # Feature specifications
 - **Routes (thin):** Validate input (Pydantic does this), call service, format HTTP response. No business logic.
 - **Services (fat):** All business logic. Testable without HTTP. Take explicit parameters, return data or raise custom exceptions.
 - **Models:** Pure Pydantic schemas. No logic beyond validators.
+- **Utils:** Shared helpers (sanitize, blocklist, circuit breaker). No business logic.
+- **Dependencies:** FastAPI `Depends()` callables for auth, session.
 - Import order: stdlib → third-party → local (alphabetical within groups)
 - No circular imports. Services don't import from routes. Models don't import from services.
 
@@ -145,13 +212,19 @@ openspec/                # Feature specifications
 - `CHECK (stock >= 0)` constraint at DB level — last line of defense against negative stock
 - FTS5 virtual table for product search (synced via triggers on INSERT/UPDATE/DELETE)
 - Schema created on app startup in `database.py`
+- Expired session cleanup runs as a background asyncio task (hourly)
 
 ### Error Handling
-- Custom exception classes in services (e.g., `ProductNotFoundError`, `InsufficientStockError`, `InvalidStateTransitionError`)
+- Custom exception classes in services (e.g., `ProductNotFoundError`, `InsufficientStockError`, `RateLimitExceededError`)
+- Global exception handlers in `app/exceptions.py` — standard JSON envelope: `{"error": {"code": "...", "message": "...", "details": ...}}`
 - Routes translate service exceptions to HTTP responses (404, 409, 422, etc.)
 - `raise CustomError("message") from original_error` — always chain
 - Never bare `except Exception:` without re-raise or specific handling
 - Layer 2 code catches ALL its own exceptions — never propagates to Layer 1
+
+### Logging
+- **structlog** for structured JSON logging (configured in `app/logging_config.py`)
+- Use `structlog.get_logger(__name__)` — never `print()` or stdlib `logging` directly
 
 ### Authentication & Authorization
 - Session cookie: UUID4, HttpOnly, Secure, SameSite=Lax, 30-day expiry
@@ -169,6 +242,7 @@ openspec/                # Feature specifications
 - Response models specified on route decorator: `response_model=ProductResponse`
 - Status codes explicit: `status_code=201` for creation, `204` for delete, etc.
 - Background tasks for non-critical work (event emission)
+- Request ID middleware adds `X-Request-Id` header to all responses
 
 ## Coding Standards — Frontend (Next.js)
 
@@ -183,6 +257,7 @@ openspec/                # Feature specifications
 - Mock API (`lib/mock-api.ts`) and real API (`lib/api-client.ts`) share identical response shapes
 - Environment flag (`NEXT_PUBLIC_USE_MOCK_API`) switches between mock/real
 - No hardcoded URLs — API base from `NEXT_PUBLIC_API_URL` env var
+- React contexts for global state (Cart, Auth, Admin)
 
 ### UI/Design System
 - Tailwind CSS with custom design tokens (luxury palette from storefront spec)
@@ -191,11 +266,17 @@ openspec/                # Feature specifications
 - Proper `next/image` with sizes, alt text, blur placeholder
 - Loading skeletons for async data; user-friendly error messages (never raw JSON)
 - Accessibility: semantic HTML, ARIA labels, keyboard navigation
+- Design system gallery at `/design-system` route
 
 ### Data Flow
 - Prices: convert cents to display currency at the UI layer (never store formatted strings)
 - Cart: optimistic updates with rollback on error
 - Forms: client-side validation mirrors server-side rules
+
+### Testing (Frontend)
+- **Framework:** vitest + @testing-library/react
+- Component tests in `frontend/__tests__/`
+- Run with `make test-frontend` or `cd frontend && npx vitest run`
 
 ## Key Design Decisions
 
@@ -212,8 +293,11 @@ openspec/                # Feature specifications
 - **Service layer pattern:** Thin routes (HTTP concerns only), fat services (business logic). Services are testable without HTTP.
 - **FTS5 search:** Product search uses SQLite FTS5 virtual table, synced via triggers. Not LIKE queries.
 - **Offset pagination:** `?page=1&limit=20` with `{items, total, page, limit}` response. Sufficient for <1000 products.
+- **Product reactions:** Emoji-style reactions (heart, fire, etc.) per session. Toggle on/off, rate-limited.
+- **Product comments:** Session-based comments with input sanitization (XSS prevention). Admin moderation (hide/delete).
+- **Input sanitization:** All user-generated text (comments, display names) runs through `app/utils/sanitize.py` to strip HTML/scripts.
 
-## Layer 2 Design Decisions
+## Layer 2 Design Decisions (Planned — Not Yet Implemented)
 
 - **Event collection:** Fire-and-forget JSONL append (O_APPEND, crash-safe, multi-worker safe). Background thread loads into DuckDB every 60s.
 - **Recommendations:** Pre-computed cache updated every 30min. Fallback chain: ML → popularity → featured → random. Never errors — always returns something.
@@ -224,21 +308,27 @@ openspec/                # Feature specifications
 ## Feature Specifications
 
 Lean specs live in `openspec/changes/`:
-- `core-ecommerce/` — Products, cart, checkout, orders, auth, admin (421-line design doc)
-- `product-catalog/` — Day 2 implementation: service layer, FTS5, CSV import, admin CRUD
-- `frontend-init-design-system/` — Tailwind tokens, base components, luxury palette
-- `analytics-sandbox/` — Event collection, DuckDB, admin stats dashboard
-- `ml-experiments/` — Recommendations (experimental, no deadline)
+- `core-ecommerce/` — Products, cart, checkout, orders, auth, admin
+- `product-reactions-comments/` — Reactions & comments on products
+- `admin-polish-edge-cases/` — Admin UX refinements
+- `auth-image-upload/` — Profile images, auth enhancements
+- `add-ons/` — Future nice-to-haves (blog, shipping integration, social buttons)
+- `deferred/` — analytics-sandbox, ml-experiments (paused)
 
-Archived specs: `openspec/changes/archive/`
+Archived (completed) specs: `openspec/changes/archive/`
+Shared reference specs: `openspec/specs/` (per-feature granular specs)
 
 ## Testing Standards
 
-- **Framework:** pytest
-- **Database:** In-memory SQLite per test (`:memory:`), schema initialized in fixture
-- **Isolation:** Each test gets fresh `TestClient` + fresh DB. No test interdependencies.
+- **Framework:** pytest with pytest-xdist (parallel execution: `-n auto --dist worksteal`)
+- **Database:** In-memory SQLite per test module (`:memory:`), schema initialized in fixture
+- **Fixture scoping:** Module-scoped `app`, `client`, `db`; function-scoped `_clean_tables` (autouse) for isolation via DELETE between tests
+- **FakeSessionMiddleware:** Route tests use a fake session middleware to avoid per-request DB round-trips. Real middleware tested separately in `tests/realapp/`.
+- **Two test directories:**
+  - `tests/` — Unit and service tests. Mocked middleware. Fast.
+  - `tests/realapp/` — Integration tests with real middleware, real session flow, real DB lifecycle.
 - **Service tests:** Call service functions directly (no HTTP). Verify business logic.
-- **Route tests:** Use `TestClient`. Verify HTTP status codes, response shapes, error cases.
+- **Route tests:** Use `httpx.AsyncClient` (async). Verify HTTP status codes, response shapes, error cases.
 - **Naming:** `test_<behavior>_<scenario>()` — e.g., `test_checkout_fails_when_cart_empty()`
 - **Coverage:** Target ≥80%. New code must have tests.
 - **What to test:**
@@ -248,14 +338,16 @@ Archived specs: `openspec/changes/archive/`
   - Cart operations (add, update, remove, anonymous user, quantity limits)
   - CSV import (valid, malformed, upsert, empty file)
   - Pydantic validation (invalid inputs → ValidationError)
-- **Layer 2 tests:** Verify failures don't propagate. Mock the analytics/ML layer and have it raise; confirm Layer 1 still works.
+  - Reactions (toggle, rate-limit, counts)
+  - Comments (create, list, sanitization, admin moderation)
+- **Layer 2 tests:** (When implemented) Verify failures don't propagate. Mock the analytics/ML layer and have it raise; confirm Layer 1 still works.
 
 ## Code Review Standards
 
 Reviews prioritize (in order):
 1. **Layer boundary violations** — always a blocker
 2. **Data integrity** — money calculations, stock consistency, order snapshots
-3. **Security** — SQL injection, auth bypass, credential exposure
+3. **Security** — SQL injection, auth bypass, credential exposure, XSS
 4. **Logic bugs** — state machine violations, race conditions, edge cases
 5. **Spec compliance** — does the code match `openspec/changes/*/design.md`?
 6. **Test coverage** — new code paths need tests
