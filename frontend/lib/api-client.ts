@@ -21,6 +21,11 @@ export class ApiError extends Error {
 }
 
 async function handleResponse<T>(res: Response): Promise<T> {
+  // Detect session rotation on any response (even errors)
+  if (res.headers.get("X-Session-Rotated") === "true") {
+    window.dispatchEvent(new Event("session-rotated"));
+  }
+
   if (!res.ok) {
     let body: ErrorResponse;
     try {

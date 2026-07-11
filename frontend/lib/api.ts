@@ -6,7 +6,6 @@
 import * as apiClient from "./api-client";
 import type {
   AdminStats,
-  AuthTokenResponse,
   CartResponse,
   CreateOrderRequest,
   CreateProductRequest,
@@ -122,15 +121,9 @@ export async function getCurrentUser(): Promise<UserResponse | null> {
   }
 }
 
-export async function login(
-  code: string,
-  redirectUri: string
-): Promise<AuthTokenResponse> {
-  if (USE_MOCK) return (await getMock()).login(code, redirectUri);
-  return apiClient.post<AuthTokenResponse>("/v1/auth/google", {
-    code,
-    redirect_uri: redirectUri,
-  });
+export async function logout(): Promise<void> {
+  if (USE_MOCK) return (await getMock()).mockLogout();
+  await apiClient.post<void>("/v1/auth/logout");
 }
 
 // --- Admin ---
