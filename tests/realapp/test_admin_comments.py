@@ -98,9 +98,10 @@ class TestAdminListComments:
         assert resp.status_code == 401
 
     async def test_limit_clamped_to_100(self, admin_client, active_product):
-        # FastAPI Query constraint rejects limit > 100 at validation level
+        # Service layer clamps limit to 100 (does not reject)
         resp = await admin_client.get("/v1/admin/comments?limit=500")
-        assert resp.status_code == 422  # validation rejects > 100
+        assert resp.status_code == 200
+        assert resp.json()["limit"] == 100  # clamped from 500 to 100
 
 
 class TestIntegration:

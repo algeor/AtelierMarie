@@ -132,6 +132,7 @@ async def list_product_comments(
     limit: int = Query(default=20, ge=1, description="Items per page (max 100)"),
 ) -> CommentListResponse | JSONResponse:
     """List comments for a product."""
+    limit = min(limit, 100)
     try:
         comments, total = list_comments(product_id, sort=sort, page=page, limit=limit)
     except ProductNotFoundError:
