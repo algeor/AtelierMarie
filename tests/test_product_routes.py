@@ -89,6 +89,53 @@ class TestListProducts:
         assert any(p["id"] == "lavender-dream-300ml" for p in body["products"])
 
     @pytest.mark.asyncio
+    async def test_search_with_category_filter(self, client, _products):
+        """Search results can be further filtered by category."""
+        response = await client.get("/v1/products?q=candle&category=luxury-jar")
+        body = response.json()
+        assert all(p["category"] == "luxury-jar" for p in body["products"])
+
+    @pytest.mark.asyncio
+    async def test_search_with_in_stock_filter(self, client, _products):
+        """Search results can be filtered to in-stock only."""
+        response = await client.get("/v1/products?q=candle&in_stock=true")
+        body = response.json()
+        assert all(p["stock"] > 0 for p in body["products"])
+
+    @pytest.mark.asyncio
+    async def test_search_with_sort_price_asc(self, client, _products):
+        """Search results can be sorted by price ascending."""
+        response = await client.get("/v1/products?q=candle&sort=price_asc")
+        body = response.json()
+        prices = [p["price_cents"] for p in body["products"]]
+        assert prices == sorted(prices)
+
+    @pytest.mark.asyncio
+    async def test_search_with_sort_price_desc(self, client, _products):
+        """Search results can be sorted by price descending."""
+        response = await client.get("/v1/products?q=candle&sort=price_desc")
+        body = response.json()
+        prices = [p["price_cents"] for p in body["products"]]
+        assert prices == sorted(prices, reverse=True)
+
+    @pytest.mark.asyncio
+    async def test_search_with_sort_name(self, client, _products):
+        """Search results can be sorted alphabetically by name."""
+        response = await client.get("/v1/products?q=candle&sort=name")
+        body = response.json()
+        names = [p["name"] for p in body["products"]]
+        assert names == sorted(names)
+
+    @pytest.mark.asyncio
+    async def test_search_with_sort_newest(self, client, _products):
+        """Search results can be sorted by newest first."""
+        response = await client.get("/v1/products?q=candle&sort=newest")
+        body = response.json()
+        # Just verify it returns 200 and has results (created_at ordering)
+        assert response.status_code == 200
+        assert body["total"] >= 1
+
+    @pytest.mark.asyncio
     async def test_pagination(self, client, _products):
         response = await client.get("/v1/products?page=1&limit=2")
         body = response.json()

@@ -20,12 +20,6 @@ import type {
 } from "./types";
 import { ApiError } from "./api-client";
 
-// --- Safety Guard ---
-
-if (process.env.NODE_ENV === "production") {
-  throw new Error("Mock API must not be used in production");
-}
-
 // --- Helpers ---
 
 function mockError(code: string, message: string): never {

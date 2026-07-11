@@ -115,15 +115,15 @@ Once these are agreed, Dev B creates `frontend/lib/mock-api.ts` with hardcoded r
 
 ## Dev A: Backend + API + Deploy
 
-### Day 2: Product Catalog
+### [DONE] Day 2: Product Catalog
 
-- [ ] Define `products` table schema (text PK as SKU/slug, price_cents, stock CHECK >= 0)
-- [ ] Create `app/services/product_service.py` (list, get, create, update, deactivate, search)
-- [ ] Create `app/routes/products.py` (public GET: list with filters, search, pagination, detail)
-- [ ] Create `app/routes/admin.py` (POST/PUT/DELETE products, CSV bulk import)
-- [ ] Implement CSV import: streaming parse, upsert semantics, error reporting
-- [ ] Write tests for product service
-- [ ] Seed script with ~10 sample candle products
+- [X] Define `products` table schema (text PK as SKU/slug, price_cents, stock CHECK >= 0)
+- [X] Create `app/services/product_service.py` (list, get, create, update, deactivate, search)
+- [X] Create `app/routes/products.py` (public GET: list with filters, search, pagination, detail)
+- [X] Create `app/routes/admin.py` (POST/PUT/DELETE products, CSV bulk import)
+- [X] Implement CSV import: streaming parse, upsert semantics, error reporting
+- [X] Write tests for product service
+- [X/ops] Seed script with ~10 sample candle products
 
 ### Day 3: Session + Cart
 
@@ -196,35 +196,35 @@ Once these are agreed, Dev B creates `frontend/lib/mock-api.ts` with hardcoded r
 
 ## Dev B: Frontend + Design
 
-### Day 2: Project Init + Design System
+### [Done] Day 2: Project Init + Design System
 
-- [ ] Init Next.js 14 project in `frontend/` (App Router, TypeScript, Tailwind)
-- [ ] Create design tokens in Tailwind config (colors: warm-ivory, cream, champagne-beige, dusty-pink, soft-brown, charcoal, muted-gold)
-- [ ] Set up typography (Playfair Display headings, Inter body)
-- [ ] Create `frontend/lib/types.ts` (from Day 1 contracts)
-- [ ] Create `frontend/lib/mock-api.ts` (hardcoded responses matching contract shapes)
-- [ ] Create `frontend/lib/api.ts` (real fetch wrapper — switch from mock when backend ready)
-- [ ] Build base UI components: Button (primary/secondary/ghost), Input, Badge, Skeleton
+- [x] Init Next.js 14 project in `frontend/` (App Router, TypeScript, Tailwind)
+- [x] Create design tokens in Tailwind config (colors: warm-ivory, cream, champagne-beige, dusty-pink, soft-brown, charcoal, muted-gold)
+- [x] Set up typography (Playfair Display headings, Inter body)
+- [x] Create `frontend/lib/types.ts` (from Day 1 contracts)
+- [x] Create `frontend/lib/mock-api.ts` (hardcoded responses matching contract shapes)
+- [x] Create `frontend/lib/api.ts` (real fetch wrapper — switch from mock when backend ready)
+- [x] Build base UI components: Button (primary/secondary/ghost), Input, Badge, Skeleton
 
-### Day 3: Product Pages
+### [DONE] Day 3: Product Pages
 
-- [ ] Global layout (Header with logo + nav + cart icon, Footer with links)
-- [ ] Announcement bar (dismissible, session-persistent)
-- [ ] Homepage: hero section + featured products grid
-- [ ] Product listing page (`/products`): grid (4-col/2-col/1-col responsive), category filter pills
-- [ ] Product detail page (`/products/[id]`): image, name, price, description, quantity selector, Add to Cart button
-- [ ] Product image display with `next/image` (lazy load, responsive srcset)
-- [ ] CSS placeholder for products without images (gradient + product name)
+- [x] Global layout (Header with logo + nav + cart icon, Footer with links)
+- [x] Announcement bar (dismissible, session-persistent)
+- [x] Homepage: hero section + featured products grid
+- [x] Product listing page (`/products`): grid (4-col/2-col/1-col responsive), category filter pills
+- [x] Product detail page (`/products/[id]`): image, name, price, description, quantity selector, Add to Cart button
+- [x] Product image display with `next/image` (lazy load, responsive srcset)
+- [x] CSS placeholder for products without images (gradient + product name)
 
-### Day 4: Cart + Checkout
+### [DONE] Day 4: Cart + Checkout
 
-- [ ] Cart context (React Context for state: items, total, count)
-- [ ] Cart drawer (slide-in from right, overlay, item list, quantity controls, remove, subtotal)
-- [ ] Cart badge in header (live item count)
-- [ ] Add-to-cart interaction (button → brief checkmark animation → badge update → optional drawer open)
-- [ ] Checkout page: contact form (email, name), shipping address, order summary sidebar
-- [ ] Form validation (required fields, email format)
-- [ ] Order confirmation page (order ID, items, total, "thank you" message)
+- [x] Cart context (React Context for state: items, total, count)
+- [x] Cart drawer (slide-in from right, overlay, item list, quantity controls, remove, subtotal)
+- [x] Cart badge in header (live item count)
+- [x] Add-to-cart interaction (button → brief checkmark animation → badge update → optional drawer open)
+- [x] Checkout page: contact form (email, name), shipping address, order summary sidebar
+- [x] Form validation (required fields, email format)
+- [x] Order confirmation page (order ID, items, total, "thank you" message)
 
 ### Day 5: Auth + Account
 

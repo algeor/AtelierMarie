@@ -1,8 +1,11 @@
 """Product request and response models."""
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.common import PRODUCT_ID_PATTERN
+
+# Maximum stock value — prevents absurd inventory numbers
+MAX_STOCK = 99999
 
 
 class ProductResponse(BaseModel):
@@ -35,17 +38,43 @@ class ProductListResponse(BaseModel):
 class CreateProductRequest(BaseModel):
     """Input for creating a new product."""
 
-    id: str = Field(..., min_length=1, pattern=PRODUCT_ID_PATTERN)
+    id: str = Field(..., min_length=1, max_length=100, pattern=PRODUCT_ID_PATTERN)
     name: str = Field(..., min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=5000)
     materials: str | None = Field(default=None, max_length=1000)
-    days_to_craft: int | None = Field(default=None, ge=0)
-    price_cents: int = Field(..., gt=0)
+    days_to_craft: int | None = Field(default=None, ge=0, le=365)
+    price_cents: int = Field(..., gt=0, le=99_999_99)
     category: str | None = Field(default=None, max_length=100)
     image_url: str | None = Field(default=None, max_length=500)
-    stock: int = Field(..., ge=0)
+    stock: int = Field(..., ge=0, le=MAX_STOCK)
     is_active: bool = True
     is_featured: bool = False
+
+    @field_validator("name", "description", "materials", "category", mode="before")
+    @classmethod
+    def strip_and_reject_blank(cls, v: str | None) -> str | None:
+        """Strip whitespace; reject strings that become empty after trimming."""
+        if v is None:
+            return None
+        stripped = v.strip()
+        if not stripped and v:
+            msg = "must not be blank (whitespace-only)"
+            raise ValueError(msg)
+        return stripped if stripped else None
+
+    @field_validator("image_url", mode="before")
+    @classmethod
+    def validate_image_url(cls, v: str | None) -> str | None:
+        """Strip whitespace and validate URL format."""
+        if v is None:
+            return None
+        stripped = v.strip()
+        if not stripped:
+            return None
+        if not stripped.startswith(("http://", "https://", "/")):
+            msg = "must be a valid URL (http://, https://, or relative path)"
+            raise ValueError(msg)
+        return stripped
 
 
 class UpdateProductRequest(BaseModel):
@@ -58,11 +87,11 @@ class UpdateProductRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=5000)
     materials: str | None = Field(default=None, max_length=1000)
-    days_to_craft: int | None = Field(default=None, ge=0)
-    price_cents: int | None = Field(default=None, gt=0)
+    days_to_craft: int | None = Field(default=None, ge=0, le=365)
+    price_cents: int | None = Field(default=None, gt=0, le=99_999_99)
     category: str | None = Field(default=None, max_length=100)
     image_url: str | None = Field(default=None, max_length=500)
-    stock: int | None = Field(default=None, ge=0)
+    stock: int | None = Field(default=None, ge=0, le=MAX_STOCK)
     is_active: bool | None = None
     is_featured: bool | None = None
 
@@ -74,6 +103,32 @@ class UpdateProductRequest(BaseModel):
             msg = "name cannot be explicitly set to null"
             raise ValueError(msg)
         return data
+
+    @field_validator("name", "description", "materials", "category", mode="before")
+    @classmethod
+    def strip_and_reject_blank(cls, v: str | None) -> str | None:
+        """Strip whitespace; reject strings that become empty after trimming."""
+        if v is None:
+            return None
+        stripped = v.strip()
+        if not stripped and v:
+            msg = "must not be blank (whitespace-only)"
+            raise ValueError(msg)
+        return stripped if stripped else None
+
+    @field_validator("image_url", mode="before")
+    @classmethod
+    def validate_image_url(cls, v: str | None) -> str | None:
+        """Strip whitespace and validate URL format."""
+        if v is None:
+            return None
+        stripped = v.strip()
+        if not stripped:
+            return None
+        if not stripped.startswith(("http://", "https://", "/")):
+            msg = "must be a valid URL (http://, https://, or relative path)"
+            raise ValueError(msg)
+        return stripped
 
 
 class ProductImportRequest(BaseModel):

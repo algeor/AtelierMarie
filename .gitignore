@@ -14,3 +14,7 @@ node_modules/
 .env.*
 !.env.example
 !frontend/.env.local.example
+
+# Development
+.coverage
+dev/

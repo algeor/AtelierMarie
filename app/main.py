@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.database import cleanup_expired_sessions, init_db
+from app.exceptions import register_exception_handlers
 from app.middleware.session import SessionMiddleware
 from app.routes import admin, auth, cart, orders, products
 
@@ -44,9 +45,53 @@ def create_app() -> FastAPI:
 
     application = FastAPI(
         title="Atelier Marie",
-        description="Luxury candle e-commerce API",
+        description=(
+            "Luxury candle e-commerce API.\n\n"
+            "## Authentication\n\n"
+            "- **Public endpoints** (products, cart): Require a session cookie "
+            "(automatically issued on first request).\n"
+            "- **Admin endpoints** (`/v1/admin/*`): Require a Bearer token via "
+            "the `Authorization` header.\n\n"
+            "## Error Responses\n\n"
+            "All errors return a consistent JSON envelope:\n"
+            "```json\n"
+            '{"error": {"code": "ERROR_CODE", "message": "Human-readable message", '
+            '"details": null}}\n'
+            "```\n\n"
+            "## Pagination\n\n"
+            "List endpoints accept `page` (1-based) and `limit` (1–100, default 20) "
+            "query parameters. Responses include `total`, `page`, and `limit` fields."
+        ),
         version="0.1.0",
         lifespan=lifespan,
+        docs_url="/v1/docs",
+        redoc_url="/v1/redoc",
+        openapi_url="/v1/openapi.json",
+        openapi_tags=[
+            {
+                "name": "products",
+                "description": "Public product catalog — browse, search, and filter candles.",
+            },
+            {
+                "name": "cart",
+                "description": "Shopping cart — add, update, remove items. Session-based.",
+            },
+            {
+                "name": "orders",
+                "description": "Order placement and tracking.",
+            },
+            {
+                "name": "auth",
+                "description": "Authentication — Google OAuth 2.0, session management.",
+            },
+            {
+                "name": "admin",
+                "description": (
+                    "Admin operations — product CRUD, CSV import, order management, "
+                    "dashboard stats. Requires admin Bearer token."
+                ),
+            },
+        ],
     )
 
     # SessionMiddleware added first (runs closest to routes);
@@ -64,8 +109,9 @@ def create_app() -> FastAPI:
     )
 
     # Health endpoint
-    @application.get("/v1/health")
+    @application.get("/v1/health", tags=["health"], summary="Health check")
     async def health() -> JSONResponse:
+        """Simple liveness probe. Returns 200 with `{\"status\": \"ok\"}` when the service is running."""
         return JSONResponse({"status": "ok"})
 
     # Routers
@@ -74,6 +120,9 @@ def create_app() -> FastAPI:
     application.include_router(orders.router, prefix="/v1/orders", tags=["orders"])
     application.include_router(auth.router, prefix="/v1/auth", tags=["auth"])
     application.include_router(admin.router, prefix="/v1/admin", tags=["admin"])
+
+    # Global exception handlers for consistent error format
+    register_exception_handlers(application)
 
     return application
 

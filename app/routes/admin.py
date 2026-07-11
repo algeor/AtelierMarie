@@ -1,4 +1,4 @@
-"""Admin endpoints — product CRUD, CSV import, and stats."""
+"""Admin endpoints — product CRUD, CSV import, dashboard stats."""
 
 import csv
 import io
@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.responses import JSONResponse
 
 from app.dependencies.auth import require_admin
+from app.models.admin import DashboardResponse
 from app.models.products import (
     CreateProductRequest,
     CSVImportError,
@@ -15,13 +16,19 @@ from app.models.products import (
     ProductResponse,
     UpdateProductRequest,
 )
-from app.services import product_service
+from app.services import admin_service, product_service
 from app.services.product_service import DuplicateError, NotFoundError
 
 router = APIRouter(dependencies=[Depends(require_admin)])
 
 
-@router.post("/products", response_model=ProductResponse, status_code=201)
+@router.post(
+    "/products",
+    response_model=ProductResponse,
+    status_code=201,
+    summary="Create product",
+    description="Create a new product with a unique slug ID. Returns 409 if the ID already exists.",
+)
 async def admin_create_product(body: CreateProductRequest) -> ProductResponse | JSONResponse:
     """Create a new product."""
     try:
@@ -40,7 +47,12 @@ async def admin_create_product(body: CreateProductRequest) -> ProductResponse | 
     return ProductResponse(**product)
 
 
-@router.get("/products", response_model=ProductListResponse)
+@router.get(
+    "/products",
+    response_model=ProductListResponse,
+    summary="List all products (admin)",
+    description="List all products including inactive ones. Supports pagination.",
+)
 async def admin_list_products(
     page: int = Query(default=1, ge=1, description="Page number"),
     limit: int = Query(default=20, ge=1, le=100, description="Items per page"),
@@ -57,7 +69,12 @@ async def admin_list_products(
     )
 
 
-@router.get("/products/{product_id}", response_model=ProductResponse)
+@router.get(
+    "/products/{product_id}",
+    response_model=ProductResponse,
+    summary="Get product (admin)",
+    description="Get any product by ID regardless of active status.",
+)
 async def admin_get_product(product_id: str) -> ProductResponse | JSONResponse:
     """Get any product (active or inactive) by ID."""
     try:
@@ -71,7 +88,13 @@ async def admin_get_product(product_id: str) -> ProductResponse | JSONResponse:
     return ProductResponse(**product)
 
 
-@router.put("/products/{product_id}", response_model=ProductResponse)
+@router.put(
+    "/products/{product_id}",
+    response_model=ProductResponse,
+    summary="Update product",
+    description="Partially update a product. Only provided fields are modified; "
+    "omitted fields remain unchanged.",
+)
 async def admin_update_product(
     product_id: str, body: UpdateProductRequest
 ) -> ProductResponse | JSONResponse:
@@ -89,7 +112,13 @@ async def admin_update_product(
     return ProductResponse(**product)
 
 
-@router.delete("/products/{product_id}", response_model=ProductResponse)
+@router.delete(
+    "/products/{product_id}",
+    response_model=ProductResponse,
+    summary="Delete product (soft)",
+    description="Soft-delete a product by setting is_active=0. "
+    "The product remains in the database for order history integrity.",
+)
 async def admin_delete_product(product_id: str) -> ProductResponse | JSONResponse:
     """Soft-delete a product (set is_active=0)."""
     try:
@@ -109,7 +138,14 @@ _OPTIONAL_CSV_HEADERS = {"description", "category", "stock", "image_url"}
 _ALL_CSV_HEADERS = _REQUIRED_CSV_HEADERS | _OPTIONAL_CSV_HEADERS
 
 
-@router.post("/products/import", response_model=CSVImportResponse)
+@router.post(
+    "/products/import",
+    response_model=CSVImportResponse,
+    summary="Bulk import products (CSV)",
+    description="Upload a CSV file to create/update products in bulk. "
+    "Uses upsert semantics — existing product IDs are updated, new ones are created. "
+    "Rows with validation errors are skipped; results report created/updated counts and per-row errors.",
+)
 async def admin_import_products(
     file: UploadFile = File(..., description="CSV file with product data"),
 ) -> CSVImportResponse | JSONResponse:
@@ -228,7 +264,12 @@ async def admin_import_products(
     return CSVImportResponse(created=created, updated=updated, errors=errors)
 
 
-@router.get("/orders")
+@router.get(
+    "/orders",
+    summary="List all orders (admin)",
+    description="List all orders with optional status filter and pagination. "
+    "Requires admin authentication.",
+)
 async def admin_list_orders() -> JSONResponse:
     """List all orders (stub — implemented in Day 3)."""
     return JSONResponse(
@@ -242,15 +283,18 @@ async def admin_list_orders() -> JSONResponse:
     )
 
 
-@router.get("/stats")
-async def admin_stats() -> JSONResponse:
-    """Admin statistics dashboard (stub — implemented in analytics layer)."""
-    return JSONResponse(
-        status_code=501,
-        content={
-            "error": {
-                "code": "NOT_IMPLEMENTED",
-                "message": "Stats endpoint not yet implemented",
-            }
-        },
-    )
+@router.get(
+    "/dashboard",
+    response_model=DashboardResponse,
+    summary="Admin dashboard stats",
+    description="Returns aggregate statistics: product counts (total/active), "
+    "order counts by status, total revenue, and low-stock alerts.",
+)
+async def admin_dashboard() -> DashboardResponse:
+    """Admin dashboard with basic store statistics.
+
+    Returns product counts, order counts, revenue, and low-stock alerts.
+    All monetary values are in cents.
+    """
+    stats = admin_service.get_dashboard_stats()
+    return DashboardResponse(**stats)

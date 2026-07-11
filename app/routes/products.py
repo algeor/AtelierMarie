@@ -12,7 +12,13 @@ from app.services.product_service import NotFoundError
 router = APIRouter()
 
 
-@router.get("", response_model=ProductListResponse)
+@router.get(
+    "",
+    response_model=ProductListResponse,
+    summary="List products",
+    description="Browse active products with optional category filter, full-text search, "
+    "sort order, and pagination. Search uses SQLite FTS5 for relevance-ranked results.",
+)
 async def list_products(
     category: str | None = Query(default=None, description="Filter by category"),
     q: str | None = Query(default=None, description="Search query (FTS5)"),
@@ -76,7 +82,13 @@ async def list_products(
     )
 
 
-@router.get("/{product_id}", response_model=ProductResponse)
+@router.get(
+    "/{product_id}",
+    response_model=ProductResponse,
+    summary="Get product",
+    description="Get a single active product by its slug ID. Returns 404 if the product "
+    "does not exist or is inactive.",
+)
 async def get_product(product_id: str) -> ProductResponse | JSONResponse:
     """Get a single active product by ID."""
     try:

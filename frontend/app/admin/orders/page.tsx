@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { getAdminOrders, updateOrderStatus } from "@/lib/api";
 import { cn, formatPrice } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -39,17 +39,30 @@ function formatDate(iso: string): string {
   });
 }
 
+function maskEmail(email: string): string {
+  const [local, domain] = email.split("@");
+  if (!domain) return email;
+  const visible = local.slice(0, 1);
+  return `${visible}***@${domain}`;
+}
+
 export default function AdminOrdersPage() {
   const [orders, setOrders] = useState<OrderResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const isInitialLoad = useRef(true);
 
   useEffect(() => {
     async function loadOrders() {
       try {
-        setIsLoading(true);
+        if (isInitialLoad.current) {
+          setIsLoading(true);
+        } else {
+          setIsRefreshing(true);
+        }
         setError(null);
         const data = await getAdminOrders(1, 100, statusFilter || undefined);
         setOrders(data.orders);
@@ -57,6 +70,8 @@ export default function AdminOrdersPage() {
         setError(err instanceof Error ? err.message : "Failed to load orders");
       } finally {
         setIsLoading(false);
+        setIsRefreshing(false);
+        isInitialLoad.current = false;
       }
     }
     loadOrders();
@@ -76,6 +91,10 @@ export default function AdminOrdersPage() {
 
     try {
       await updateOrderStatus(order.id, newStatus);
+      // Remove order from view if it no longer matches the active filter
+      if (statusFilter && newStatus !== statusFilter) {
+        setOrders((prev) => prev.filter((o) => o.id !== order.id));
+      }
     } catch (err) {
       // Rollback
       setOrders((prev) =>
@@ -126,7 +145,12 @@ export default function AdminOrdersPage() {
       )}
 
       {/* Orders Table */}
-      <div className="overflow-hidden rounded-brand border border-champagne-beige bg-cream">
+      <div className="relative overflow-x-auto rounded-brand border border-champagne-beige bg-cream">
+        {isRefreshing && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-cream/50">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted-gold border-t-transparent" />
+          </div>
+        )}
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="border-b border-champagne-beige bg-champagne-beige/30">
@@ -138,7 +162,7 @@ export default function AdminOrdersPage() {
               <th className="px-4 py-3 font-medium text-charcoal">Actions</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className={cn(isRefreshing && "opacity-50 pointer-events-none")}>
             {isLoading ? (
               Array.from({ length: 4 }).map((_, i) => (
                 <tr key={i} className="border-b border-champagne-beige/50">
@@ -166,7 +190,9 @@ export default function AdminOrdersPage() {
                     {order.id.slice(0, 8)}…
                   </td>
                   <td className="px-4 py-3 text-charcoal">
-                    {order.customer_email}
+                    <span title={order.customer_email}>
+                      {maskEmail(order.customer_email)}
+                    </span>
                   </td>
                   <td className="px-4 py-3 text-soft-brown">
                     {formatPrice(order.total_cents)}
@@ -189,6 +215,7 @@ export default function AdminOrdersPage() {
                       <select
                         value=""
                         disabled={updatingId === order.id}
+                        aria-label={`Update status for order ${order.id.slice(0, 8)}`}
                         onChange={(e) => {
                           if (e.target.value) {
                             handleStatusChange(

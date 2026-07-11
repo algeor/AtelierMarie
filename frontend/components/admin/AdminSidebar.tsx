@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -44,6 +45,7 @@ const NAV_ITEMS: NavItem[] = [
 export function AdminSidebar() {
   const pathname = usePathname();
   const { user } = useAdmin();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   function isActive(href: string): boolean {
     if (href === "/admin") return pathname === "/admin";
@@ -51,64 +53,105 @@ export function AdminSidebar() {
   }
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-champagne-beige bg-cream">
-      {/* Logo / Brand */}
-      <div className="flex h-16 items-center border-b border-champagne-beige px-6">
-        <Link href="/admin" className="flex items-center gap-2">
-          <span className="font-heading text-lg font-semibold text-charcoal">
-            Atelier Marie
-          </span>
-          <span className="rounded-pill bg-muted-gold/20 px-2 py-0.5 text-xs font-medium text-muted-gold">
-            Admin
-          </span>
-        </Link>
-      </div>
+    <>
+      {/* Mobile hamburger button */}
+      <button
+        type="button"
+        onClick={() => setMobileOpen(true)}
+        className="fixed left-4 top-4 z-50 rounded-brand border border-champagne-beige bg-cream p-2 text-soft-brown shadow-sm lg:hidden"
+        aria-label="Open navigation menu"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+        </svg>
+      </button>
 
-      {/* Navigation */}
-      <nav className="flex-1 space-y-1 px-3 py-4">
-        {NAV_ITEMS.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={cn(
-              "flex items-center gap-3 rounded-brand px-3 py-2.5 text-sm font-medium transition-colors duration-fast",
-              isActive(item.href)
-                ? "bg-muted-gold/10 text-charcoal"
-                : "text-soft-brown hover:bg-champagne-beige/50 hover:text-charcoal"
-            )}
-            aria-current={isActive(item.href) ? "page" : undefined}
-          >
-            {item.icon}
-            <span>{item.label}</span>
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-charcoal/30 lg:hidden"
+          onClick={() => setMobileOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-champagne-beige bg-cream transition-transform duration-200",
+          mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+        )}
+      >
+        {/* Logo / Brand */}
+        <div className="flex h-16 items-center justify-between border-b border-champagne-beige px-6">
+          <Link href="/admin" className="flex items-center gap-2">
+            <span className="font-heading text-lg font-semibold text-charcoal">
+              Atelier Marie
+            </span>
+            <span className="rounded-pill bg-muted-gold/20 px-2 py-0.5 text-xs font-medium text-muted-gold">
+              Admin
+            </span>
           </Link>
-        ))}
-      </nav>
-
-      {/* User info */}
-      <div className="border-t border-champagne-beige p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted-gold/20 text-sm font-medium text-muted-gold">
-            {user?.name?.charAt(0) || "A"}
-          </div>
-          <div className="flex-1 truncate">
-            <p className="truncate text-sm font-medium text-charcoal">
-              {user?.name || "Admin"}
-            </p>
-            <p className="truncate text-xs text-soft-brown">
-              {user?.email || ""}
-            </p>
-          </div>
+          {/* Mobile close button */}
+          <button
+            type="button"
+            onClick={() => setMobileOpen(false)}
+            className="rounded-brand p-1 text-soft-brown hover:bg-champagne-beige/50 lg:hidden"
+            aria-label="Close navigation menu"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
-        <Link
-          href="/"
-          className="mt-3 flex w-full items-center gap-2 rounded-brand px-3 py-2 text-sm text-soft-brown hover:bg-champagne-beige/50 hover:text-charcoal"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
-          </svg>
-          Back to Store
-        </Link>
-      </div>
-    </aside>
+
+        {/* Navigation */}
+        <nav className="flex-1 space-y-1 px-3 py-4">
+          {NAV_ITEMS.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              onClick={() => setMobileOpen(false)}
+              className={cn(
+                "flex items-center gap-3 rounded-brand px-3 py-2.5 text-sm font-medium transition-colors duration-fast",
+                isActive(item.href)
+                  ? "bg-muted-gold/10 text-charcoal"
+                  : "text-soft-brown hover:bg-champagne-beige/50 hover:text-charcoal"
+              )}
+              aria-current={isActive(item.href) ? "page" : undefined}
+            >
+              {item.icon}
+              <span>{item.label}</span>
+            </Link>
+          ))}
+        </nav>
+
+        {/* User info */}
+        <div className="border-t border-champagne-beige p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted-gold/20 text-sm font-medium text-muted-gold">
+              {user?.name?.charAt(0) || "A"}
+            </div>
+            <div className="flex-1 truncate">
+              <p className="truncate text-sm font-medium text-charcoal">
+                {user?.name || "Admin"}
+              </p>
+              <p className="truncate text-xs text-soft-brown">
+                {user?.email || ""}
+              </p>
+            </div>
+          </div>
+          <Link
+            href="/"
+            className="mt-3 flex w-full items-center gap-2 rounded-brand px-3 py-2 text-sm text-soft-brown hover:bg-champagne-beige/50 hover:text-charcoal"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+            </svg>
+            Back to Store
+          </Link>
+        </div>
+      </aside>
+    </>
   );
 }

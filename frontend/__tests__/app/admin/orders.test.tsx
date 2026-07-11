@@ -90,8 +90,8 @@ describe("Admin Orders List", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("alice@example.com")).toBeInTheDocument();
-      expect(screen.getByText("bob@example.com")).toBeInTheDocument();
+      expect(screen.getByText("a***@example.com")).toBeInTheDocument();
+      expect(screen.getByText("b***@example.com")).toBeInTheDocument();
     });
 
     expect(screen.getByText("€77.00")).toBeInTheDocument();
@@ -149,7 +149,7 @@ describe("Admin Orders List", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("alice@example.com")).toBeInTheDocument();
+      expect(screen.getByText("a***@example.com")).toBeInTheDocument();
     });
 
     const pendingPill = screen.getByText("Pending");
@@ -180,7 +180,7 @@ describe("Admin Orders List", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("alice@example.com")).toBeInTheDocument();
+      expect(screen.getByText("a***@example.com")).toBeInTheDocument();
     });
 
     // Find the status dropdown for the pending order
@@ -212,7 +212,7 @@ describe("Admin Orders List", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("alice@example.com")).toBeInTheDocument();
+      expect(screen.getByText("a***@example.com")).toBeInTheDocument();
     });
 
     const selects = screen.getAllByRole("combobox");
@@ -224,5 +224,103 @@ describe("Admin Orders List", () => {
 
     // Original status should be restored (pending)
     expect(screen.getByText("pending")).toBeInTheDocument();
+  });
+
+  it("shows only valid transition options for each order status", async () => {
+    mockedGetAdminOrders.mockResolvedValue(MOCK_ORDER_LIST);
+
+    const { AdminProvider } = await import("@/contexts/AdminContext");
+    const { AdminGuard } = await import("@/components/admin/AdminGuard");
+    const AdminOrdersPage = (await import("@/app/admin/orders/page")).default;
+
+    render(
+      <AdminProvider>
+        <AdminGuard>
+          <AdminOrdersPage />
+        </AdminGuard>
+      </AdminProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("a***@example.com")).toBeInTheDocument();
+    });
+
+    const selects = screen.getAllByRole("combobox");
+
+    // First select is for "pending" order → valid transitions: confirmed, cancelled
+    const pendingOptions = selects[0].querySelectorAll("option");
+    const pendingValues = Array.from(pendingOptions).map((o) => o.value).filter(Boolean);
+    expect(pendingValues).toEqual(["confirmed", "cancelled"]);
+
+    // Second select is for "confirmed" order → valid transitions: shipped, cancelled
+    const confirmedOptions = selects[1].querySelectorAll("option");
+    const confirmedValues = Array.from(confirmedOptions).map((o) => o.value).filter(Boolean);
+    expect(confirmedValues).toEqual(["shipped", "cancelled"]);
+  });
+
+  it("shows loading skeletons on initial load", async () => {
+    mockedGetAdminOrders.mockImplementation(() => new Promise(() => {}));
+
+    const { AdminProvider } = await import("@/contexts/AdminContext");
+    const { AdminGuard } = await import("@/components/admin/AdminGuard");
+    const AdminOrdersPage = (await import("@/app/admin/orders/page")).default;
+
+    render(
+      <AdminProvider>
+        <AdminGuard>
+          <AdminOrdersPage />
+        </AdminGuard>
+      </AdminProvider>
+    );
+
+    await waitFor(() => {
+      const skeletons = document.querySelectorAll('[class*="animate-pulse"]');
+      expect(skeletons.length).toBeGreaterThan(0);
+    });
+  });
+
+  it("shows error banner when loading fails", async () => {
+    mockedGetAdminOrders.mockRejectedValue(new Error("Failed to load orders"));
+
+    const { AdminProvider } = await import("@/contexts/AdminContext");
+    const { AdminGuard } = await import("@/components/admin/AdminGuard");
+    const AdminOrdersPage = (await import("@/app/admin/orders/page")).default;
+
+    render(
+      <AdminProvider>
+        <AdminGuard>
+          <AdminOrdersPage />
+        </AdminGuard>
+      </AdminProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Failed to load orders")).toBeInTheDocument();
+    });
+  });
+
+  it("shows empty state when no orders exist", async () => {
+    mockedGetAdminOrders.mockResolvedValue({
+      orders: [],
+      total: 0,
+      page: 1,
+      limit: 100,
+    });
+
+    const { AdminProvider } = await import("@/contexts/AdminContext");
+    const { AdminGuard } = await import("@/components/admin/AdminGuard");
+    const AdminOrdersPage = (await import("@/app/admin/orders/page")).default;
+
+    render(
+      <AdminProvider>
+        <AdminGuard>
+          <AdminOrdersPage />
+        </AdminGuard>
+      </AdminProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("No orders found.")).toBeInTheDocument();
+    });
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { getCurrentUser } from "@/lib/api";
 import type { UserResponse } from "@/lib/types";
 
@@ -34,9 +34,10 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const isAdmin = user?.is_admin ?? false;
+  const value = useMemo(() => ({ user, isAdmin, isLoading }), [user, isAdmin, isLoading]);
 
   return (
-    <AdminContext.Provider value={{ user, isAdmin, isLoading }}>
+    <AdminContext.Provider value={value}>
       {children}
     </AdminContext.Provider>
   );
