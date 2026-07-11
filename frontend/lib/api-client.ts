@@ -108,4 +108,57 @@ export async function del<T>(path: string): Promise<T> {
   return handleResponse<T>(res);
 }
 
+// --- Reactions ---
+
+import type {
+  ReactionCountsResponse,
+  ReactionToggleRequest,
+  ReactionToggleResponse,
+  CommentCreateRequest,
+  CommentListResponse,
+  CommentResponse,
+  CommentSort,
+} from "./types";
+
+export async function toggleReaction(
+  productId: string,
+  body: ReactionToggleRequest
+): Promise<ReactionToggleResponse> {
+  return post<ReactionToggleResponse>(
+    `/v1/products/${productId}/reactions`,
+    body
+  );
+}
+
+export async function getReactions(
+  productId: string
+): Promise<ReactionCountsResponse> {
+  return get<ReactionCountsResponse>(
+    `/v1/products/${productId}/reactions`
+  );
+}
+
+// --- Comments ---
+
+export async function postComment(
+  productId: string,
+  body: CommentCreateRequest
+): Promise<CommentResponse> {
+  return post<CommentResponse>(
+    `/v1/products/${productId}/comments`,
+    body
+  );
+}
+
+export async function getComments(
+  productId: string,
+  sort: CommentSort = "newest",
+  page: number = 1,
+  limit: number = 20
+): Promise<CommentListResponse> {
+  return get<CommentListResponse>(
+    `/v1/products/${productId}/comments?sort=${sort}&page=${page}&limit=${limit}`
+  );
+}
+
 export { BASE_URL };

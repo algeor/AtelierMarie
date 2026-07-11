@@ -7,6 +7,10 @@ import * as apiClient from "./api-client";
 import type {
   AdminStats,
   CartResponse,
+  CommentCreateRequest,
+  CommentListResponse,
+  CommentResponse,
+  CommentSort,
   CreateOrderRequest,
   CreateProductRequest,
   OrderListResponse,
@@ -14,6 +18,9 @@ import type {
   OrderStatus,
   ProductListResponse,
   ProductResponse,
+  ReactionCountsResponse,
+  ReactionToggleRequest,
+  ReactionToggleResponse,
   UpdateProductRequest,
   UserResponse,
 } from "./types";
@@ -186,4 +193,41 @@ export async function updateOrderStatus(
     `/v1/admin/orders/${encodeURIComponent(orderId)}/status`,
     { status }
   );
+}
+
+// --- Reactions ---
+
+export async function toggleReaction(
+  productId: string,
+  body: ReactionToggleRequest
+): Promise<ReactionToggleResponse> {
+  if (USE_MOCK) return (await getMock()).toggleReaction(productId, body);
+  return apiClient.toggleReaction(productId, body);
+}
+
+export async function getReactions(
+  productId: string
+): Promise<ReactionCountsResponse> {
+  if (USE_MOCK) return (await getMock()).getReactions(productId);
+  return apiClient.getReactions(productId);
+}
+
+// --- Comments ---
+
+export async function postComment(
+  productId: string,
+  body: CommentCreateRequest
+): Promise<CommentResponse> {
+  if (USE_MOCK) return (await getMock()).postComment(productId, body);
+  return apiClient.postComment(productId, body);
+}
+
+export async function getComments(
+  productId: string,
+  sort: CommentSort = "newest",
+  page: number = 1,
+  limit: number = 20
+): Promise<CommentListResponse> {
+  if (USE_MOCK) return (await getMock()).getComments(productId, sort, page, limit);
+  return apiClient.getComments(productId, sort, page, limit);
 }

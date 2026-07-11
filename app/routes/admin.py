@@ -5,12 +5,13 @@ import io
 from typing import get_args
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from app.constants import MAX_PRICE_CENTS, MAX_STOCK
 from app.database import get_db
 from app.dependencies.auth import require_admin
 from app.models.admin import DashboardResponse
+from app.models.comments import AdminCommentListResponse, AdminCommentResponse
 from app.models.orders import (
     OrderListResponse,
     OrderResponse,
@@ -27,6 +28,8 @@ from app.models.products import (
 )
 from app.services import admin_service, product_service
 from app.services.auth_service import get_oauth_circuit_breaker
+from app.services.comment_service import CommentNotFoundError, list_all_comments
+from app.services.comment_service import delete_comment as delete_comment_service
 from app.services.order_service import (
     InvalidStateTransitionError,
     OrderNotFoundError,
@@ -416,3 +419,50 @@ async def admin_health_oauth() -> JSONResponse:
     """Expose Google OAuth circuit breaker state for admin diagnostics."""
     breaker = get_oauth_circuit_breaker()
     return JSONResponse(content=breaker.get_health())
+
+
+# --- Comment moderation endpoints ---
+
+
+@router.delete(
+    "/comments/{comment_id}",
+    status_code=204,
+    response_class=Response,
+    summary="Delete comment (admin)",
+    description="Hard-delete any comment by ID. No '[deleted]' placeholder remains.",
+    responses={404: {"description": "Comment not found"}},
+)
+async def admin_delete_comment(comment_id: str) -> Response:
+    """Delete any comment (admin moderation)."""
+    try:
+        delete_comment_service(comment_id)
+    except CommentNotFoundError:
+        return JSONResponse(
+            status_code=404,
+            content={"error": {"code": "NOT_FOUND", "message": "Comment not found"}},
+        )
+    return Response(status_code=204)
+
+
+@router.get(
+    "/comments",
+    response_model=AdminCommentListResponse,
+    summary="List all comments (admin)",
+    description="List all comments across products for moderation. "
+    "Includes product context. Supports optional product_id filter and pagination.",
+)
+async def admin_list_comments(
+    product_id: str | None = Query(default=None, description="Filter by product ID"),
+    page: int = Query(default=1, ge=1, description="Page number"),
+    limit: int = Query(default=20, ge=1, description="Items per page (max 100)"),
+) -> AdminCommentListResponse:
+    """List all comments for admin moderation."""
+    limit = min(limit, 100)
+    comments, total = list_all_comments(page=page, limit=limit, product_id=product_id)
+
+    return AdminCommentListResponse(
+        items=[AdminCommentResponse(**c) for c in comments],
+        total=total,
+        page=page,
+        limit=limit,
+    )

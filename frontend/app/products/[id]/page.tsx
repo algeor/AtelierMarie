@@ -5,6 +5,7 @@ import { ProductImage } from "@/components/products/ProductImage";
 import { Badge } from "@/components/ui/Badge";
 import { formatPrice } from "@/lib/utils";
 import { AddToCartSection } from "@/components/products/AddToCartSection";
+import { ProductSocialSection } from "@/components/products/ProductSocialSection";
 
 interface ProductPageProps {
   params: { id: string };
@@ -93,6 +94,11 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
             stock={product.stock}
           />
         </div>
+      </div>
+
+      {/* Social proof — reactions & comments */}
+      <div className="mt-12 pt-8 border-t border-warm-gray/20">
+        <ProductSocialSection productId={product.id} />
       </div>
     </div>
   );

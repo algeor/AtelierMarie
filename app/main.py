@@ -15,7 +15,7 @@ from app.exceptions import register_exception_handlers
 from app.logging_config import configure_logging
 from app.middleware.request_id import RequestIdMiddleware
 from app.middleware.session import SessionMiddleware
-from app.routes import admin, auth, cart, orders, products
+from app.routes import admin, auth, cart, comments, orders, products, reactions
 
 logger = structlog.get_logger(__name__)
 
@@ -136,6 +136,8 @@ def create_app() -> FastAPI:
     application.include_router(orders.router, prefix="/v1/orders", tags=["orders"])
     application.include_router(auth.router, prefix="/v1/auth", tags=["auth"])
     application.include_router(admin.router, prefix="/v1/admin", tags=["admin"])
+    application.include_router(reactions.router, prefix="/v1/products", tags=["reactions"])
+    application.include_router(comments.router, prefix="/v1/products", tags=["comments"])
 
     # Global exception handlers for consistent error format
     register_exception_handlers(application)

@@ -8,6 +8,10 @@ import type {
   AuthTokenResponse,
   CartItemResponse,
   CartResponse,
+  CommentCreateRequest,
+  CommentListResponse,
+  CommentResponse,
+  CommentSort,
   CreateOrderRequest,
   CreateProductRequest,
   OrderListResponse,
@@ -15,6 +19,9 @@ import type {
   OrderStatus,
   ProductListResponse,
   ProductResponse,
+  ReactionCountsResponse,
+  ReactionToggleRequest,
+  ReactionToggleResponse,
   UpdateProductRequest,
   UserResponse,
 } from "./types";
@@ -521,4 +528,98 @@ export async function updateOrderStatus(
   order.status = status;
   order.updated_at = new Date().toISOString();
   return order;
+}
+
+// --- Reactions Mock ---
+
+const mockReactions: Map<string, Set<string>> = new Map(); // key: "productId:type", value: set of sessions
+
+export async function toggleReaction(
+  productId: string,
+  body: ReactionToggleRequest
+): Promise<ReactionToggleResponse> {
+  await delay();
+  const key = `${productId}:${body.reaction_type}`;
+  const sessions = mockReactions.get(key) ?? new Set();
+  const mockSessionId = "mock-session";
+
+  let active: boolean;
+  if (sessions.has(mockSessionId)) {
+    sessions.delete(mockSessionId);
+    active = false;
+  } else {
+    sessions.add(mockSessionId);
+    active = true;
+  }
+  mockReactions.set(key, sessions);
+
+  return { reaction_type: body.reaction_type, active };
+}
+
+export async function getReactions(
+  productId: string
+): Promise<ReactionCountsResponse> {
+  await delay();
+  const heartKey = `${productId}:heart`;
+  const thumbsKey = `${productId}:thumbs_up`;
+  const mockSessionId = "mock-session";
+
+  const heartSessions = mockReactions.get(heartKey) ?? new Set();
+  const thumbsSessions = mockReactions.get(thumbsKey) ?? new Set();
+
+  return {
+    heart: { count: heartSessions.size, reacted: heartSessions.has(mockSessionId) },
+    thumbs_up: { count: thumbsSessions.size, reacted: thumbsSessions.has(mockSessionId) },
+  };
+}
+
+// --- Comments Mock ---
+
+const mockComments: CommentResponse[] = [
+  {
+    id: "comment-1",
+    display_name: "Marie",
+    body: "This candle smells absolutely divine! Perfect for relaxing evenings.",
+    created_at: new Date(Date.now() - 86400000).toISOString(),
+  },
+  {
+    id: "comment-2",
+    display_name: "Sophie",
+    body: "Bought this as a gift and my friend loved it!",
+    created_at: new Date(Date.now() - 172800000).toISOString(),
+  },
+];
+
+export async function postComment(
+  productId: string,
+  body: CommentCreateRequest
+): Promise<CommentResponse> {
+  await delay();
+  const product = MOCK_PRODUCTS.find((p) => p.id === productId);
+  if (!product) mockError("NOT_FOUND", `Product ${productId} not found`);
+
+  const comment: CommentResponse = {
+    id: generateOrderId(),
+    display_name: body.display_name ?? "Anonymous",
+    body: body.body,
+    created_at: new Date().toISOString(),
+  };
+  mockComments.unshift(comment);
+  return comment;
+}
+
+export async function getComments(
+  _productId: string,
+  sort: CommentSort = "newest",
+  page: number = 1,
+  limit: number = 20
+): Promise<CommentListResponse> {
+  await delay();
+  const sorted = [...mockComments].sort((a, b) => {
+    const cmp = a.created_at.localeCompare(b.created_at);
+    return sort === "newest" ? -cmp : cmp;
+  });
+  const start = (page - 1) * limit;
+  const items = sorted.slice(start, start + limit);
+  return { items, total: mockComments.length, page, limit };
 }

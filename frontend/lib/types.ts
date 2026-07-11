@@ -153,3 +153,47 @@ export interface UpdateProductRequest {
   is_active?: boolean;
   is_featured?: boolean;
 }
+
+// --- Reactions ---
+
+export interface ReactionTypeCount {
+  count: number;
+  reacted: boolean;
+}
+
+export interface ReactionCountsResponse {
+  heart: ReactionTypeCount;
+  thumbs_up: ReactionTypeCount;
+}
+
+export interface ReactionToggleRequest {
+  reaction_type: "heart" | "thumbs_up";
+}
+
+export interface ReactionToggleResponse {
+  reaction_type: string;
+  active: boolean;
+}
+
+// --- Comments ---
+
+export interface CommentResponse {
+  id: string;
+  display_name: string;
+  body: string;
+  created_at: string;
+}
+
+export interface CommentListResponse {
+  items: CommentResponse[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface CommentCreateRequest {
+  display_name?: string | null;
+  body: string;
+}
+
+export type CommentSort = "newest" | "oldest";

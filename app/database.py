@@ -87,6 +87,42 @@ CREATE TABLE IF NOT EXISTS order_items (
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
 CREATE INDEX IF NOT EXISTS idx_products_is_active ON products(is_active);
 
+-- Reactions: session-scoped emoji reactions per product (Layer 1 — social proof)
+CREATE TABLE IF NOT EXISTS reactions (
+    session_id     TEXT NOT NULL,
+    product_id     TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    reaction_type  TEXT NOT NULL CHECK (reaction_type IN ('heart', 'thumbs_up')),
+    created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (session_id, product_id, reaction_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reactions_product_type ON reactions(product_id, reaction_type);
+CREATE INDEX IF NOT EXISTS idx_reactions_session_created ON reactions(session_id, created_at);
+
+-- Reaction toggle log: append-only rate-limit tracking (toggles remove from reactions table)
+CREATE TABLE IF NOT EXISTS reaction_toggle_log (
+    session_id  TEXT NOT NULL,
+    product_id  TEXT NOT NULL,
+    toggled_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_reaction_toggle_log_session_time
+    ON reaction_toggle_log(session_id, toggled_at);
+
+-- Comments: lightweight per-product comment thread (Layer 1 — social proof)
+CREATE TABLE IF NOT EXISTS comments (
+    id          TEXT PRIMARY KEY,
+    product_id  TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    session_id  TEXT NOT NULL,
+    user_id     TEXT REFERENCES users(id) ON DELETE SET NULL,
+    display_name TEXT NOT NULL,
+    body        TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_comments_product_created ON comments(product_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_comments_session_created ON comments(session_id, created_at);
+
 -- Auto-update updated_at on row modification
 CREATE TRIGGER IF NOT EXISTS products_updated_at AFTER UPDATE ON products
 BEGIN
