@@ -9,8 +9,10 @@ from pathlib import Path
 _SCHEMA_SQL = """\
 CREATE TABLE IF NOT EXISTS products (
     id          TEXT PRIMARY KEY,
-    name        TEXT NOT NULL,
-    description TEXT,
+    name_en     TEXT NOT NULL,
+    name_bg     TEXT,
+    description_en TEXT,
+    description_bg TEXT,
     materials   TEXT,
     days_to_craft INTEGER,
     price_cents INTEGER NOT NULL CHECK (price_cents > 0),
@@ -19,6 +21,8 @@ CREATE TABLE IF NOT EXISTS products (
     stock       INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
     is_active   INTEGER NOT NULL DEFAULT 1,
     is_featured INTEGER NOT NULL DEFAULT 0,
+    translation_stale_bg INTEGER NOT NULL DEFAULT 0,
+    translation_stale_en INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -37,6 +41,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS sessions (
     id          TEXT PRIMARY KEY,
     user_id     TEXT REFERENCES users(id),
+    preferred_locale TEXT NOT NULL DEFAULT 'en',
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     expires_at  TEXT NOT NULL
 );
@@ -134,36 +139,70 @@ BEGIN
     UPDATE orders SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
 END;
 
--- Full-text search for products (content-backed — synced via triggers)
-CREATE VIRTUAL TABLE IF NOT EXISTS products_fts USING fts5(
-    name,
-    description,
+-- Full-text search for products — English index (content-backed via triggers)
+CREATE VIRTUAL TABLE IF NOT EXISTS products_fts_en USING fts5(
+    name_en,
+    description_en,
     category,
     content='products',
     content_rowid='rowid'
 );
 
--- Sync triggers: keep FTS index in sync with products table
-CREATE TRIGGER IF NOT EXISTS products_fts_insert AFTER INSERT ON products
+-- Full-text search for products — Bulgarian index (content-backed via triggers)
+CREATE VIRTUAL TABLE IF NOT EXISTS products_fts_bg USING fts5(
+    name_bg,
+    description_bg,
+    category,
+    content='products',
+    content_rowid='rowid'
+);
+
+-- Sync triggers: keep English FTS index in sync with products table
+CREATE TRIGGER IF NOT EXISTS products_fts_en_insert AFTER INSERT ON products
 BEGIN
-    INSERT INTO products_fts(rowid, name, description, category)
-    VALUES (NEW.rowid, NEW.name, COALESCE(NEW.description, ''), COALESCE(NEW.category, ''));
+    INSERT INTO products_fts_en(rowid, name_en, description_en, category)
+    VALUES (NEW.rowid, NEW.name_en, COALESCE(NEW.description_en, ''), COALESCE(NEW.category, ''));
 END;
 
-CREATE TRIGGER IF NOT EXISTS products_fts_delete BEFORE DELETE ON products
+CREATE TRIGGER IF NOT EXISTS products_fts_en_delete BEFORE DELETE ON products
 BEGIN
-    INSERT INTO products_fts(products_fts, rowid, name, description, category)
-    VALUES ('delete', OLD.rowid, OLD.name,
-            COALESCE(OLD.description, ''), COALESCE(OLD.category, ''));
+    INSERT INTO products_fts_en(products_fts_en, rowid, name_en, description_en, category)
+    VALUES ('delete', OLD.rowid, OLD.name_en,
+            COALESCE(OLD.description_en, ''), COALESCE(OLD.category, ''));
 END;
 
-CREATE TRIGGER IF NOT EXISTS products_fts_update AFTER UPDATE ON products
+CREATE TRIGGER IF NOT EXISTS products_fts_en_update AFTER UPDATE ON products
 BEGIN
-    INSERT INTO products_fts(products_fts, rowid, name, description, category)
-    VALUES ('delete', OLD.rowid, OLD.name,
-            COALESCE(OLD.description, ''), COALESCE(OLD.category, ''));
-    INSERT INTO products_fts(rowid, name, description, category)
-    VALUES (NEW.rowid, NEW.name, COALESCE(NEW.description, ''), COALESCE(NEW.category, ''));
+    INSERT INTO products_fts_en(products_fts_en, rowid, name_en, description_en, category)
+    VALUES ('delete', OLD.rowid, OLD.name_en,
+            COALESCE(OLD.description_en, ''), COALESCE(OLD.category, ''));
+    INSERT INTO products_fts_en(rowid, name_en, description_en, category)
+    VALUES (NEW.rowid, NEW.name_en, COALESCE(NEW.description_en, ''), COALESCE(NEW.category, ''));
+END;
+
+-- Sync triggers: keep Bulgarian FTS index in sync with products table
+CREATE TRIGGER IF NOT EXISTS products_fts_bg_insert AFTER INSERT ON products
+BEGIN
+    INSERT INTO products_fts_bg(rowid, name_bg, description_bg, category)
+    VALUES (NEW.rowid, COALESCE(NEW.name_bg, ''),
+            COALESCE(NEW.description_bg, ''), COALESCE(NEW.category, ''));
+END;
+
+CREATE TRIGGER IF NOT EXISTS products_fts_bg_delete BEFORE DELETE ON products
+BEGIN
+    INSERT INTO products_fts_bg(products_fts_bg, rowid, name_bg, description_bg, category)
+    VALUES ('delete', OLD.rowid, COALESCE(OLD.name_bg, ''),
+            COALESCE(OLD.description_bg, ''), COALESCE(OLD.category, ''));
+END;
+
+CREATE TRIGGER IF NOT EXISTS products_fts_bg_update AFTER UPDATE ON products
+BEGIN
+    INSERT INTO products_fts_bg(products_fts_bg, rowid, name_bg, description_bg, category)
+    VALUES ('delete', OLD.rowid, COALESCE(OLD.name_bg, ''),
+            COALESCE(OLD.description_bg, ''), COALESCE(OLD.category, ''));
+    INSERT INTO products_fts_bg(rowid, name_bg, description_bg, category)
+    VALUES (NEW.rowid, COALESCE(NEW.name_bg, ''),
+            COALESCE(NEW.description_bg, ''), COALESCE(NEW.category, ''));
 END;
 """
 

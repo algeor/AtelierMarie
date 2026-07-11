@@ -1,5 +1,32 @@
+import React from "react";
 import { render, screen } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
+
+vi.mock("next-intl", () => ({
+  useTranslations: () => (key: string, values?: Record<string, unknown>) => {
+    if (values) {
+      return Object.entries(values).reduce(
+        (str, [k, v]) => str.replace(`{${k}}`, String(v)),
+        key
+      );
+    }
+    return key;
+  },
+  useLocale: () => "en",
+  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
+vi.mock("@/i18n/navigation", () => ({
+  Link: ({ children, href }: { children: React.ReactNode; href: string }) => (
+    <a href={href}>{children}</a>
+  ),
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  usePathname: () => "/",
+}));
+
+vi.mock("@/components/layout/LanguageToggle", () => ({
+  LanguageToggle: () => <button data-testid="language-toggle">EN</button>,
+}));
 
 vi.mock("@/contexts/CartContext", () => ({
   useCart: () => ({

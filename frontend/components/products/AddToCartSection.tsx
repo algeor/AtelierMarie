@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { useCart } from "@/contexts/CartContext";
 import { Button } from "@/components/ui/Button";
 import { QuantitySelector } from "./QuantitySelector";
@@ -11,6 +12,7 @@ interface AddToCartSectionProps {
 }
 
 export function AddToCartSection({ productId, stock }: AddToCartSectionProps) {
+  const t = useTranslations("products");
   const { addToCart, openDrawer } = useCart();
   const [quantity, setQuantity] = useState(1);
   const [status, setStatus] = useState<"idle" | "loading" | "success">("idle");
@@ -52,16 +54,16 @@ export function AddToCartSection({ productId, stock }: AddToCartSectionProps) {
         className="w-full sm:w-auto"
       >
         {isOutOfStock
-          ? "Out of Stock"
+          ? t("outOfStock")
           : status === "success"
-            ? "Added ✓"
-            : "Add to Cart"}
+            ? `${t("added")} ✓`
+            : t("addToCart")}
       </Button>
 
       {/* Screen reader announcement */}
       <div aria-live="polite" role="status" className="sr-only">
         {status === "success"
-          ? `Added ${quantity} item${quantity > 1 ? "s" : ""} to cart`
+          ? t("addedToCart", { count: quantity })
           : ""}
       </div>
     </div>

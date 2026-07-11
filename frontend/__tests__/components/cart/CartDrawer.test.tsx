@@ -1,5 +1,28 @@
+import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
+
+vi.mock("next-intl", () => ({
+  useTranslations: () => (key: string, values?: Record<string, unknown>) => {
+    if (values) {
+      return Object.entries(values).reduce(
+        (str, [k, v]) => str.replace(`{${k}}`, String(v)),
+        key
+      );
+    }
+    return key;
+  },
+  useLocale: () => "en",
+  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
+vi.mock("@/i18n/navigation", () => ({
+  Link: ({ children, href }: { children: React.ReactNode; href: string }) => (
+    <a href={href}>{children}</a>
+  ),
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  usePathname: () => "/",
+}));
 
 const mockUseCart = vi.fn();
 
@@ -66,7 +89,7 @@ describe("CartDrawer", () => {
   it("shows empty state when items array is empty", () => {
     mockUseCart.mockReturnValue({ ...baseCartState, isDrawerOpen: true, items: [] });
     render(<CartDrawer />);
-    expect(screen.getByText(/your cart is empty/i)).toBeInTheDocument();
+    expect(screen.getByText("empty")).toBeInTheDocument();
   });
 
   it("shows items when present", () => {

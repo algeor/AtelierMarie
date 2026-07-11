@@ -19,8 +19,8 @@ from app.services import product_service
 SEED_PRODUCTS = [
     {
         "id": "lavender-dream-300ml",
-        "name": "Lavender Dream",
-        "description": "Hand-poured soy candle with French lavender essential oil. "
+        "name_en": "Lavender Dream",
+        "description_en": "Hand-poured soy candle with French lavender essential oil. "
         "A calming scent that fills your space with the essence of Provence.",
         "materials": "Soy wax, French lavender essential oil, cotton wick",
         "days_to_craft": 3,
@@ -32,8 +32,8 @@ SEED_PRODUCTS = [
     },
     {
         "id": "midnight-amber-300ml",
-        "name": "Midnight Amber",
-        "description": "Warm amber and sandalwood in a hand-glazed black ceramic vessel. "
+        "name_en": "Midnight Amber",
+        "description_en": "Warm amber and sandalwood in a hand-glazed black ceramic vessel. "
         "Perfect for evening relaxation.",
         "materials": "Coconut wax, amber resin, sandalwood oil, ceramic vessel",
         "days_to_craft": 5,
@@ -45,8 +45,8 @@ SEED_PRODUCTS = [
     },
     {
         "id": "vanilla-creme-brulee-200ml",
-        "name": "Vanilla Crème Brûlée",
-        "description": "Rich vanilla custard with a caramelized sugar top note. "
+        "name_en": "Vanilla Crème Brûlée",
+        "description_en": "Rich vanilla custard with a caramelized sugar top note. "
         "A gourmand delight inspired by Parisian patisseries.",
         "materials": "Soy wax, vanilla absolute, caramel fragrance oil",
         "days_to_craft": 2,
@@ -58,8 +58,8 @@ SEED_PRODUCTS = [
     },
     {
         "id": "salted-caramel-macaron-200ml",
-        "name": "Salted Caramel Macaron",
-        "description": "Buttery caramel with a delicate sea salt finish. "
+        "name_en": "Salted Caramel Macaron",
+        "description_en": "Buttery caramel with a delicate sea salt finish. "
         "Evokes the warmth of a French boulangerie.",
         "materials": "Soy wax, caramel fragrance, sea salt accord",
         "days_to_craft": 2,
@@ -71,8 +71,8 @@ SEED_PRODUCTS = [
     },
     {
         "id": "rose-garden-250ml",
-        "name": "Rose Garden",
-        "description": "Bulgarian rose and peony with a green stem accord. "
+        "name_en": "Rose Garden",
+        "description_en": "Bulgarian rose and peony with a green stem accord. "
         "Like walking through a blooming garden at dawn.",
         "materials": "Coconut-soy blend, Bulgarian rose oil, peony extract",
         "days_to_craft": 4,
@@ -84,8 +84,8 @@ SEED_PRODUCTS = [
     },
     {
         "id": "winter-spice-trio",
-        "name": "Winter Spice Trio",
-        "description": "Gift set of three votives: cinnamon bark, mulled wine, "
+        "name_en": "Winter Spice Trio",
+        "description_en": "Gift set of three votives: cinnamon bark, mulled wine, "
         "and gingerbread. Perfect for the holiday season.",
         "materials": "Soy wax, cinnamon bark oil, mulled wine fragrance, gingerbread accord",
         "days_to_craft": 4,
@@ -97,8 +97,8 @@ SEED_PRODUCTS = [
     },
     {
         "id": "spring-blossom-duo",
-        "name": "Spring Blossom Duo",
-        "description": "Gift set of two candles: cherry blossom and jasmine. "
+        "name_en": "Spring Blossom Duo",
+        "description_en": "Gift set of two candles: cherry blossom and jasmine. "
         "Celebrate the arrival of spring.",
         "materials": "Soy wax, cherry blossom fragrance, jasmine absolute",
         "days_to_craft": 3,
@@ -110,8 +110,8 @@ SEED_PRODUCTS = [
     },
     {
         "id": "pumpkin-chai-latte-200ml",
-        "name": "Pumpkin Chai Latte",
-        "description": "Warm pumpkin spice with chai tea undertones. "
+        "name_en": "Pumpkin Chai Latte",
+        "description_en": "Warm pumpkin spice with chai tea undertones. "
         "A cozy autumn ritual in candle form.",
         "materials": "Soy wax, pumpkin spice blend, chai tea extract",
         "days_to_craft": 2,
@@ -123,8 +123,8 @@ SEED_PRODUCTS = [
     },
     {
         "id": "summer-citrus-burst-300ml",
-        "name": "Summer Citrus Burst",
-        "description": "Bright bergamot, lemon zest, and pink grapefruit. "
+        "name_en": "Summer Citrus Burst",
+        "description_en": "Bright bergamot, lemon zest, and pink grapefruit. "
         "A refreshing burst of Mediterranean sunshine.",
         "materials": "Coconut wax, bergamot oil, lemon zest, grapefruit oil",
         "days_to_craft": 3,
@@ -136,8 +136,8 @@ SEED_PRODUCTS = [
     },
     {
         "id": "honey-tobacco-oak-300ml",
-        "name": "Honey Tobacco & Oak",
-        "description": "Rich tobacco leaf, raw honey, and aged oak barrel. "
+        "name_en": "Honey Tobacco & Oak",
+        "description_en": "Rich tobacco leaf, raw honey, and aged oak barrel. "
         "A sophisticated evening scent for the discerning home.",
         "materials": "Coconut-soy blend, tobacco absolute, honey accord, oak moss",
         "days_to_craft": 5,
@@ -161,7 +161,7 @@ def main() -> None:
         product_id = product_data["id"]
         data = {k: v for k, v in product_data.items() if k != "id"}
         result = product_service.upsert_product(product_id, data)
-        print(f"  ✓ {result['id']}: {result['name']}")
+        print(f"  ✓ {result['id']}: {result.get('name_en', result.get('name', ''))}")
 
     print(f"\nDone! {len(SEED_PRODUCTS)} products seeded.")
 

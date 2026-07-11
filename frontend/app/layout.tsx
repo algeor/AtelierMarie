@@ -1,22 +1,17 @@
 import type { Metadata } from "next";
 import { Playfair_Display, Inter } from "next/font/google";
-import { AnnouncementBar } from "@/components/layout/AnnouncementBar";
-import { Header } from "@/components/layout/Header";
-import { Footer } from "@/components/layout/Footer";
-import { AuthProvider } from "@/contexts/AuthContext";
-import { CartProvider } from "@/contexts/CartContext";
-import { CartDrawer } from "@/components/cart/CartDrawer";
+import { getLocale } from "next-intl/server";
 import "./globals.css";
 
 const playfair = Playfair_Display({
-  subsets: ["latin"],
+  subsets: ["latin", "cyrillic"],
   weight: ["400", "700"],
   variable: "--font-playfair",
   display: "swap",
 });
 
 const inter = Inter({
-  subsets: ["latin"],
+  subsets: ["latin", "cyrillic"],
   weight: ["400", "500", "600", "700"],
   variable: "--font-inter",
   display: "swap",
@@ -29,26 +24,21 @@ export const metadata: Metadata = {
   },
   description:
     "Luxury handcrafted candles for your home. Artisan scents made with love.",
+  icons: {
+    icon: "/favicon.svg",
+  },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const locale = await getLocale();
+
   return (
-    <html lang="en" className={`${playfair.variable} ${inter.variable}`}>
-      <body className="font-sans">
-        <AuthProvider>
-          <CartProvider>
-            <AnnouncementBar />
-            <Header />
-            <CartDrawer />
-            <main>{children}</main>
-            <Footer />
-          </CartProvider>
-        </AuthProvider>
-      </body>
+    <html lang={locale} className={`${playfair.variable} ${inter.variable}`}>
+      <body className="font-sans">{children}</body>
     </html>
   );
 }

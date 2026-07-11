@@ -1,14 +1,16 @@
 "use client";
 
-import { createProduct } from "@/lib/api";
+import { createProduct, uploadProductImage } from "@/lib/api";
 import { ProductForm, type ProductFormData } from "@/components/admin/ProductForm";
 
 export default function CreateProductPage() {
   async function handleSubmit(data: ProductFormData) {
-    await createProduct({
+    const product = await createProduct({
       id: data.id,
-      name: data.name,
-      description: data.description || null,
+      name_en: data.name_en,
+      name_bg: data.name_bg || null,
+      description_en: data.description_en || null,
+      description_bg: data.description_bg || null,
       materials: data.materials || null,
       days_to_craft: data.days_to_craft,
       price_cents: data.price_cents,
@@ -17,6 +19,9 @@ export default function CreateProductPage() {
       stock: data.stock,
       is_featured: data.is_featured,
     });
+    if (data.image_file) {
+      await uploadProductImage(product.id, data.image_file);
+    }
   }
 
   return (

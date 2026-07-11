@@ -8,7 +8,7 @@ import { formatPrice } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Skeleton } from "@/components/ui/Skeleton";
-import type { ProductResponse } from "@/lib/types";
+import type { AdminProductResponse } from "@/lib/types";
 
 const SUCCESS_MESSAGES: Record<string, string> = {
   created: "Product created successfully",
@@ -17,7 +17,7 @@ const SUCCESS_MESSAGES: Record<string, string> = {
 
 export default function AdminProductsPage() {
   const searchParams = useSearchParams();
-  const [products, setProducts] = useState<ProductResponse[]>([]);
+  const [products, setProducts] = useState<AdminProductResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
@@ -57,7 +57,7 @@ export default function AdminProductsPage() {
     }
   }
 
-  async function toggleActive(product: ProductResponse) {
+  async function toggleActive(product: AdminProductResponse) {
     const previousActive = product.is_active;
     setTogglingId(product.id);
 
@@ -168,7 +168,7 @@ export default function AdminProductsPage() {
                   className="border-b border-champagne-beige/50 last:border-0"
                 >
                   <td className="px-4 py-3 font-medium text-charcoal">
-                    {product.name}
+                    {product.name_en}
                   </td>
                   <td className="px-4 py-3 text-soft-brown">
                     {product.category || "—"}
@@ -206,6 +206,42 @@ export default function AdminProductsPage() {
           </tbody>
         </table>
       </div>
+
+      {/* CSV Import Format Reference */}
+      <details className="mt-8 rounded-brand border border-champagne-beige bg-cream">
+        <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-charcoal hover:bg-champagne-beige/30">
+          CSV Import Format Reference
+        </summary>
+        <div className="border-t border-champagne-beige px-4 py-4 text-sm text-soft-brown">
+          <p className="mb-3">
+            Bulk import products via <code className="rounded bg-champagne-beige/50 px-1.5 py-0.5 text-xs">POST /v1/admin/products/import</code> with a CSV file.
+          </p>
+          <p className="mb-2 font-medium text-charcoal">Required columns:</p>
+          <ul className="mb-3 ml-4 list-disc space-y-1">
+            <li><code className="text-xs">id</code> — Product slug (e.g., <code className="text-xs">lavender-dreams-300ml</code>)</li>
+            <li><code className="text-xs">name_en</code> — English product name</li>
+            <li><code className="text-xs">price_cents</code> — Price in cents (integer)</li>
+            <li><code className="text-xs">category</code> — Product category</li>
+            <li><code className="text-xs">stock</code> — Stock quantity</li>
+          </ul>
+          <p className="mb-2 font-medium text-charcoal">Optional bilingual columns:</p>
+          <ul className="mb-3 ml-4 list-disc space-y-1">
+            <li><code className="text-xs">name_bg</code> — Bulgarian product name</li>
+            <li><code className="text-xs">description_en</code> — English description</li>
+            <li><code className="text-xs">description_bg</code> — Bulgarian description</li>
+            <li><code className="text-xs">materials</code>, <code className="text-xs">days_to_craft</code>, <code className="text-xs">image_url</code>, <code className="text-xs">is_featured</code></li>
+          </ul>
+          <p className="mb-2 font-medium text-charcoal">Example:</p>
+          <pre className="overflow-x-auto rounded bg-charcoal/5 p-3 text-xs leading-relaxed">
+{`id,name_en,name_bg,description_en,description_bg,price_cents,category,stock
+lavender-dreams-300ml,Lavender Dreams,Лавандулов сън,Hand-poured soy candle,Ръчно излята соева свещ,3200,Floral,24
+midnight-amber-300ml,Midnight Amber,Полунощен кехлибар,Warm amber and sandalwood,Топъл кехлибар и сандалово дърво,4500,Woody,12`}
+          </pre>
+          <p className="mt-3 text-xs text-soft-brown/70">
+            If Bulgarian columns are omitted, products are created with English content only. Fallback will display English when Bulgarian is unavailable.
+          </p>
+        </div>
+      </details>
     </div>
   );
 }

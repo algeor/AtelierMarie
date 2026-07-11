@@ -1,5 +1,28 @@
+import React from "react";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
+
+vi.mock("next-intl", () => ({
+  useTranslations: () => (key: string, values?: Record<string, unknown>) => {
+    if (values) {
+      return Object.entries(values).reduce(
+        (str, [k, v]) => str.replace(`{${k}}`, String(v)),
+        key
+      );
+    }
+    return key;
+  },
+  useLocale: () => "en",
+  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
+vi.mock("@/i18n/navigation", () => ({
+  Link: ({ children, href }: { children: React.ReactNode; href: string }) => (
+    <a href={href}>{children}</a>
+  ),
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  usePathname: () => "/",
+}));
 
 const mockPush = vi.fn();
 const mockReplace = vi.fn();
@@ -79,7 +102,7 @@ describe("Admin Orders List", () => {
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
-    const AdminOrdersPage = (await import("@/app/admin/orders/page")).default;
+    const AdminOrdersPage = (await import("@/app/[locale]/admin/orders/page")).default;
 
     render(
       <AdminProvider>
@@ -105,7 +128,7 @@ describe("Admin Orders List", () => {
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
-    const AdminOrdersPage = (await import("@/app/admin/orders/page")).default;
+    const AdminOrdersPage = (await import("@/app/[locale]/admin/orders/page")).default;
 
     render(
       <AdminProvider>
@@ -138,7 +161,7 @@ describe("Admin Orders List", () => {
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
-    const AdminOrdersPage = (await import("@/app/admin/orders/page")).default;
+    const AdminOrdersPage = (await import("@/app/[locale]/admin/orders/page")).default;
 
     render(
       <AdminProvider>
@@ -169,7 +192,7 @@ describe("Admin Orders List", () => {
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
-    const AdminOrdersPage = (await import("@/app/admin/orders/page")).default;
+    const AdminOrdersPage = (await import("@/app/[locale]/admin/orders/page")).default;
 
     render(
       <AdminProvider>
@@ -201,7 +224,7 @@ describe("Admin Orders List", () => {
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
-    const AdminOrdersPage = (await import("@/app/admin/orders/page")).default;
+    const AdminOrdersPage = (await import("@/app/[locale]/admin/orders/page")).default;
 
     render(
       <AdminProvider>
@@ -231,7 +254,7 @@ describe("Admin Orders List", () => {
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
-    const AdminOrdersPage = (await import("@/app/admin/orders/page")).default;
+    const AdminOrdersPage = (await import("@/app/[locale]/admin/orders/page")).default;
 
     render(
       <AdminProvider>
@@ -263,7 +286,7 @@ describe("Admin Orders List", () => {
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
-    const AdminOrdersPage = (await import("@/app/admin/orders/page")).default;
+    const AdminOrdersPage = (await import("@/app/[locale]/admin/orders/page")).default;
 
     render(
       <AdminProvider>
@@ -284,7 +307,7 @@ describe("Admin Orders List", () => {
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
-    const AdminOrdersPage = (await import("@/app/admin/orders/page")).default;
+    const AdminOrdersPage = (await import("@/app/[locale]/admin/orders/page")).default;
 
     render(
       <AdminProvider>
@@ -309,7 +332,7 @@ describe("Admin Orders List", () => {
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
-    const AdminOrdersPage = (await import("@/app/admin/orders/page")).default;
+    const AdminOrdersPage = (await import("@/app/[locale]/admin/orders/page")).default;
 
     render(
       <AdminProvider>

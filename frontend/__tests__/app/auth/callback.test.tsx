@@ -1,6 +1,29 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
+import React from "react";
 import type { UserResponse } from "@/lib/types";
+
+vi.mock("next-intl", () => ({
+  useTranslations: () => (key: string, values?: Record<string, unknown>) => {
+    if (values) {
+      return Object.entries(values).reduce(
+        (str, [k, v]) => str.replace(`{${k}}`, String(v)),
+        key
+      );
+    }
+    return key;
+  },
+  useLocale: () => "en",
+  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
+vi.mock("@/i18n/navigation", () => ({
+  Link: ({ children, href }: { children: React.ReactNode; href: string }) => (
+    <a href={href}>{children}</a>
+  ),
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  usePathname: () => "/",
+}));
 
 const mockReplace = vi.fn();
 const mockLoginComplete = vi.fn();
@@ -34,7 +57,7 @@ vi.mock("@/lib/validateRedirectPath", () => ({
 }));
 
 import { getCurrentUser } from "@/lib/api";
-import { CallbackHandler } from "@/app/auth/callback/CallbackHandler";
+import { CallbackHandler } from "@/app/[locale]/auth/callback/CallbackHandler";
 
 const mockedGetCurrentUser = vi.mocked(getCurrentUser);
 

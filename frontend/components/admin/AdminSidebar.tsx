@@ -1,20 +1,21 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useTranslations } from "next-intl";
+import { usePathname } from "@/i18n/navigation";
+import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
 import { useAdmin } from "@/contexts/AdminContext";
 
 interface NavItem {
-  label: string;
+  labelKey: string;
   href: string;
   icon: React.ReactNode;
 }
 
 const NAV_ITEMS: NavItem[] = [
   {
-    label: "Dashboard",
+    labelKey: "dashboard",
     href: "/admin",
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
@@ -23,7 +24,7 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
-    label: "Products",
+    labelKey: "products",
     href: "/admin/products",
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
@@ -32,7 +33,7 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
-    label: "Orders",
+    labelKey: "orders",
     href: "/admin/orders",
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
@@ -43,6 +44,7 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export function AdminSidebar() {
+  const t = useTranslations("admin");
   const pathname = usePathname();
   const { user } = useAdmin();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -59,7 +61,7 @@ export function AdminSidebar() {
         type="button"
         onClick={() => setMobileOpen(true)}
         className="fixed left-4 top-4 z-50 rounded-brand border border-champagne-beige bg-cream p-2 text-soft-brown shadow-sm lg:hidden"
-        aria-label="Open navigation menu"
+        aria-label={t("openNavMenu")}
       >
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
           <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
@@ -89,7 +91,7 @@ export function AdminSidebar() {
               Atelier Marie
             </span>
             <span className="rounded-pill bg-muted-gold/20 px-2 py-0.5 text-xs font-medium text-muted-gold">
-              Admin
+              {t("title")}
             </span>
           </Link>
           {/* Mobile close button */}
@@ -97,7 +99,7 @@ export function AdminSidebar() {
             type="button"
             onClick={() => setMobileOpen(false)}
             className="rounded-brand p-1 text-soft-brown hover:bg-champagne-beige/50 lg:hidden"
-            aria-label="Close navigation menu"
+            aria-label={t("closeNavMenu")}
           >
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -121,7 +123,7 @@ export function AdminSidebar() {
               aria-current={isActive(item.href) ? "page" : undefined}
             >
               {item.icon}
-              <span>{item.label}</span>
+              <span>{t(item.labelKey)}</span>
             </Link>
           ))}
         </nav>
@@ -148,7 +150,7 @@ export function AdminSidebar() {
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
               <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
             </svg>
-            Back to Store
+            {t("backToStore")}
           </Link>
         </div>
       </aside>

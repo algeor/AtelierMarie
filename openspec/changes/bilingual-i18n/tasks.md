@@ -74,12 +74,12 @@
 
 ## 9. Testing
 
-- [ ] 9.1 Add backend tests: locale-aware product retrieval (both languages, fallback)
-- [ ] 9.2 Add backend tests: staleness flag logic (set, clear, both-side update)
-- [ ] 9.3 Add backend tests: FTS search per locale
-- [ ] 9.4 Add backend tests: CSV import with dual-language columns
-- [ ] 9.5 Add backend tests: session `preferred_locale` persistence
-- [ ] 9.6 Add frontend tests: middleware locale detection and redirect
-- [ ] 9.7 Add frontend tests: language toggle navigation and cookie update
-- [ ] 9.8 Add frontend tests: translation rendering (spot-check key components in both locales)
-- [ ] 9.9 Verify all existing tests pass with locale prefix (update route paths in test fixtures)
+- [x] 9.1 Add backend tests: locale-aware product retrieval (both languages, fallback)
+- [x] 9.2 Add backend tests: staleness flag logic (set, clear, both-side update)
+- [x] 9.3 Add backend tests: FTS search per locale
+- [x] 9.4 Add backend tests: CSV import with dual-language columns
+- [x] 9.5 Add backend tests: session `preferred_locale` persistence
+- [x] 9.6 Add frontend tests: middleware locale detection and redirect
+- [x] 9.7 Add frontend tests: language toggle navigation and cookie update
+- [x] 9.8 Add frontend tests: translation rendering (spot-check key components in both locales)
+- [x] 9.9 Verify all existing tests pass with locale prefix (update route paths in test fixtures)

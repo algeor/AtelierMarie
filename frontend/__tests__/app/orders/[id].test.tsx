@@ -1,6 +1,29 @@
+import React from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import type { OrderResponse } from "@/lib/types";
+
+vi.mock("next-intl", () => ({
+  useTranslations: () => (key: string, values?: Record<string, unknown>) => {
+    if (values) {
+      return Object.entries(values).reduce(
+        (str, [k, v]) => str.replace(`{${k}}`, String(v)),
+        key
+      );
+    }
+    return key;
+  },
+  useLocale: () => "en",
+  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
+vi.mock("@/i18n/navigation", () => ({
+  Link: ({ children, href }: { children: React.ReactNode; href: string }) => (
+    <a href={href}>{children}</a>
+  ),
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  usePathname: () => "/",
+}));
 
 vi.mock("@/lib/api", () => ({
   getOrder: vi.fn(),
@@ -17,7 +40,7 @@ vi.mock("next/link", () => ({
 }));
 
 import { getOrder } from "@/lib/api";
-import OrderDetailPage from "@/app/orders/[id]/page";
+import OrderDetailPage from "@/app/[locale]/orders/[id]/page";
 
 const mockedGetOrder = vi.mocked(getOrder);
 

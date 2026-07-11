@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
+import { useRouter } from "@/i18n/navigation";
 import { useCart } from "@/contexts/CartContext";
 import { createOrder } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
@@ -12,6 +13,8 @@ import { Skeleton } from "@/components/ui/Skeleton";
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function CheckoutPage() {
+  const t = useTranslations("checkout");
+  const tCart = useTranslations("cart");
   const router = useRouter();
   const { items, total_cents, isLoading, refreshCart } = useCart();
 
@@ -43,11 +46,11 @@ export default function CheckoutPage() {
   }, [isLoading, items.length, router]);
 
   const validateEmail = useCallback((value: string): string | null => {
-    if (!value.trim()) return "Email is required";
-    if (value.length > 254) return "Email address is too long";
-    if (!EMAIL_REGEX.test(value)) return "Please enter a valid email address";
+    if (!value.trim()) return t("emailRequired");
+    if (value.length > 254) return t("emailTooLong");
+    if (!EMAIL_REGEX.test(value)) return t("emailInvalid");
     return null;
-  }, []);
+  }, [t]);
 
   const handleEmailBlur = useCallback(() => {
     const error = validateEmail(email);
@@ -84,17 +87,15 @@ export default function CheckoutPage() {
         router.push(`/orders/${order.id}/confirmation`);
       } catch (error) {
         if (error instanceof ApiError && error.code === "CONFLICT") {
-          setSubmitError(
-            "Some items are no longer available. Please review your cart."
-          );
+          setSubmitError(t("unavailableItems"));
         } else {
-          setSubmitError("Something went wrong. Please try again.");
+          setSubmitError(t("genericError"));
         }
       } finally {
         setIsSubmitting(false);
       }
     },
-    [email, name, address, notes, validateEmail, router]
+    [email, name, address, notes, validateEmail, router, t]
   );
 
   // Loading skeleton
@@ -126,7 +127,7 @@ export default function CheckoutPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-      <h1 className="mb-8 font-heading text-3xl text-charcoal">Checkout</h1>
+      <h1 className="mb-8 font-heading text-3xl text-charcoal">{t("title")}</h1>
 
       <div className="grid gap-12 lg:grid-cols-[1fr_400px]">
         {/* Contact & Shipping Form */}
@@ -146,7 +147,7 @@ export default function CheckoutPage() {
               htmlFor="checkout-email"
               className="mb-1.5 block text-sm font-medium text-soft-brown"
             >
-              Email <span className="text-red-700">*</span>
+              {t("email")} <span className="text-red-700">*</span>
             </label>
             <input
               ref={emailRef}
@@ -161,7 +162,7 @@ export default function CheckoutPage() {
               className={`w-full rounded-brand border px-4 py-3 text-charcoal bg-warm-ivory placeholder:text-soft-brown/50 focus:outline-none focus:ring-2 focus:ring-soft-brown focus:ring-offset-2 focus:ring-offset-warm-ivory ${
                 errors.email ? "border-red-700" : "border-champagne-beige"
               }`}
-              placeholder="your@email.com"
+              placeholder={t("emailPlaceholder")}
             />
             {errors.email && (
               <p
@@ -179,7 +180,7 @@ export default function CheckoutPage() {
               htmlFor="checkout-name"
               className="mb-1.5 block text-sm font-medium text-soft-brown"
             >
-              Name
+              {t("name")}
             </label>
             <input
               id="checkout-name"
@@ -188,7 +189,7 @@ export default function CheckoutPage() {
               onChange={(e) => setName(e.target.value)}
               maxLength={200}
               className="w-full rounded-brand border border-champagne-beige px-4 py-3 text-charcoal bg-warm-ivory placeholder:text-soft-brown/50 focus:outline-none focus:ring-2 focus:ring-soft-brown focus:ring-offset-2 focus:ring-offset-warm-ivory"
-              placeholder="Full name"
+              placeholder={t("namePlaceholder")}
             />
           </div>
 
@@ -198,7 +199,7 @@ export default function CheckoutPage() {
               htmlFor="checkout-address"
               className="mb-1.5 block text-sm font-medium text-soft-brown"
             >
-              Shipping Address (optional)
+              {t("shippingAddress")}
             </label>
             <textarea
               id="checkout-address"
@@ -207,7 +208,7 @@ export default function CheckoutPage() {
               onChange={(e) => setAddress(e.target.value)}
               maxLength={500}
               className="w-full rounded-brand border border-champagne-beige px-4 py-3 text-charcoal bg-warm-ivory placeholder:text-soft-brown/50 focus:outline-none focus:ring-2 focus:ring-soft-brown focus:ring-offset-2 focus:ring-offset-warm-ivory"
-              placeholder="Street, city, postal code"
+              placeholder={t("addressPlaceholder")}
             />
           </div>
 
@@ -217,7 +218,7 @@ export default function CheckoutPage() {
               htmlFor="checkout-notes"
               className="mb-1.5 block text-sm font-medium text-soft-brown"
             >
-              Order Notes (optional)
+              {t("orderNotes")}
             </label>
             <textarea
               id="checkout-notes"
@@ -226,7 +227,7 @@ export default function CheckoutPage() {
               onChange={(e) => setNotes(e.target.value)}
               maxLength={500}
               className="w-full rounded-brand border border-champagne-beige px-4 py-3 text-charcoal bg-warm-ivory placeholder:text-soft-brown/50 focus:outline-none focus:ring-2 focus:ring-soft-brown focus:ring-offset-2 focus:ring-offset-warm-ivory"
-              placeholder="Any special requests..."
+              placeholder={t("notesPlaceholder")}
             />
           </div>
 
@@ -239,7 +240,7 @@ export default function CheckoutPage() {
               isLoading={isSubmitting}
               className="w-full"
             >
-              {isSubmitting ? "Placing order..." : "Place Order"}
+              {isSubmitting ? t("placingOrder") : t("placeOrder")}
             </Button>
           </div>
         </form>
@@ -248,7 +249,7 @@ export default function CheckoutPage() {
         <aside className="lg:sticky lg:top-24 lg:self-start">
           <div className="rounded-brand border border-champagne-beige bg-warm-ivory p-6">
             <h2 className="mb-4 font-heading text-xl text-charcoal">
-              Order Summary
+              {t("orderSummary")}
             </h2>
 
             <ul className="divide-y divide-champagne-beige">
@@ -275,7 +276,7 @@ export default function CheckoutPage() {
 
             <div className="mt-4 flex items-center justify-between border-t border-champagne-beige pt-4">
               <span className="font-heading text-lg text-charcoal">
-                Subtotal
+                {tCart("subtotal")}
               </span>
               <span className="font-heading text-lg text-charcoal">
                 {formatPrice(total_cents)}
@@ -292,7 +293,7 @@ export default function CheckoutPage() {
                 isLoading={isSubmitting}
                 className="w-full"
               >
-                {isSubmitting ? "Placing order..." : "Place Order"}
+                {isSubmitting ? t("placingOrder") : t("placeOrder")}
               </Button>
             </div>
           </div>

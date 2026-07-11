@@ -2,9 +2,12 @@
 
 import sqlite3
 from datetime import UTC, datetime
+from typing import Literal
 
 from app.constants import MAX_LIMIT, MAX_PAGE
 from app.database import get_db
+
+Locale = Literal["en", "bg"]
 
 
 class NotFoundError(Exception):
@@ -18,6 +21,24 @@ class DuplicateError(Exception):
 def _row_to_dict(row: sqlite3.Row) -> dict:
     """Convert a sqlite3.Row to a plain dict."""
     return dict(row)
+
+
+def _resolve_locale_fields(product: dict, locale: Locale) -> dict:
+    """Resolve locale-specific name/description with fallback to other language.
+
+    Returns a new dict with `name` and `description` fields set to the
+    appropriate locale's content (or the fallback language if the preferred
+    one is empty/NULL).
+    """
+    other = "bg" if locale == "en" else "en"
+
+    name = product.get(f"name_{locale}") or product.get(f"name_{other}") or ""
+    description = product.get(f"description_{locale}") or product.get(f"description_{other}")
+
+    result = dict(product)
+    result["name"] = name
+    result["description"] = description
+    return result
 
 
 def _now_utc() -> str:
@@ -63,10 +84,11 @@ def list_products(
     in_stock: bool | None = None,
     page: int = 1,
     limit: int = 20,
+    locale: Locale = "en",
 ) -> tuple[list[dict], int]:
     """List active products with optional filtering, sorting, and pagination.
 
-    Returns (products, total_count).
+    Returns (products, total_count). Products have locale-resolved name/description.
     """
     page, limit = _clamp_pagination(page, limit)
 
@@ -82,11 +104,12 @@ def list_products(
 
     where_clause = " AND ".join(conditions)
 
-    # Sort mapping
+    # Sort mapping — use locale-appropriate name column for name sort
+    name_col = f"name_{locale}"
     sort_map = {
         "price_asc": "price_cents ASC",
         "price_desc": "price_cents DESC",
-        "name": "name ASC",
+        "name": f"{name_col} ASC",
         "newest": "created_at DESC",
     }
     order_by = sort_map.get(sort or "", "created_at DESC")
@@ -107,11 +130,15 @@ def list_products(
             [*params, limit, offset],
         ).fetchall()
 
-    return [_row_to_dict(r) for r in rows], total
+    products = [_resolve_locale_fields(_row_to_dict(r), locale) for r in rows]
+    return products, total
 
 
-def get_product(product_id: str) -> dict:
-    """Get a single active product by ID. Raises NotFoundError if missing or inactive."""
+def get_product(product_id: str, *, locale: Locale = "en") -> dict:
+    """Get a single active product by ID. Raises NotFoundError if missing or inactive.
+
+    Returns locale-resolved name/description with fallback.
+    """
     with get_db() as conn:
         row = conn.execute(
             "SELECT * FROM products WHERE id = ? AND is_active = 1",
@@ -121,7 +148,7 @@ def get_product(product_id: str) -> dict:
     if row is None:
         raise NotFoundError(f"Product not found: {product_id}")
 
-    return _row_to_dict(row)
+    return _resolve_locale_fields(_row_to_dict(row), locale)
 
 
 def get_product_admin(product_id: str) -> dict:
@@ -165,8 +192,10 @@ def create_product(data: dict) -> dict:
 
     columns = [
         "id",
-        "name",
-        "description",
+        "name_en",
+        "name_bg",
+        "description_en",
+        "description_bg",
         "materials",
         "days_to_craft",
         "price_cents",
@@ -175,14 +204,18 @@ def create_product(data: dict) -> dict:
         "stock",
         "is_active",
         "is_featured",
+        "translation_stale_bg",
+        "translation_stale_en",
         "created_at",
         "updated_at",
     ]
 
     values = [
         product_id,
-        data["name"],
-        data.get("description"),
+        data["name_en"],
+        data.get("name_bg"),
+        data.get("description_en"),
+        data.get("description_bg"),
         data.get("materials"),
         data.get("days_to_craft"),
         data["price_cents"],
@@ -191,6 +224,8 @@ def create_product(data: dict) -> dict:
         data.get("stock", 0),
         1 if data.get("is_active", True) else 0,
         1 if data.get("is_featured", False) else 0,
+        0,  # translation_stale_bg
+        0,  # translation_stale_en
         now,
         now,
     ]
@@ -223,8 +258,10 @@ def upsert_product(product_id: str, data: dict) -> dict:
 
     # Fields that can be set on insert/update
     field_map = {
-        "name": data.get("name"),
-        "description": data.get("description"),
+        "name_en": data.get("name_en"),
+        "name_bg": data.get("name_bg"),
+        "description_en": data.get("description_en"),
+        "description_bg": data.get("description_bg"),
         "materials": data.get("materials"),
         "days_to_craft": data.get("days_to_craft"),
         "price_cents": data.get("price_cents"),
@@ -271,12 +308,19 @@ def upsert_product(product_id: str, data: dict) -> dict:
 def update_product(product_id: str, data: dict) -> dict:
     """Partially update a product. Only non-None fields are modified.
 
+    Implements translation staleness logic:
+    - If EN content changes, mark BG as stale (unless BG also updated in same request)
+    - If BG content changes, mark EN as stale (unless EN also updated in same request)
+    - Updating the stale side clears its staleness flag
+
     Raises NotFoundError if the product does not exist.
     """
     # Map field names to values, filtering out None
     field_map = {
-        "name": data.get("name"),
-        "description": data.get("description"),
+        "name_en": data.get("name_en"),
+        "name_bg": data.get("name_bg"),
+        "description_en": data.get("description_en"),
+        "description_bg": data.get("description_bg"),
         "materials": data.get("materials"),
         "days_to_craft": data.get("days_to_craft"),
         "price_cents": data.get("price_cents"),
@@ -294,6 +338,25 @@ def update_product(product_id: str, data: dict) -> dict:
     if not updates:
         # Nothing to update, just return the existing product
         return get_product_admin(product_id)
+
+    # Staleness logic
+    en_fields = {"name_en", "description_en"}
+    bg_fields = {"name_bg", "description_bg"}
+    updated_en = bool(en_fields & updates.keys())
+    updated_bg = bool(bg_fields & updates.keys())
+
+    if updated_en and updated_bg:
+        # Both sides updated together — neither is stale
+        updates["translation_stale_bg"] = 0
+        updates["translation_stale_en"] = 0
+    elif updated_en:
+        # Only EN changed → mark BG as stale, clear EN staleness
+        updates["translation_stale_bg"] = 1
+        updates["translation_stale_en"] = 0
+    elif updated_bg:
+        # Only BG changed → mark EN as stale, clear BG staleness
+        updates["translation_stale_en"] = 1
+        updates["translation_stale_bg"] = 0
 
     set_parts = [f"{col} = ?" for col in updates]
     values = list(updates.values())
@@ -342,10 +405,12 @@ def search_products(
     in_stock: bool | None = None,
     limit: int = 20,
     offset: int = 0,
+    locale: Locale = "en",
 ) -> list[dict]:
     """Full-text search on product name and description using FTS5.
 
-    Returns active products ranked by relevance.
+    Searches the locale-appropriate FTS index (products_fts_en or products_fts_bg).
+    Returns active products ranked by relevance with locale-resolved content.
     Filters (category, in_stock) and LIMIT/OFFSET are pushed into SQL
     rather than applied in Python post-fetch.
     """
@@ -357,8 +422,10 @@ def search_products(
     if not sanitized:
         return []
 
+    fts_table = f"products_fts_{locale}"
+
     # Build dynamic WHERE conditions pushed into SQL (B.6)
-    conditions = ["products_fts MATCH ?", "p.is_active = 1"]
+    conditions = [f"{fts_table} MATCH ?", "p.is_active = 1"]
     params: list = [sanitized]
 
     if category:
@@ -375,7 +442,7 @@ def search_products(
         rows = conn.execute(
             f"""
             SELECT p.*
-            FROM products_fts fts
+            FROM {fts_table} fts
             JOIN products p ON p.rowid = fts.rowid
             WHERE {where_clause}
             ORDER BY rank
@@ -384,4 +451,4 @@ def search_products(
             params,
         ).fetchall()
 
-    return [_row_to_dict(r) for r in rows]
+    return [_resolve_locale_fields(_row_to_dict(r), locale) for r in rows]

@@ -5,6 +5,8 @@
 
 import * as apiClient from "./api-client";
 import type {
+  AdminProductListResponse,
+  AdminProductResponse,
   AdminStats,
   CartResponse,
   CommentCreateRequest,
@@ -13,6 +15,7 @@ import type {
   CommentSort,
   CreateOrderRequest,
   CreateProductRequest,
+  ImageUploadResponse,
   OrderListResponse,
   OrderResponse,
   OrderStatus,
@@ -146,30 +149,43 @@ export async function getAdminStats(): Promise<AdminStats> {
 export async function getAdminProducts(
   page = 1,
   limit = 20
-): Promise<ProductListResponse> {
+): Promise<AdminProductListResponse> {
   if (USE_MOCK) return (await getMock()).getAdminProducts(page, limit);
   const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-  return apiClient.get<ProductListResponse>(`/v1/admin/products?${params}`);
+  return apiClient.get<AdminProductListResponse>(`/v1/admin/products?${params}`);
 }
 
-export async function getAdminProduct(productId: string): Promise<ProductResponse> {
+export async function getAdminProduct(productId: string): Promise<AdminProductResponse> {
   if (USE_MOCK) return (await getMock()).getAdminProduct(productId);
-  return apiClient.get<ProductResponse>(`/v1/admin/products/${encodeURIComponent(productId)}`);
+  return apiClient.get<AdminProductResponse>(`/v1/admin/products/${encodeURIComponent(productId)}`);
 }
 
-export async function createProduct(data: CreateProductRequest): Promise<ProductResponse> {
+export async function createProduct(data: CreateProductRequest): Promise<AdminProductResponse> {
   if (USE_MOCK) return (await getMock()).createProduct(data);
-  return apiClient.post<ProductResponse>("/v1/admin/products", data);
+  return apiClient.post<AdminProductResponse>("/v1/admin/products", data);
 }
 
 export async function updateProduct(
   productId: string,
   data: UpdateProductRequest
-): Promise<ProductResponse> {
+): Promise<AdminProductResponse> {
   if (USE_MOCK) return (await getMock()).updateProduct(productId, data);
-  return apiClient.patch<ProductResponse>(
+  return apiClient.patch<AdminProductResponse>(
     `/v1/admin/products/${encodeURIComponent(productId)}`,
     data
+  );
+}
+
+export async function uploadProductImage(
+  productId: string,
+  file: File
+): Promise<ImageUploadResponse> {
+  if (USE_MOCK) return (await getMock()).uploadProductImage(productId, file);
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiClient.postForm<ImageUploadResponse>(
+    `/v1/admin/products/${encodeURIComponent(productId)}/image`,
+    formData
   );
 }
 

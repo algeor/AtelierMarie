@@ -19,6 +19,20 @@ logger = structlog.get_logger(__name__)
 # Bug #1 fix: UUID v4 format validation — reject garbage before DB lookup
 _UUID4_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 
+# Locale detection — look for 'bg' in Accept-Language header
+_BG_ACCEPT_LANG_RE = re.compile(r"\bbg\b", re.IGNORECASE)
+
+
+def _detect_locale_from_accept_language(request: Request) -> str:
+    """Detect preferred locale from the Accept-Language header.
+
+    Returns 'bg' if Bulgarian is listed in the header, otherwise 'en'.
+    """
+    accept_lang = request.headers.get("accept-language", "")
+    if _BG_ACCEPT_LANG_RE.search(accept_lang):
+        return "bg"
+    return "en"
+
 
 def _format_dt(dt: datetime) -> str:
     """Format a datetime as SQLite-compatible string (UTC, no timezone suffix)."""
@@ -62,6 +76,7 @@ class SessionMiddleware(BaseHTTPMiddleware):
         # Skip session for health/monitoring/docs endpoints (config-driven)
         if _should_skip_path(request.url.path, settings.session_skip_paths):
             request.state.session_id = None
+            request.state.preferred_locale = "en"
             return await call_next(request)
 
         session_id = request.cookies.get(settings.session_cookie_name)
@@ -78,7 +93,8 @@ class SessionMiddleware(BaseHTTPMiddleware):
                 if not is_new:
                     # Bug #2 fix: fetch created_at alongside expires_at for absolute cap
                     row = conn.execute(
-                        "SELECT expires_at, created_at FROM sessions WHERE id = ?",
+                        "SELECT expires_at, created_at, preferred_locale"
+                        " FROM sessions WHERE id = ?",
                         (session_id,),
                     ).fetchone()
 
@@ -91,6 +107,7 @@ class SessionMiddleware(BaseHTTPMiddleware):
                     else:
                         expires_at = _parse_dt(row["expires_at"])
                         created_at = _parse_dt(row["created_at"])
+                        preferred_locale = row["preferred_locale"] or "en"
 
                         # Bug #13 fix: use strict less-than (spec: "reject if expires_at < now")
                         expired = expires_at < now
@@ -123,10 +140,13 @@ class SessionMiddleware(BaseHTTPMiddleware):
                     session_id = str(uuid.uuid4())
                     now = datetime.now(UTC)
                     expires_at = now + timedelta(seconds=settings.session_max_age)
+                    # Detect locale from browser Accept-Language on new sessions
+                    preferred_locale = _detect_locale_from_accept_language(request)
                     # Bug #5 fix: use SQLite-compatible datetime format
                     conn.execute(
-                        "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
-                        (session_id, _format_dt(now), _format_dt(expires_at)),
+                        "INSERT INTO sessions (id, created_at, expires_at, preferred_locale) "
+                        "VALUES (?, ?, ?, ?)",
+                        (session_id, _format_dt(now), _format_dt(expires_at), preferred_locale),
                     )
         except sqlite3.Error:
             # DB unavailable — return error without exposing internals
@@ -143,6 +163,7 @@ class SessionMiddleware(BaseHTTPMiddleware):
 
         request.state.session_id = session_id
         request.state.session_is_new = is_new
+        request.state.preferred_locale = preferred_locale
 
         response = await call_next(request)
 

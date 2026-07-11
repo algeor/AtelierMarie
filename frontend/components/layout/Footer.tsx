@@ -1,6 +1,8 @@
-import Link from "next/link";
+import { useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 
 export function Footer() {
+  const t = useTranslations();
   const currentYear = new Date().getFullYear();
 
   return (
@@ -8,14 +10,14 @@ export function Footer() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-8">
           {/* Navigation links */}
-          <nav aria-label="Footer navigation">
+          <nav aria-label={t("nav.footerNavigation")}>
             <ul className="flex flex-wrap gap-6 text-sm">
               <li>
                 <Link
                   href="/"
                   className="text-soft-brown hover:text-charcoal transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand px-1 py-0.5"
                 >
-                  Home
+                  {t("nav.home")}
                 </Link>
               </li>
               <li>
@@ -23,7 +25,7 @@ export function Footer() {
                   href="/products"
                   className="text-soft-brown hover:text-charcoal transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand px-1 py-0.5"
                 >
-                  Shop
+                  {t("nav.shop")}
                 </Link>
               </li>
               <li>
@@ -31,7 +33,7 @@ export function Footer() {
                   href="#"
                   className="text-soft-brown hover:text-charcoal transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand px-1 py-0.5"
                 >
-                  About
+                  {t("nav.about")}
                 </a>
               </li>
               <li>
@@ -39,7 +41,7 @@ export function Footer() {
                   href="#"
                   className="text-soft-brown hover:text-charcoal transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand px-1 py-0.5"
                 >
-                  Contact
+                  {t("nav.contact")}
                 </a>
               </li>
             </ul>
@@ -47,8 +49,8 @@ export function Footer() {
 
           {/* Branding */}
           <div className="text-sm text-soft-brown/70">
-            <p>Handcrafted with love</p>
-            <p className="mt-1">© {currentYear} Atelier Marie. All rights reserved.</p>
+            <p>{t("footer.handcrafted")}</p>
+            <p className="mt-1">{t("footer.copyright", { year: currentYear })}</p>
           </div>
         </div>
       </div>

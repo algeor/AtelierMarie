@@ -1,6 +1,29 @@
+import React from "react";
 import { render, screen, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi, describe, it, expect, beforeEach } from "vitest";
+
+vi.mock("next-intl", () => ({
+  useTranslations: () => (key: string, values?: Record<string, unknown>) => {
+    if (values) {
+      return Object.entries(values).reduce(
+        (str, [k, v]) => str.replace(`{${k}}`, String(v)),
+        key
+      );
+    }
+    return key;
+  },
+  useLocale: () => "en",
+  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
+vi.mock("@/i18n/navigation", () => ({
+  Link: ({ children, href }: { children: React.ReactNode; href: string }) => (
+    <a href={href}>{children}</a>
+  ),
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  usePathname: () => "/",
+}));
 
 const mockLogout = vi.fn();
 const mockLogin = vi.fn();
@@ -64,8 +87,8 @@ describe("UserMenu", () => {
 
     await user.click(screen.getByRole("button"));
 
-    expect(screen.getByRole("menuitem", { name: "My Account" })).toHaveAttribute("href", "/account");
-    expect(screen.getByRole("menuitem", { name: "My Orders" })).toHaveAttribute("href", "/orders");
+    expect(screen.getByRole("link", { name: "myAccount" })).toHaveAttribute("href", "/account");
+    expect(screen.getByRole("link", { name: "myOrders" })).toHaveAttribute("href", "/orders");
   });
 
   it("calls logout on Sign Out click", async () => {
@@ -73,7 +96,7 @@ describe("UserMenu", () => {
     render(<UserMenu />);
 
     await user.click(screen.getByRole("button"));
-    await user.click(screen.getByRole("menuitem", { name: "Sign Out" }));
+    await user.click(screen.getByRole("menuitem", { name: "signOut" }));
 
     expect(mockLogout).toHaveBeenCalled();
   });

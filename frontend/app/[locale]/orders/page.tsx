@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import { useTranslations, useLocale } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import { getOrders } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
@@ -12,6 +13,10 @@ import type { OrderResponse } from "@/lib/types";
 type PageState = "loading" | "success" | "error";
 
 export default function OrdersPage() {
+  const t = useTranslations("orders");
+  const tCommon = useTranslations("common");
+  const tAuth = useTranslations("auth");
+  const locale = useLocale();
   const { isAuthenticated } = useAuth();
   const [orders, setOrders] = useState<OrderResponse[]>([]);
   const [total, setTotal] = useState(0);
@@ -41,7 +46,7 @@ export default function OrdersPage() {
   if (state === "loading") {
     return (
       <div className="max-w-3xl mx-auto px-4 py-12">
-        <h1 className="font-heading text-3xl text-charcoal mb-8">My Orders</h1>
+        <h1 className="font-heading text-3xl text-charcoal mb-8">{t("title")}</h1>
         <div className="space-y-4">
           {[1, 2, 3, 4].map((i) => (
             <div
@@ -65,16 +70,16 @@ export default function OrdersPage() {
   if (state === "error") {
     return (
       <div className="max-w-3xl mx-auto px-4 py-12">
-        <h1 className="font-heading text-3xl text-charcoal mb-8">My Orders</h1>
+        <h1 className="font-heading text-3xl text-charcoal mb-8">{t("title")}</h1>
         <div className="bg-white rounded-brand p-8 shadow-sm border border-champagne-beige text-center">
           <p className="text-soft-brown mb-4">
-            Something went wrong loading your orders
+            {t("loadingError")}
           </p>
           <button
             onClick={() => fetchOrders(page)}
             className="inline-flex items-center justify-center px-6 py-3 bg-charcoal text-warm-ivory font-medium rounded-brand hover:bg-soft-brown transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
           >
-            Try again
+            {tCommon("tryAgain")}
           </button>
         </div>
       </div>
@@ -84,21 +89,21 @@ export default function OrdersPage() {
   if (orders.length === 0) {
     return (
       <div className="max-w-3xl mx-auto px-4 py-12">
-        <h1 className="font-heading text-3xl text-charcoal mb-8">My Orders</h1>
+        <h1 className="font-heading text-3xl text-charcoal mb-8">{t("title")}</h1>
         <div className="bg-white rounded-brand p-8 shadow-sm border border-champagne-beige text-center">
-          <p className="text-charcoal font-medium mb-2">No orders yet</p>
+          <p className="text-charcoal font-medium mb-2">{t("noOrders")}</p>
           <p className="text-soft-brown mb-6">
-            Browse our collection and place your first order.
+            {t("noOrdersDescription")}
           </p>
           <Link
             href="/products"
             className="inline-flex items-center justify-center px-6 py-3 bg-charcoal text-warm-ivory font-medium rounded-brand hover:bg-soft-brown transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
           >
-            Start Shopping
+            {t("startShopping")}
           </Link>
           {!isAuthenticated && (
             <p className="text-soft-brown text-sm mt-4">
-              Sign in to see all your orders
+              {tAuth("signInToSeeOrders")}
             </p>
           )}
         </div>
@@ -108,16 +113,15 @@ export default function OrdersPage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-12">
-      <h1 className="font-heading text-3xl text-charcoal mb-8">My Orders</h1>
+      <h1 className="font-heading text-3xl text-charcoal mb-8">{t("title")}</h1>
 
       <div className="space-y-4">
         {orders.map((order) => {
           const itemCount = order.items.reduce((sum, item) => sum + item.quantity, 0);
-          const date = new Date(order.created_at).toLocaleDateString("en-US", {
-            year: "numeric",
-            month: "short",
-            day: "numeric",
-          });
+          const date = new Date(order.created_at).toLocaleDateString(
+            locale === "bg" ? "bg-BG" : "en-US",
+            { year: "numeric", month: "short", day: "numeric" }
+          );
 
           return (
             <Link
@@ -134,7 +138,7 @@ export default function OrdersPage() {
                     <OrderStatusBadge status={order.status} />
                   </div>
                   <p className="text-sm text-soft-brown">
-                    {date} · {itemCount} {itemCount === 1 ? "item" : "items"}
+                    {date} · {t("item", { count: itemCount })}
                   </p>
                 </div>
                 <span className="text-charcoal font-medium whitespace-nowrap">
@@ -154,17 +158,17 @@ export default function OrdersPage() {
             disabled={page <= 1}
             className="px-4 py-2 text-sm font-medium text-charcoal border border-champagne-beige rounded-brand hover:bg-cream disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-fast"
           >
-            Previous
+            {tCommon("previous")}
           </button>
           <span className="text-sm text-soft-brown">
-            Page {page} of {totalPages}
+            {tCommon("page", { current: page, total: totalPages })}
           </span>
           <button
             onClick={() => fetchOrders(page + 1)}
             disabled={page >= totalPages}
             className="px-4 py-2 text-sm font-medium text-charcoal border border-champagne-beige rounded-brand hover:bg-cream disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-fast"
           >
-            Next
+            {tCommon("next")}
           </button>
         </div>
       )}

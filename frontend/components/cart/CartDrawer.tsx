@@ -1,12 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
-import Link from "next/link";
+import { useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import { cn, formatPrice } from "@/lib/utils";
 import { useCart } from "@/contexts/CartContext";
 import { CartItem } from "./CartItem";
 
 export function CartDrawer() {
+  const t = useTranslations("cart");
   const {
     items,
     total_cents,
@@ -117,7 +119,7 @@ export function CartDrawer() {
         ref={drawerRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Shopping cart"
+        aria-label={t("title")}
         inert={!isDrawerOpen ? ("" as unknown as boolean) : undefined}
         onKeyDown={handleKeyDown}
         className={cn(
@@ -128,11 +130,11 @@ export function CartDrawer() {
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-champagne-beige">
-          <h2 className="font-heading text-xl text-charcoal">Your Cart</h2>
+          <h2 className="font-heading text-xl text-charcoal">{t("title")}</h2>
           <button
             ref={closeButtonRef}
             onClick={closeDrawer}
-            aria-label="Close cart"
+            aria-label={t("closeCart")}
             className={cn(
               "min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-brand",
               "text-soft-brown hover:text-charcoal transition-colors duration-fast",
@@ -159,7 +161,7 @@ export function CartDrawer() {
             <p className="flex-1 text-sm">{error}</p>
             <button
               onClick={dismissError}
-              aria-label="Dismiss error"
+              aria-label={t("dismissError")}
               className="shrink-0 text-red-800/70 hover:text-red-800 transition-colors duration-fast"
             >
               <svg
@@ -196,7 +198,7 @@ export function CartDrawer() {
                   d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007zM8.625 10.5a.375.375 0 11-.75 0 .375.375 0 01.75 0zm7.5 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"
                 />
               </svg>
-              <p className="text-soft-brown text-base mb-4">Your cart is empty</p>
+              <p className="text-soft-brown text-base mb-4">{t("empty")}</p>
               <Link
                 href="/products"
                 onClick={closeDrawer}
@@ -206,7 +208,7 @@ export function CartDrawer() {
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"
                 )}
               >
-                Continue Shopping
+                {t("continueShopping")}
               </Link>
             </div>
           ) : (
@@ -227,7 +229,7 @@ export function CartDrawer() {
         {item_count > 0 && (
           <div className="border-t border-champagne-beige px-6 py-4 space-y-4">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-soft-brown">Subtotal</span>
+              <span className="text-sm font-medium text-soft-brown">{t("subtotal")}</span>
               <span className="text-lg font-heading text-charcoal">
                 {formatPrice(total_cents)}
               </span>
@@ -241,7 +243,7 @@ export function CartDrawer() {
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"
               )}
             >
-              Proceed to Checkout
+              {t("proceedToCheckout")}
             </Link>
           </div>
         )}

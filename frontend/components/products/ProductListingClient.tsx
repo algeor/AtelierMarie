@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import type { ProductResponse } from "@/lib/types";
 import { CategoryFilter } from "./CategoryFilter";
 import { ProductGrid } from "./ProductGrid";
@@ -11,6 +12,7 @@ interface ProductListingClientProps {
 }
 
 export function ProductListingClient({ products }: ProductListingClientProps) {
+  const t = useTranslations("products");
   const [activeCategory, setActiveCategory] = useState("All");
 
   // Derive unique non-null categories from product data
@@ -26,7 +28,7 @@ export function ProductListingClient({ products }: ProductListingClientProps) {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
       <h1 className="font-heading text-3xl md:text-4xl text-charcoal mb-8">
-        Our Collection
+        {t("title")}
       </h1>
 
       <CategoryFilter
@@ -45,7 +47,7 @@ export function ProductListingClient({ products }: ProductListingClientProps) {
       ) : (
         <div className="text-center py-16">
           <p className="text-soft-brown text-lg">
-            No products found in this category.
+            {t("noProducts")}
           </p>
         </div>
       )}

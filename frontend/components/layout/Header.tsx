@@ -1,22 +1,30 @@
 "use client";
 
-import Link from "next/link";
+import { useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import { useCart } from "@/contexts/CartContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { CartBadge } from "@/components/cart/CartBadge";
 import { LoginButton } from "@/components/auth/LoginButton";
 import { UserMenu } from "@/components/auth/UserMenu";
+import { LanguageToggle } from "@/components/layout/LanguageToggle";
 import { Skeleton } from "@/components/ui/Skeleton";
 
 export function Header() {
+  const t = useTranslations();
   const { item_count, openDrawer } = useCart();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
+
+  const cartAriaLabel =
+    item_count > 0
+      ? t("header.cartLabelWithItems", { count: item_count })
+      : t("header.cartLabel");
 
   return (
     <header className="sticky top-0 z-50 bg-warm-ivory/95 backdrop-blur-sm border-b border-champagne-beige">
       <nav
         className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between"
-        aria-label="Main navigation"
+        aria-label={t("nav.mainNavigation")}
       >
         {/* Logo */}
         <Link
@@ -33,7 +41,7 @@ export function Header() {
               href="/"
               className="text-soft-brown hover:text-charcoal transition-colors duration-fast font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand px-1 py-0.5"
             >
-              Home
+              {t("nav.home")}
             </Link>
           </li>
           <li>
@@ -41,13 +49,16 @@ export function Header() {
               href="/products"
               className="text-soft-brown hover:text-charcoal transition-colors duration-fast font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand px-1 py-0.5"
             >
-              Shop
+              {t("nav.shop")}
             </Link>
           </li>
         </ul>
 
-        {/* Right side: Auth + Cart */}
+        {/* Right side: Language Toggle + Auth + Cart */}
         <div className="flex items-center gap-4">
+          {/* Language toggle */}
+          <LanguageToggle />
+
           {/* Auth */}
           {authLoading ? (
             <Skeleton className="w-8 h-8 rounded-full" />
@@ -60,7 +71,7 @@ export function Header() {
           {/* Cart button */}
           <button
             onClick={openDrawer}
-            aria-label={`Shopping cart${item_count > 0 ? `, ${item_count} item${item_count === 1 ? "" : "s"}` : ""}`}
+            aria-label={cartAriaLabel}
             className="relative min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-brand transition-colors duration-fast hover:bg-cream focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"
           >
             <svg

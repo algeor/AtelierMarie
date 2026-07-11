@@ -1,0 +1,162 @@
+{
+  "common": {
+    "appName": "Atelier Marie",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "tryAgain": "Try again",
+    "close": "Close",
+    "dismiss": "Dismiss",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "back": "Back",
+    "next": "Next",
+    "previous": "Previous",
+    "page": "Page {current} of {total}",
+    "required": "Required"
+  },
+  "nav": {
+    "home": "Home",
+    "shop": "Shop",
+    "about": "About",
+    "contact": "Contact",
+    "mainNavigation": "Main navigation",
+    "footerNavigation": "Footer navigation"
+  },
+  "announcement": {
+    "freeShipping": "Free shipping on orders over €50 ✨",
+    "dismiss": "Dismiss announcement"
+  },
+  "header": {
+    "cartLabel": "Shopping cart",
+    "cartLabelWithItems": "Shopping cart, {count} {count, plural, one {item} other {items}}"
+  },
+  "footer": {
+    "handcrafted": "Handcrafted with love",
+    "copyright": "© {year} Atelier Marie. All rights reserved."
+  },
+  "auth": {
+    "signIn": "Sign In",
+    "signOut": "Sign Out",
+    "myAccount": "My Account",
+    "myOrders": "My Orders",
+    "signInToSeeOrders": "Sign in to see all your orders"
+  },
+  "products": {
+    "title": "Our Collection",
+    "noProducts": "No products found in this category.",
+    "allCategories": "All",
+    "showing": "Showing {count} {count, plural, one {product} other {products}}",
+    "outOfStock": "Out of Stock",
+    "addToCart": "Add to Cart",
+    "added": "Added",
+    "addedToCart": "Added {count} {count, plural, one {item} other {items}} to cart",
+    "each": "{price} each",
+    "inStock": "In stock",
+    "lowStock": "Only {count} left",
+    "search": "Search products...",
+    "sortBy": "Sort by",
+    "featured": "Featured",
+    "priceLowHigh": "Price: Low to High",
+    "priceHighLow": "Price: High to Low",
+    "newest": "Newest"
+  },
+  "cart": {
+    "title": "Your Cart",
+    "empty": "Your cart is empty",
+    "continueShopping": "Continue Shopping",
+    "subtotal": "Subtotal",
+    "proceedToCheckout": "Proceed to Checkout",
+    "closeCart": "Close cart",
+    "remove": "Remove",
+    "removeFromCart": "Remove {name} from cart",
+    "decreaseQuantity": "Decrease quantity",
+    "increaseQuantity": "Increase quantity",
+    "dismissError": "Dismiss error"
+  },
+  "checkout": {
+    "title": "Checkout",
+    "orderSummary": "Order Summary",
+    "email": "Email",
+    "emailPlaceholder": "your@email.com",
+    "emailRequired": "Email is required",
+    "emailTooLong": "Email address is too long",
+    "emailInvalid": "Please enter a valid email address",
+    "name": "Name",
+    "namePlaceholder": "Full name",
+    "shippingAddress": "Shipping Address (optional)",
+    "addressPlaceholder": "Street, city, postal code",
+    "orderNotes": "Order Notes (optional)",
+    "notesPlaceholder": "Any special requests...",
+    "placeOrder": "Place Order",
+    "placingOrder": "Placing order...",
+    "unavailableItems": "Some items are no longer available. Please review your cart.",
+    "genericError": "Something went wrong. Please try again."
+  },
+  "orders": {
+    "title": "My Orders",
+    "noOrders": "No orders yet",
+    "noOrdersDescription": "Browse our collection and place your first order.",
+    "startShopping": "Start Shopping",
+    "loadingError": "Something went wrong loading your orders",
+    "item": "{count} {count, plural, one {item} other {items}}",
+    "orderNumber": "Order #{id}",
+    "orderConfirmation": "Order Confirmed",
+    "orderConfirmationMessage": "Thank you for your order!",
+    "trackOrder": "Track your order",
+    "status": {
+      "pending": "Pending",
+      "confirmed": "Confirmed",
+      "shipped": "Shipped",
+      "delivered": "Delivered",
+      "cancelled": "Cancelled"
+    }
+  },
+  "admin": {
+    "title": "Admin",
+    "dashboard": "Dashboard",
+    "products": "Products",
+    "orders": "Orders",
+    "storeOverview": "Overview of your store performance",
+    "ordersToday": "Orders Today",
+    "revenueThisWeek": "Revenue This Week",
+    "activeProducts": "Active Products",
+    "backToStore": "Back to Store",
+    "openNavMenu": "Open navigation menu",
+    "closeNavMenu": "Close navigation menu",
+    "newProduct": "New Product",
+    "editProduct": "Edit Product",
+    "createProduct": "Create Product",
+    "updateProduct": "Update Product",
+    "deleteProduct": "Delete Product",
+    "csvImport": "CSV Import",
+    "csvImportHelp": "Upload a CSV with columns: id, name_en, name_bg, description_en, description_bg, price_cents, stock, category, image_url",
+    "nameEn": "Name (English)",
+    "nameBg": "Name (Bulgarian)",
+    "descriptionEn": "Description (English)",
+    "descriptionBg": "Description (Bulgarian)",
+    "translationStale": "Translation may be outdated",
+    "price": "Price (cents)",
+    "stock": "Stock",
+    "category": "Category",
+    "imageUrl": "Image URL"
+  },
+  "locale": {
+    "switchToEnglish": "Switch to English",
+    "switchToBulgarian": "Превключи на български"
+  },
+  "errors": {
+    "CART_EMPTY": "Your cart is empty",
+    "INSUFFICIENT_STOCK": "Insufficient stock",
+    "PRODUCT_NOT_FOUND": "Product not found",
+    "ORDER_NOT_FOUND": "Order not found",
+    "INVALID_QUANTITY": "Invalid quantity",
+    "RATE_LIMIT_EXCEEDED": "Too many requests. Please wait a moment.",
+    "UNAUTHORIZED": "Please sign in to continue",
+    "FORBIDDEN": "You don't have permission to do this",
+    "CONFLICT": "Some items are no longer available. Please review your cart.",
+    "VALIDATION_ERROR": "Please check your input and try again",
+    "UNKNOWN": "Something went wrong. Please try again."
+  }
+}

@@ -1,6 +1,5 @@
 """Pydantic request/response models — the API contract layer."""
 
-from app.models.auth import AuthTokenResponse, GoogleAuthRequest
 from app.models.cart import (
     AddToCartRequest,
     CartItemResponse,
@@ -58,7 +57,4 @@ __all__ = [
     "UpdateOrderStatusRequest",
     # Users
     "UserResponse",
-    # Auth
-    "AuthTokenResponse",
-    "GoogleAuthRequest",
 ]

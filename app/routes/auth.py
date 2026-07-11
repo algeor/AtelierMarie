@@ -6,11 +6,13 @@ from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from app.config import get_settings
 from app.database import get_db
+from app.dependencies.auth import get_current_user
 from app.dependencies.session import require_session
+from app.models.users import UserResponse
 from app.services import auth_service
 
 logger = structlog.get_logger(__name__)
@@ -56,7 +58,7 @@ async def callback(
     session_id: Annotated[str, Depends(require_session)],
     code: str = Query(...),
     state: str = Query(...),
-) -> RedirectResponse:
+) -> Response:
     """Handle Google OAuth callback.
 
     Validates state, exchanges code for tokens, verifies the ID token,
@@ -118,25 +120,39 @@ async def callback(
 
     except auth_service.InvalidStateError:
         logger.warning("OAuth callback: invalid state from session %s", session_id[:8])
-        return RedirectResponse(
-            f"{frontend_base}/auth/callback?error=invalid_state", status_code=302
+        return JSONResponse(
+            status_code=400,
+            content={"error": {"code": "invalid_state", "message": "Invalid OAuth state"}},
         )
 
     except auth_service.TokenExchangeError:
         logger.error("OAuth callback: token exchange failed for session %s", session_id[:8])
-        return RedirectResponse(
-            f"{frontend_base}/auth/callback?error=token_exchange_failed", status_code=302
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": {
+                    "code": "token_exchange_failed",
+                    "message": "Token exchange failed",
+                }
+            },
         )
 
     except auth_service.EmailNotVerifiedError:
-        return RedirectResponse(
-            f"{frontend_base}/auth/callback?error=email_not_verified", status_code=302
+        return JSONResponse(
+            status_code=400,
+            content={"error": {"code": "email_not_verified", "message": "Email is not verified"}},
         )
 
     except auth_service.AuthServiceUnavailableError:
         logger.error("OAuth callback: auth service unavailable (JWKS fetch failed)")
-        return RedirectResponse(
-            f"{frontend_base}/auth/callback?error=service_unavailable", status_code=302
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": {
+                    "code": "authentication_service_unavailable",
+                    "message": "Authentication service unavailable",
+                }
+            },
         )
 
     except Exception:
@@ -150,59 +166,14 @@ async def callback(
 async def get_me(
     request: Request,
     session_id: Annotated[str, Depends(require_session)],
+    current_user: Annotated[UserResponse | None, Depends(get_current_user)],
 ) -> JSONResponse:
     """Get the current authenticated user's profile.
 
     Reads the JWT cookie, validates it, and confirms the session still
     belongs to that user in the database.
     """
-    settings = get_settings()
-    jwt_token = request.cookies.get(settings.jwt_cookie_name)
-
-    if not jwt_token:
-        return JSONResponse(
-            status_code=401,
-            content={
-                "error": {
-                    "code": "NOT_AUTHENTICATED",
-                    "message": "Not authenticated",
-                    "details": None,
-                }
-            },
-        )
-
-    claims = auth_service.verify_jwt(jwt_token)
-    if not claims:
-        return JSONResponse(
-            status_code=401,
-            content={
-                "error": {
-                    "code": "NOT_AUTHENTICATED",
-                    "message": "Invalid or expired token",
-                    "details": None,
-                }
-            },
-        )
-
-    # Verify session still linked to user in DB
-    with get_db() as conn:
-        row = conn.execute("SELECT user_id FROM sessions WHERE id = ?", (session_id,)).fetchone()
-
-        if not row or row["user_id"] != claims["user_id"]:
-            return JSONResponse(
-                status_code=401,
-                content={
-                    "error": {
-                        "code": "NOT_AUTHENTICATED",
-                        "message": "Session not linked to user",
-                        "details": None,
-                    }
-                },
-            )
-
-        user = auth_service.get_user_from_session(conn, session_id)
-
-    if not user:
+    if current_user is None:
         return JSONResponse(
             status_code=401,
             content={
@@ -214,7 +185,7 @@ async def get_me(
             },
         )
 
-    return JSONResponse(status_code=200, content=user.model_dump())
+    return JSONResponse(status_code=200, content=current_user.model_dump())
 
 
 @router.post("/logout")
@@ -230,25 +201,42 @@ async def logout(
     """
     settings = get_settings()
 
-    # Check if session is linked to a user (i.e., authenticated)
-    with get_db() as conn:
-        row = conn.execute("SELECT user_id FROM sessions WHERE id = ?", (session_id,)).fetchone()
-        has_user = row and row["user_id"] is not None
+    session_is_new = bool(getattr(request.state, "session_is_new", False))
+    preferred_locale = getattr(request.state, "preferred_locale", "en")
 
-        if has_user:
-            # Unlink user from session and create a fresh session
+    # Middleware-created sessions have no meaningful prior identity to rotate.
+    if session_is_new:
+        has_existing_session = False
+        new_session_id = session_id
+    else:
+        has_existing_session = True
+
+    with get_db() as conn:
+        if not session_is_new:
+            row = conn.execute(
+                "SELECT user_id, preferred_locale FROM sessions WHERE id = ?", (session_id,)
+            ).fetchone()
+            has_existing_session = row is not None
+            if row and row["preferred_locale"]:
+                preferred_locale = row["preferred_locale"]
+
+        if has_existing_session and not session_is_new:
+            # Unlink user from the old session and create a fresh session.
             conn.execute("UPDATE sessions SET user_id = NULL WHERE id = ?", (session_id,))
 
-            # Create new empty session (cart not migrated — intentional)
             new_session_id = str(uuid.uuid4())
             now = datetime.now(UTC)
             expires_at = now + timedelta(seconds=settings.session_max_age)
             conn.execute(
-                "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
-                (new_session_id, now.strftime(_SQLITE_DT_FMT), expires_at.strftime(_SQLITE_DT_FMT)),
+                "INSERT INTO sessions (id, created_at, expires_at, preferred_locale) "
+                "VALUES (?, ?, ?, ?)",
+                (
+                    new_session_id,
+                    now.strftime(_SQLITE_DT_FMT),
+                    expires_at.strftime(_SQLITE_DT_FMT),
+                    preferred_locale,
+                ),
             )
-        else:
-            new_session_id = session_id  # Already anonymous — keep it
 
     response = JSONResponse(status_code=200, content={"message": "Logged out"})
 
@@ -262,7 +250,7 @@ async def logout(
     )
 
     # Set new session cookie if rotated
-    if has_user:
+    if has_existing_session and not session_is_new:
         response.set_cookie(
             key=settings.session_cookie_name,
             value=new_session_id,

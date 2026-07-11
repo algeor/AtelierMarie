@@ -2,15 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { getAdminProduct, updateProduct } from "@/lib/api";
+import { getAdminProduct, updateProduct, uploadProductImage } from "@/lib/api";
 import { ProductForm, type ProductFormData } from "@/components/admin/ProductForm";
 import { Skeleton } from "@/components/ui/Skeleton";
-import type { ProductResponse } from "@/lib/types";
+import type { AdminProductResponse } from "@/lib/types";
 
 export default function EditProductPage() {
   const params = useParams();
   const productId = params.id as string;
-  const [product, setProduct] = useState<ProductResponse | null>(null);
+  const [product, setProduct] = useState<AdminProductResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -23,8 +23,10 @@ export default function EditProductPage() {
 
   async function handleSubmit(data: ProductFormData) {
     await updateProduct(productId, {
-      name: data.name,
-      description: data.description || null,
+      name_en: data.name_en,
+      name_bg: data.name_bg || null,
+      description_en: data.description_en || null,
+      description_bg: data.description_bg || null,
       materials: data.materials || null,
       days_to_craft: data.days_to_craft,
       price_cents: data.price_cents,
@@ -33,6 +35,9 @@ export default function EditProductPage() {
       stock: data.stock,
       is_featured: data.is_featured,
     });
+    if (data.image_file) {
+      await uploadProductImage(productId, data.image_file);
+    }
   }
 
   if (isLoading) {
@@ -66,7 +71,7 @@ export default function EditProductPage() {
           Edit Product
         </h1>
         <p className="mt-1 text-sm text-soft-brown">
-          Update {product.name}
+          Update {product.name_en}
         </p>
       </div>
 

@@ -3,11 +3,13 @@
 import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.database import cleanup_expired_sessions, init_db
@@ -15,7 +17,7 @@ from app.exceptions import register_exception_handlers
 from app.logging_config import configure_logging
 from app.middleware.request_id import RequestIdMiddleware
 from app.middleware.session import SessionMiddleware
-from app.routes import admin, auth, cart, comments, orders, products, reactions
+from app.routes import admin, auth, cart, comments, locale, orders, products, reactions
 
 logger = structlog.get_logger(__name__)
 
@@ -26,6 +28,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings = get_settings()
     configure_logging(settings.environment)
     init_db(settings.database_path)
+
+    # Ensure static file directories exist
+    static_path = Path(settings.static_file_path)
+    static_path.mkdir(parents=True, exist_ok=True)
+    (static_path / "products").mkdir(exist_ok=True)
 
     # Background task: clean expired sessions every hour
     async def _session_cleanup_loop() -> None:
@@ -131,6 +138,11 @@ def create_app() -> FastAPI:
         return JSONResponse({"status": "ok"})
 
     # Routers
+    application.mount(
+        "/static",
+        StaticFiles(directory=settings.static_file_path, check_dir=False),
+        name="static",
+    )
     application.include_router(products.router, prefix="/v1/products", tags=["products"])
     application.include_router(cart.router, prefix="/v1/cart", tags=["cart"])
     application.include_router(orders.router, prefix="/v1/orders", tags=["orders"])
@@ -138,6 +150,7 @@ def create_app() -> FastAPI:
     application.include_router(admin.router, prefix="/v1/admin", tags=["admin"])
     application.include_router(reactions.router, prefix="/v1/products", tags=["reactions"])
     application.include_router(comments.router, prefix="/v1/products", tags=["comments"])
+    application.include_router(locale.router, prefix="/v1/locale", tags=["locale"])
 
     # Global exception handlers for consistent error format
     register_exception_handlers(application)

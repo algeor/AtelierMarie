@@ -128,10 +128,39 @@ export interface AdminStats {
   active_product_count: number;
 }
 
+export interface AdminProductResponse {
+  id: string;
+  name_en: string;
+  name_bg: string | null;
+  description_en: string | null;
+  description_bg: string | null;
+  materials: string | null;
+  days_to_craft: number | null;
+  price_cents: number;
+  category: string | null;
+  image_url: string | null;
+  stock: number;
+  is_active: boolean;
+  is_featured: boolean;
+  translation_stale_bg: boolean;
+  translation_stale_en: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminProductListResponse {
+  products: AdminProductResponse[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 export interface CreateProductRequest {
   id: string;
-  name: string;
-  description?: string | null;
+  name_en: string;
+  name_bg?: string | null;
+  description_en?: string | null;
+  description_bg?: string | null;
   materials?: string | null;
   days_to_craft?: number | null;
   price_cents: number;
@@ -142,8 +171,10 @@ export interface CreateProductRequest {
 }
 
 export interface UpdateProductRequest {
-  name?: string;
-  description?: string | null;
+  name_en?: string;
+  name_bg?: string | null;
+  description_en?: string | null;
+  description_bg?: string | null;
   materials?: string | null;
   days_to_craft?: number | null;
   price_cents?: number;
@@ -152,6 +183,11 @@ export interface UpdateProductRequest {
   stock?: number;
   is_active?: boolean;
   is_featured?: boolean;
+}
+
+export interface ImageUploadResponse {
+  image_url: string;
+  thumbnail_url: string;
 }
 
 // --- Reactions ---

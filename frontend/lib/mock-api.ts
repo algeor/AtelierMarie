@@ -4,6 +4,8 @@
  */
 
 import type {
+  AdminProductListResponse,
+  AdminProductResponse,
   AdminStats,
   AuthTokenResponse,
   CartItemResponse,
@@ -14,6 +16,7 @@ import type {
   CommentSort,
   CreateOrderRequest,
   CreateProductRequest,
+  ImageUploadResponse,
   OrderListResponse,
   OrderResponse,
   OrderStatus,
@@ -427,37 +430,60 @@ export async function getAdminStats(): Promise<AdminStats> {
   };
 }
 
+/** Convert a public ProductResponse to an AdminProductResponse for mock admin endpoints. */
+function toAdminProduct(product: ProductResponse): AdminProductResponse {
+  return {
+    id: product.id,
+    name_en: product.name,
+    name_bg: null,
+    description_en: product.description,
+    description_bg: null,
+    materials: product.materials,
+    days_to_craft: product.days_to_craft,
+    price_cents: product.price_cents,
+    category: product.category,
+    image_url: product.image_url,
+    stock: product.stock,
+    is_active: product.is_active,
+    is_featured: product.is_featured,
+    translation_stale_bg: false,
+    translation_stale_en: false,
+    created_at: product.created_at,
+    updated_at: product.updated_at,
+  };
+}
+
 export async function getAdminProducts(
   page = 1,
   limit = 20
-): Promise<ProductListResponse> {
+): Promise<AdminProductListResponse> {
   await delay();
   const start = (page - 1) * limit;
   const slice = MOCK_PRODUCTS.slice(start, start + limit);
   return {
-    products: slice,
+    products: slice.map(toAdminProduct),
     total: MOCK_PRODUCTS.length,
     page,
     limit,
   };
 }
 
-export async function getAdminProduct(productId: string): Promise<ProductResponse> {
+export async function getAdminProduct(productId: string): Promise<AdminProductResponse> {
   await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId);
   if (!product) mockError("NOT_FOUND", `Product ${productId} not found`);
-  return product;
+  return toAdminProduct(product);
 }
 
-export async function createProduct(data: CreateProductRequest): Promise<ProductResponse> {
+export async function createProduct(data: CreateProductRequest): Promise<AdminProductResponse> {
   await delay();
   const existing = MOCK_PRODUCTS.find((p) => p.id === data.id);
   if (existing) mockError("CONFLICT", `Product ${data.id} already exists`);
   const now = new Date().toISOString();
   const product: ProductResponse = {
     id: data.id,
-    name: data.name,
-    description: data.description ?? null,
+    name: data.name_en,
+    description: data.description_en ?? null,
     materials: data.materials ?? null,
     days_to_craft: data.days_to_craft ?? null,
     price_cents: data.price_cents,
@@ -470,18 +496,48 @@ export async function createProduct(data: CreateProductRequest): Promise<Product
     updated_at: now,
   };
   MOCK_PRODUCTS.push(product);
-  return product;
+  return toAdminProduct(product);
 }
 
 export async function updateProduct(
   productId: string,
   data: UpdateProductRequest
-): Promise<ProductResponse> {
+): Promise<AdminProductResponse> {
   await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId);
   if (!product) mockError("NOT_FOUND", `Product ${productId} not found`);
-  Object.assign(product, data, { updated_at: new Date().toISOString() });
-  return product;
+  // Map bilingual fields to the mock's single-language store
+  if (data.name_en !== undefined) product.name = data.name_en;
+  if (data.description_en !== undefined) product.description = data.description_en;
+  if (data.materials !== undefined) product.materials = data.materials;
+  if (data.days_to_craft !== undefined) product.days_to_craft = data.days_to_craft;
+  if (data.price_cents !== undefined) product.price_cents = data.price_cents;
+  if (data.category !== undefined) product.category = data.category;
+  if (data.image_url !== undefined) product.image_url = data.image_url;
+  if (data.stock !== undefined) product.stock = data.stock;
+  if (data.is_active !== undefined) product.is_active = data.is_active;
+  if (data.is_featured !== undefined) product.is_featured = data.is_featured;
+  product.updated_at = new Date().toISOString();
+  return toAdminProduct(product);
+}
+
+export async function uploadProductImage(
+  productId: string,
+  file: File
+): Promise<ImageUploadResponse> {
+  await delay();
+  const product = MOCK_PRODUCTS.find((p) => p.id === productId);
+  if (!product) mockError("product_not_found", `Product ${productId} not found`);
+  if (!/^image\/(jpeg|png)$/.test(file.type)) {
+    mockError("invalid_image_type", "Only JPEG and PNG images are accepted");
+  }
+  const imageUrl = `/static/products/${productId}.webp`;
+  product.image_url = imageUrl;
+  product.updated_at = new Date().toISOString();
+  return {
+    image_url: imageUrl,
+    thumbnail_url: `/static/products/${productId}_thumb.webp`,
+  };
 }
 
 export async function getAdminOrders(

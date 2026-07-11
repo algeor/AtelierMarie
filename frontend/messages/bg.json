@@ -1,0 +1,162 @@
+{
+  "common": {
+    "appName": "Ателие Мари",
+    "loading": "Зареждане...",
+    "error": "Нещо се обърка",
+    "tryAgain": "Опитай отново",
+    "close": "Затвори",
+    "dismiss": "Отхвърли",
+    "save": "Запази",
+    "cancel": "Отказ",
+    "delete": "Изтрий",
+    "edit": "Редактирай",
+    "back": "Назад",
+    "next": "Напред",
+    "previous": "Назад",
+    "page": "Страница {current} от {total}",
+    "required": "Задължително"
+  },
+  "nav": {
+    "home": "Начало",
+    "shop": "Магазин",
+    "about": "За нас",
+    "contact": "Контакт",
+    "mainNavigation": "Главна навигация",
+    "footerNavigation": "Навигация в долния колонтитул"
+  },
+  "announcement": {
+    "freeShipping": "Безплатна доставка за поръчки над 50€ ✨",
+    "dismiss": "Затвори съобщението"
+  },
+  "header": {
+    "cartLabel": "Кошница",
+    "cartLabelWithItems": "Кошница, {count} {count, plural, one {артикул} other {артикула}}"
+  },
+  "footer": {
+    "handcrafted": "Ръчна изработка с любов",
+    "copyright": "© {year} Ателие Мари. Всички права запазени."
+  },
+  "auth": {
+    "signIn": "Вход",
+    "signOut": "Изход",
+    "myAccount": "Моят профил",
+    "myOrders": "Моите поръчки",
+    "signInToSeeOrders": "Влезте, за да видите всички поръчки"
+  },
+  "products": {
+    "title": "Нашата колекция",
+    "noProducts": "Няма продукти в тази категория.",
+    "allCategories": "Всички",
+    "showing": "Показване на {count} {count, plural, one {продукт} other {продукта}}",
+    "outOfStock": "Изчерпано",
+    "addToCart": "Добави в кошницата",
+    "added": "Добавено",
+    "addedToCart": "{count} {count, plural, one {артикул добавен} other {артикула добавени}} в кошницата",
+    "each": "{price} за брой",
+    "inStock": "В наличност",
+    "lowStock": "Само {count} остават",
+    "search": "Търсене на продукти...",
+    "sortBy": "Сортирай по",
+    "featured": "Препоръчани",
+    "priceLowHigh": "Цена: ниска към висока",
+    "priceHighLow": "Цена: висока към ниска",
+    "newest": "Най-нови"
+  },
+  "cart": {
+    "title": "Вашата кошница",
+    "empty": "Кошницата ви е празна",
+    "continueShopping": "Продължи пазаруването",
+    "subtotal": "Междинна сума",
+    "proceedToCheckout": "Към плащане",
+    "closeCart": "Затвори кошницата",
+    "remove": "Премахни",
+    "removeFromCart": "Премахни {name} от кошницата",
+    "decreaseQuantity": "Намали количеството",
+    "increaseQuantity": "Увеличи количеството",
+    "dismissError": "Затвори грешката"
+  },
+  "checkout": {
+    "title": "Плащане",
+    "orderSummary": "Обобщение на поръчката",
+    "email": "Имейл",
+    "emailPlaceholder": "вашият@имейл.com",
+    "emailRequired": "Имейлът е задължителен",
+    "emailTooLong": "Имейл адресът е прекалено дълъг",
+    "emailInvalid": "Моля, въведете валиден имейл адрес",
+    "name": "Име",
+    "namePlaceholder": "Пълно име",
+    "shippingAddress": "Адрес за доставка (по избор)",
+    "addressPlaceholder": "Улица, град, пощенски код",
+    "orderNotes": "Бележки към поръчката (по избор)",
+    "notesPlaceholder": "Специални изисквания...",
+    "placeOrder": "Направи поръчка",
+    "placingOrder": "Поръчката се обработва...",
+    "unavailableItems": "Някои артикули вече не са налични. Моля, прегледайте кошницата.",
+    "genericError": "Нещо се обърка. Моля, опитайте отново."
+  },
+  "orders": {
+    "title": "Моите поръчки",
+    "noOrders": "Все още няма поръчки",
+    "noOrdersDescription": "Разгледайте нашата колекция и направете първата си поръчка.",
+    "startShopping": "Започнете пазаруването",
+    "loadingError": "Възникна грешка при зареждане на поръчките",
+    "item": "{count} {count, plural, one {артикул} other {артикула}}",
+    "orderNumber": "Поръчка #{id}",
+    "orderConfirmation": "Поръчката е потвърдена",
+    "orderConfirmationMessage": "Благодарим ви за поръчката!",
+    "trackOrder": "Проследи поръчката",
+    "status": {
+      "pending": "Изчакваща",
+      "confirmed": "Потвърдена",
+      "shipped": "Изпратена",
+      "delivered": "Доставена",
+      "cancelled": "Отказана"
+    }
+  },
+  "admin": {
+    "title": "Администрация",
+    "dashboard": "Табло",
+    "products": "Продукти",
+    "orders": "Поръчки",
+    "storeOverview": "Преглед на работата на магазина",
+    "ordersToday": "Поръчки днес",
+    "revenueThisWeek": "Приходи тази седмица",
+    "activeProducts": "Активни продукти",
+    "backToStore": "Обратно в магазина",
+    "openNavMenu": "Отвори менюто за навигация",
+    "closeNavMenu": "Затвори менюто за навигация",
+    "newProduct": "Нов продукт",
+    "editProduct": "Редактиране на продукт",
+    "createProduct": "Създай продукт",
+    "updateProduct": "Обнови продукт",
+    "deleteProduct": "Изтрий продукт",
+    "csvImport": "CSV импорт",
+    "csvImportHelp": "Качете CSV с колони: id, name_en, name_bg, description_en, description_bg, price_cents, stock, category, image_url",
+    "nameEn": "Име (английски)",
+    "nameBg": "Име (български)",
+    "descriptionEn": "Описание (английски)",
+    "descriptionBg": "Описание (български)",
+    "translationStale": "Преводът може да е остарял",
+    "price": "Цена (стотинки)",
+    "stock": "Наличност",
+    "category": "Категория",
+    "imageUrl": "URL на изображение"
+  },
+  "locale": {
+    "switchToEnglish": "Switch to English",
+    "switchToBulgarian": "Превключи на български"
+  },
+  "errors": {
+    "CART_EMPTY": "Кошницата ви е празна",
+    "INSUFFICIENT_STOCK": "Недостатъчна наличност",
+    "PRODUCT_NOT_FOUND": "Продуктът не е намерен",
+    "ORDER_NOT_FOUND": "Поръчката не е намерена",
+    "INVALID_QUANTITY": "Невалидно количество",
+    "RATE_LIMIT_EXCEEDED": "Твърде много заявки. Моля, изчакайте малко.",
+    "UNAUTHORIZED": "Моля, влезте, за да продължите",
+    "FORBIDDEN": "Нямате разрешение за това действие",
+    "CONFLICT": "Някои артикули вече не са налични. Моля, прегледайте кошницата.",
+    "VALIDATION_ERROR": "Моля, проверете данните си и опитайте отново",
+    "UNKNOWN": "Нещо се обърка. Моля, опитайте отново."
+  }
+}

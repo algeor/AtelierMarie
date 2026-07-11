@@ -86,6 +86,19 @@ export async function post<T>(
   return handleResponse<T>(res);
 }
 
+export async function postForm<T>(
+  path: string,
+  body: FormData
+): Promise<T> {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: "POST",
+    credentials: "include",
+    headers: { Accept: "application/json" },
+    body,
+  });
+  return handleResponse<T>(res);
+}
+
 export async function patch<T>(
   path: string,
   body?: unknown

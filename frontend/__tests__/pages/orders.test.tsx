@@ -1,7 +1,30 @@
+import React from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import type { OrderListResponse } from "@/lib/types";
+
+vi.mock("next-intl", () => ({
+  useTranslations: () => (key: string, values?: Record<string, unknown>) => {
+    if (values) {
+      return Object.entries(values).reduce(
+        (str, [k, v]) => str.replace(`{${k}}`, String(v)),
+        key
+      );
+    }
+    return key;
+  },
+  useLocale: () => "en",
+  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
+vi.mock("@/i18n/navigation", () => ({
+  Link: ({ children, href }: { children: React.ReactNode; href: string }) => (
+    <a href={href}>{children}</a>
+  ),
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  usePathname: () => "/",
+}));
 
 vi.mock("@/lib/api", () => ({
   getOrders: vi.fn(),
@@ -26,7 +49,7 @@ vi.mock("next/link", () => ({
 }));
 
 import { getOrders } from "@/lib/api";
-import OrdersPage from "@/app/orders/page";
+import OrdersPage from "@/app/[locale]/orders/page";
 
 const mockedGetOrders = vi.mocked(getOrders);
 
@@ -68,7 +91,7 @@ describe("OrdersPage", () => {
 
     expect(screen.getByText("Pending")).toBeInTheDocument();
     expect(screen.getByText("€77.00")).toBeInTheDocument();
-    expect(screen.getByText(/2 items/)).toBeInTheDocument();
+    expect(screen.getByText(/item/)).toBeInTheDocument();
   });
 
   it("shows empty state when no orders", async () => {
@@ -81,9 +104,9 @@ describe("OrdersPage", () => {
     render(<OrdersPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("No orders yet")).toBeInTheDocument();
+      expect(screen.getByText("noOrders")).toBeInTheDocument();
     });
-    expect(screen.getByText("Start Shopping")).toHaveAttribute("href", "/products");
+    expect(screen.getByText("startShopping")).toHaveAttribute("href", "/products");
   });
 
   it("shows anonymous CTA in empty state", async () => {
@@ -96,7 +119,7 @@ describe("OrdersPage", () => {
     render(<OrdersPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("Sign in to see all your orders")).toBeInTheDocument();
+      expect(screen.getByText("signInToSeeOrders")).toBeInTheDocument();
     });
   });
 
@@ -105,9 +128,9 @@ describe("OrdersPage", () => {
     render(<OrdersPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("Something went wrong loading your orders")).toBeInTheDocument();
+      expect(screen.getByText("loadingError")).toBeInTheDocument();
     });
-    expect(screen.getByText("Try again")).toBeInTheDocument();
+    expect(screen.getByText("tryAgain")).toBeInTheDocument();
   });
 
   it("retries on Try again click", async () => {
@@ -116,11 +139,11 @@ describe("OrdersPage", () => {
     render(<OrdersPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("Try again")).toBeInTheDocument();
+      expect(screen.getByText("tryAgain")).toBeInTheDocument();
     });
 
     mockedGetOrders.mockResolvedValueOnce(ordersResponse);
-    await user.click(screen.getByText("Try again"));
+    await user.click(screen.getByText("tryAgain"));
 
     await waitFor(() => {
       expect(screen.getByText("#a1b2c3d4")).toBeInTheDocument();
@@ -131,7 +154,7 @@ describe("OrdersPage", () => {
     mockedGetOrders.mockReturnValue(new Promise(() => {})); // never resolves
     render(<OrdersPage />);
     // Skeleton elements are present (aria-hidden divs with animate-pulse)
-    expect(screen.getByText("My Orders")).toBeInTheDocument();
+    expect(screen.getByText("title")).toBeInTheDocument();
   });
 
   it("pagination: Previous disabled on page 1, Next disabled on last page", async () => {
@@ -147,10 +170,10 @@ describe("OrdersPage", () => {
     render(<OrdersPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("Previous")).toBeInTheDocument();
+      expect(screen.getByText("previous")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Previous")).toBeDisabled();
-    expect(screen.getByText("Next")).not.toBeDisabled();
+    expect(screen.getByText("previous")).toBeDisabled();
+    expect(screen.getByText("next")).not.toBeDisabled();
   });
 });

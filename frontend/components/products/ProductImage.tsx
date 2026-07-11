@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
+import { BASE_URL } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
 interface ProductImageProps {
@@ -15,13 +15,15 @@ interface ProductImageProps {
 export function ProductImage({
   name,
   imageUrl,
-  sizes = "(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 25vw",
   priority = false,
   className,
 }: ProductImageProps) {
   const [hasError, setHasError] = useState(false);
+  const resolvedImageUrl = imageUrl?.startsWith("/static/")
+    ? `${BASE_URL}${imageUrl}`
+    : imageUrl;
 
-  const showPlaceholder = !imageUrl || hasError;
+  const showPlaceholder = !resolvedImageUrl || hasError;
 
   if (showPlaceholder) {
     return (
@@ -42,13 +44,11 @@ export function ProductImage({
 
   return (
     <div className={cn("relative w-full aspect-[4/5] rounded-brand overflow-hidden", className)}>
-      <Image
-        src={imageUrl}
+      <img
+        src={resolvedImageUrl}
         alt={name}
-        fill
-        sizes={sizes}
-        priority={priority}
-        className="object-cover"
+        loading={priority ? "eager" : "lazy"}
+        className="h-full w-full object-cover"
         onError={() => setHasError(true)}
       />
     </div>

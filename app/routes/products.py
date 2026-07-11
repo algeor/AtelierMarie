@@ -5,7 +5,7 @@ from typing import Literal
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
-from app.models.products import ProductListResponse, ProductResponse
+from app.models.products import Locale, ProductListResponse, ProductResponse
 from app.services import product_service
 from app.services.product_service import NotFoundError
 
@@ -28,6 +28,7 @@ async def list_products(
     in_stock: bool | None = Query(default=None, description="Filter to in-stock only"),
     page: int = Query(default=1, ge=1, description="Page number"),
     limit: int = Query(default=20, ge=1, le=100, description="Items per page (max 100)"),
+    locale: Locale = Query(default="en", description="Content locale (en or bg)"),
 ) -> ProductListResponse | JSONResponse:
     """List active products with optional filters, search, sort, and pagination."""
     # Cap limit at 100 (also enforced by Query constraint but explicit for clarity)
@@ -42,6 +43,7 @@ async def list_products(
             in_stock=in_stock,
             limit=limit,
             offset=offset,
+            locale=locale,
         )
 
         # Apply sort override if specified (otherwise FTS5 relevance is used)
@@ -72,6 +74,7 @@ async def list_products(
         in_stock=in_stock,
         page=page,
         limit=limit,
+        locale=locale,
     )
 
     return ProductListResponse(
@@ -89,10 +92,13 @@ async def list_products(
     description="Get a single active product by its slug ID. Returns 404 if the product "
     "does not exist or is inactive.",
 )
-async def get_product(product_id: str) -> ProductResponse | JSONResponse:
+async def get_product(
+    product_id: str,
+    locale: Locale = Query(default="en", description="Content locale (en or bg)"),
+) -> ProductResponse | JSONResponse:
     """Get a single active product by ID."""
     try:
-        product = product_service.get_product(product_id)
+        product = product_service.get_product(product_id, locale=locale)
     except NotFoundError:
         return JSONResponse(
             status_code=404,

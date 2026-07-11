@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 
 export function UserMenu() {
+  const t = useTranslations("auth");
   const { user, logout } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -84,7 +86,7 @@ export function UserMenu() {
             onClick={() => setIsOpen(false)}
             className="block px-4 py-2 text-sm text-charcoal hover:bg-cream transition-colors duration-fast"
           >
-            My Account
+            {t("myAccount")}
           </Link>
           <Link
             href="/orders"
@@ -92,14 +94,14 @@ export function UserMenu() {
             onClick={() => setIsOpen(false)}
             className="block px-4 py-2 text-sm text-charcoal hover:bg-cream transition-colors duration-fast"
           >
-            My Orders
+            {t("myOrders")}
           </Link>
           <button
             role="menuitem"
             onClick={handleSignOut}
             className="block w-full text-left px-4 py-2 text-sm text-charcoal hover:bg-cream transition-colors duration-fast"
           >
-            Sign Out
+            {t("signOut")}
           </button>
         </div>
       )}

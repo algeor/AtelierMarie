@@ -3,7 +3,6 @@
 import pytest
 from pydantic import ValidationError
 
-from app.models.auth import AuthTokenResponse, GoogleAuthRequest
 from app.models.cart import AddToCartRequest, CartResponse, UpdateCartItemRequest
 from app.models.common import ErrorDetail, ErrorResponse, PaginationParams
 from app.models.orders import CreateOrderRequest, UpdateOrderStatusRequest
@@ -202,23 +201,6 @@ class TestUserModels:
             is_admin=False,
         )
         assert u.name is None
-
-
-class TestAuthModels:
-    def test_auth_token_response(self):
-        user = UserResponse(
-            id="user-001",
-            email="marie@example.com",
-            name="Marie",
-            avatar_url=None,
-            is_admin=False,
-        )
-        token = AuthTokenResponse(access_token="jwt-token-here", user=user)
-        assert token.token_type == "bearer"
-
-    def test_google_auth_request(self):
-        req = GoogleAuthRequest(code="auth-code-123", redirect_uri="http://localhost:3000/callback")
-        assert req.code == "auth-code-123"
 
 
 class TestCommonModels:

@@ -1,31 +1,37 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
+import { useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import type { ProductResponse } from "@/lib/types";
+import type { AdminProductResponse } from "@/lib/types";
 
 const CATEGORIES = ["Floral", "Woody", "Fresh", "Gourmand", "Spicy", "Citrus"];
 
 interface ProductFormProps {
-  product?: ProductResponse;
+  product?: AdminProductResponse;
   onSubmit: (data: ProductFormData) => Promise<void>;
   submitLabel: string;
 }
 
 export interface ProductFormData {
   id: string;
-  name: string;
-  description: string;
+  name_en: string;
+  name_bg: string;
+  description_en: string;
+  description_bg: string;
   materials: string;
   days_to_craft: number | null;
   price_cents: number;
   category: string;
   image_url: string;
+  image_file: File | null;
   stock: number;
   is_featured: boolean;
 }
+
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 
 /** Convert a EUR string (e.g., "32.50") to cents without floating-point errors. */
 function eurToCents(value: string): number {
@@ -40,6 +46,8 @@ function eurToCents(value: string): number {
 }
 
 export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps) {
+  const t = useTranslations("admin");
+  const tCommon = useTranslations("common");
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,20 +60,26 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
 
   const [formData, setFormData] = useState<ProductFormData>({
     id: product?.id ?? "",
-    name: product?.name ?? "",
-    description: product?.description ?? "",
+    name_en: product?.name_en ?? "",
+    name_bg: product?.name_bg ?? "",
+    description_en: product?.description_en ?? "",
+    description_bg: product?.description_bg ?? "",
     materials: product?.materials ?? "",
     days_to_craft: product?.days_to_craft ?? null,
     price_cents: product?.price_cents ?? 0,
     category: product?.category ?? "",
     image_url: product?.image_url ?? "",
+    image_file: null,
     stock: product?.stock ?? 0,
     is_featured: product?.is_featured ?? false,
   });
 
+  const translationStaleBg = product?.translation_stale_bg;
+  const translationStaleEn = product?.translation_stale_en;
+
   function validate(): boolean {
     const newErrors: Record<string, string> = {};
-    if (!formData.name.trim()) newErrors.name = "Name is required";
+    if (!formData.name_en.trim()) newErrors.name_en = "English name is required";
     if (!formData.id.trim() && !product) newErrors.id = "Product ID is required";
     if (!product && formData.id.trim() && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(formData.id)) {
       newErrors.id = "ID must be lowercase letters, numbers, and hyphens only";
@@ -73,6 +87,13 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
     if (formData.price_cents <= 0) newErrors.price_cents = "Price must be greater than 0";
     if (!formData.category) newErrors.category = "Category is required";
     if (formData.stock < 0) newErrors.stock = "Stock cannot be negative";
+    if (formData.image_file) {
+      const validType = ["image/jpeg", "image/png"].includes(formData.image_file.type);
+      if (!validType) newErrors.image_file = "Image must be a JPEG or PNG file";
+      if (formData.image_file.size > MAX_IMAGE_SIZE) {
+        newErrors.image_file = "Image must be 5MB or smaller";
+      }
+    }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   }
@@ -116,26 +137,93 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
         </div>
       )}
 
-      <div className="grid gap-6 sm:grid-cols-2">
-        {!product && (
-          <Input
-            label="Product ID (slug)"
-            placeholder="e.g., lavender-dreams-300ml"
-            value={formData.id}
-            onChange={(e) => updateField("id", e.target.value)}
-            error={errors.id}
-          />
-        )}
+      {/* Product ID (only on create) */}
+      {!product && (
         <Input
-          label="Name"
-          placeholder="Product name"
-          value={formData.name}
-          onChange={(e) => updateField("name", e.target.value)}
-          error={errors.name}
+          label="Product ID (slug)"
+          placeholder="e.g., lavender-dreams-300ml"
+          value={formData.id}
+          onChange={(e) => updateField("id", e.target.value)}
+          error={errors.id}
         />
+      )}
+
+      {/* Dual-language name fields */}
+      <div className="grid gap-6 sm:grid-cols-2">
+        <div className="relative">
+          <Input
+            label={t("nameEn")}
+            placeholder="Product name (English)"
+            value={formData.name_en}
+            onChange={(e) => updateField("name_en", e.target.value)}
+            error={errors.name_en}
+          />
+          {translationStaleEn && (
+            <span className="absolute top-0 right-0 text-xs bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-brand" title={t("translationStale")}>
+              ⚠️
+            </span>
+          )}
+        </div>
+        <div className="relative">
+          <Input
+            label={t("nameBg")}
+            placeholder="Име на продукт (български)"
+            value={formData.name_bg}
+            onChange={(e) => updateField("name_bg", e.target.value)}
+          />
+          {translationStaleBg && (
+            <span className="absolute top-0 right-0 text-xs bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-brand" title={t("translationStale")}>
+              ⚠️
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Dual-language description fields */}
+      <div className="grid gap-6 sm:grid-cols-2">
+        <div className="relative">
+          <label htmlFor="description_en" className="mb-1.5 block text-sm font-medium text-soft-brown">
+            {t("descriptionEn")}
+          </label>
+          <textarea
+            id="description_en"
+            value={formData.description_en}
+            onChange={(e) => updateField("description_en", e.target.value)}
+            rows={4}
+            className="w-full rounded-brand border border-champagne-beige bg-cream px-3 py-2 text-soft-brown placeholder:text-soft-brown/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
+            placeholder="Describe this product..."
+          />
+          {translationStaleEn && (
+            <span className="absolute top-0 right-0 text-xs bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-brand" title={t("translationStale")}>
+              ⚠️
+            </span>
+          )}
+        </div>
+        <div className="relative">
+          <label htmlFor="description_bg" className="mb-1.5 block text-sm font-medium text-soft-brown">
+            {t("descriptionBg")}
+          </label>
+          <textarea
+            id="description_bg"
+            value={formData.description_bg}
+            onChange={(e) => updateField("description_bg", e.target.value)}
+            rows={4}
+            className="w-full rounded-brand border border-champagne-beige bg-cream px-3 py-2 text-soft-brown placeholder:text-soft-brown/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
+            placeholder="Описание на продукта..."
+          />
+          {translationStaleBg && (
+            <span className="absolute top-0 right-0 text-xs bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-brand" title={t("translationStale")}>
+              ⚠️
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Other fields */}
+      <div className="grid gap-6 sm:grid-cols-2">
         <div className="w-full">
           <label htmlFor="category" className="mb-1.5 block text-sm font-medium text-soft-brown">
-            Category
+            {t("category")}
           </label>
           <select
             id="category"
@@ -170,7 +258,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
           error={errors.price_cents}
         />
         <Input
-          label="Stock"
+          label={t("stock")}
           type="number"
           min="0"
           step="1"
@@ -178,12 +266,27 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
           onChange={(e) => updateField("stock", Math.max(0, Math.floor(Number(e.target.value) || 0)))}
           error={errors.stock}
         />
-        <Input
-          label="Image URL"
-          placeholder="https://..."
-          value={formData.image_url}
-          onChange={(e) => updateField("image_url", e.target.value)}
-        />
+        <div className="sm:col-span-2">
+          <label htmlFor="image_file" className="mb-1.5 block text-sm font-medium text-soft-brown">
+            Product image
+          </label>
+          <input
+            id="image_file"
+            type="file"
+            accept="image/jpeg,image/png"
+            onChange={(e) => updateField("image_file", e.target.files?.[0] ?? null)}
+            className="block w-full rounded-brand border border-champagne-beige bg-cream px-3 py-2 text-sm text-soft-brown file:mr-4 file:rounded-brand file:border-0 file:bg-charcoal file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-warm-ivory hover:file:bg-soft-brown focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
+          />
+          {errors.image_file && (
+            <p className="mt-1.5 text-sm text-red-700">{errors.image_file}</p>
+          )}
+          {formData.image_url && !formData.image_file && (
+            <p className="mt-1.5 text-xs text-soft-brown/70">Current image: {formData.image_url}</p>
+          )}
+          {formData.image_file && (
+            <p className="mt-1.5 text-xs text-soft-brown/70">Selected: {formData.image_file.name}</p>
+          )}
+        </div>
         <Input
           label="Materials"
           placeholder="e.g., Soy wax, lavender oil"
@@ -200,20 +303,6 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
             const val = e.target.value ? parseInt(e.target.value) : null;
             updateField("days_to_craft", val);
           }}
-        />
-      </div>
-
-      <div>
-        <label htmlFor="description" className="mb-1.5 block text-sm font-medium text-soft-brown">
-          Description
-        </label>
-        <textarea
-          id="description"
-          value={formData.description}
-          onChange={(e) => updateField("description", e.target.value)}
-          rows={4}
-          className="w-full rounded-brand border border-champagne-beige bg-cream px-3 py-2 text-soft-brown placeholder:text-soft-brown/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
-          placeholder="Describe this product..."
         />
       </div>
 
@@ -239,7 +328,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
           variant="secondary"
           onClick={() => router.push("/admin/products")}
         >
-          Cancel
+          {tCommon("cancel")}
         </Button>
       </div>
     </form>

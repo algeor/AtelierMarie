@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { getAdminStats } from "@/lib/api";
 import { formatPrice } from "@/lib/utils";
 import { StatsCard, StatsCardSkeleton } from "@/components/admin/StatsCard";
 import type { AdminStats } from "@/lib/types";
 
 export default function AdminDashboardPage() {
+  const t = useTranslations("admin");
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -22,10 +24,10 @@ export default function AdminDashboardPage() {
     <div>
       <div className="mb-8">
         <h1 className="font-heading text-2xl font-semibold text-charcoal">
-          Dashboard
+          {t("dashboard")}
         </h1>
         <p className="mt-1 text-sm text-soft-brown">
-          Overview of your store performance
+          {t("storeOverview")}
         </p>
       </div>
 
@@ -45,7 +47,7 @@ export default function AdminDashboardPage() {
         ) : stats ? (
           <>
             <StatsCard
-              label="Orders Today"
+              label={t("ordersToday")}
               value={String(stats.orders_today)}
               icon={
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-6 w-6">
@@ -54,7 +56,7 @@ export default function AdminDashboardPage() {
               }
             />
             <StatsCard
-              label="Revenue This Week"
+              label={t("revenueThisWeek")}
               value={formatPrice(stats.revenue_this_week_cents)}
               icon={
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-6 w-6">
@@ -63,7 +65,7 @@ export default function AdminDashboardPage() {
               }
             />
             <StatsCard
-              label="Active Products"
+              label={t("activeProducts")}
               value={String(stats.active_product_count)}
               icon={
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-6 w-6">

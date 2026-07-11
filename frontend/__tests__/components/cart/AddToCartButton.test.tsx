@@ -1,5 +1,20 @@
+import React from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
+
+vi.mock("next-intl", () => ({
+  useTranslations: () => (key: string, values?: Record<string, unknown>) => {
+    if (values) {
+      return Object.entries(values).reduce(
+        (str, [k, v]) => str.replace(`{${k}}`, String(v)),
+        key
+      );
+    }
+    return key;
+  },
+  useLocale: () => "en",
+  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
 
 const mockAddToCart = vi.fn();
 const mockOpenDrawer = vi.fn();
@@ -21,13 +36,13 @@ describe("AddToCartButton", () => {
 
   it("shows 'Add to Cart' text when idle", () => {
     render(<AddToCartButton productId="test-candle" stock={5} />);
-    expect(screen.getByRole("button")).toHaveTextContent(/add to cart/i);
+    expect(screen.getByRole("button")).toHaveTextContent("addToCart");
   });
 
   it("shows 'Out of Stock' and is disabled when stock is 0", () => {
     render(<AddToCartButton productId="test-candle" stock={0} />);
     const button = screen.getByRole("button");
-    expect(button).toHaveTextContent(/out of stock/i);
+    expect(button).toHaveTextContent("outOfStock");
     expect(button).toBeDisabled();
   });
 

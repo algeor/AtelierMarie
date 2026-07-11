@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { useTranslations } from "next-intl";
 import { useCart } from "@/contexts/CartContext";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
@@ -18,6 +19,7 @@ export function AddToCartButton({
   quantity = 1,
   className,
 }: AddToCartButtonProps) {
+  const t = useTranslations("products");
   const { addToCart, openDrawer } = useCart();
   const [status, setStatus] = useState<"idle" | "loading" | "success">("idle");
 
@@ -50,7 +52,7 @@ export function AddToCartButton({
         variant="secondary"
         className={cn("w-full sm:w-auto", className)}
       >
-        Out of Stock
+        {t("outOfStock")}
       </Button>
     );
   }
@@ -76,10 +78,10 @@ export function AddToCartButton({
               clipRule="evenodd"
             />
           </svg>
-          Added
+          {t("added")}
         </span>
       ) : (
-        "Add to Cart"
+        t("addToCart")
       )}
     </Button>
   );

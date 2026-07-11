@@ -1,8 +1,31 @@
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
+import React from "react";
+
+vi.mock("next-intl", () => ({
+  useTranslations: () => (key: string, values?: Record<string, unknown>) => {
+    if (values) {
+      return Object.entries(values).reduce(
+        (str, [k, v]) => str.replace(`{${k}}`, String(v)),
+        key
+      );
+    }
+    return key;
+  },
+  useLocale: () => "en",
+  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
 
 const mockPush = vi.fn();
 const mockReplace = vi.fn();
+
+vi.mock("@/i18n/navigation", () => ({
+  Link: ({ children, href }: { children: React.ReactNode; href: string }) => (
+    <a href={href}>{children}</a>
+  ),
+  useRouter: () => ({ replace: mockReplace, push: mockPush }),
+  usePathname: () => "/",
+}));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush, replace: mockReplace }),
   usePathname: () => "/admin/products",
@@ -16,6 +39,7 @@ vi.mock("@/lib/api", () => ({
   getAdminProduct: vi.fn(),
   updateProduct: vi.fn(),
   createProduct: vi.fn(),
+  uploadProductImage: vi.fn(),
 }));
 
 import {
@@ -25,7 +49,7 @@ import {
   updateProduct,
   createProduct,
 } from "@/lib/api";
-import type { ProductListResponse, ProductResponse, UserResponse } from "@/lib/types";
+import type { AdminProductListResponse, AdminProductResponse, UserResponse } from "@/lib/types";
 
 const mockedGetCurrentUser = vi.mocked(getCurrentUser);
 const mockedGetAdminProducts = vi.mocked(getAdminProducts);
@@ -41,10 +65,12 @@ const ADMIN_USER: UserResponse = {
   is_admin: true,
 };
 
-const MOCK_PRODUCT: ProductResponse = {
+const MOCK_PRODUCT: AdminProductResponse = {
   id: "lavender-dreams-300ml",
-  name: "Lavender Dreams",
-  description: "Hand-poured soy candle",
+  name_en: "Lavender Dreams",
+  name_bg: null,
+  description_en: "Hand-poured soy candle",
+  description_bg: null,
   materials: "Soy wax, lavender oil",
   days_to_craft: 3,
   price_cents: 3200,
@@ -53,20 +79,22 @@ const MOCK_PRODUCT: ProductResponse = {
   stock: 24,
   is_active: true,
   is_featured: true,
+  translation_stale_bg: false,
+  translation_stale_en: false,
   created_at: "2024-06-01T10:00:00Z",
   updated_at: "2024-06-01T10:00:00Z",
 };
 
-const MOCK_PRODUCT_INACTIVE: ProductResponse = {
+const MOCK_PRODUCT_INACTIVE: AdminProductResponse = {
   ...MOCK_PRODUCT,
   id: "vanilla-bourbon-300ml",
-  name: "Vanilla Bourbon",
+  name_en: "Vanilla Bourbon",
   price_cents: 3800,
   is_active: false,
   stock: 0,
 };
 
-const MOCK_PRODUCT_LIST: ProductListResponse = {
+const MOCK_PRODUCT_LIST: AdminProductListResponse = {
   products: [MOCK_PRODUCT, MOCK_PRODUCT_INACTIVE],
   total: 2,
   page: 1,
@@ -84,7 +112,7 @@ describe("Admin Products List", () => {
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
-    const AdminProductsPage = (await import("@/app/admin/products/page")).default;
+    const AdminProductsPage = (await import("@/app/[locale]/admin/products/page")).default;
 
     render(
       <AdminProvider>
@@ -110,7 +138,7 @@ describe("Admin Products List", () => {
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
-    const AdminProductsPage = (await import("@/app/admin/products/page")).default;
+    const AdminProductsPage = (await import("@/app/[locale]/admin/products/page")).default;
 
     render(
       <AdminProvider>
@@ -131,7 +159,7 @@ describe("Admin Products List", () => {
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
-    const AdminProductsPage = (await import("@/app/admin/products/page")).default;
+    const AdminProductsPage = (await import("@/app/[locale]/admin/products/page")).default;
 
     render(
       <AdminProvider>
@@ -160,7 +188,7 @@ describe("Admin Products List", () => {
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
-    const AdminProductsPage = (await import("@/app/admin/products/page")).default;
+    const AdminProductsPage = (await import("@/app/[locale]/admin/products/page")).default;
 
     render(
       <AdminProvider>
@@ -181,7 +209,7 @@ describe("Admin Products List", () => {
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
-    const AdminProductsPage = (await import("@/app/admin/products/page")).default;
+    const AdminProductsPage = (await import("@/app/[locale]/admin/products/page")).default;
 
     render(
       <AdminProvider>
@@ -206,7 +234,7 @@ describe("Admin Products List", () => {
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
-    const AdminProductsPage = (await import("@/app/admin/products/page")).default;
+    const AdminProductsPage = (await import("@/app/[locale]/admin/products/page")).default;
 
     render(
       <AdminProvider>
@@ -233,7 +261,7 @@ describe("Admin Product Form Validation", () => {
   it("shows validation errors for empty required fields", async () => {
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
-    const CreateProductPage = (await import("@/app/admin/products/new/page")).default;
+    const CreateProductPage = (await import("@/app/[locale]/admin/products/new/page")).default;
 
     render(
       <AdminProvider>
@@ -251,7 +279,7 @@ describe("Admin Product Form Validation", () => {
     fireEvent.click(submitButton);
 
     await waitFor(() => {
-      expect(screen.getByText("Name is required")).toBeInTheDocument();
+      expect(screen.getByText("English name is required")).toBeInTheDocument();
       expect(screen.getByText("Product ID is required")).toBeInTheDocument();
       expect(screen.getByText("Category is required")).toBeInTheDocument();
     });
@@ -262,7 +290,7 @@ describe("Admin Product Form Validation", () => {
   it("shows price validation error when price is 0", async () => {
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
-    const CreateProductPage = (await import("@/app/admin/products/new/page")).default;
+    const CreateProductPage = (await import("@/app/[locale]/admin/products/new/page")).default;
 
     render(
       <AdminProvider>
@@ -280,10 +308,10 @@ describe("Admin Product Form Validation", () => {
     fireEvent.change(screen.getByLabelText("Product ID (slug)"), {
       target: { value: "test-product" },
     });
-    fireEvent.change(screen.getByLabelText("Name"), {
+    fireEvent.change(screen.getByLabelText("nameEn"), {
       target: { value: "Test Product" },
     });
-    fireEvent.change(screen.getByLabelText("Category"), {
+    fireEvent.change(screen.getByLabelText("category"), {
       target: { value: "Floral" },
     });
 
@@ -300,7 +328,7 @@ describe("Admin Product Form Validation", () => {
   it("shows stock validation error when stock is negative", async () => {
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
-    const CreateProductPage = (await import("@/app/admin/products/new/page")).default;
+    const CreateProductPage = (await import("@/app/[locale]/admin/products/new/page")).default;
 
     render(
       <AdminProvider>
@@ -318,10 +346,10 @@ describe("Admin Product Form Validation", () => {
     fireEvent.change(screen.getByLabelText("Product ID (slug)"), {
       target: { value: "test-product" },
     });
-    fireEvent.change(screen.getByLabelText("Name"), {
+    fireEvent.change(screen.getByLabelText("nameEn"), {
       target: { value: "Test Product" },
     });
-    fireEvent.change(screen.getByLabelText("Category"), {
+    fireEvent.change(screen.getByLabelText("category"), {
       target: { value: "Floral" },
     });
     // Set a valid price
@@ -349,7 +377,7 @@ describe("Admin Product Form Validation", () => {
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
-    const CreateProductPage = (await import("@/app/admin/products/new/page")).default;
+    const CreateProductPage = (await import("@/app/[locale]/admin/products/new/page")).default;
 
     render(
       <AdminProvider>
@@ -367,10 +395,10 @@ describe("Admin Product Form Validation", () => {
     fireEvent.change(screen.getByLabelText("Product ID (slug)"), {
       target: { value: "test-product" },
     });
-    fireEvent.change(screen.getByLabelText("Name"), {
+    fireEvent.change(screen.getByLabelText("nameEn"), {
       target: { value: "Test Product" },
     });
-    fireEvent.change(screen.getByLabelText("Category"), {
+    fireEvent.change(screen.getByLabelText("category"), {
       target: { value: "Floral" },
     });
     const priceInput = screen.getByLabelText("Price (EUR)");
@@ -391,7 +419,7 @@ describe("Admin Product Form Validation", () => {
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
-    const EditProductPage = (await import("@/app/admin/products/[id]/edit/page")).default;
+    const EditProductPage = (await import("@/app/[locale]/admin/products/[id]/edit/page")).default;
 
     render(
       <AdminProvider>
@@ -418,7 +446,7 @@ describe("Admin Product Form Validation", () => {
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
-    const EditProductPage = (await import("@/app/admin/products/[id]/edit/page")).default;
+    const EditProductPage = (await import("@/app/[locale]/admin/products/[id]/edit/page")).default;
 
     render(
       <AdminProvider>

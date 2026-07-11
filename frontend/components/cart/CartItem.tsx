@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { cn, formatPrice } from "@/lib/utils";
 import type { CartItemResponse } from "@/lib/types";
 
@@ -10,6 +11,7 @@ interface CartItemProps {
 }
 
 export function CartItem({ item, onUpdateQuantity, onRemove }: CartItemProps) {
+  const t = useTranslations("cart");
   const { product, quantity, product_id } = item;
   const lineTotal = product.price_cents * quantity;
   const canDecrement = quantity > 1;
@@ -22,14 +24,14 @@ export function CartItem({ item, onUpdateQuantity, onRemove }: CartItemProps) {
           {product.name}
         </h3>
         <p className="mt-1 text-sm text-soft-brown">
-          {formatPrice(product.price_cents)} each
+          {formatPrice(product.price_cents)}
         </p>
 
         <div className="mt-2 flex items-center gap-2">
           <button
             onClick={() => canDecrement && onUpdateQuantity(product_id, quantity - 1)}
             disabled={!canDecrement}
-            aria-label="Decrease quantity"
+            aria-label={t("decreaseQuantity")}
             className={cn(
               "w-7 h-7 inline-flex items-center justify-center rounded-brand border border-champagne-beige text-sm font-medium",
               "transition-colors duration-fast",
@@ -51,7 +53,7 @@ export function CartItem({ item, onUpdateQuantity, onRemove }: CartItemProps) {
           <button
             onClick={() => canIncrement && onUpdateQuantity(product_id, quantity + 1)}
             disabled={!canIncrement}
-            aria-label="Increase quantity"
+            aria-label={t("increaseQuantity")}
             className={cn(
               "w-7 h-7 inline-flex items-center justify-center rounded-brand border border-champagne-beige text-sm font-medium",
               "transition-colors duration-fast",
@@ -72,14 +74,14 @@ export function CartItem({ item, onUpdateQuantity, onRemove }: CartItemProps) {
         </p>
         <button
           onClick={() => onRemove(product_id)}
-          aria-label={`Remove ${product.name} from cart`}
+          aria-label={t("removeFromCart", { name: product.name })}
           className={cn(
             "text-soft-brown/70 hover:text-charcoal transition-colors duration-fast",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand",
             "inline-flex items-center justify-center min-w-[28px] min-h-[28px]"
           )}
         >
-          <span className="hidden sm:inline text-xs underline">Remove</span>
+          <span className="hidden sm:inline text-xs underline">{t("remove")}</span>
           <svg
             xmlns="http://www.w3.org/2000/svg"
             fill="none"
