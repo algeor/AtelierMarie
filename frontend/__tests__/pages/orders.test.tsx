@@ -6,11 +6,13 @@ vi.mock("@/lib/api", () => ({
   getOrders: vi.fn(),
 }));
 
+let mockIsAuthenticated = true;
+
 vi.mock("@/contexts/AuthContext", () => ({
   useAuth: () => ({
-    user: null,
+    user: mockIsAuthenticated ? { id: "user-001", email: "test@example.com", name: "Test", avatar_url: null, is_admin: false } : null,
     isLoading: false,
-    isAuthenticated: false,
+    isAuthenticated: mockIsAuthenticated,
     error: null,
     login: vi.fn(),
     logout: vi.fn(),
@@ -49,6 +51,7 @@ const mockOrdersResponse: OrderListResponse = {
 describe("OrdersPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockIsAuthenticated = true;
   });
 
   it("renders loading skeleton initially", () => {
@@ -80,12 +83,7 @@ describe("OrdersPage", () => {
   });
 
   it("handles empty state with anonymous CTA", async () => {
-    mockedGetOrders.mockResolvedValueOnce({
-      orders: [],
-      total: 0,
-      page: 1,
-      limit: 20,
-    });
+    mockIsAuthenticated = false;
     render(<OrdersPage />);
 
     await waitFor(() => {

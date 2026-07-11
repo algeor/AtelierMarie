@@ -65,8 +65,8 @@ describe("OrderDetailPage", () => {
       expect(screen.getByText("Order #a1b2c3d4")).toBeInTheDocument();
     });
 
-    // Status badge
-    expect(screen.getByText("Confirmed")).toBeInTheDocument();
+    // Status badge (find by the text within the badge component)
+    expect(screen.getAllByText("Confirmed").length).toBeGreaterThanOrEqual(1);
     // Date
     expect(screen.getByText("July 1, 2026")).toBeInTheDocument();
     // Items

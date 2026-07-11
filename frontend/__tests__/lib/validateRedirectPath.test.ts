@@ -7,7 +7,12 @@ describe("validateRedirectPath", () => {
     expect(validateRedirectPath("/products")).toBe("/products");
     expect(validateRedirectPath("/account")).toBe("/account");
     expect(validateRedirectPath("/orders/123")).toBe("/orders/123");
-    expect(validateRedirectPath("/products?sort=price")).toBe("/products?sort=price");
+  });
+
+  it("strips query strings and fragments", () => {
+    expect(validateRedirectPath("/products?sort=price")).toBe("/products");
+    expect(validateRedirectPath("/account#section")).toBe("/account");
+    expect(validateRedirectPath("/orders?page=2#top")).toBe("/orders");
   });
 
   it("rejects protocol-relative URLs", () => {
@@ -32,5 +37,20 @@ describe("validateRedirectPath", () => {
   it("returns / for paths without leading slash", () => {
     expect(validateRedirectPath("products")).toBe("/");
     expect(validateRedirectPath("evil.com")).toBe("/");
+  });
+
+  it("rejects path traversal", () => {
+    expect(validateRedirectPath("/../../etc/passwd")).toBe("/");
+    expect(validateRedirectPath("/products/../admin")).toBe("/");
+    expect(validateRedirectPath("/./hidden")).toBe("/");
+  });
+
+  it("rejects backslashes", () => {
+    expect(validateRedirectPath("/foo\\bar")).toBe("/");
+  });
+
+  it("rejects control characters", () => {
+    expect(validateRedirectPath("/foo\x00bar")).toBe("/");
+    expect(validateRedirectPath("/foo\nbar")).toBe("/");
   });
 });

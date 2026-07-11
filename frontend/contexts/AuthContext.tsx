@@ -184,6 +184,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error("Logout API call failed:", message);
       dispatch({ type: "LOGOUT_SUCCESS" });
     } finally {
+      // Notify dependents (CartContext) that the session changed.
+      // Dispatch BEFORE resetting isLoggingOutRef so the AuthContext listener
+      // skips the redundant re-fetch (it checks isLoggingOutRef.current).
+      window.dispatchEvent(new Event("session-rotated"));
       isLoggingOutRef.current = false;
     }
   }, []);

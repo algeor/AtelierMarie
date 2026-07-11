@@ -7,7 +7,7 @@ const mockUser = {
   id: "user-001",
   email: "marie@ateliermarie.com",
   name: "Marie",
-  avatar_url: "https://example.com/avatar.jpg",
+  avatar_url: "https://example.com/avatar.jpg" as string | null,
   is_admin: false,
 };
 

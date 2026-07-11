@@ -33,8 +33,12 @@ export default function OrdersPage() {
 
   useEffect(() => {
     if (authLoading) return;
+    if (!isAuthenticated) {
+      setIsLoading(false);
+      return;
+    }
     fetchOrders(page);
-  }, [page, fetchOrders, authLoading]);
+  }, [page, fetchOrders, authLoading, isAuthenticated]);
 
   // Loading skeleton
   if (isLoading) {
