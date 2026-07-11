@@ -1,0 +1,34 @@
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { vi, describe, it, expect } from "vitest";
+
+const mockLogin = vi.fn();
+
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => ({
+    user: null,
+    isAuthenticated: false,
+    isLoading: false,
+    error: null,
+    login: mockLogin,
+    logout: vi.fn(),
+    loginComplete: vi.fn(),
+  }),
+}));
+
+import { LoginButton } from "@/components/auth/LoginButton";
+
+describe("LoginButton", () => {
+  it("renders 'Sign In' text", () => {
+    render(<LoginButton />);
+    expect(screen.getByText("Sign In")).toBeInTheDocument();
+  });
+
+  it("calls login() from useAuth on click", async () => {
+    const user = userEvent.setup();
+    render(<LoginButton />);
+
+    await user.click(screen.getByText("Sign In"));
+    expect(mockLogin).toHaveBeenCalled();
+  });
+});

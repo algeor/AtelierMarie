@@ -21,8 +21,12 @@ class Settings(BaseSettings):
     # Auth
     jwt_secret: str = _DEV_JWT_SECRET
     jwt_algorithm: str = "HS256"
+    jwt_expiry_hours: int = 168  # 7 days
+    jwt_cookie_name: str = "atelier_auth"
     google_client_id: str = ""
     google_client_secret: str = ""
+    google_redirect_uri: str = ""
+    frontend_url: str = "http://localhost:3000"
 
     # Admin
     admin_api_key: str = ""

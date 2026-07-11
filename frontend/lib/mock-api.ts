@@ -122,6 +122,10 @@ interface MockCartItem {
 
 let mockCartItems: MockCartItem[] = [];
 
+// --- In-Memory Auth State ---
+
+let mockIsAuthenticated = true;
+
 // --- In-Memory Order Store ---
 
 const mockOrders: OrderResponse[] = [];
@@ -310,7 +314,7 @@ export async function getOrder(orderId: string): Promise<OrderResponse> {
 
 export async function getCurrentUser(): Promise<UserResponse | null> {
   await delay();
-  return MOCK_USER;
+  return mockIsAuthenticated ? MOCK_USER : null;
 }
 
 export async function login(
@@ -318,11 +322,21 @@ export async function login(
   _redirectUri: string
 ): Promise<AuthTokenResponse> {
   await delay();
+  mockIsAuthenticated = true;
   return {
     access_token: "mock-jwt-token",
     token_type: "bearer",
     user: MOCK_USER,
   };
+}
+
+export function mockLogout(): void {
+  mockIsAuthenticated = false;
+  window.dispatchEvent(new Event("session-rotated"));
+}
+
+export function mockLogin(): void {
+  mockIsAuthenticated = true;
 }
 
 // --- Admin Functions ---

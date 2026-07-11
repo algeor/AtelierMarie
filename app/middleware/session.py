@@ -140,6 +140,7 @@ class SessionMiddleware(BaseHTTPMiddleware):
             )
 
         request.state.session_id = session_id
+        request.state.session_is_new = is_new
 
         response = await call_next(request)
 

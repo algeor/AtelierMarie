@@ -281,6 +281,14 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // Refresh cart when session is rotated (login/logout)
+  useEffect(() => {
+    window.addEventListener("session-rotated", refreshCart);
+    return () => {
+      window.removeEventListener("session-rotated", refreshCart);
+    };
+  }, [refreshCart]);
+
   const openDrawer = useCallback(() => {
     dispatch({ type: "OPEN_DRAWER" });
   }, []);

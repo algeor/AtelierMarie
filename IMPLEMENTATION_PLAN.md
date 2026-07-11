@@ -123,28 +123,28 @@ Once these are agreed, Dev B creates `frontend/lib/mock-api.ts` with hardcoded r
 - [X] Create `app/routes/admin.py` (POST/PUT/DELETE products, CSV bulk import)
 - [X] Implement CSV import: streaming parse, upsert semantics, error reporting
 - [X] Write tests for product service
-- [X/ops] Seed script with ~10 sample candle products
+- [X] Seed script with ~10 sample candle products
 
-### Day 3: Session + Cart
+### [DONE] Day 3: Session + Cart
 
-- [ ] Define `sessions` and `cart_items` table schemas
-- [ ] Create `app/middleware/session.py` (cookie creation/validation, sliding 30-day expiry)
-- [ ] Create `app/services/cart_service.py` (get_cart, add_item, update_quantity, remove_item)
-- [ ] Stock validation on add (immediate 409 if insufficient)
-- [ ] Quantity limits (max 10 per item, max 20 distinct items)
-- [ ] Create `app/routes/cart.py` (GET/POST/PATCH/DELETE)
-- [ ] Write tests (stock validation, limits, update-to-zero = remove)
+- [x] Define `sessions` and `cart_items` table schemas
+- [x] Create `app/middleware/session.py` (cookie creation/validation, sliding 30-day expiry)
+- [x] Create `app/services/cart_service.py` (get_cart, add_item, update_quantity, remove_item)
+- [x] Stock validation on add (immediate 409 if insufficient)
+- [x] Quantity limits (max 10 per item, max 20 distinct items)
+- [x] Create `app/routes/cart.py` (GET/POST/PATCH/DELETE)
+- [x] Write tests (stock validation, limits, update-to-zero = remove)
 
-### Day 4: Orders + Checkout
+### [DONE] Day 4: Orders + Checkout
 
-- [ ] Define `orders` and `order_items` table schemas
-- [ ] Create `app/services/order_service.py` (checkout, list, get, update_status)
-- [ ] Implement atomic checkout (validate → transaction → snapshot prices → decrement stock → clear cart)
-- [ ] Implement order state machine (valid transitions only, 422 on invalid)
-- [ ] Stock restoration on cancellation
-- [ ] Create `app/routes/orders.py` (POST, GET list, GET detail)
-- [ ] Admin order routes (list all, update status)
-- [ ] Write tests (happy path, out-of-stock, race condition, cancel restores stock)
+- [X] Define `orders` and `order_items` table schemas
+- [X] Create `app/services/order_service.py` (checkout, list, get, update_status)
+- [X] Implement atomic checkout (validate → transaction → snapshot prices → decrement stock → clear cart)
+- [X] Implement order state machine (valid transitions only, 422 on invalid)
+- [X] Stock restoration on cancellation
+- [X] Create `app/routes/orders.py` (POST, GET list, GET detail)
+- [X] Admin order routes (list all, update status)
+- [X] Write tests (happy path, out-of-stock, race condition, cancel restores stock)
 
 ### Day 5: Authentication + Image Upload
 
@@ -228,21 +228,21 @@ Once these are agreed, Dev B creates `frontend/lib/mock-api.ts` with hardcoded r
 
 ### Day 5: Auth + Account
 
-- [ ] Login button in header (redirects to `/v1/auth/login`)
-- [ ] Handle OAuth callback redirect (user lands back on site, JWT cookie set)
-- [ ] Account page: show user info (name, email) or login prompt if anonymous
-- [ ] My Orders page: list of past orders with status badges
-- [ ] Order detail page: items, total, status timeline
-- [ ] Handle `X-Session-Rotated` header in API client (update local state on logout)
+- [] Login button in header (redirects to `/v1/auth/login`)
+- [] Handle OAuth callback redirect (user lands back on site, JWT cookie set)
+- [] Account page: show user info (name, email) or login prompt if anonymous
+- [] My Orders page: list of past orders with status badges
+- [] Order detail page: items, total, status timeline
+- [] Handle `X-Session-Rotated` header in API client (update local state on logout)
 
 ### Day 6: Admin UI
 
-- [ ] Admin layout (separate nav: Dashboard, Products, Orders)
-- [ ] Admin dashboard: stats cards (orders today, revenue this week, product count)
-- [ ] Admin product list: table with edit/deactivate actions
-- [ ] Admin product form: create/edit (name, description, price, category, stock, image upload)
-- [ ] Admin order list: table with status filter, status update dropdown
-- [ ] Protect admin routes (redirect to login if not admin)
+- [X] Admin layout (separate nav: Dashboard, Products, Orders)
+- [X] Admin dashboard: stats cards (orders today, revenue this week, product count)
+- [X] Admin product list: table with edit/deactivate actions
+- [X] Admin product form: create/edit (name, description, price, category, stock, image upload)
+- [X] Admin order list: table with status filter, status update dropdown
+- [X] Protect admin routes (redirect to login if not admin)
 
 ### Day 7: Integration ★
 
