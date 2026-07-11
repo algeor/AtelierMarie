@@ -310,7 +310,7 @@ def admin_list_orders(
         result = list_orders_admin(conn=conn, status=status, page=page, limit=limit)
 
     return OrderListResponse(
-        orders=[OrderResponse.model_validate(o) for o in result["items"]],
+        items=[OrderResponse.model_validate(o) for o in result["items"]],
         total=result["total"],
         page=result["page"],
         limit=result["limit"],

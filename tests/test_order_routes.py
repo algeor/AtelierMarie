@@ -203,7 +203,7 @@ class TestListMyOrders:
         assert resp.status_code == 200
         data = resp.json()
         assert data["total"] == 1
-        assert len(data["orders"]) == 1
+        assert len(data["items"]) == 1
         assert data["page"] == 1
 
     # 7.5b: Cross-session isolation
@@ -348,7 +348,7 @@ class TestAdminListOrders:
         resp = await admin_order_client.get("/v1/admin/orders?status=pending")
         assert resp.status_code == 200
         data = resp.json()
-        assert all(o["status"] == "pending" for o in data["orders"])
+        assert all(o["status"] == "pending" for o in data["items"])
 
         # Filter by confirmed (should be empty)
         resp = await admin_order_client.get("/v1/admin/orders?status=confirmed")

@@ -34,7 +34,7 @@ class OrderResponse(BaseModel):
 class OrderListResponse(BaseModel):
     """Paginated list of orders."""
 
-    orders: list[OrderResponse]
+    items: list[OrderResponse]
     total: int
     page: int
     limit: int

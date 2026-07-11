@@ -25,15 +25,6 @@ from app.services.order_service import (
 router = APIRouter()
 
 
-def _get_user_id_for_session(session_id: str) -> str | None:
-    """Read user_id from the sessions table for the given session."""
-    with get_db() as conn:
-        row = conn.execute(
-            "SELECT user_id FROM sessions WHERE id = ?", (session_id,)
-        ).fetchone()
-        return row["user_id"] if row else None
-
-
 @router.post(
     "",
     response_model=OrderResponse,
@@ -48,8 +39,9 @@ def create_order(
     session_id: Annotated[str, Depends(require_session)],
 ) -> OrderResponse | JSONResponse:
     """Place a new order from the current cart."""
-    # CSRF protection: require JSON content type
-    content_type = request.headers.get("content-type", "")
+    # Defense-in-depth: reject non-JSON requests
+    # Primary CSRF protection: SameSite=Lax session cookie
+    content_type = request.headers.get("content-type", "").lower()
     if "application/json" not in content_type:
         return JSONResponse(
             status_code=422,
@@ -61,10 +53,13 @@ def create_order(
             },
         )
 
-    user_id = _get_user_id_for_session(session_id)
-
     try:
         with get_db() as conn:
+            row = conn.execute(
+                "SELECT user_id FROM sessions WHERE id = ?", (session_id,)
+            ).fetchone()
+            user_id = row["user_id"] if row else None
+
             order_data = checkout(
                 conn=conn,
                 session_id=session_id,
@@ -123,9 +118,12 @@ def list_my_orders(
     limit: int = Query(default=20, ge=1, le=100, description="Items per page"),
 ) -> OrderListResponse:
     """List orders for the current session/user."""
-    user_id = _get_user_id_for_session(session_id)
-
     with get_db() as conn:
+        row = conn.execute(
+            "SELECT user_id FROM sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+        user_id = row["user_id"] if row else None
+
         result = list_orders(
             conn=conn,
             session_id=session_id,
@@ -135,7 +133,7 @@ def list_my_orders(
         )
 
     return OrderListResponse(
-        orders=[OrderResponse.model_validate(o) for o in result["items"]],
+        items=[OrderResponse.model_validate(o) for o in result["items"]],
         total=result["total"],
         page=result["page"],
         limit=result["limit"],
@@ -154,10 +152,13 @@ def get_order_detail(
     session_id: Annotated[str, Depends(require_session)],
 ) -> OrderResponse | JSONResponse:
     """Get a specific order by ID (with ownership check)."""
-    user_id = _get_user_id_for_session(session_id)
-
     try:
         with get_db() as conn:
+            row = conn.execute(
+                "SELECT user_id FROM sessions WHERE id = ?", (session_id,)
+            ).fetchone()
+            user_id = row["user_id"] if row else None
+
             order_data = get_order(
                 conn=conn,
                 order_id=order_id,

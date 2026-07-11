@@ -8,7 +8,7 @@ import logging
 import sqlite3
 import uuid
 from datetime import UTC, datetime
-from typing import Literal
+from typing import TypedDict
 
 from app.models.orders import OrderStatus
 
@@ -84,8 +84,6 @@ class OrderNotFoundError(OrderServiceError):
 # ---------------------------------------------------------------------------
 # TypedDict return types
 # ---------------------------------------------------------------------------
-
-from typing import TypedDict
 
 
 class OrderItemData(TypedDict):
@@ -226,13 +224,15 @@ def checkout(
                 "UPDATE products SET stock = stock - ? WHERE id = ?",
                 (row["quantity"], row["product_id"]),
             )
-        except sqlite3.IntegrityError:
-            # CHECK (stock >= 0) constraint violated — race condition
+        except sqlite3.IntegrityError as e:
+            # CHECK (stock >= 0) constraint violated — race condition.
+            # available=0 because the constraint proves stock went negative;
+            # row["stock"] from step 1 is stale and misleading here.
             raise InsufficientStockError([{
                 "product_id": row["product_id"],
                 "requested": row["quantity"],
-                "available": row["stock"],
-            }])
+                "available": 0,
+            }]) from e
 
     # 6. Clear cart items for products included in this order
     product_ids = [row["product_id"] for row in cart_rows]
@@ -445,10 +445,15 @@ def update_status(
             (order_id,),
         ).fetchall()
         for item in item_rows:
-            conn.execute(
+            cursor = conn.execute(
                 "UPDATE products SET stock = stock + ? WHERE id = ?",
                 (item["quantity"], item["product_id"]),
             )
+            if cursor.rowcount == 0:
+                logger.warning(
+                    "Could not restore stock for missing product",
+                    extra={"product_id": item["product_id"], "order_id": order_id},
+                )
 
     # Log admin action
     logger.info(
@@ -458,5 +463,6 @@ def update_status(
 
     # Return updated order
     order = _fetch_order_with_items(conn, order_id)
-    assert order is not None  # We just confirmed it exists
+    if order is None:
+        raise OrderNotFoundError(order_id)
     return order
