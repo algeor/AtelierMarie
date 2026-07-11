@@ -10,7 +10,21 @@ vi.mock("@/lib/api", () => ({
   removeFromCart: vi.fn(),
 }));
 
+vi.mock("@/lib/api-client", () => ({
+  ApiError: class ApiError extends Error {
+    code: string;
+    details: null;
+    constructor(response: { error: { code: string; message: string; details: null } }) {
+      super(response.error.message);
+      this.name = "ApiError";
+      this.code = response.error.code;
+      this.details = null;
+    }
+  },
+}));
+
 import { getCart, addToCart, updateCartItem, removeFromCart } from "@/lib/api";
+import { ApiError } from "@/lib/api-client";
 
 const mockedGetCart = vi.mocked(getCart);
 const mockedAddToCart = vi.mocked(addToCart);
@@ -87,8 +101,7 @@ describe("CartContext", () => {
 
   it("addToCart optimistically increments and rolls back on 409", async () => {
     mockedGetCart.mockResolvedValue(cartWithItem);
-    const conflictError = new Error("Conflict") as Error & { code?: string };
-    conflictError.code = "CONFLICT";
+    const conflictError = new ApiError({ error: { code: "CONFLICT", message: "Insufficient stock", details: null } });
     mockedAddToCart.mockRejectedValue(conflictError);
 
     renderWithProvider();

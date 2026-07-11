@@ -44,6 +44,7 @@ export default function CheckoutPage() {
 
   const validateEmail = useCallback((value: string): string | null => {
     if (!value.trim()) return "Email is required";
+    if (value.length > 254) return "Email address is too long";
     if (!EMAIL_REGEX.test(value)) return "Please enter a valid email address";
     return null;
   }, []);
@@ -129,7 +130,7 @@ export default function CheckoutPage() {
 
       <div className="grid gap-12 lg:grid-cols-[1fr_400px]">
         {/* Contact & Shipping Form */}
-        <form onSubmit={handleSubmit} noValidate>
+        <form id="checkout-form" onSubmit={handleSubmit} noValidate>
           {/* Submission error */}
           <div aria-live="polite" className="mb-6">
             {submitError && (
@@ -185,6 +186,7 @@ export default function CheckoutPage() {
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              maxLength={200}
               className="w-full rounded-brand border border-champagne-beige px-4 py-3 text-charcoal bg-warm-ivory placeholder:text-soft-brown/50 focus:outline-none focus:ring-2 focus:ring-soft-brown focus:ring-offset-2 focus:ring-offset-warm-ivory"
               placeholder="Full name"
             />
@@ -203,6 +205,7 @@ export default function CheckoutPage() {
               rows={3}
               value={address}
               onChange={(e) => setAddress(e.target.value)}
+              maxLength={500}
               className="w-full rounded-brand border border-champagne-beige px-4 py-3 text-charcoal bg-warm-ivory placeholder:text-soft-brown/50 focus:outline-none focus:ring-2 focus:ring-soft-brown focus:ring-offset-2 focus:ring-offset-warm-ivory"
               placeholder="Street, city, postal code"
             />
@@ -221,6 +224,7 @@ export default function CheckoutPage() {
               rows={2}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
+              maxLength={500}
               className="w-full rounded-brand border border-champagne-beige px-4 py-3 text-charcoal bg-warm-ivory placeholder:text-soft-brown/50 focus:outline-none focus:ring-2 focus:ring-soft-brown focus:ring-offset-2 focus:ring-offset-warm-ivory"
               placeholder="Any special requests..."
             />
@@ -282,11 +286,11 @@ export default function CheckoutPage() {
             <div className="mt-6 hidden lg:block">
               <Button
                 type="submit"
+                form="checkout-form"
                 variant="primary"
                 size="lg"
                 isLoading={isSubmitting}
                 className="w-full"
-                onClick={handleSubmit}
               >
                 {isSubmitting ? "Placing order..." : "Place Order"}
               </Button>

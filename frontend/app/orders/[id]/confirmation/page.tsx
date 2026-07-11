@@ -37,7 +37,8 @@ export default function OrderConfirmationPage() {
           if (err instanceof ApiError && err.code === "NOT_FOUND") {
             setError("Order not found");
           } else {
-            setError("Order not found");
+            console.error("Order fetch failed:", err);
+            setError("Something went wrong loading your order. Please try again.");
           }
         }
       } finally {

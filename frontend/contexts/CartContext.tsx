@@ -209,7 +209,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   const handleAddToCart = useCallback(
     async (productId: string, quantity = 1) => {
-      const previousState = { ...stateRef.current };
+      const previousState = structuredClone(stateRef.current);
       dispatch({ type: "OPTIMISTIC_ADD", payload: { productId, quantity } });
 
       try {
@@ -231,7 +231,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   const handleUpdateQuantity = useCallback(
     async (productId: string, quantity: number) => {
-      const previousState = { ...stateRef.current };
+      const previousState = structuredClone(stateRef.current);
       dispatch({ type: "OPTIMISTIC_UPDATE", payload: { productId, quantity } });
 
       try {
@@ -251,7 +251,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   );
 
   const handleRemoveItem = useCallback(async (productId: string) => {
-    const previousState = { ...stateRef.current };
+    const previousState = structuredClone(stateRef.current);
     dispatch({ type: "OPTIMISTIC_REMOVE", payload: { productId } });
 
     try {

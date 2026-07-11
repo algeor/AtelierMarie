@@ -16,6 +16,12 @@ import type {
 } from "./types";
 import { ApiError } from "./api-client";
 
+// --- Safety Guard ---
+
+if (process.env.NODE_ENV === "production") {
+  throw new Error("Mock API must not be used in production");
+}
+
 // --- Helpers ---
 
 function mockError(code: string, message: string): never {
@@ -189,6 +195,10 @@ export async function addToCart(
   await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId && p.is_active);
   if (!product) mockError("NOT_FOUND", `Product ${productId} not found`);
+
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) {
+    mockError("VALIDATION_ERROR", "Quantity must be between 1 and 99");
+  }
 
   const existing = mockCartItems.find((ci) => ci.product_id === productId);
   const currentQty = existing ? existing.quantity : 0;
