@@ -1,18 +1,21 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import { getAdminOrders, updateOrderStatus } from "@/lib/api";
+import { ApiError } from "@/lib/api-client";
+import { useLocalizedError } from "@/lib/useLocalizedError";
 import { cn, formatPrice } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/Skeleton";
 import type { OrderResponse, OrderStatus } from "@/lib/types";
 
-const STATUS_FILTERS: { label: string; value: string }[] = [
-  { label: "All", value: "" },
-  { label: "Pending", value: "pending" },
-  { label: "Confirmed", value: "confirmed" },
-  { label: "Shipped", value: "shipped" },
-  { label: "Delivered", value: "delivered" },
-  { label: "Cancelled", value: "cancelled" },
+const STATUS_FILTERS: (OrderStatus | "")[] = [
+  "",
+  "pending",
+  "confirmed",
+  "shipped",
+  "delivered",
+  "cancelled",
 ];
 
 const STATUS_COLORS: Record<OrderStatus, string> = {
@@ -31,8 +34,8 @@ const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   cancelled: [],
 };
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", {
+function formatDate(iso: string, locale: string): string {
+  return new Date(iso).toLocaleDateString(locale === "bg" ? "bg-BG" : "en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -47,6 +50,10 @@ function maskEmail(email: string): string {
 }
 
 export default function AdminOrdersPage() {
+  const t = useTranslations("admin");
+  const tStatus = useTranslations("orders.status");
+  const locale = useLocale();
+  const getLocalizedError = useLocalizedError();
   const [orders, setOrders] = useState<OrderResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -67,7 +74,7 @@ export default function AdminOrdersPage() {
         const data = await getAdminOrders(1, 100, statusFilter || undefined);
         setOrders(data.orders);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load orders");
+        setError(err instanceof ApiError ? getLocalizedError(err.code) : t("errors.loadOrders"));
       } finally {
         setIsLoading(false);
         setIsRefreshing(false);
@@ -75,7 +82,7 @@ export default function AdminOrdersPage() {
       }
     }
     loadOrders();
-  }, [statusFilter]);
+  }, [statusFilter, getLocalizedError, t]);
 
   async function handleStatusChange(order: OrderResponse, newStatus: OrderStatus) {
     const previousStatus = order.status;
@@ -102,7 +109,9 @@ export default function AdminOrdersPage() {
           o.id === order.id ? { ...o, status: previousStatus } : o
         )
       );
-      setError(err instanceof Error ? err.message : "Failed to update order status");
+      setError(
+        err instanceof ApiError ? getLocalizedError(err.code) : t("errors.updateOrderStatus")
+      );
     } finally {
       setUpdatingId(null);
     }
@@ -112,10 +121,10 @@ export default function AdminOrdersPage() {
     <div>
       <div className="mb-8">
         <h1 className="font-heading text-2xl font-semibold text-charcoal">
-          Orders
+          {t("orders")}
         </h1>
         <p className="mt-1 text-sm text-soft-brown">
-          Manage customer orders
+          {t("manageOrders")}
         </p>
       </div>
 
@@ -123,17 +132,17 @@ export default function AdminOrdersPage() {
       <div className="mb-6 flex flex-wrap gap-2">
         {STATUS_FILTERS.map((filter) => (
           <button
-            key={filter.value}
-            onClick={() => setStatusFilter(filter.value)}
+            key={filter}
+            onClick={() => setStatusFilter(filter)}
             className={cn(
               "rounded-pill px-4 py-1.5 text-sm font-medium transition-colors duration-fast",
-              statusFilter === filter.value
+              statusFilter === filter
                 ? "bg-muted-gold text-charcoal"
                 : "bg-champagne-beige/50 text-soft-brown hover:bg-champagne-beige"
             )}
-            aria-pressed={statusFilter === filter.value}
+            aria-pressed={statusFilter === filter}
           >
-            {filter.label}
+            {filter ? tStatus(filter) : t("all")}
           </button>
         ))}
       </div>
@@ -154,12 +163,12 @@ export default function AdminOrdersPage() {
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="border-b border-champagne-beige bg-champagne-beige/30">
-              <th className="px-4 py-3 font-medium text-charcoal">Order ID</th>
-              <th className="px-4 py-3 font-medium text-charcoal">Customer</th>
-              <th className="px-4 py-3 font-medium text-charcoal">Total</th>
-              <th className="px-4 py-3 font-medium text-charcoal">Status</th>
-              <th className="px-4 py-3 font-medium text-charcoal">Date</th>
-              <th className="px-4 py-3 font-medium text-charcoal">Actions</th>
+              <th className="px-4 py-3 font-medium text-charcoal">{t("orderId")}</th>
+              <th className="px-4 py-3 font-medium text-charcoal">{t("customer")}</th>
+              <th className="px-4 py-3 font-medium text-charcoal">{t("total")}</th>
+              <th className="px-4 py-3 font-medium text-charcoal">{t("status")}</th>
+              <th className="px-4 py-3 font-medium text-charcoal">{t("date")}</th>
+              <th className="px-4 py-3 font-medium text-charcoal">{t("actions")}</th>
             </tr>
           </thead>
           <tbody className={cn(isRefreshing && "opacity-50 pointer-events-none")}>
@@ -177,7 +186,7 @@ export default function AdminOrdersPage() {
             ) : orders.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-4 py-8 text-center text-soft-brown">
-                  No orders found.
+                  {t("noOrders")}
                 </td>
               </tr>
             ) : (
@@ -204,18 +213,18 @@ export default function AdminOrdersPage() {
                         STATUS_COLORS[order.status]
                       )}
                     >
-                      {order.status}
+                      {tStatus(order.status)}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-soft-brown">
-                    {formatDate(order.created_at)}
+                    {formatDate(order.created_at, locale)}
                   </td>
                   <td className="px-4 py-3">
                     {VALID_TRANSITIONS[order.status].length > 0 ? (
                       <select
                         value=""
                         disabled={updatingId === order.id}
-                        aria-label={`Update status for order ${order.id.slice(0, 8)}`}
+                        aria-label={t("updateStatusForOrder", { id: order.id.slice(0, 8) })}
                         onChange={(e) => {
                           if (e.target.value) {
                             handleStatusChange(
@@ -226,16 +235,16 @@ export default function AdminOrdersPage() {
                         }}
                         className="h-8 rounded-brand border border-champagne-beige bg-cream px-2 text-xs text-soft-brown focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown disabled:opacity-50"
                       >
-                        <option value="">Update status…</option>
+                        <option value="">{t("updateStatus")}</option>
                         {VALID_TRANSITIONS[order.status].map((s) => (
                           <option key={s} value={s}>
-                            {s.charAt(0).toUpperCase() + s.slice(1)}
+                            {tStatus(s)}
                           </option>
                         ))}
                       </select>
                     ) : (
                       <span className="text-xs text-soft-brown/50">
-                        No actions
+                        {t("noActions")}
                       </span>
                     )}
                   </td>

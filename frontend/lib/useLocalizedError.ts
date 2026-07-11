@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { useTranslations } from "next-intl";
 
 /**
@@ -8,7 +9,7 @@ import { useTranslations } from "next-intl";
 export function useLocalizedError() {
   const t = useTranslations("errors");
 
-  return function getErrorMessage(code: string | undefined | null): string {
+  return useCallback(function getErrorMessage(code: string | undefined | null): string {
     if (!code) return t("UNKNOWN");
 
     // Try to find the error code in translations; fall back to UNKNOWN
@@ -17,5 +18,5 @@ export function useLocalizedError() {
     } catch {
       return t("UNKNOWN");
     }
-  };
+  }, [t]);
 }

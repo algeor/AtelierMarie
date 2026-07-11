@@ -2,20 +2,21 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import Link from "next/link";
+import { useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import { getAdminProducts, updateProduct } from "@/lib/api";
+import { ApiError } from "@/lib/api-client";
+import { useLocalizedError } from "@/lib/useLocalizedError";
 import { formatPrice } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Skeleton } from "@/components/ui/Skeleton";
 import type { AdminProductResponse } from "@/lib/types";
 
-const SUCCESS_MESSAGES: Record<string, string> = {
-  created: "Product created successfully",
-  updated: "Product updated successfully",
-};
-
 export default function AdminProductsPage() {
+  const t = useTranslations("admin");
+  const tCommon = useTranslations("common");
+  const getLocalizedError = useLocalizedError();
   const searchParams = useSearchParams();
   const [products, setProducts] = useState<AdminProductResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -27,10 +28,14 @@ export default function AdminProductsPage() {
   // Show success banner from query param
   useEffect(() => {
     const success = searchParams.get("success");
-    if (success && SUCCESS_MESSAGES[success]) {
-      setSuccessMessage(SUCCESS_MESSAGES[success]);
+    const messages: Record<string, string> = {
+      created: t("productCreated"),
+      updated: t("productUpdated"),
+    };
+    if (success && messages[success]) {
+      setSuccessMessage(messages[success]);
       // Strip param from URL to prevent re-flash on refresh
-      window.history.replaceState({}, "", "/admin/products");
+      window.history.replaceState({}, "", window.location.pathname);
       // Auto-dismiss after 5 seconds
       successTimerRef.current = setTimeout(() => {
         setSuccessMessage(null);
@@ -39,7 +44,7 @@ export default function AdminProductsPage() {
     return () => {
       if (successTimerRef.current) clearTimeout(successTimerRef.current);
     };
-  }, [searchParams]);
+  }, [searchParams, t]);
 
   useEffect(() => {
     loadProducts();
@@ -51,7 +56,7 @@ export default function AdminProductsPage() {
       const data = await getAdminProducts(1, 100);
       setProducts(data.products);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load products");
+      setError(err instanceof ApiError ? getLocalizedError(err.code) : t("errors.loadProducts"));
     } finally {
       setIsLoading(false);
     }
@@ -82,7 +87,7 @@ export default function AdminProductsPage() {
           p.id === product.id ? { ...p, is_active: previousActive } : p
         )
       );
-      setError(err instanceof Error ? err.message : "Failed to update product");
+      setError(err instanceof ApiError ? getLocalizedError(err.code) : t("errors.updateProduct"));
     } finally {
       setTogglingId(null);
     }
@@ -98,17 +103,17 @@ export default function AdminProductsPage() {
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="font-heading text-2xl font-semibold text-charcoal">
-            Products
+            {t("products")}
           </h1>
           <p className="mt-1 text-sm text-soft-brown">
-            Manage your product catalog
+            {t("manageProducts")}
           </p>
         </div>
         <Link
           href="/admin/products/new"
           className="inline-flex h-10 items-center justify-center rounded-brand bg-charcoal px-4 text-sm font-medium text-cream transition-colors hover:bg-charcoal/90"
         >
-          Create Product
+          {t("createProduct")}
         </Link>
       </div>
 
@@ -118,7 +123,7 @@ export default function AdminProductsPage() {
           <button
             onClick={dismissSuccess}
             className="ml-4 text-green-500 hover:text-green-700"
-            aria-label="Dismiss success message"
+            aria-label={t("dismissSuccess")}
           >
             ✕
           </button>
@@ -135,12 +140,12 @@ export default function AdminProductsPage() {
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="border-b border-champagne-beige bg-champagne-beige/30">
-              <th className="px-4 py-3 font-medium text-charcoal">Name</th>
-              <th className="px-4 py-3 font-medium text-charcoal">Category</th>
-              <th className="px-4 py-3 font-medium text-charcoal">Price</th>
-              <th className="px-4 py-3 font-medium text-charcoal">Stock</th>
-              <th className="px-4 py-3 font-medium text-charcoal">Status</th>
-              <th className="px-4 py-3 font-medium text-charcoal">Actions</th>
+              <th className="px-4 py-3 font-medium text-charcoal">{t("name")}</th>
+              <th className="px-4 py-3 font-medium text-charcoal">{t("category")}</th>
+              <th className="px-4 py-3 font-medium text-charcoal">{t("price")}</th>
+              <th className="px-4 py-3 font-medium text-charcoal">{t("stock")}</th>
+              <th className="px-4 py-3 font-medium text-charcoal">{t("status")}</th>
+              <th className="px-4 py-3 font-medium text-charcoal">{t("actions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -158,7 +163,7 @@ export default function AdminProductsPage() {
             ) : products.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-4 py-8 text-center text-soft-brown">
-                  No products found. Create your first product to get started.
+                  {t("noProducts")}
                 </td>
               </tr>
             ) : (
@@ -179,7 +184,7 @@ export default function AdminProductsPage() {
                   <td className="px-4 py-3 text-soft-brown">{product.stock}</td>
                   <td className="px-4 py-3">
                     <Badge variant={product.is_active ? "success" : "warning"}>
-                      {product.is_active ? "Active" : "Inactive"}
+                      {product.is_active ? t("active") : t("inactive")}
                     </Badge>
                   </td>
                   <td className="px-4 py-3">
@@ -188,7 +193,7 @@ export default function AdminProductsPage() {
                         href={`/admin/products/${product.id}/edit`}
                         className="inline-flex h-8 items-center justify-center rounded-brand px-3 text-xs font-medium text-soft-brown hover:bg-champagne-beige/50 hover:text-charcoal"
                       >
-                        Edit
+                        {tCommon("edit")}
                       </Link>
                       <Button
                         variant="secondary"
@@ -196,7 +201,7 @@ export default function AdminProductsPage() {
                         isLoading={togglingId === product.id}
                         onClick={() => toggleActive(product)}
                       >
-                        {product.is_active ? "Deactivate" : "Activate"}
+                        {product.is_active ? t("deactivate") : t("activate")}
                       </Button>
                     </div>
                   </td>
@@ -210,35 +215,35 @@ export default function AdminProductsPage() {
       {/* CSV Import Format Reference */}
       <details className="mt-8 rounded-brand border border-champagne-beige bg-cream">
         <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-charcoal hover:bg-champagne-beige/30">
-          CSV Import Format Reference
+          {t("csvReference")}
         </summary>
         <div className="border-t border-champagne-beige px-4 py-4 text-sm text-soft-brown">
           <p className="mb-3">
-            Bulk import products via <code className="rounded bg-champagne-beige/50 px-1.5 py-0.5 text-xs">POST /v1/admin/products/import</code> with a CSV file.
+            {t("csvImportDescription", { endpoint: "POST /v1/admin/products/import" })}
           </p>
-          <p className="mb-2 font-medium text-charcoal">Required columns:</p>
+          <p className="mb-2 font-medium text-charcoal">{t("requiredColumns")}</p>
           <ul className="mb-3 ml-4 list-disc space-y-1">
-            <li><code className="text-xs">id</code> — Product slug (e.g., <code className="text-xs">lavender-dreams-300ml</code>)</li>
-            <li><code className="text-xs">name_en</code> — English product name</li>
-            <li><code className="text-xs">price_cents</code> — Price in cents (integer)</li>
-            <li><code className="text-xs">category</code> — Product category</li>
-            <li><code className="text-xs">stock</code> — Stock quantity</li>
+            <li><code className="text-xs">id</code> - {t("csvColumnId")} (<code className="text-xs">lavender-dreams-300ml</code>)</li>
+            <li><code className="text-xs">name_en</code> - {t("csvColumnNameEn")}</li>
+            <li><code className="text-xs">price_cents</code> - {t("csvColumnPrice")}</li>
+            <li><code className="text-xs">category</code> - {t("csvColumnCategory")}</li>
+            <li><code className="text-xs">stock</code> - {t("csvColumnStock")}</li>
           </ul>
-          <p className="mb-2 font-medium text-charcoal">Optional bilingual columns:</p>
+          <p className="mb-2 font-medium text-charcoal">{t("optionalBilingualColumns")}</p>
           <ul className="mb-3 ml-4 list-disc space-y-1">
-            <li><code className="text-xs">name_bg</code> — Bulgarian product name</li>
-            <li><code className="text-xs">description_en</code> — English description</li>
-            <li><code className="text-xs">description_bg</code> — Bulgarian description</li>
+            <li><code className="text-xs">name_bg</code> - {t("csvColumnNameBg")}</li>
+            <li><code className="text-xs">description_en</code> - {t("csvColumnDescriptionEn")}</li>
+            <li><code className="text-xs">description_bg</code> - {t("csvColumnDescriptionBg")}</li>
             <li><code className="text-xs">materials</code>, <code className="text-xs">days_to_craft</code>, <code className="text-xs">image_url</code>, <code className="text-xs">is_featured</code></li>
           </ul>
-          <p className="mb-2 font-medium text-charcoal">Example:</p>
+          <p className="mb-2 font-medium text-charcoal">{t("example")}</p>
           <pre className="overflow-x-auto rounded bg-charcoal/5 p-3 text-xs leading-relaxed">
 {`id,name_en,name_bg,description_en,description_bg,price_cents,category,stock
 lavender-dreams-300ml,Lavender Dreams,Лавандулов сън,Hand-poured soy candle,Ръчно излята соева свещ,3200,Floral,24
 midnight-amber-300ml,Midnight Amber,Полунощен кехлибар,Warm amber and sandalwood,Топъл кехлибар и сандалово дърво,4500,Woody,12`}
           </pre>
           <p className="mt-3 text-xs text-soft-brown/70">
-            If Bulgarian columns are omitted, products are created with English content only. Fallback will display English when Bulgarian is unavailable.
+            {t("csvFallbackNote")}
           </p>
         </div>
       </details>

@@ -11,6 +11,7 @@ import {
 import type { CartItemResponse, CartResponse } from "@/lib/types";
 import { addToCart, getCart, removeFromCart, updateCartItem } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
+import { useLocalizedError } from "@/lib/useLocalizedError";
 
 // --- State ---
 
@@ -154,6 +155,7 @@ const CartContext = createContext<CartContextValue | null>(null);
 // --- Provider ---
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
+  const getLocalizedError = useLocalizedError();
   const [state, dispatch] = useReducer(cartReducer, INITIAL_STATE);
   const stateRef = useRef(state);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -191,11 +193,11 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         if (!cancelled) {
           dispatch({ type: "HYDRATE_SUCCESS", payload: cart });
         }
-      } catch {
+      } catch (error) {
         if (!cancelled) {
           dispatch({
             type: "HYDRATE_FAILURE",
-            payload: "Something went wrong. Please try again.",
+            payload: error instanceof ApiError ? getLocalizedError(error.code) : getLocalizedError("UNKNOWN"),
           });
         }
       }
@@ -205,7 +207,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [getLocalizedError]);
 
   const handleAddToCart = useCallback(
     async (productId: string, quantity = 1) => {
@@ -216,17 +218,16 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         const cart = await addToCart(productId, quantity);
         dispatch({ type: "API_SUCCESS", payload: cart });
       } catch (error) {
-        const message =
-          error instanceof ApiError && error.code === "CONFLICT"
-            ? "This item is currently out of stock"
-            : "Something went wrong. Please try again.";
         dispatch({
           type: "API_FAILURE",
-          payload: { previousState, error: message },
+          payload: {
+            previousState,
+            error: error instanceof ApiError ? getLocalizedError(error.code) : getLocalizedError("UNKNOWN"),
+          },
         });
       }
     },
-    []
+    [getLocalizedError]
   );
 
   const handleUpdateQuantity = useCallback(
@@ -237,17 +238,17 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       try {
         const cart = await updateCartItem(productId, quantity);
         dispatch({ type: "API_SUCCESS", payload: cart });
-      } catch {
+      } catch (error) {
         dispatch({
           type: "API_FAILURE",
           payload: {
             previousState,
-            error: "Something went wrong. Please try again.",
+            error: error instanceof ApiError ? getLocalizedError(error.code) : getLocalizedError("UNKNOWN"),
           },
         });
       }
     },
-    []
+    [getLocalizedError]
   );
 
   const handleRemoveItem = useCallback(async (productId: string) => {
@@ -257,29 +258,29 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     try {
       const cart = await removeFromCart(productId);
       dispatch({ type: "API_SUCCESS", payload: cart });
-    } catch {
+    } catch (error) {
       dispatch({
         type: "API_FAILURE",
         payload: {
           previousState,
-          error: "Something went wrong. Please try again.",
+          error: error instanceof ApiError ? getLocalizedError(error.code) : getLocalizedError("UNKNOWN"),
         },
       });
     }
-  }, []);
+  }, [getLocalizedError]);
 
   const refreshCart = useCallback(async () => {
     dispatch({ type: "HYDRATE_START" });
     try {
       const cart = await getCart();
       dispatch({ type: "HYDRATE_SUCCESS", payload: cart });
-    } catch {
+    } catch (error) {
       dispatch({
         type: "HYDRATE_FAILURE",
-        payload: "Something went wrong. Please try again.",
+        payload: error instanceof ApiError ? getLocalizedError(error.code) : getLocalizedError("UNKNOWN"),
       });
     }
-  }, []);
+  }, [getLocalizedError]);
 
   // Refresh cart when session is rotated (login/logout)
   useEffect(() => {

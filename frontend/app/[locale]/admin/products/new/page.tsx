@@ -1,9 +1,12 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { createProduct, uploadProductImage } from "@/lib/api";
 import { ProductForm, type ProductFormData } from "@/components/admin/ProductForm";
 
 export default function CreateProductPage() {
+  const t = useTranslations("admin");
+
   async function handleSubmit(data: ProductFormData) {
     const product = await createProduct({
       id: data.id,
@@ -28,15 +31,15 @@ export default function CreateProductPage() {
     <div>
       <div className="mb-8">
         <h1 className="font-heading text-2xl font-semibold text-charcoal">
-          Create Product
+          {t("createProduct")}
         </h1>
         <p className="mt-1 text-sm text-soft-brown">
-          Add a new product to your catalog
+          {t("createProductSubtitle")}
         </p>
       </div>
 
       <div className="max-w-3xl rounded-brand border border-champagne-beige bg-cream p-6">
-        <ProductForm onSubmit={handleSubmit} submitLabel="Create Product" />
+        <ProductForm onSubmit={handleSubmit} submitLabel={t("createProduct")} />
       </div>
     </div>
   );

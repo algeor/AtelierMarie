@@ -2,16 +2,21 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import Link from "next/link";
+import { useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import { getOrder } from "@/lib/api";
 import { useCart } from "@/contexts/CartContext";
 import { ApiError } from "@/lib/api-client";
+import { useLocalizedError } from "@/lib/useLocalizedError";
 import { formatPrice } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 import type { OrderResponse } from "@/lib/types";
 
 export default function OrderConfirmationPage() {
+  const t = useTranslations("orders");
+  const tCart = useTranslations("cart");
+  const getLocalizedError = useLocalizedError();
   const params = useParams();
   const orderId = params.id as string;
   const { refreshCart } = useCart();
@@ -34,11 +39,11 @@ export default function OrderConfirmationPage() {
         }
       } catch (err) {
         if (!cancelled) {
-          if (err instanceof ApiError && err.code === "NOT_FOUND") {
-            setError("Order not found");
+          if (err instanceof ApiError) {
+            setError(getLocalizedError(err.code));
           } else {
             console.error("Order fetch failed:", err);
-            setError("Something went wrong loading your order. Please try again.");
+            setError(t("loadingError"));
           }
         }
       } finally {
@@ -56,7 +61,7 @@ export default function OrderConfirmationPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderId]);
+  }, [orderId, getLocalizedError, t]);
 
   // Loading state
   if (isLoading) {
@@ -82,15 +87,14 @@ export default function OrderConfirmationPage() {
       <div className="mx-auto max-w-2xl px-4 py-12 sm:px-6">
         <div className="rounded-brand border border-champagne-beige bg-warm-ivory p-8 text-center">
           <h1 className="mb-4 font-heading text-2xl text-charcoal">
-            Order not found
+            {t("notFound")}
           </h1>
           <p className="mb-6 text-soft-brown">
-            We couldn&apos;t find this order. It may have been removed or the
-            link is incorrect.
+            {error ?? t("notFoundDescription")}
           </p>
           <Link href="/products">
             <Button variant="primary" size="lg">
-              Continue Shopping
+              {tCart("continueShopping")}
             </Button>
           </Link>
         </div>
@@ -103,14 +107,14 @@ export default function OrderConfirmationPage() {
     <div className="mx-auto max-w-2xl px-4 py-12 sm:px-6">
       <div className="rounded-brand border border-champagne-beige bg-warm-ivory p-8">
         <h1 className="mb-2 font-heading text-3xl text-charcoal">
-          Thank you for your order!
+          {t("orderConfirmationMessage")}
         </h1>
-        <p className="mb-8 text-soft-brown">Order #{order.id}</p>
+        <p className="mb-8 text-soft-brown">{t("orderNumber", { id: order.id })}</p>
 
         {/* Order items */}
         <div className="mb-6">
           <h2 className="mb-3 font-heading text-lg text-charcoal">
-            Items ordered
+            {t("itemsOrdered")}
           </h2>
           <ul className="divide-y divide-champagne-beige rounded-brand border border-champagne-beige">
             {order.items.map((item) => (
@@ -123,7 +127,7 @@ export default function OrderConfirmationPage() {
                     {item.product_name}
                   </p>
                   <p className="text-sm text-soft-brown">
-                    Qty: {item.quantity} &times;{" "}
+                    {t("quantityShort", { quantity: item.quantity })} &times;{" "}
                     {formatPrice(item.price_cents)}
                   </p>
                 </div>
@@ -137,7 +141,7 @@ export default function OrderConfirmationPage() {
 
         {/* Order total */}
         <div className="mb-6 flex items-center justify-between border-t border-champagne-beige pt-4">
-          <span className="font-heading text-xl text-charcoal">Total</span>
+          <span className="font-heading text-xl text-charcoal">{t("total")}</span>
           <span className="font-heading text-xl text-charcoal">
             {formatPrice(order.total_cents)}
           </span>
@@ -145,13 +149,13 @@ export default function OrderConfirmationPage() {
 
         {/* Contact note */}
         <p className="mb-8 text-sm text-soft-brown">
-          Order confirmation noted for {order.customer_email}
+          {t("confirmationFor", { email: order.customer_email })}
         </p>
 
         {/* Continue shopping */}
         <Link href="/products">
           <Button variant="primary" size="lg">
-            Continue Shopping
+            {tCart("continueShopping")}
           </Button>
         </Link>
       </div>

@@ -1,10 +1,11 @@
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
 import { StatusTimeline } from "@/components/orders/StatusTimeline";
+import { renderWithIntl } from "../../test-utils";
 
 describe("StatusTimeline", () => {
   it("shows 1 filled step for pending", () => {
-    render(<StatusTimeline currentStatus="pending" />);
+    renderWithIntl(<StatusTimeline currentStatus="pending" />);
     expect(screen.getByText("Pending")).toBeInTheDocument();
     expect(screen.getByText("Confirmed")).toBeInTheDocument();
     expect(screen.getByText("Shipped")).toBeInTheDocument();
@@ -12,7 +13,7 @@ describe("StatusTimeline", () => {
   });
 
   it("shows 2 filled steps for confirmed", () => {
-    render(<StatusTimeline currentStatus="confirmed" />);
+    renderWithIntl(<StatusTimeline currentStatus="confirmed" />);
     const pending = screen.getByText("Pending");
     const confirmed = screen.getByText("Confirmed");
     const shipped = screen.getByText("Shipped");
@@ -25,7 +26,7 @@ describe("StatusTimeline", () => {
   });
 
   it("shows 3 filled steps for shipped", () => {
-    render(<StatusTimeline currentStatus="shipped" />);
+    renderWithIntl(<StatusTimeline currentStatus="shipped" />);
     const shipped = screen.getByText("Shipped");
     const delivered = screen.getByText("Delivered");
 
@@ -34,13 +35,13 @@ describe("StatusTimeline", () => {
   });
 
   it("shows all 4 steps filled for delivered", () => {
-    render(<StatusTimeline currentStatus="delivered" />);
+    renderWithIntl(<StatusTimeline currentStatus="delivered" />);
     const delivered = screen.getByText("Delivered");
     expect(delivered.className).toContain("text-charcoal");
   });
 
   it("shows 'Pending → Cancelled' for cancelled status", () => {
-    render(<StatusTimeline currentStatus="cancelled" />);
+    renderWithIntl(<StatusTimeline currentStatus="cancelled" />);
     expect(screen.getByText("Pending")).toBeInTheDocument();
     expect(screen.getByText("Cancelled")).toBeInTheDocument();
     // Should NOT show the normal progression steps

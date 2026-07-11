@@ -79,11 +79,11 @@ describe("LanguageToggle", () => {
       render(<LanguageToggle />);
       fireEvent.click(screen.getByRole("button"));
       expect(global.fetch).toHaveBeenCalledWith(
-        "/v1/session/locale",
+        "http://localhost:8000/v1/locale",
         expect.objectContaining({
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ preferred_locale: "bg" }),
+          body: JSON.stringify({ locale: "bg" }),
           credentials: "include",
         })
       );

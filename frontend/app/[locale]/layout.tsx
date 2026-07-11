@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Playfair_Display, Inter } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getMessages } from "next-intl/server";
-import { notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 import { routing } from "@/i18n/routing";
 import { getAlternateLanguages } from "@/lib/seo";
 import { AlternateLinks } from "@/components/seo/AlternateLinks";
@@ -48,7 +48,7 @@ export default async function LocaleLayout({ children, params }: Props) {
 
   // Validate that the incoming `locale` parameter is valid
   if (!routing.locales.includes(locale as "en" | "bg")) {
-    notFound();
+    redirect("/en");
   }
 
   // Providing all messages to the client side

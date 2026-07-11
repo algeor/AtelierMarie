@@ -3,12 +3,15 @@
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { getAdminStats } from "@/lib/api";
+import { ApiError } from "@/lib/api-client";
+import { useLocalizedError } from "@/lib/useLocalizedError";
 import { formatPrice } from "@/lib/utils";
 import { StatsCard, StatsCardSkeleton } from "@/components/admin/StatsCard";
 import type { AdminStats } from "@/lib/types";
 
 export default function AdminDashboardPage() {
   const t = useTranslations("admin");
+  const getLocalizedError = useLocalizedError();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -16,9 +19,11 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     getAdminStats()
       .then(setStats)
-      .catch((err) => setError(err.message || "Failed to load stats"))
+      .catch((err) =>
+        setError(err instanceof ApiError ? getLocalizedError(err.code) : t("errors.loadStats"))
+      )
       .finally(() => setIsLoading(false));
-  }, []);
+  }, [getLocalizedError, t]);
 
   return (
     <div>

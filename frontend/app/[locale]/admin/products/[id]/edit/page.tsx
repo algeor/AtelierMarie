@@ -2,12 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { getAdminProduct, updateProduct, uploadProductImage } from "@/lib/api";
+import { ApiError } from "@/lib/api-client";
+import { useLocalizedError } from "@/lib/useLocalizedError";
 import { ProductForm, type ProductFormData } from "@/components/admin/ProductForm";
 import { Skeleton } from "@/components/ui/Skeleton";
 import type { AdminProductResponse } from "@/lib/types";
 
 export default function EditProductPage() {
+  const t = useTranslations("admin");
+  const getLocalizedError = useLocalizedError();
   const params = useParams();
   const productId = params.id as string;
   const [product, setProduct] = useState<AdminProductResponse | null>(null);
@@ -17,9 +22,11 @@ export default function EditProductPage() {
   useEffect(() => {
     getAdminProduct(productId)
       .then(setProduct)
-      .catch((err) => setError(err.message || "Failed to load product"))
+      .catch((err) =>
+        setError(err instanceof ApiError ? getLocalizedError(err.code) : t("errors.loadProduct"))
+      )
       .finally(() => setIsLoading(false));
-  }, [productId]);
+  }, [productId, getLocalizedError, t]);
 
   async function handleSubmit(data: ProductFormData) {
     await updateProduct(productId, {
@@ -68,10 +75,10 @@ export default function EditProductPage() {
     <div>
       <div className="mb-8">
         <h1 className="font-heading text-2xl font-semibold text-charcoal">
-          Edit Product
+          {t("editProduct")}
         </h1>
         <p className="mt-1 text-sm text-soft-brown">
-          Update {product.name_en}
+          {t("editProductSubtitle", { name: product.name_en })}
         </p>
       </div>
 
@@ -79,7 +86,7 @@ export default function EditProductPage() {
         <ProductForm
           product={product}
           onSubmit={handleSubmit}
-          submitLabel="Save Changes"
+          submitLabel={t("saveChanges")}
         />
       </div>
     </div>
