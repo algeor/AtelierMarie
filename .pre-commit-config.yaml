@@ -1,0 +1,53 @@
+repos:
+  # --- Python ---
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.13
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # --- General quality ---
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: debug-statements
+      - id: check-merge-conflict
+
+  # --- Layer boundary enforcement ---
+  # Cardinal rule: Layer 1 code NEVER imports from Layer 2 (app/analytics/, app/ml/)
+  - repo: local
+    hooks:
+      - id: layer-boundary
+        name: layer boundary (L1 must not import L2)
+        language: pygrep
+        entry: 'from app\.(analytics|ml)|import app\.(analytics|ml)'
+        types: [python]
+        exclude: '^(app/analytics/|app/ml/|tests/)'
+
+      - id: no-os-environ
+        name: no os.environ/os.getenv (use pydantic-settings)
+        language: pygrep
+        entry: 'os\.(environ|getenv)'
+        types: [python]
+        exclude: '^(tests/|conftest\.py)'
+
+      - id: no-float-prices
+        name: no float prices (use int cents)
+        language: pygrep
+        entry: 'price\s*[:=]\s*(float|Decimal|\d+\.\d+)'
+        types: [python]
+        exclude: '^tests/'
+
+  # --- Secrets detection ---
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: [--baseline, .secrets.baseline]

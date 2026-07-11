@@ -1,10 +1,10 @@
 """FastAPI application factory and lifespan management."""
 
 import asyncio
-import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -12,16 +12,20 @@ from fastapi.responses import JSONResponse
 from app.config import get_settings
 from app.database import cleanup_expired_sessions, init_db
 from app.exceptions import register_exception_handlers
+from app.logging_config import configure_logging
+from app.middleware.request_id import RequestIdMiddleware
 from app.middleware.session import SessionMiddleware
 from app.routes import admin, auth, cart, orders, products
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: initialize database on startup, run background tasks."""
-    init_db(get_settings().database_path)
+    settings = get_settings()
+    configure_logging(settings.environment)
+    init_db(settings.database_path)
 
     # Background task: clean expired sessions every hour
     async def _session_cleanup_loop() -> None:
@@ -30,13 +34,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             try:
                 count = cleanup_expired_sessions()
                 if count:
-                    logger.info("Cleaned up %d expired sessions", count)
+                    logger.info("Cleaned up expired sessions", count=count)
             except Exception:
                 logger.exception("Session cleanup failed")
 
     task = asyncio.create_task(_session_cleanup_loop())
     yield
     task.cancel()
+    try:
+        await asyncio.wait_for(task, timeout=5.0)
+    except (TimeoutError, asyncio.CancelledError):
+        pass
 
 
 def create_app() -> FastAPI:
@@ -95,8 +103,10 @@ def create_app() -> FastAPI:
     )
 
     # SessionMiddleware added first (runs closest to routes);
-    # CORSMiddleware added last (Starlette is LIFO — runs first on incoming requests)
+    # RequestIdMiddleware added second (runs before session — Starlette is LIFO);
+    # CORSMiddleware added last (runs first on incoming requests)
     application.add_middleware(SessionMiddleware)
+    application.add_middleware(RequestIdMiddleware)
 
     # CORS middleware (outermost — handles pre-flight OPTIONS before session creation)
     application.add_middleware(
@@ -111,7 +121,7 @@ def create_app() -> FastAPI:
     # Health endpoint (non-versioned — excluded from session middleware)
     @application.get("/health", tags=["health"], summary="Health check")
     async def health() -> JSONResponse:
-        """Simple liveness probe. Returns 200 with `{\"status\": \"ok\"}` when the service is running."""
+        """Simple liveness probe. Returns 200 with status ok."""
         return JSONResponse({"status": "ok"})
 
     # Legacy versioned health endpoint (kept for backward compatibility)

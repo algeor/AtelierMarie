@@ -1,35 +1,33 @@
 """Session cookie middleware — assigns anonymous identity to every request."""
 
-import logging
 import re
 import sqlite3
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import structlog
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
 
 from app.config import get_settings
+from app.constants import SQLITE_DATETIME_FORMAT
 from app.database import get_db
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # Bug #1 fix: UUID v4 format validation — reject garbage before DB lookup
 _UUID4_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 
-# SQLite-compatible datetime format (no T separator, no timezone suffix)
-_SQLITE_DT_FMT = "%Y-%m-%d %H:%M:%S"
-
 
 def _format_dt(dt: datetime) -> str:
     """Format a datetime as SQLite-compatible string (UTC, no timezone suffix)."""
-    return dt.strftime(_SQLITE_DT_FMT)
+    return dt.strftime(SQLITE_DATETIME_FORMAT)
 
 
 def _parse_dt(s: str) -> datetime:
     """Parse a SQLite datetime string into a timezone-aware UTC datetime."""
-    return datetime.strptime(s, _SQLITE_DT_FMT).replace(tzinfo=UTC)
+    return datetime.strptime(s, SQLITE_DATETIME_FORMAT).replace(tzinfo=UTC)
 
 
 def _should_skip_path(path: str, skip_paths: list[str]) -> bool:
@@ -134,7 +132,11 @@ class SessionMiddleware(BaseHTTPMiddleware):
             # DB unavailable — return error without exposing internals
             logger.exception("Session middleware DB error")
             return Response(
-                content='{"error":{"code":"INTERNAL_ERROR","message":"An unexpected error occurred","details":null}}',
+                content=(
+                    '{"error":{"code":"INTERNAL_ERROR",'
+                    '"message":"An unexpected error occurred",'
+                    '"details":null}}'
+                ),
                 status_code=500,
                 media_type="application/json",
             )

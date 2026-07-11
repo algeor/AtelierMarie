@@ -10,6 +10,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TypedDict
 
+from app.constants import MAX_LIMIT, MAX_PAGE
 from app.models.orders import OrderStatus
 
 logger = logging.getLogger(__name__)
@@ -131,116 +132,131 @@ def checkout(
 ) -> OrderData:
     """Convert cart to an order atomically.
 
+    Uses BEGIN IMMEDIATE to serialize concurrent checkouts — prevents
+    two sessions from decrementing stock past zero simultaneously.
+
     Validates stock, creates order with price snapshots, decrements stock,
-    and clears cart items — all within the caller's transaction (the conn
-    is managed by get_db() context manager at the route level).
+    and clears cart items — all within an explicit transaction.
     """
-    # 1. Fetch cart items with product info
-    cart_rows = conn.execute(
-        """
-        SELECT ci.product_id, ci.quantity, p.name, p.price_cents, p.stock, p.is_active
-        FROM cart_items ci
-        JOIN products p ON p.id = ci.product_id
-        WHERE ci.session_id = ?
-        """,
-        (session_id,),
-    ).fetchall()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        # 1. Fetch cart items with product info
+        cart_rows = conn.execute(
+            """
+            SELECT ci.product_id, ci.quantity, p.name, p.price_cents, p.stock, p.is_active
+            FROM cart_items ci
+            JOIN products p ON p.id = ci.product_id
+            WHERE ci.session_id = ?
+            """,
+            (session_id,),
+        ).fetchall()
 
-    if not cart_rows:
-        raise EmptyCartError("Cart is empty")
+        if not cart_rows:
+            raise EmptyCartError("Cart is empty")
 
-    # 2. Batch-validate all items (collect ALL failures)
-    unavailable_failures: list[dict] = []
-    stock_failures: list[dict] = []
+        # 2. Batch-validate all items (collect ALL failures)
+        unavailable_failures: list[dict] = []
+        stock_failures: list[dict] = []
 
-    for row in cart_rows:
-        if not row["is_active"]:
-            unavailable_failures.append({
-                "product_id": row["product_id"],
-                "product_name": row["name"],
-            })
-        elif row["stock"] < row["quantity"]:
-            stock_failures.append({
-                "product_id": row["product_id"],
-                "requested": row["quantity"],
-                "available": row["stock"],
-            })
+        for row in cart_rows:
+            if not row["is_active"]:
+                unavailable_failures.append(
+                    {
+                        "product_id": row["product_id"],
+                        "product_name": row["name"],
+                    }
+                )
+            elif row["stock"] < row["quantity"]:
+                stock_failures.append(
+                    {
+                        "product_id": row["product_id"],
+                        "requested": row["quantity"],
+                        "available": row["stock"],
+                    }
+                )
 
-    # Raise unavailable first (more severe), then stock issues
-    if unavailable_failures:
-        raise ProductUnavailableError(unavailable_failures)
-    if stock_failures:
-        raise InsufficientStockError(stock_failures)
+        # Raise unavailable first (more severe), then stock issues
+        if unavailable_failures:
+            raise ProductUnavailableError(unavailable_failures)
+        if stock_failures:
+            raise InsufficientStockError(stock_failures)
 
-    # 3. Create order
-    order_id = str(uuid.uuid4())
-    now = datetime.now(UTC).strftime(_DT_FMT)
-    total_cents = sum(row["price_cents"] * row["quantity"] for row in cart_rows)
+        # 3. Create order
+        order_id = str(uuid.uuid4())
+        now = datetime.now(UTC).strftime(_DT_FMT)
+        total_cents = sum(row["price_cents"] * row["quantity"] for row in cart_rows)
 
-    conn.execute(
-        """
-        INSERT INTO orders (id, session_id, user_id, status, total_cents,
-                           customer_email, customer_name, shipping_address, notes,
-                           created_at, updated_at)
-        VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            order_id,
-            session_id,
-            user_id,
-            total_cents,
-            customer_email,
-            customer_name,
-            shipping_address,
-            notes,
-            now,
-            now,
-        ),
-    )
-
-    # 4. Insert order items (snapshot prices and names)
-    items: list[OrderItemData] = []
-    for row in cart_rows:
         conn.execute(
             """
-            INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO orders (id, session_id, user_id, status, total_cents,
+                               customer_email, customer_name, shipping_address, notes,
+                               created_at, updated_at)
+            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
             """,
-            (order_id, row["product_id"], row["name"], row["price_cents"], row["quantity"]),
-        )
-        items.append(
-            OrderItemData(
-                product_id=row["product_id"],
-                product_name=row["name"],
-                price_cents=row["price_cents"],
-                quantity=row["quantity"],
-            )
+            (
+                order_id,
+                session_id,
+                user_id,
+                total_cents,
+                customer_email,
+                customer_name,
+                shipping_address,
+                notes,
+                now,
+                now,
+            ),
         )
 
-    # 5. Decrement stock
-    for row in cart_rows:
-        try:
+        # 4. Insert order items (snapshot prices and names)
+        items: list[OrderItemData] = []
+        for row in cart_rows:
             conn.execute(
-                "UPDATE products SET stock = stock - ? WHERE id = ?",
-                (row["quantity"], row["product_id"]),
+                """
+                INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (order_id, row["product_id"], row["name"], row["price_cents"], row["quantity"]),
             )
-        except sqlite3.IntegrityError as e:
-            # CHECK (stock >= 0) constraint violated — race condition.
-            # available=0 because the constraint proves stock went negative;
-            # row["stock"] from step 1 is stale and misleading here.
-            raise InsufficientStockError([{
-                "product_id": row["product_id"],
-                "requested": row["quantity"],
-                "available": 0,
-            }]) from e
+            items.append(
+                OrderItemData(
+                    product_id=row["product_id"],
+                    product_name=row["name"],
+                    price_cents=row["price_cents"],
+                    quantity=row["quantity"],
+                )
+            )
 
-    # 6. Clear cart items for products included in this order
-    product_ids = [row["product_id"] for row in cart_rows]
-    placeholders = ",".join("?" * len(product_ids))
-    conn.execute(
-        f"DELETE FROM cart_items WHERE session_id = ? AND product_id IN ({placeholders})",
-        [session_id, *product_ids],
-    )
+        # 5. Decrement stock
+        for row in cart_rows:
+            try:
+                conn.execute(
+                    "UPDATE products SET stock = stock - ? WHERE id = ?",
+                    (row["quantity"], row["product_id"]),
+                )
+            except sqlite3.IntegrityError as e:
+                # CHECK (stock >= 0) constraint violated — race condition.
+                raise InsufficientStockError(
+                    [
+                        {
+                            "product_id": row["product_id"],
+                            "requested": row["quantity"],
+                            "available": 0,
+                        }
+                    ]
+                ) from e
+
+        # 6. Clear cart items for products included in this order
+        product_ids = [row["product_id"] for row in cart_rows]
+        placeholders = ",".join("?" * len(product_ids))
+        conn.execute(
+            f"DELETE FROM cart_items WHERE session_id = ? AND product_id IN ({placeholders})",
+            [session_id, *product_ids],
+        )
+
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
 
     return OrderData(
         id=order_id,
@@ -265,7 +281,8 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
         return None
 
     item_rows = conn.execute(
-        "SELECT product_id, product_name, price_cents, quantity FROM order_items WHERE order_id = ?",
+        "SELECT product_id, product_name, price_cents, quantity"
+        " FROM order_items WHERE order_id = ?",
         (order_id,),
     ).fetchall()
 
@@ -336,11 +353,14 @@ def list_orders(
 
     When user_id is provided, filter by user_id only (captures all sessions).
     When user_id is None, filter by session_id only.
+    Pagination values are clamped to MAX_PAGE/MAX_LIMIT bounds.
     """
     if page < 1:
         page = 1
+    page = min(page, MAX_PAGE)
     if limit < 1:
-        raise ValueError("limit must be at least 1")
+        limit = 1
+    limit = min(limit, MAX_LIMIT)
 
     offset = (page - 1) * limit
 
@@ -352,9 +372,7 @@ def list_orders(
         params = [session_id]
 
     # Total count
-    total = conn.execute(
-        f"SELECT COUNT(*) FROM orders {where_clause}", params
-    ).fetchone()[0]
+    total = conn.execute(f"SELECT COUNT(*) FROM orders {where_clause}", params).fetchone()[0]
 
     # Paginated results
     rows = conn.execute(
@@ -377,11 +395,16 @@ def list_orders_admin(
     page: int = 1,
     limit: int = 20,
 ) -> OrderListData:
-    """List all orders with optional status filter (admin — no ownership check)."""
+    """List all orders with optional status filter (admin — no ownership check).
+
+    Pagination values are clamped to MAX_PAGE/MAX_LIMIT bounds.
+    """
     if page < 1:
         page = 1
+    page = min(page, MAX_PAGE)
     if limit < 1:
-        raise ValueError("limit must be at least 1")
+        limit = 1
+    limit = min(limit, MAX_LIMIT)
 
     offset = (page - 1) * limit
 
@@ -392,9 +415,7 @@ def list_orders_admin(
         where_clause = ""
         params = []
 
-    total = conn.execute(
-        f"SELECT COUNT(*) FROM orders {where_clause}", params
-    ).fetchone()[0]
+    total = conn.execute(f"SELECT COUNT(*) FROM orders {where_clause}", params).fetchone()[0]
 
     rows = conn.execute(
         f"SELECT id FROM orders {where_clause} ORDER BY created_at DESC LIMIT ? OFFSET ?",
@@ -419,9 +440,7 @@ def update_status(
 
     Restores stock on cancellation (from pending or confirmed).
     """
-    row = conn.execute(
-        "SELECT id, status FROM orders WHERE id = ?", (order_id,)
-    ).fetchone()
+    row = conn.execute("SELECT id, status FROM orders WHERE id = ?", (order_id,)).fetchone()
 
     if not row:
         raise OrderNotFoundError(order_id)

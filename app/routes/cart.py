@@ -25,9 +25,7 @@ from app.services.cart_service import (
 router = APIRouter()
 
 # Annotated path parameter with validation
-ProductIdPath = Annotated[
-    str, Path(..., pattern=PRODUCT_ID_PATTERN, max_length=100)
-]
+ProductIdPath = Annotated[str, Path(..., pattern=PRODUCT_ID_PATTERN, max_length=100)]
 
 
 def _cart_data_to_response(data: CartData) -> CartResponse:

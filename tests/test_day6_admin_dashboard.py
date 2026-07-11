@@ -4,32 +4,9 @@ import sqlite3
 
 import pytest
 
-ADMIN_KEY = "test-admin-key-secret-123"
-
 
 @pytest.fixture()
-def admin_app(app, monkeypatch):
-    """Configure admin API key for tests."""
-    from app.config import get_settings
-
-    settings = get_settings()
-    monkeypatch.setattr(settings, "admin_api_key", ADMIN_KEY)
-    return app
-
-
-@pytest.fixture()
-async def admin_client(admin_app):
-    """Yield a test client with admin auth header."""
-    from httpx import ASGITransport, AsyncClient
-
-    transport = ASGITransport(app=admin_app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        c.headers["Authorization"] = f"Bearer {ADMIN_KEY}"
-        yield c
-
-
-@pytest.fixture()
-def _seeded_data(admin_app, db_path):
+def _seeded_data(db_path, app):
     """Seed products and orders for dashboard tests."""
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA foreign_keys=ON")
@@ -46,9 +23,7 @@ def _seeded_data(admin_app, db_path):
     )
 
     # Session for orders
-    conn.execute(
-        "INSERT INTO sessions (id, expires_at) VALUES ('sess-1', '2099-01-01 00:00:00')"
-    )
+    conn.execute("INSERT INTO sessions (id, expires_at) VALUES ('sess-1', '2099-01-01 00:00:00')")
 
     # Orders
     conn.executemany(
@@ -107,11 +82,11 @@ class TestAdminDashboard:
         assert body["low_stock_count"] == 2
 
     @pytest.mark.asyncio
-    async def test_dashboard_requires_auth(self, admin_app):
+    async def test_dashboard_requires_auth(self, app):
         """Dashboard endpoint requires admin credentials."""
         from httpx import ASGITransport, AsyncClient
 
-        transport = ASGITransport(app=admin_app)
+        transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             response = await c.get("/v1/admin/dashboard")
             assert response.status_code == 401
@@ -145,11 +120,11 @@ class TestErrorHandlers:
         assert body["error"]["code"] == "NOT_FOUND"
 
     @pytest.mark.asyncio
-    async def test_401_error_format(self, admin_app):
+    async def test_401_error_format(self, app):
         """401 errors follow consistent format."""
         from httpx import ASGITransport, AsyncClient
 
-        transport = ASGITransport(app=admin_app)
+        transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             response = await c.get("/v1/admin/products")
             assert response.status_code == 401

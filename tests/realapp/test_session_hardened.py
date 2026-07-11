@@ -13,9 +13,7 @@ from app.middleware.session import rotate_session
 
 # SQLite-compatible datetime format
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
-_UUID4_RE = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-)
+_UUID4_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 
 
 # --- 7.1 No cookie → new session created ---
@@ -209,9 +207,7 @@ async def test_malformed_cookie_no_db_query(client: AsyncClient, db_path: str):
 
     # Verify malformed value was never looked up — it doesn't appear in DB at all
     conn = sqlite3.connect(db_path)
-    row = conn.execute(
-        "SELECT id FROM sessions WHERE id = ?", ("not-a-uuid-at-all",)
-    ).fetchone()
+    row = conn.execute("SELECT id FROM sessions WHERE id = ?", ("not-a-uuid-at-all",)).fetchone()
     conn.close()
     assert row is None
 
@@ -330,11 +326,10 @@ def test_session_rotation_migrates_cart(db_path: str, app):
     )
 
     # Add products
-    for i, (pid, stock) in enumerate([
-        ("product-a", 10), ("product-b", 10), ("product-c", 10)
-    ]):
+    for i, (pid, stock) in enumerate([("product-a", 10), ("product-b", 10), ("product-c", 10)]):
         conn.execute(
-            "INSERT INTO products (id, name, price_cents, stock, is_active, created_at, updated_at) "
+            "INSERT INTO products (id, name, price_cents, stock, "
+            "is_active, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, 1, datetime('now'), datetime('now'))",
             (pid, f"Product {i}", 1000, stock),
         )
@@ -359,16 +354,12 @@ def test_session_rotation_migrates_cart(db_path: str, app):
     new_session = rotate_session(conn, old_session, user_id)
 
     # Verify new session exists with user_id
-    row = conn.execute(
-        "SELECT user_id FROM sessions WHERE id = ?", (new_session,)
-    ).fetchone()
+    row = conn.execute("SELECT user_id FROM sessions WHERE id = ?", (new_session,)).fetchone()
     assert row is not None
     assert row["user_id"] == user_id
 
     # Verify old session deleted
-    old_row = conn.execute(
-        "SELECT id FROM sessions WHERE id = ?", (old_session,)
-    ).fetchone()
+    old_row = conn.execute("SELECT id FROM sessions WHERE id = ?", (old_session,)).fetchone()
     assert old_row is None
 
     # Verify cart items migrated with correct quantities
@@ -436,8 +427,10 @@ def test_session_rotation_rollback_on_failure(db_path: str, app):
 
     # Add a product + cart item
     conn.execute(
-        "INSERT INTO products (id, name, price_cents, stock, is_active, created_at, updated_at) "
-        "VALUES ('rollback-product', 'Rollback Product', 1000, 10, 1, datetime('now'), datetime('now'))"
+        "INSERT INTO products (id, name, price_cents, stock, "
+        "is_active, created_at, updated_at) "
+        "VALUES ('rollback-product', 'Rollback Product', 1000, 10, 1, "
+        "datetime('now'), datetime('now'))"
     )
     conn.execute(
         "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, ?, ?)",
@@ -451,9 +444,7 @@ def test_session_rotation_rollback_on_failure(db_path: str, app):
         rotate_session(conn, old_session, "nonexistent-user-id")
 
     # Verify old session still exists (rollback succeeded)
-    old_row = conn.execute(
-        "SELECT id FROM sessions WHERE id = ?", (old_session,)
-    ).fetchone()
+    old_row = conn.execute("SELECT id FROM sessions WHERE id = ?", (old_session,)).fetchone()
     assert old_row is not None, "Old session should still exist after failed rotation"
 
     # Verify cart items still attached to old session

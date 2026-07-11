@@ -8,43 +8,28 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.config import get_settings
-from app.database import get_db, init_db
-from app.dependencies.auth import require_admin
-
 
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
 
 
-@pytest.fixture()
-def order_app(db_path, monkeypatch):
-    """App instance with seeded products for order testing."""
-    monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
-    get_settings.cache_clear()
-    init_db(db_path)
-
-    # Seed products
+@pytest.fixture(autouse=True)
+def _seed_order_products(db_path, app):
+    """Seed products needed by order tests (uses realapp conftest's app)."""
     conn = sqlite3.connect(db_path)
     conn.execute(
-        "INSERT INTO products (id, name, price_cents, stock, is_active) "
-        "VALUES ('lavender-dream', 'Lavender Dream', 2500, 10, 1)"
+        "INSERT INTO products (id, name, price_cents, stock, is_active, created_at, updated_at) "
+        "VALUES ('lavender-dream', 'Lavender Dream', 2500, 10, 1, datetime('now'), datetime('now'))"
     )
     conn.execute(
-        "INSERT INTO products (id, name, price_cents, stock, is_active) "
-        "VALUES ('midnight-amber', 'Midnight Amber', 3500, 5, 1)"
+        "INSERT INTO products (id, name, price_cents, stock, is_active, created_at, updated_at) "
+        "VALUES ('midnight-amber', 'Midnight Amber', 3500, 5, 1, datetime('now'), datetime('now'))"
     )
     conn.commit()
     conn.close()
 
-    from app.main import create_app
-
-    app = create_app()
-    yield app
-    get_settings.cache_clear()
-
 
 @pytest.fixture()
-def order_session_id(order_app, db_path):
+def order_session_id(db_path):
     """Insert a session and cart items, return session_id."""
     sid = str(uuid.uuid4())
     now = datetime.now(UTC)
@@ -67,23 +52,23 @@ def order_session_id(order_app, db_path):
 
 
 @pytest.fixture()
-async def order_client(order_app, order_session_id) -> AsyncClient:
+async def order_client(app, order_session_id) -> AsyncClient:
     """Client with session cookie and cart items."""
     settings = get_settings()
-    transport = ASGITransport(app=order_app)
+    transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         c.cookies.set(settings.session_cookie_name, order_session_id)
         yield c
 
 
 @pytest.fixture()
-async def admin_order_client(order_app, order_session_id) -> AsyncClient:
+async def admin_order_client(app, order_session_id) -> AsyncClient:
     """Client with admin auth header and session cookie."""
     settings = get_settings()
-    transport = ASGITransport(app=order_app)
+    transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         c.cookies.set(settings.session_cookie_name, order_session_id)
-        c.headers["Authorization"] = "Bearer test-admin-key"
+        c.headers["Authorization"] = "Bearer test-admin-key-realapp"
         yield c
 
 
@@ -108,7 +93,7 @@ class TestCreateOrder:
         assert len(data["items"]) == 2
 
     # 7.3: POST returns 400 on empty cart, 409 on stock issues
-    async def test_checkout_empty_cart_400(self, order_app, db_path):
+    async def test_checkout_empty_cart_400(self, app, db_path):
         """Empty cart returns 400."""
         # Create session without cart items
         sid = str(uuid.uuid4())
@@ -122,16 +107,14 @@ class TestCreateOrder:
         conn.close()
 
         settings = get_settings()
-        transport = ASGITransport(app=order_app)
+        transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             c.cookies.set(settings.session_cookie_name, sid)
-            resp = await c.post(
-                "/v1/orders", json={"customer_email": "t@t.com"}
-            )
+            resp = await c.post("/v1/orders", json={"customer_email": "t@t.com"})
         assert resp.status_code == 400
         assert resp.json()["error"]["code"] == "EMPTY_CART"
 
-    async def test_checkout_insufficient_stock_409(self, order_app, db_path):
+    async def test_checkout_insufficient_stock_409(self, app, db_path):
         """Insufficient stock returns 409."""
         sid = str(uuid.uuid4())
         now = datetime.now(UTC)
@@ -142,14 +125,15 @@ class TestCreateOrder:
         )
         # Request 10 but only 5 in stock
         conn.execute(
-            "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, 'midnight-amber', 6)",
+            "INSERT INTO cart_items (session_id, product_id, quantity) "
+            "VALUES (?, 'midnight-amber', 6)",
             (sid,),
         )
         conn.commit()
         conn.close()
 
         settings = get_settings()
-        transport = ASGITransport(app=order_app)
+        transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             c.cookies.set(settings.session_cookie_name, sid)
             resp = await c.post("/v1/orders", json={"customer_email": "t@t.com"})
@@ -158,9 +142,7 @@ class TestCreateOrder:
 
     # 7.4: POST returns 422 for invalid email, overly long fields
     async def test_invalid_email_422(self, order_client):
-        resp = await order_client.post(
-            "/v1/orders", json={"customer_email": "not-an-email"}
-        )
+        resp = await order_client.post("/v1/orders", json={"customer_email": "not-an-email"})
         assert resp.status_code == 422
 
     async def test_overly_long_customer_name_422(self, order_client):
@@ -195,9 +177,7 @@ class TestListMyOrders:
 
     async def test_list_orders_paginated(self, order_client):
         # Create an order first
-        await order_client.post(
-            "/v1/orders", json={"customer_email": "t@t.com"}
-        )
+        await order_client.post("/v1/orders", json={"customer_email": "t@t.com"})
 
         resp = await order_client.get("/v1/orders")
         assert resp.status_code == 200
@@ -207,12 +187,12 @@ class TestListMyOrders:
         assert data["page"] == 1
 
     # 7.5b: Cross-session isolation
-    async def test_cross_session_isolation(self, order_app, db_path, order_session_id):
+    async def test_cross_session_isolation(self, app, db_path, order_session_id):
         """Orders from session A not visible to session B."""
         settings = get_settings()
 
         # Create order with session A
-        transport = ASGITransport(app=order_app)
+        transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             c.cookies.set(settings.session_cookie_name, order_session_id)
             resp = await c.post("/v1/orders", json={"customer_email": "a@a.com"})
@@ -245,9 +225,9 @@ class TestListMyOrders:
 class TestGetOrderDetail:
     """Integration tests for GET /v1/orders/{id}."""
 
-    async def test_non_owner_gets_404(self, order_app, db_path, order_session_id):
+    async def test_non_owner_gets_404(self, app, db_path, order_session_id):
         settings = get_settings()
-        transport = ASGITransport(app=order_app)
+        transport = ASGITransport(app=app)
 
         # Create order with session A
         async with AsyncClient(transport=transport, base_url="http://test") as c:
@@ -282,9 +262,7 @@ class TestAdminUpdateStatus:
 
     async def test_invalid_transition_422(self, admin_order_client):
         # Create order
-        resp = await admin_order_client.post(
-            "/v1/orders", json={"customer_email": "t@t.com"}
-        )
+        resp = await admin_order_client.post("/v1/orders", json={"customer_email": "t@t.com"})
         order_id = resp.json()["id"]
 
         # Try invalid transition: pending → shipped
@@ -329,9 +307,7 @@ class TestAdminListOrders:
 
     async def test_admin_list_all_orders(self, admin_order_client):
         # Create an order
-        await admin_order_client.post(
-            "/v1/orders", json={"customer_email": "t@t.com"}
-        )
+        await admin_order_client.post("/v1/orders", json={"customer_email": "t@t.com"})
 
         resp = await admin_order_client.get("/v1/admin/orders")
         assert resp.status_code == 200
@@ -340,9 +316,7 @@ class TestAdminListOrders:
 
     async def test_admin_filter_by_status(self, admin_order_client):
         # Create an order (status: pending)
-        await admin_order_client.post(
-            "/v1/orders", json={"customer_email": "t@t.com"}
-        )
+        await admin_order_client.post("/v1/orders", json={"customer_email": "t@t.com"})
 
         # Filter by pending
         resp = await admin_order_client.get("/v1/admin/orders?status=pending")
@@ -419,7 +393,7 @@ class TestAdminGetOrderDetail:
 class TestCsrfProtection:
     """JSON Content-Type enforcement for state-changing endpoints."""
 
-    async def test_form_encoded_rejected(self, order_app, db_path):
+    async def test_form_encoded_rejected(self, app, db_path):
         """POST with application/x-www-form-urlencoded returns 422."""
         sid = str(uuid.uuid4())
         now = datetime.now(UTC)
@@ -429,14 +403,15 @@ class TestCsrfProtection:
             (sid, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
         )
         conn.execute(
-            "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, 'lavender-dream', 1)",
+            "INSERT INTO cart_items (session_id, product_id, quantity) "
+            "VALUES (?, 'lavender-dream', 1)",
             (sid,),
         )
         conn.commit()
         conn.close()
 
         settings = get_settings()
-        transport = ASGITransport(app=order_app)
+        transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             c.cookies.set(settings.session_cookie_name, sid)
             resp = await c.post(

@@ -1,6 +1,5 @@
 """Unit tests for the order service layer."""
 
-import logging
 import sqlite3
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -20,8 +19,22 @@ from app.services.order_service import (
     update_status,
 )
 
-
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+# --- Function-scoped override ---
+
+
+@pytest.fixture()
+def db_path(tmp_path) -> str:
+    """Function-scoped DB path for order service tests."""
+    return str(tmp_path / "test.db")
+
+
+@pytest.fixture(autouse=True)
+def _clean_tables():
+    """No-op: function-scoped db_path means each test starts fresh."""
+    yield
 
 
 @pytest.fixture()
@@ -175,15 +188,14 @@ class TestCheckoutInsufficientStock:
 
         # Cart unchanged
         cart = conn.execute(
-            "SELECT quantity FROM cart_items WHERE session_id = ? AND product_id = 'midnight-amber'",
+            "SELECT quantity FROM cart_items "
+            "WHERE session_id = ? AND product_id = 'midnight-amber'",
             (session_a,),
         ).fetchone()
         assert cart[0] == 6
 
         # Stock unchanged
-        stock = conn.execute(
-            "SELECT stock FROM products WHERE id = 'midnight-amber'"
-        ).fetchone()[0]
+        stock = conn.execute("SELECT stock FROM products WHERE id = 'midnight-amber'").fetchone()[0]
         assert stock == 5
 
 
@@ -211,9 +223,7 @@ class TestCheckoutDeactivatedProduct:
         assert cart == 1
 
         # Stock unchanged
-        stock = conn.execute(
-            "SELECT stock FROM products WHERE id = 'lavender-dream'"
-        ).fetchone()[0]
+        stock = conn.execute("SELECT stock FROM products WHERE id = 'lavender-dream'").fetchone()[0]
         assert stock == 10
 
 
@@ -268,9 +278,7 @@ class TestPriceSnapshotImmutability:
 
     def test_price_change_after_checkout(self, conn, cart_with_items):
         session_id = cart_with_items
-        order = checkout(
-            conn=conn, session_id=session_id, customer_email="test@example.com"
-        )
+        order = checkout(conn=conn, session_id=session_id, customer_email="test@example.com")
         conn.commit()
 
         original_price = next(
@@ -278,14 +286,13 @@ class TestPriceSnapshotImmutability:
         )
 
         # Change product price
-        conn.execute(
-            "UPDATE products SET price_cents = 9999 WHERE id = 'lavender-dream'"
-        )
+        conn.execute("UPDATE products SET price_cents = 9999 WHERE id = 'lavender-dream'")
         conn.commit()
 
         # Order item still has original price
         item_price = conn.execute(
-            "SELECT price_cents FROM order_items WHERE order_id = ? AND product_id = 'lavender-dream'",
+            "SELECT price_cents FROM order_items "
+            "WHERE order_id = ? AND product_id = 'lavender-dream'",
             (order["id"],),
         ).fetchone()[0]
         assert item_price == original_price
@@ -296,9 +303,7 @@ class TestOrderIdFormat:
     """4.8: Created order ID matches UUID v4 format."""
 
     def test_order_id_is_uuid4(self, conn, cart_with_items):
-        order = checkout(
-            conn=conn, session_id=cart_with_items, customer_email="test@example.com"
-        )
+        order = checkout(conn=conn, session_id=cart_with_items, customer_email="test@example.com")
         conn.commit()
 
         # Validate UUID v4 format
@@ -310,9 +315,7 @@ class TestTotalCentsServerComputed:
     """4.9: total_cents is computed server-side as sum(price_cents × quantity)."""
 
     def test_total_computed_correctly(self, conn, cart_with_items):
-        order = checkout(
-            conn=conn, session_id=cart_with_items, customer_email="test@example.com"
-        )
+        order = checkout(conn=conn, session_id=cart_with_items, customer_email="test@example.com")
         conn.commit()
 
         expected = sum(item["price_cents"] * item["quantity"] for item in order["items"])
@@ -345,9 +348,7 @@ class TestConcurrentCheckoutLastUnit:
             checkout(conn=conn, session_id=session_b, customer_email="b@example.com")
 
         # Stock is 0
-        stock = conn.execute(
-            "SELECT stock FROM products WHERE id = 'vanilla-brulee'"
-        ).fetchone()[0]
+        stock = conn.execute("SELECT stock FROM products WHERE id = 'vanilla-brulee'").fetchone()[0]
         assert stock == 0
 
 
@@ -382,8 +383,10 @@ class TestListOrders:
     def test_list_orders_by_user_id_across_sessions(self, conn, session_a, session_b, products):
         user_id = "user-123"
         # Link both sessions to same user
-        conn.execute("INSERT INTO users (id, google_id, email) VALUES (?, ?, ?)",
-                     (user_id, "g-123", "user@example.com"))
+        conn.execute(
+            "INSERT INTO users (id, google_id, email) VALUES (?, ?, ?)",
+            (user_id, "g-123", "user@example.com"),
+        )
         conn.execute("UPDATE sessions SET user_id = ? WHERE id = ?", (user_id, session_a))
         conn.execute("UPDATE sessions SET user_id = ? WHERE id = ?", (user_id, session_b))
         conn.commit()
@@ -415,15 +418,17 @@ class TestListOrders:
         order2_id = str(uuid.uuid4())
 
         conn.execute(
-            """INSERT INTO orders (id, session_id, status, total_cents, customer_email,
-                                  created_at, updated_at)
-               VALUES (?, ?, 'pending', 2500, 'a@a.com', '2024-01-01 10:00:00', '2024-01-01 10:00:00')""",
+            """INSERT INTO orders (id, session_id, status, total_cents,
+                                  customer_email, created_at, updated_at)
+               VALUES (?, ?, 'pending', 2500, 'a@a.com',
+                       '2024-01-01 10:00:00', '2024-01-01 10:00:00')""",
             (order1_id, session_a),
         )
         conn.execute(
-            """INSERT INTO orders (id, session_id, status, total_cents, customer_email,
-                                  created_at, updated_at)
-               VALUES (?, ?, 'pending', 3500, 'a@a.com', '2024-01-02 10:00:00', '2024-01-02 10:00:00')""",
+            """INSERT INTO orders (id, session_id, status, total_cents,
+                                  customer_email, created_at, updated_at)
+               VALUES (?, ?, 'pending', 3500, 'a@a.com',
+                       '2024-01-02 10:00:00', '2024-01-02 10:00:00')""",
             (order2_id, session_a),
         )
         conn.execute(
@@ -470,8 +475,10 @@ class TestGetOrderAuthenticated:
 
     def test_user_id_access_cross_session(self, conn, session_a, session_b, products):
         user_id = "user-456"
-        conn.execute("INSERT INTO users (id, google_id, email) VALUES (?, ?, ?)",
-                     (user_id, "g-456", "user456@example.com"))
+        conn.execute(
+            "INSERT INTO users (id, google_id, email) VALUES (?, ?, ?)",
+            (user_id, "g-456", "user456@example.com"),
+        )
         conn.commit()
 
         # Create order under session_a with user_id
@@ -480,15 +487,11 @@ class TestGetOrderAuthenticated:
             (session_a, "lavender-dream", 1),
         )
         conn.commit()
-        order = checkout(
-            conn=conn, session_id=session_a, customer_email="t@t.com", user_id=user_id
-        )
+        order = checkout(conn=conn, session_id=session_a, customer_email="t@t.com", user_id=user_id)
         conn.commit()
 
         # Access from session_b with same user_id
-        result = get_order(
-            conn=conn, order_id=order["id"], session_id=session_b, user_id=user_id
-        )
+        result = get_order(conn=conn, order_id=order["id"], session_id=session_b, user_id=user_id)
         assert result["id"] == order["id"]
 
 
@@ -520,7 +523,6 @@ class TestListOrdersPagination:
 def _create_order_with_status(conn, session_id, status="pending", products_in_order=None):
     """Helper: insert an order directly with a given status."""
     order_id = str(uuid.uuid4())
-    now = datetime.now(UTC).strftime(_DT_FMT)
     past = (datetime.now(UTC) - timedelta(hours=1)).strftime(_DT_FMT)
 
     if products_in_order is None:
@@ -617,7 +619,9 @@ class TestCancellationRestoresStock:
 
     def test_cancel_from_pending_restores_stock(self, conn, session_a, products):
         order_id = _create_order_with_status(
-            conn, session_a, "pending",
+            conn,
+            session_a,
+            "pending",
             products_in_order=[("lavender-dream", "Lavender Dream", 2500, 3)],
         )
 
@@ -628,14 +632,14 @@ class TestCancellationRestoresStock:
         update_status(conn=conn, order_id=order_id, new_status="cancelled")
         conn.commit()
 
-        stock = conn.execute(
-            "SELECT stock FROM products WHERE id = 'lavender-dream'"
-        ).fetchone()[0]
+        stock = conn.execute("SELECT stock FROM products WHERE id = 'lavender-dream'").fetchone()[0]
         assert stock == 10  # 7 + 3 restored
 
     def test_cancel_with_deactivated_product_restores_stock(self, conn, session_a, products):
         order_id = _create_order_with_status(
-            conn, session_a, "pending",
+            conn,
+            session_a,
+            "pending",
             products_in_order=[("lavender-dream", "Lavender Dream", 2500, 2)],
         )
         conn.execute("UPDATE products SET stock = 8 WHERE id = 'lavender-dream'")
@@ -645,14 +649,14 @@ class TestCancellationRestoresStock:
         update_status(conn=conn, order_id=order_id, new_status="cancelled")
         conn.commit()
 
-        stock = conn.execute(
-            "SELECT stock FROM products WHERE id = 'lavender-dream'"
-        ).fetchone()[0]
+        stock = conn.execute("SELECT stock FROM products WHERE id = 'lavender-dream'").fetchone()[0]
         assert stock == 10  # 8 + 2
 
     def test_cancel_from_confirmed_restores_stock(self, conn, session_a, products):
         order_id = _create_order_with_status(
-            conn, session_a, "confirmed",
+            conn,
+            session_a,
+            "confirmed",
             products_in_order=[("midnight-amber", "Midnight Amber", 3500, 2)],
         )
         conn.execute("UPDATE products SET stock = 3 WHERE id = 'midnight-amber'")
@@ -661,9 +665,7 @@ class TestCancellationRestoresStock:
         update_status(conn=conn, order_id=order_id, new_status="cancelled")
         conn.commit()
 
-        stock = conn.execute(
-            "SELECT stock FROM products WHERE id = 'midnight-amber'"
-        ).fetchone()[0]
+        stock = conn.execute("SELECT stock FROM products WHERE id = 'midnight-amber'").fetchone()[0]
         assert stock == 5  # 3 + 2
 
 
@@ -672,7 +674,9 @@ class TestDoubleCancellation:
 
     def test_double_cancel_prevented(self, conn, session_a, products):
         order_id = _create_order_with_status(
-            conn, session_a, "pending",
+            conn,
+            session_a,
+            "pending",
             products_in_order=[("lavender-dream", "Lavender Dream", 2500, 2)],
         )
         conn.execute("UPDATE products SET stock = 8 WHERE id = 'lavender-dream'")
@@ -703,8 +707,10 @@ class TestCheckoutSetsUserId:
 
     def test_user_id_set_on_checkout(self, conn, session_a, products):
         user_id = "user-789"
-        conn.execute("INSERT INTO users (id, google_id, email) VALUES (?, ?, ?)",
-                     (user_id, "g-789", "user789@example.com"))
+        conn.execute(
+            "INSERT INTO users (id, google_id, email) VALUES (?, ?, ?)",
+            (user_id, "g-789", "user789@example.com"),
+        )
         conn.execute("UPDATE sessions SET user_id = ? WHERE id = ?", (user_id, session_a))
         conn.execute(
             "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, ?, ?)",
@@ -712,9 +718,7 @@ class TestCheckoutSetsUserId:
         )
         conn.commit()
 
-        order = checkout(
-            conn=conn, session_id=session_a, customer_email="t@t.com", user_id=user_id
-        )
+        order = checkout(conn=conn, session_id=session_a, customer_email="t@t.com", user_id=user_id)
         conn.commit()
 
         assert order["user_id"] == user_id
@@ -724,7 +728,12 @@ class TestCheckoutSetsUserId:
         now = datetime.now(UTC)
         conn.execute(
             "INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-            (session_new, user_id, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
+            (
+                session_new,
+                user_id,
+                now.strftime(_DT_FMT),
+                (now + timedelta(days=30)).strftime(_DT_FMT),
+            ),
         )
         conn.commit()
 
@@ -736,18 +745,20 @@ class TestCheckoutSetsUserId:
 class TestUpdateStatusLog:
     """6.8: update_status emits structured log with order_id, old_status, new_status."""
 
-    def test_status_log_emitted(self, conn, session_a, products, caplog):
+    def test_status_log_emitted(self, conn, session_a, products):
+        import structlog.testing
+
         order_id = _create_order_with_status(conn, session_a, "pending")
 
-        with caplog.at_level(logging.INFO, logger="app.services.order_service"):
+        with structlog.testing.capture_logs() as cap_logs:
             update_status(conn=conn, order_id=order_id, new_status="confirmed")
             conn.commit()
 
-        assert any("Order status updated" in r.message for r in caplog.records)
-        log_record = next(r for r in caplog.records if "Order status updated" in r.message)
-        assert log_record.order_id == order_id
-        assert log_record.old_status == "pending"
-        assert log_record.new_status == "confirmed"
+        log_entry = next((e for e in cap_logs if e.get("event") == "Order status updated"), None)
+        assert log_entry is not None, f"Expected log entry not found in {cap_logs}"
+        assert log_entry["order_id"] == order_id
+        assert log_entry["old_status"] == "pending"
+        assert log_entry["new_status"] == "confirmed"
 
 
 class TestBackfillUserId:
@@ -767,8 +778,10 @@ class TestBackfillUserId:
 
         # Simulate login backfill
         user_id = "user-backfill"
-        conn.execute("INSERT INTO users (id, google_id, email) VALUES (?, ?, ?)",
-                     (user_id, "g-bf", "bf@example.com"))
+        conn.execute(
+            "INSERT INTO users (id, google_id, email) VALUES (?, ?, ?)",
+            (user_id, "g-bf", "bf@example.com"),
+        )
         conn.execute(
             "UPDATE orders SET user_id = ? WHERE session_id = ? AND user_id IS NULL",
             (user_id, session_a),
@@ -776,7 +789,5 @@ class TestBackfillUserId:
         conn.commit()
 
         # Verify backfill
-        row = conn.execute(
-            "SELECT user_id FROM orders WHERE id = ?", (order["id"],)
-        ).fetchone()
+        row = conn.execute("SELECT user_id FROM orders WHERE id = ?", (order["id"],)).fetchone()
         assert row[0] == user_id

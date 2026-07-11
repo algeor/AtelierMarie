@@ -119,9 +119,7 @@ def list_my_orders(
 ) -> OrderListResponse:
     """List orders for the current session/user."""
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT user_id FROM sessions WHERE id = ?", (session_id,)
-        ).fetchone()
+        row = conn.execute("SELECT user_id FROM sessions WHERE id = ?", (session_id,)).fetchone()
         user_id = row["user_id"] if row else None
 
         result = list_orders(

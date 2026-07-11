@@ -33,14 +33,16 @@ async def list_products(
     # Cap limit at 100 (also enforced by Query constraint but explicit for clarity)
     limit = min(limit, 100)
 
-    # If search query is provided, use FTS5 search
+    # If search query is provided, use FTS5 search with SQL-level filtering (B.6)
     if q:
-        products = product_service.search_products(q, limit=limit)
-        # Apply additional filters on search results
-        if category:
-            products = [p for p in products if p.get("category") == category]
-        if in_stock:
-            products = [p for p in products if p.get("stock", 0) > 0]
+        offset = (page - 1) * limit
+        products = product_service.search_products(
+            q,
+            category=category,
+            in_stock=in_stock,
+            limit=limit,
+            offset=offset,
+        )
 
         # Apply sort override if specified (otherwise FTS5 relevance is used)
         if sort:
@@ -53,13 +55,11 @@ async def list_products(
             reverse = sort in ("price_desc", "newest")
             products.sort(key=sort_key_map[sort], reverse=reverse)
 
-        # Paginate search results
+        # Total is approximate for FTS — return what we have
         total = len(products)
-        start = (page - 1) * limit
-        page_products = products[start : start + limit]
 
         return ProductListResponse(
-            products=[ProductResponse(**p) for p in page_products],
+            products=[ProductResponse(**p) for p in products],
             total=total,
             page=page,
             limit=limit,
