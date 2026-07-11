@@ -5,7 +5,6 @@ Functions accept explicit parameters (conn, settings, etc.).
 """
 
 import hashlib
-import logging
 import secrets
 import sqlite3
 import time
@@ -16,12 +15,13 @@ from urllib.parse import urlencode
 
 import httpx
 import jwt
+import structlog
 from jwt.algorithms import RSAAlgorithm
 
 from app.config import get_settings
 from app.models.users import UserResponse
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # --- Constants ---
 _GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -106,9 +106,7 @@ def build_google_auth_url(session_id: str, return_to: str | None = None) -> str:
     # PKCE: generate code_verifier and code_challenge
     code_verifier = secrets.token_urlsafe(32)  # 43 chars
     code_challenge = (
-        urlsafe_b64encode(hashlib.sha256(code_verifier.encode()).digest())
-        .rstrip(b"=")
-        .decode()
+        urlsafe_b64encode(hashlib.sha256(code_verifier.encode()).digest()).rstrip(b"=").decode()
     )
 
     # Build state JWT (contains session binding + PKCE verifier)
@@ -320,8 +318,9 @@ def upsert_user(
             (user_id, google_id, email, name, avatar_url, is_admin, now),
         )
         conn.execute("COMMIT")
-    except Exception:
+    except (sqlite3.IntegrityError, sqlite3.OperationalError):
         conn.execute("ROLLBACK")
+        logger.exception("User upsert failed", email=email, google_id=google_id)
         raise
 
     return UserResponse(

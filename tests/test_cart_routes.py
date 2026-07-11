@@ -1,12 +1,12 @@
 """Tests for cart route layer — HTTP status codes, error formats, validation."""
 
 import sqlite3
-from datetime import UTC, datetime, timedelta
 
 import pytest
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 
 from app.config import get_settings
+from app.database import init_db
 
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
 
@@ -25,7 +25,8 @@ def _seed_products(db_path: str, app):
     ]
     for pid, name, price, stock, active in products:
         conn.execute(
-            "INSERT INTO products (id, name, price_cents, stock, is_active, created_at, updated_at) "
+            "INSERT INTO products (id, name, price_cents, stock, "
+            "is_active, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
             (pid, name, price, stock, active),
         )
@@ -117,7 +118,9 @@ async def test_post_cart_existing_item_200(client: AsyncClient):
 @pytest.mark.usefixtures("_seed_products")
 async def test_post_cart_product_not_found_404(client: AsyncClient):
     """POST /v1/cart — 404 for non-existent product."""
-    response = await client.post("/v1/cart", json={"product_id": "nonexistent-product", "quantity": 1})
+    response = await client.post(
+        "/v1/cart", json={"product_id": "nonexistent-product", "quantity": 1}
+    )
     assert response.status_code == 404
     body = response.json()
     assert body["error"]["code"] == "PRODUCT_NOT_FOUND"
@@ -158,7 +161,8 @@ async def test_post_cart_cart_full_422(client: AsyncClient, db_path: str):
     for i in range(20):
         pid = f"fill-route-{i:03d}"
         conn.execute(
-            "INSERT INTO products (id, name, price_cents, stock, is_active, created_at, updated_at) "
+            "INSERT INTO products (id, name, price_cents, stock, "
+            "is_active, created_at, updated_at) "
             "VALUES (?, ?, 1000, 50, 1, datetime('now'), datetime('now'))",
             (pid, f"Fill Route {i}"),
         )
@@ -166,7 +170,9 @@ async def test_post_cart_cart_full_422(client: AsyncClient, db_path: str):
     conn.close()
 
     for i in range(20):
-        resp = await client.post("/v1/cart", json={"product_id": f"fill-route-{i:03d}", "quantity": 1})
+        resp = await client.post(
+            "/v1/cart", json={"product_id": f"fill-route-{i:03d}", "quantity": 1}
+        )
         assert resp.status_code == 201
 
     # 21st should fail
@@ -334,36 +340,62 @@ async def test_patch_oversized_product_id_422(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures("_seed_products")
-async def test_cart_isolation_between_sessions(client: AsyncClient, db_path: str):
-    """Different sessions have independent carts."""
+async def test_cart_isolation_between_sessions(tmp_path, monkeypatch):
+    """Different sessions have independent carts (requires real session middleware)."""
+    # This test needs real middleware — create a standalone app inline.
+    db_file = str(tmp_path / "isolation.db")
+    monkeypatch.setenv("DATABASE_PATH", db_file)
+    monkeypatch.setenv("ADMIN_API_KEY", "test-key")
+    get_settings.cache_clear()
+    init_db(db_file)
+
+    # Seed products
+    conn = sqlite3.connect(db_file)
+    conn.execute(
+        "INSERT INTO products (id, name, price_cents, stock, is_active, created_at, updated_at) "
+        "VALUES ('lavender-dream', 'Lavender Dream', 2500, 10, 1, datetime('now'), datetime('now'))"
+    )
+    conn.execute(
+        "INSERT INTO products (id, name, price_cents, stock, is_active, created_at, updated_at) "
+        "VALUES ('rose-garden', 'Rose Garden', 1800, 5, 1, datetime('now'), datetime('now'))"
+    )
+    conn.commit()
+    conn.close()
+
+    from app.main import create_app
+
+    real_app = create_app()
     settings = get_settings()
+    transport = ASGITransport(app=real_app)
 
-    # Session A adds lavender-dream
-    resp_a = await client.post("/v1/cart", json={"product_id": "lavender-dream", "quantity": 2})
-    assert resp_a.status_code == 201
-    session_a_cookie = resp_a.cookies.get(settings.session_cookie_name)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        # Session A adds lavender-dream
+        resp_a = await c.post("/v1/cart", json={"product_id": "lavender-dream", "quantity": 2})
+        assert resp_a.status_code == 201
+        session_a_cookie = resp_a.cookies.get(settings.session_cookie_name)
 
-    # Create a new session by clearing cookies and making a new request
-    client.cookies.clear()
+        # Create a new session by clearing cookies
+        c.cookies.clear()
 
-    # Session B adds rose-garden
-    resp_b_init = await client.get("/v1/cart")
-    session_b_cookie = resp_b_init.cookies.get(settings.session_cookie_name)
-    assert session_b_cookie != session_a_cookie
+        # Session B adds rose-garden
+        resp_b_init = await c.get("/v1/cart")
+        session_b_cookie = resp_b_init.cookies.get(settings.session_cookie_name)
+        assert session_b_cookie != session_a_cookie
 
-    resp_b = await client.post("/v1/cart", json={"product_id": "rose-garden", "quantity": 3})
-    assert resp_b.status_code == 201
+        resp_b = await c.post("/v1/cart", json={"product_id": "rose-garden", "quantity": 3})
+        assert resp_b.status_code == 201
 
-    # Verify session B's cart has only rose-garden
-    resp_b_cart = await client.get("/v1/cart")
-    body_b = resp_b_cart.json()
-    assert len(body_b["items"]) == 1
-    assert body_b["items"][0]["product_id"] == "rose-garden"
+        # Verify session B's cart has only rose-garden
+        resp_b_cart = await c.get("/v1/cart")
+        body_b = resp_b_cart.json()
+        assert len(body_b["items"]) == 1
+        assert body_b["items"][0]["product_id"] == "rose-garden"
 
-    # Switch to session A and verify it has lavender-dream
-    client.cookies.set(settings.session_cookie_name, session_a_cookie)
-    resp_a_cart = await client.get("/v1/cart")
-    body_a = resp_a_cart.json()
-    assert len(body_a["items"]) == 1
-    assert body_a["items"][0]["product_id"] == "lavender-dream"
+        # Switch to session A and verify it has lavender-dream
+        c.cookies.set(settings.session_cookie_name, session_a_cookie)
+        resp_a_cart = await c.get("/v1/cart")
+        body_a = resp_a_cart.json()
+        assert len(body_a["items"]) == 1
+        assert body_a["items"][0]["product_id"] == "lavender-dream"
+
+    get_settings.cache_clear()

@@ -8,8 +8,11 @@ import sqlite3
 from dataclasses import dataclass, field
 from typing import TypedDict
 
+import structlog
+
 from app.config import get_settings
 
+logger = structlog.get_logger(__name__)
 
 # --- Custom Exceptions ---
 
@@ -269,8 +272,13 @@ def add_item(
         conn.execute("COMMIT")
     except (ProductNotFoundError, InsufficientStockError, QuantityLimitError, CartFullError):
         raise
-    except Exception:
+    except sqlite3.Error:
         conn.execute("ROLLBACK")
+        logger.exception(
+            "Cart add_item failed",
+            session_id=session_id,
+            product_id=product_id,
+        )
         raise
 
     # Read cart AFTER transaction is complete — a failure here does not mask the write.
@@ -329,10 +337,20 @@ def update_quantity(
             (quantity, session_id, product_id),
         )
         conn.execute("COMMIT")
-    except (CartItemNotFoundError, QuantityLimitError, InsufficientStockError, ProductNotFoundError):
+    except (
+        CartItemNotFoundError,
+        QuantityLimitError,
+        InsufficientStockError,
+        ProductNotFoundError,
+    ):
         raise
-    except Exception:
+    except sqlite3.Error:
         conn.execute("ROLLBACK")
+        logger.exception(
+            "Cart update_quantity failed",
+            session_id=session_id,
+            product_id=product_id,
+        )
         raise
 
     # Read cart AFTER transaction is complete — a failure here does not mask the write.

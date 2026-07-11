@@ -19,9 +19,7 @@ def get_dashboard_stats() -> dict:
 
         # Order counts and revenue
         order_row = conn.execute(
-            "SELECT COUNT(*) as total, "
-            "COALESCE(SUM(total_cents), 0) as revenue_cents "
-            "FROM orders"
+            "SELECT COUNT(*) as total, COALESCE(SUM(total_cents), 0) as revenue_cents FROM orders"
         ).fetchone()
 
         # Orders by status
@@ -31,8 +29,7 @@ def get_dashboard_stats() -> dict:
 
         # Low-stock products (active products with stock <= 5)
         low_stock_row = conn.execute(
-            "SELECT COUNT(*) as count FROM products "
-            "WHERE is_active = 1 AND stock <= 5"
+            "SELECT COUNT(*) as count FROM products WHERE is_active = 1 AND stock <= 5"
         ).fetchone()
 
     orders_by_status = {row["status"]: row["count"] for row in status_rows}

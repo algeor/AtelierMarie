@@ -1,12 +1,18 @@
 """Application configuration via environment variables."""
 
-import logging
 from functools import lru_cache
 
+import structlog
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
-_logger = logging.getLogger(__name__)
+from app.constants import (
+    SESSION_ABSOLUTE_LIFETIME_DAYS,
+    SESSION_MAX_AGE_DAYS,
+    SESSION_SLIDING_THRESHOLD_DAYS,
+)
+
+_logger = structlog.get_logger(__name__)
 
 _DEV_JWT_SECRET = "dev-secret-do-not-use-in-production"  # noqa: S105
 
@@ -39,11 +45,20 @@ class Settings(BaseSettings):
 
     # Session
     session_cookie_name: str = "session_id"
-    session_max_age: int = 30 * 24 * 60 * 60  # 30 days in seconds
-    session_absolute_lifetime: int = 180 * 24 * 60 * 60  # 180 days in seconds
-    session_sliding_threshold: int = 7 * 24 * 60 * 60  # 7 days in seconds
+    session_max_age: int = SESSION_MAX_AGE_DAYS * 24 * 60 * 60
+    session_absolute_lifetime: int = SESSION_ABSOLUTE_LIFETIME_DAYS * 24 * 60 * 60
+    session_sliding_threshold: int = SESSION_SLIDING_THRESHOLD_DAYS * 24 * 60 * 60
     session_cookie_secure: bool = True
-    session_skip_paths: list[str] = ["/health", "/v1/health", "/metrics", "/docs", "/openapi.json", "/v1/docs", "/v1/redoc", "/v1/openapi.json"]
+    session_skip_paths: list[str] = [
+        "/health",
+        "/v1/health",
+        "/metrics",
+        "/docs",
+        "/openapi.json",
+        "/v1/docs",
+        "/v1/redoc",
+        "/v1/openapi.json",
+    ]
 
     # Cart limits
     cart_max_quantity_per_item: int = 10

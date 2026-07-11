@@ -45,7 +45,6 @@ async def test_lifespan_cleanup_loop_calls_cleanup(tmp_path, monkeypatch):
     # But we can't patch asyncio.sleep globally (it affects our own awaits).
     # Instead, directly test the loop behavior by extracting the logic.
     cleanup_called = asyncio.Event()
-    original_cleanup = None
 
     def mock_cleanup():
         cleanup_called.set()
@@ -59,7 +58,7 @@ async def test_lifespan_cleanup_loop_calls_cleanup(tmp_path, monkeypatch):
             # Wait briefly for the task to run one iteration
             try:
                 await asyncio.wait_for(cleanup_called.wait(), timeout=0.5)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
         assert cleanup_called.is_set(), "cleanup_expired_sessions was not called"
@@ -100,7 +99,7 @@ async def test_lifespan_cleanup_loop_handles_exceptions(tmp_path, monkeypatch):
         async with lifespan(app):
             try:
                 await asyncio.wait_for(second_sleep.wait(), timeout=1.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
         # cleanup was called (and raised), but the loop survived to sleep again
@@ -141,7 +140,7 @@ async def test_lifespan_cleanup_loop_logs_count(tmp_path, monkeypatch):
         async with lifespan(app):
             try:
                 await asyncio.wait_for(cleanup_done.wait(), timeout=1.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
         mock_logger.info.assert_called_with("Cleaned up %d expired sessions", 5)

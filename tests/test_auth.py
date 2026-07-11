@@ -2,7 +2,6 @@
 
 import sqlite3
 import time
-from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import jwt
@@ -59,9 +58,7 @@ def user_in_db(db_path) -> UserResponse:
 def authenticated_session(db_path, session_id, user_in_db) -> str:
     """Link the session to the user. Returns session_id."""
     conn = sqlite3.connect(db_path)
-    conn.execute(
-        "UPDATE sessions SET user_id = ? WHERE id = ?", (user_in_db.id, session_id)
-    )
+    conn.execute("UPDATE sessions SET user_id = ? WHERE id = ?", (user_in_db.id, session_id))
     conn.commit()
     conn.close()
     return session_id
@@ -107,9 +104,7 @@ class TestValidateRedirectPath:
 
 class TestJwt:
     def test_create_and_verify_roundtrip(self, app, settings):
-        user = UserResponse(
-            id="u1", email="a@b.com", name="Test", avatar_url=None, is_admin=False
-        )
+        user = UserResponse(id="u1", email="a@b.com", name="Test", avatar_url=None, is_admin=False)
         token = auth_service.create_jwt(user, "session-123")
         claims = auth_service.verify_jwt(token)
 
@@ -122,9 +117,7 @@ class TestJwt:
         assert claims["aud"] == "atelier-marie-web"
 
     def test_expired_token_returns_none(self, app, settings):
-        user = UserResponse(
-            id="u1", email="a@b.com", name="Test", avatar_url=None, is_admin=False
-        )
+        user = UserResponse(id="u1", email="a@b.com", name="Test", avatar_url=None, is_admin=False)
         # Create token with expired time
         payload = {
             "user_id": user.id,
@@ -140,9 +133,7 @@ class TestJwt:
         assert auth_service.verify_jwt(token) is None
 
     def test_wrong_secret_returns_none(self, app, settings):
-        user = UserResponse(
-            id="u1", email="a@b.com", name="Test", avatar_url=None, is_admin=False
-        )
+        user = UserResponse(id="u1", email="a@b.com", name="Test", avatar_url=None, is_admin=False)
         payload = {
             "user_id": user.id,
             "email": user.email,
@@ -381,7 +372,7 @@ class TestLogoutRoute:
         # JWT cookie should be cleared (max-age=0 or deleted)
         set_cookie_headers = response.headers.get_list("set-cookie")
         jwt_cleared = any(
-            settings.jwt_cookie_name in h and ('max-age=0' in h.lower() or "expires=" in h.lower())
+            settings.jwt_cookie_name in h and ("max-age=0" in h.lower() or "expires=" in h.lower())
             for h in set_cookie_headers
         )
         assert jwt_cleared

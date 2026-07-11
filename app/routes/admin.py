@@ -2,6 +2,7 @@
 
 import csv
 import io
+import sqlite3
 from typing import get_args
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
@@ -157,9 +158,12 @@ _ALL_CSV_HEADERS = _REQUIRED_CSV_HEADERS | _OPTIONAL_CSV_HEADERS
     "/products/import",
     response_model=CSVImportResponse,
     summary="Bulk import products (CSV)",
-    description="Upload a CSV file to create/update products in bulk. "
-    "Uses upsert semantics — existing product IDs are updated, new ones are created. "
-    "Rows with validation errors are skipped; results report created/updated counts and per-row errors.",
+    description=(
+        "Upload a CSV file to create/update products in bulk. "
+        "Uses upsert semantics — existing product IDs are updated, new ones are created. "
+        "Rows with validation errors are skipped; results report created/updated counts "
+        "and per-row errors."
+    ),
 )
 async def admin_import_products(
     file: UploadFile = File(..., description="CSV file with product data"),
@@ -273,7 +277,7 @@ async def admin_import_products(
                 updated += 1
             else:
                 created += 1
-        except Exception as e:
+        except (ValueError, sqlite3.Error) as e:
             errors.append(CSVImportError(row=row_num, message=str(e)))
 
     return CSVImportResponse(created=created, updated=updated, errors=errors)
@@ -301,7 +305,10 @@ def admin_list_orders(
                 content={
                     "error": {
                         "code": "INVALID_STATUS",
-                        "message": f"Invalid status '{status}'. Must be one of: {', '.join(valid_statuses)}",
+                        "message": (
+                            f"Invalid status '{status}'. "
+                            f"Must be one of: {', '.join(valid_statuses)}"
+                        ),
                     }
                 },
             )

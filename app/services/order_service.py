@@ -4,15 +4,16 @@ All functions accept an explicit sqlite3.Connection and primitive parameters.
 Routes destructure Pydantic models before calling these functions.
 """
 
-import logging
 import sqlite3
 import uuid
 from datetime import UTC, datetime
 from typing import TypedDict
 
+import structlog
+
 from app.models.orders import OrderStatus
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # SQLite-compatible datetime format
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
@@ -155,16 +156,20 @@ def checkout(
 
     for row in cart_rows:
         if not row["is_active"]:
-            unavailable_failures.append({
-                "product_id": row["product_id"],
-                "product_name": row["name"],
-            })
+            unavailable_failures.append(
+                {
+                    "product_id": row["product_id"],
+                    "product_name": row["name"],
+                }
+            )
         elif row["stock"] < row["quantity"]:
-            stock_failures.append({
-                "product_id": row["product_id"],
-                "requested": row["quantity"],
-                "available": row["stock"],
-            })
+            stock_failures.append(
+                {
+                    "product_id": row["product_id"],
+                    "requested": row["quantity"],
+                    "available": row["stock"],
+                }
+            )
 
     # Raise unavailable first (more severe), then stock issues
     if unavailable_failures:
@@ -228,11 +233,15 @@ def checkout(
             # CHECK (stock >= 0) constraint violated — race condition.
             # available=0 because the constraint proves stock went negative;
             # row["stock"] from step 1 is stale and misleading here.
-            raise InsufficientStockError([{
-                "product_id": row["product_id"],
-                "requested": row["quantity"],
-                "available": 0,
-            }]) from e
+            raise InsufficientStockError(
+                [
+                    {
+                        "product_id": row["product_id"],
+                        "requested": row["quantity"],
+                        "available": 0,
+                    }
+                ]
+            ) from e
 
     # 6. Clear cart items for products included in this order
     product_ids = [row["product_id"] for row in cart_rows]
@@ -265,7 +274,8 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
         return None
 
     item_rows = conn.execute(
-        "SELECT product_id, product_name, price_cents, quantity FROM order_items WHERE order_id = ?",
+        "SELECT product_id, product_name, price_cents, quantity "
+        "FROM order_items WHERE order_id = ?",
         (order_id,),
     ).fetchall()
 
@@ -352,9 +362,7 @@ def list_orders(
         params = [session_id]
 
     # Total count
-    total = conn.execute(
-        f"SELECT COUNT(*) FROM orders {where_clause}", params
-    ).fetchone()[0]
+    total = conn.execute(f"SELECT COUNT(*) FROM orders {where_clause}", params).fetchone()[0]
 
     # Paginated results
     rows = conn.execute(
@@ -392,9 +400,7 @@ def list_orders_admin(
         where_clause = ""
         params = []
 
-    total = conn.execute(
-        f"SELECT COUNT(*) FROM orders {where_clause}", params
-    ).fetchone()[0]
+    total = conn.execute(f"SELECT COUNT(*) FROM orders {where_clause}", params).fetchone()[0]
 
     rows = conn.execute(
         f"SELECT id FROM orders {where_clause} ORDER BY created_at DESC LIMIT ? OFFSET ?",
@@ -419,9 +425,7 @@ def update_status(
 
     Restores stock on cancellation (from pending or confirmed).
     """
-    row = conn.execute(
-        "SELECT id, status FROM orders WHERE id = ?", (order_id,)
-    ).fetchone()
+    row = conn.execute("SELECT id, status FROM orders WHERE id = ?", (order_id,)).fetchone()
 
     if not row:
         raise OrderNotFoundError(order_id)
@@ -452,13 +456,16 @@ def update_status(
             if cursor.rowcount == 0:
                 logger.warning(
                     "Could not restore stock for missing product",
-                    extra={"product_id": item["product_id"], "order_id": order_id},
+                    product_id=item["product_id"],
+                    order_id=order_id,
                 )
 
     # Log admin action
     logger.info(
         "Order status updated",
-        extra={"order_id": order_id, "old_status": current_status, "new_status": new_status},
+        order_id=order_id,
+        old_status=current_status,
+        new_status=new_status,
     )
 
     # Return updated order

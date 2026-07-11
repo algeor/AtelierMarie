@@ -2,32 +2,9 @@
 
 import pytest
 
-ADMIN_KEY = "test-admin-key-secret-123"
-
 
 @pytest.fixture()
-def admin_app(app, monkeypatch):
-    """Configure admin API key for tests."""
-    from app.config import get_settings
-
-    settings = get_settings()
-    monkeypatch.setattr(settings, "admin_api_key", ADMIN_KEY)
-    return app
-
-
-@pytest.fixture()
-async def admin_client(admin_app):
-    """Yield a test client with admin auth header."""
-    from httpx import ASGITransport, AsyncClient
-
-    transport = ASGITransport(app=admin_app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        c.headers["Authorization"] = f"Bearer {ADMIN_KEY}"
-        yield c
-
-
-@pytest.fixture()
-def _products(admin_app, db_path):
+def _products(db_path, app):
     """Seed test products."""
     from app.services import product_service
 
@@ -58,26 +35,26 @@ class TestAdminAuth:
     """Tests for admin authentication dependency."""
 
     @pytest.mark.asyncio
-    async def test_rejects_no_credentials(self, admin_app):
+    async def test_rejects_no_credentials(self, app):
         from httpx import ASGITransport, AsyncClient
 
-        transport = ASGITransport(app=admin_app)
+        transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             response = await c.get("/v1/admin/products")
             assert response.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_rejects_invalid_key(self, admin_app):
+    async def test_rejects_invalid_key(self, app):
         from httpx import ASGITransport, AsyncClient
 
-        transport = ASGITransport(app=admin_app)
+        transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             c.headers["Authorization"] = "Bearer wrong-key"
             response = await c.get("/v1/admin/products")
             assert response.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_rejects_empty_key(self, admin_app, monkeypatch):
+    async def test_rejects_empty_key(self, app, monkeypatch):
         """Empty API key config denies all access."""
         from app.config import get_settings
 
@@ -86,7 +63,7 @@ class TestAdminAuth:
 
         from httpx import ASGITransport, AsyncClient
 
-        transport = ASGITransport(app=admin_app)
+        transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             c.headers["Authorization"] = "Bearer "
             response = await c.get("/v1/admin/products")

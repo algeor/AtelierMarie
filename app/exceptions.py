@@ -4,8 +4,7 @@ All API errors return the same envelope:
     {"error": {"code": "<CODE>", "message": "<human-readable>", "details": {...} | null}}
 """
 
-import logging
-
+import structlog
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -19,7 +18,7 @@ from app.services.cart_service import (
     QuantityLimitError,
 )
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def register_exception_handlers(app: FastAPI) -> None:
@@ -41,7 +40,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             raw_input = err.get("input")
             if isinstance(raw_input, bytes):
                 raw_input = raw_input.decode("utf-8", errors="replace")
-            elif not isinstance(raw_input, (str, int, float, bool, list, dict, type(None))):
+            elif not isinstance(raw_input, str | int | float | bool | list | dict | type(None)):
                 raw_input = str(raw_input)
 
             sanitized = {
@@ -71,9 +70,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(StarletteHTTPException)
-    async def http_exception_handler(
-        request: Request, exc: StarletteHTTPException
-    ) -> JSONResponse:
+    async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         """Wrap Starlette/FastAPI HTTPExceptions in our standard envelope."""
         # Map common status codes to error codes
         code_map = {
@@ -122,7 +119,9 @@ def register_exception_handlers(app: FastAPI) -> None:
     ) -> JSONResponse:
         return JSONResponse(
             status_code=404,
-            content={"error": {"code": "CART_ITEM_NOT_FOUND", "message": str(exc), "details": None}},
+            content={
+                "error": {"code": "CART_ITEM_NOT_FOUND", "message": str(exc), "details": None}
+            },
         )
 
     @app.exception_handler(InsufficientStockError)
@@ -145,9 +144,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(QuantityLimitError)
-    async def quantity_limit_handler(
-        request: Request, exc: QuantityLimitError
-    ) -> JSONResponse:
+    async def quantity_limit_handler(request: Request, exc: QuantityLimitError) -> JSONResponse:
         return JSONResponse(
             status_code=422,
             content={
@@ -160,9 +157,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(CartFullError)
-    async def cart_full_handler(
-        request: Request, exc: CartFullError
-    ) -> JSONResponse:
+    async def cart_full_handler(request: Request, exc: CartFullError) -> JSONResponse:
         return JSONResponse(
             status_code=422,
             content={
@@ -175,9 +170,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(Exception)
-    async def unhandled_exception_handler(
-        request: Request, exc: Exception
-    ) -> JSONResponse:
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         """Catch-all for unhandled exceptions. Log the error, return a generic 500."""
         logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
 

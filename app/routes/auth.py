@@ -1,10 +1,10 @@
 """Auth endpoints — Google OAuth login, callback, profile, logout."""
 
-import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
+import structlog
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
@@ -13,7 +13,7 @@ from app.database import get_db
 from app.dependencies.session import require_session
 from app.services import auth_service
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
@@ -186,9 +186,7 @@ async def get_me(
 
     # Verify session still linked to user in DB
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT user_id FROM sessions WHERE id = ?", (session_id,)
-        ).fetchone()
+        row = conn.execute("SELECT user_id FROM sessions WHERE id = ?", (session_id,)).fetchone()
 
         if not row or row["user_id"] != claims["user_id"]:
             return JSONResponse(
@@ -234,9 +232,7 @@ async def logout(
 
     # Check if session is linked to a user (i.e., authenticated)
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT user_id FROM sessions WHERE id = ?", (session_id,)
-        ).fetchone()
+        row = conn.execute("SELECT user_id FROM sessions WHERE id = ?", (session_id,)).fetchone()
         has_user = row and row["user_id"] is not None
 
         if has_user:

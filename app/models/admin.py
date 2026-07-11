@@ -25,6 +25,4 @@ class DashboardResponse(BaseModel):
 
     products: ProductStats
     orders: OrderStats
-    low_stock_count: int = Field(
-        ..., description="Active products with stock <= 5"
-    )
+    low_stock_count: int = Field(..., description="Active products with stock <= 5")

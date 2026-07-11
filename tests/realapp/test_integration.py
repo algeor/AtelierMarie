@@ -24,7 +24,8 @@ def _seed_products(db_path: str, app):
     ]
     for pid, name, price, stock, active in products:
         conn.execute(
-            "INSERT INTO products (id, name, price_cents, stock, is_active, created_at, updated_at) "
+            "INSERT INTO products (id, name, price_cents, stock, "
+            "is_active, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
             (pid, name, price, stock, active),
         )
@@ -101,9 +102,7 @@ async def test_expired_session_orphans_cart(client: AsyncClient, db_path: str):
     assert row is not None  # NOT deleted by middleware
 
     # (c) Old cart_items rows still present
-    items = conn.execute(
-        "SELECT * FROM cart_items WHERE session_id = ?", (old_session,)
-    ).fetchall()
+    items = conn.execute("SELECT * FROM cart_items WHERE session_id = ?", (old_session,)).fetchall()
     assert len(items) == 1  # The lavender-dream item
     conn.close()
 
@@ -174,9 +173,7 @@ def test_cascade_delete_session_removes_cart_items(db_path: str, app):
     conn.commit()
 
     # Verify items exist
-    items = conn.execute(
-        "SELECT * FROM cart_items WHERE session_id = ?", (session_id,)
-    ).fetchall()
+    items = conn.execute("SELECT * FROM cart_items WHERE session_id = ?", (session_id,)).fetchall()
     assert len(items) == 2
 
     # Delete session
@@ -184,8 +181,6 @@ def test_cascade_delete_session_removes_cart_items(db_path: str, app):
     conn.commit()
 
     # Verify cart items are gone (CASCADE)
-    items = conn.execute(
-        "SELECT * FROM cart_items WHERE session_id = ?", (session_id,)
-    ).fetchall()
+    items = conn.execute("SELECT * FROM cart_items WHERE session_id = ?", (session_id,)).fetchall()
     assert len(items) == 0
     conn.close()

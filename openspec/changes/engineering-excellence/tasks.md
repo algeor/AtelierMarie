@@ -6,16 +6,16 @@
 
 ### 1.1 Linting Cleanup
 
-- [ ] 1.1.1 Run `ruff check --fix .` to auto-fix I001 (unsorted imports) and W292 (missing EOF newline)
-- [ ] 1.1.2 Run `ruff format .` to reformat all files with formatting violations
-- [ ] 1.1.3 Manually wrap remaining E501 lines (long strings, docstrings, inline dicts) to ≤100 chars
-- [ ] 1.1.4 Verify `ruff check .` and `ruff format --check .` both pass with zero violations
+- [x] 1.1.1 Run `ruff check --fix .` to auto-fix I001 (unsorted imports) and W292 (missing EOF newline)
+- [x] 1.1.2 Run `ruff format .` to reformat all files with formatting violations
+- [x] 1.1.3 Manually wrap remaining E501 lines (long strings, docstrings, inline dicts) to ≤100 chars
+- [x] 1.1.4 Verify `ruff check .` and `ruff format --check .` both pass with zero violations
 
 ### 1.2 Constants & Dependencies
 
-- [ ] 1.2.1 Create `app/constants.py` with all shared constants: `SQLITE_DATETIME_FORMAT`, `SESSION_MAX_AGE_DAYS`, `SESSION_ABSOLUTE_LIFETIME_DAYS`, `SESSION_SLIDING_THRESHOLD_DAYS`, `MAX_PAGE`, `MAX_LIMIT`, `MAX_PRICE_CENTS`, `MAX_STOCK`
-- [ ] 1.2.2 Add `structlog` to pyproject.toml dependencies
-- [ ] 1.2.3 Replace inline magic numbers in `app/config.py`, `app/middleware/session.py`, and service files with imports from `app/constants.py`
+- [x] 1.2.1 Create `app/constants.py` with all shared constants: `SQLITE_DATETIME_FORMAT`, `SESSION_MAX_AGE_DAYS`, `SESSION_ABSOLUTE_LIFETIME_DAYS`, `SESSION_SLIDING_THRESHOLD_DAYS`, `MAX_PAGE`, `MAX_LIMIT`, `MAX_PRICE_CENTS`, `MAX_STOCK`
+- [x] 1.2.2 Add `structlog` to pyproject.toml dependencies
+- [x] 1.2.3 Replace inline magic numbers in `app/config.py`, `app/middleware/session.py`, and service files with imports from `app/constants.py`
 
 ### 1.3 Test Infrastructure — Core Fixtures
 
@@ -77,17 +77,17 @@
 
 > Files: `app/logging_config.py` (new), `app/middleware/request_id.py` (new), `app/main.py`, `app/database.py`, `app/middleware/session.py`, `app/services/cart_service.py`, `app/services/auth_service.py`, `app/routes/admin.py`
 
-- [ ] A.1 Create `app/logging_config.py` — structlog configuration (JSON prod, colored dev, request_id processor)
-- [ ] A.2 Create `app/middleware/request_id.py` — RequestIdMiddleware (UUID4 per request, reads `X-Request-ID`, contextvar, response header)
-- [ ] A.3 Wire request-ID middleware into `app/main.py` (before session middleware)
-- [ ] A.4 Initialize structlog in app lifespan (based on `settings.environment`)
-- [ ] A.5 Replace `import logging` / `logging.getLogger()` with `structlog.get_logger()` across codebase
-- [ ] A.6 Replace bare `except Exception:` in `app/database.py` — catch `sqlite3.IntegrityError`, `sqlite3.OperationalError` separately
-- [ ] A.7 Replace bare `except Exception:` in `app/middleware/session.py` — specific DB error catches
-- [ ] A.8 Replace bare `except Exception:` in `app/services/cart_service.py` — specific catches, chain with `from e`
-- [ ] A.9 Replace bare `except Exception:` in `app/services/auth_service.py` — catch `httpx.HTTPError`, `jwt.PyJWTError` separately
-- [ ] A.10 Fix CSV import error handling in `app/routes/admin.py` — specific catches
-- [ ] A.11 Add structured logging to all catch blocks (operation context, entity IDs, exc_type)
+- [x] A.1 Create `app/logging_config.py` — structlog configuration (JSON prod, colored dev, request_id processor)
+- [x] A.2 Create `app/middleware/request_id.py` — RequestIdMiddleware (UUID4 per request, reads `X-Request-ID`, contextvar, response header)
+- [x] A.3 Wire request-ID middleware into `app/main.py` (before session middleware)
+- [x] A.4 Initialize structlog in app lifespan (based on `settings.environment`)
+- [x] A.5 Replace `import logging` / `logging.getLogger()` with `structlog.get_logger()` across codebase
+- [x] A.6 Replace bare `except Exception:` in `app/database.py` — catch `sqlite3.IntegrityError`, `sqlite3.OperationalError` separately
+- [x] A.7 Replace bare `except Exception:` in `app/middleware/session.py` — specific DB error catches
+- [x] A.8 Replace bare `except Exception:` in `app/services/cart_service.py` — specific catches, chain with `from e`
+- [x] A.9 Replace bare `except Exception:` in `app/services/auth_service.py` — catch `httpx.HTTPError`, `jwt.PyJWTError` separately
+- [x] A.10 Fix CSV import error handling in `app/routes/admin.py` — specific catches
+- [x] A.11 Add structured logging to all catch blocks (operation context, entity IDs, exc_type)
 
 ### Agent B: Concurrency + Sanitization + Resilience
 
@@ -95,7 +95,7 @@
 
 - [ ] B.1 Add `threading.Lock` to `_JwksCache` with double-checked locking pattern
 - [ ] B.2 Change checkout in `order_service.py` to use `BEGIN IMMEDIATE`
-- [ ] B.3 Fix background task lifecycle in `app/main.py` — cancel + await with 5s timeout, catch `CancelledError`
+- [x] B.3 Fix background task lifecycle in `app/main.py` — cancel + await with 5s timeout, catch `CancelledError`
 - [ ] B.4 Create FTS5 sanitization helper — quote-wrap each token, handle empty/whitespace input
 - [ ] B.5 Apply sanitization to `search_products()` before FTS5 query
 - [ ] B.6 Rewrite `search_products()` to push category/stock filters + LIMIT/OFFSET into SQL (not in-memory)
