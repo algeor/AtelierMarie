@@ -46,7 +46,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 CREATE TABLE IF NOT EXISTS cart_items (
     session_id  TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     product_id  TEXT NOT NULL REFERENCES products(id),
-    quantity    INTEGER NOT NULL DEFAULT 1 CHECK (quantity >= 1 AND quantity <= 10),
+    quantity    INTEGER NOT NULL DEFAULT 1 CHECK (quantity >= 1 AND quantity <= 99),
     added_at    TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (session_id, product_id)
 );
@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS order_items (
     product_id  TEXT NOT NULL,
     product_name TEXT NOT NULL,
     price_cents INTEGER NOT NULL CHECK (price_cents > 0),
-    quantity    INTEGER NOT NULL CHECK (quantity >= 1 AND quantity <= 10),
+    quantity    INTEGER NOT NULL CHECK (quantity >= 1 AND quantity <= 99),
     PRIMARY KEY (order_id, product_id)
 );
 

@@ -279,22 +279,30 @@ class TestRemoveItem:
             remove_item(cart_db, SESSION_ID, "lavender-dream")
 
 
-# --- 8.8 Test total_cents computation ---
+# --- 8.8 Test total_cents with multiple items (different scenario from TestGetCart) ---
 
 
-def test_total_cents_computation(cart_db: sqlite3.Connection):
-    """Add product A (price=2500, qty=2) + B (price=1800, qty=3) → total=10400."""
+def test_total_cents_excludes_unavailable_items(cart_db: sqlite3.Connection):
+    """Unavailable (inactive) items are NOT counted in total_cents."""
     add_item(cart_db, SESSION_ID, "lavender-dream", 2)  # 2500 × 2 = 5000
     add_item(cart_db, SESSION_ID, "rose-garden", 3)  # 1800 × 3 = 5400
+
+    # Deactivate one product
+    cart_db.execute("UPDATE products SET is_active = 0 WHERE id = 'rose-garden'")
+    cart_db.commit()
+
     cart = get_cart(cart_db, SESSION_ID)
-    assert cart.total_cents == 10400
+    # Only lavender-dream (active) counts toward total
+    assert cart.total_cents == 5000
+    assert cart.item_count == 2
+    assert len(cart.unavailable_items) == 1
 
 
 # --- 8.9 Test concurrent stock depletion ---
 
 
 def test_concurrent_stock_depletion(db_path: str, app):
-    """Two threads competing for stock=1 → stock never goes negative."""
+    """Two threads competing for stock=1 — at most one succeeds, stock never goes negative."""
     # Use file-based DB (not in-memory) for cross-thread access
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA foreign_keys=ON")
@@ -335,17 +343,26 @@ def test_concurrent_stock_depletion(db_path: str, app):
     t1.join()
     t2.join()
 
-    # At least one should succeed, at least one should fail
-    # (SQLite serializes writes via BEGIN IMMEDIATE)
+    # At least one should succeed (stock=1 allows one add of qty=1)
     successes = sum(1 for r in results.values() if r is not None)
     failures = sum(1 for e in errors.values() if e is not None)
+    assert successes >= 1, "At least one thread should succeed with stock=1"
 
-    # Both might succeed (stock check is advisory per design)
-    # but stock should logically not go negative
+    # With BEGIN IMMEDIATE serialization, exactly one succeeds and one fails
+    # (though both succeeding is possible if the first commits before the second starts)
+    assert successes + failures == 2, "Both threads should have completed (success or InsufficientStockError)"
+
+    # Note: add_item does NOT decrement products.stock — it only validates against it.
+    # The stock stays at 1. The real invariant: at most one session gets the item
+    # because BEGIN IMMEDIATE serializes the transactions.
     conn = sqlite3.connect(db_path)
-    stock = conn.execute("SELECT stock FROM products WHERE id = 'race-product'").fetchone()[0]
+    total_cart_qty = conn.execute(
+        "SELECT COALESCE(SUM(quantity), 0) FROM cart_items WHERE product_id = 'race-product'"
+    ).fetchone()[0]
     conn.close()
-    assert stock >= 0
+
+    # Total cart quantity across all sessions should not exceed stock
+    assert total_cart_qty <= 1, f"Cart quantity {total_cart_qty} exceeds stock=1"
 
 
 # --- 8.10 Test product deactivated after cart add ---
@@ -484,12 +501,12 @@ def test_concurrent_per_item_limit(db_path: str, app):
     t1.join()
     t2.join()
 
-    # Verify final quantity
+    # Verify final quantity — at least one thread must have succeeded
     conn = sqlite3.connect(db_path)
     row = conn.execute(
         "SELECT quantity FROM cart_items WHERE session_id = 'shared-session' AND product_id = 'limit-race'"
     ).fetchone()
     conn.close()
 
-    if row:
-        assert row[0] <= 10
+    assert row is not None, "At least one worker should have succeeded inserting the item"
+    assert row[0] <= 10, f"Final quantity {row[0]} exceeds per-item limit of 10"

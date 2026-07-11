@@ -159,7 +159,12 @@ class SessionMiddleware(BaseHTTPMiddleware):
 def rotate_session(conn: "sqlite3.Connection", old_session_id: str, user_id: str) -> str:
     """Rotate session ID on login to prevent session fixation.
 
-    Executes atomically within BEGIN IMMEDIATE:
+    IMPORTANT: Caller must pass a connection with NO active transaction.
+    This function manages its own BEGIN IMMEDIATE / COMMIT / ROLLBACK.
+    Do NOT call this inside a ``with get_db() as conn:`` block — pass a raw
+    ``sqlite3.connect()`` connection instead (with row_factory and FK enabled).
+
+    Steps executed atomically:
     1. INSERT new session with user_id
     2. UPDATE cart_items to new session_id
     3. DELETE old session row

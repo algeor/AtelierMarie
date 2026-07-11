@@ -6,6 +6,7 @@ No HTTP concerns — testable without FastAPI/Starlette.
 
 import sqlite3
 from dataclasses import dataclass, field
+from typing import TypedDict
 
 from app.config import get_settings
 
@@ -60,6 +61,24 @@ class CartFullError(Exception):
 # --- Data Structures ---
 
 
+class ProductDict(TypedDict):
+    """Typed dictionary for product data returned in cart items."""
+
+    id: str
+    name: str
+    description: str | None
+    materials: str | None
+    days_to_craft: int | None
+    price_cents: int
+    category: str | None
+    image_url: str | None
+    stock: int
+    is_active: bool
+    is_featured: bool
+    created_at: str
+    updated_at: str
+
+
 @dataclass
 class UnavailableItem:
     """A cart item referencing a product that is no longer available."""
@@ -74,7 +93,7 @@ class CartItem:
     """A single active cart item with product details."""
 
     product_id: str
-    product: dict  # Full product row as dict
+    product: ProductDict
     quantity: int
     added_at: str
 
@@ -110,7 +129,7 @@ def get_cart(conn: sqlite3.Connection, session_id: str) -> CartData:
                p.image_url, p.stock, p.is_active, p.is_featured,
                p.created_at, p.updated_at
         FROM cart_items ci
-        JOIN products p ON ci.product_id = p.id
+        LEFT JOIN products p ON ci.product_id = p.id
         WHERE ci.session_id = ?
         ORDER BY ci.added_at
         """,
@@ -123,7 +142,16 @@ def get_cart(conn: sqlite3.Connection, session_id: str) -> CartData:
     item_count = 0
 
     for row in rows:
-        if not row["is_active"]:
+        if row["p_id"] is None:
+            # Product was hard-deleted — show in unavailable
+            unavailable_items.append(
+                UnavailableItem(
+                    product_id=row["product_id"],
+                    product_name="[deleted]",
+                    reason="deleted",
+                )
+            )
+        elif not row["is_active"]:
             unavailable_items.append(
                 UnavailableItem(
                     product_id=row["product_id"],
@@ -132,7 +160,7 @@ def get_cart(conn: sqlite3.Connection, session_id: str) -> CartData:
                 )
             )
         else:
-            product = {
+            product: ProductDict = {
                 "id": row["p_id"],
                 "name": row["name"],
                 "description": row["description"],
@@ -245,6 +273,8 @@ def add_item(
         conn.execute("ROLLBACK")
         raise
 
+    # Read cart AFTER transaction is complete — a failure here does not mask the write.
+    # The caller (route) handles read errors at the HTTP layer.
     cart = get_cart(conn, session_id)
     return AddItemResult(cart=cart, created=created)
 
@@ -276,13 +306,17 @@ def update_quantity(
             conn.execute("ROLLBACK")
             raise QuantityLimitError(max_quantity=settings.cart_max_quantity_per_item)
 
-        # Stock validation (absolute qty vs stock)
+        # Stock validation (absolute qty vs stock) — also reject deleted/inactive products
         product = conn.execute(
-            "SELECT stock FROM products WHERE id = ?",
+            "SELECT stock, is_active FROM products WHERE id = ?",
             (product_id,),
         ).fetchone()
 
-        if product and quantity > product["stock"]:
+        if not product or not product["is_active"]:
+            conn.execute("ROLLBACK")
+            raise ProductNotFoundError(product_id)
+
+        if quantity > product["stock"]:
             conn.execute("ROLLBACK")
             raise InsufficientStockError(
                 product_id=product_id,
@@ -295,29 +329,27 @@ def update_quantity(
             (quantity, session_id, product_id),
         )
         conn.execute("COMMIT")
-    except (CartItemNotFoundError, QuantityLimitError, InsufficientStockError):
+    except (CartItemNotFoundError, QuantityLimitError, InsufficientStockError, ProductNotFoundError):
         raise
     except Exception:
         conn.execute("ROLLBACK")
         raise
 
+    # Read cart AFTER transaction is complete — a failure here does not mask the write.
     return get_cart(conn, session_id)
 
 
 def remove_item(conn: sqlite3.Connection, session_id: str, product_id: str) -> CartData:
-    """Remove an item from the cart entirely."""
-    # Validate item exists
-    existing = conn.execute(
-        "SELECT 1 FROM cart_items WHERE session_id = ? AND product_id = ?",
-        (session_id, product_id),
-    ).fetchone()
+    """Remove an item from the cart entirely.
 
-    if not existing:
-        raise CartItemNotFoundError(product_id)
-
-    conn.execute(
+    Uses a single DELETE + rowcount check for atomicity (no TOCTOU window).
+    """
+    cursor = conn.execute(
         "DELETE FROM cart_items WHERE session_id = ? AND product_id = ?",
         (session_id, product_id),
     )
+
+    if cursor.rowcount == 0:
+        raise CartItemNotFoundError(product_id)
 
     return get_cart(conn, session_id)
