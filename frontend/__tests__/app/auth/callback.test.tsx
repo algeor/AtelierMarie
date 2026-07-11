@@ -1,21 +1,8 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import React from "react";
 import type { UserResponse } from "@/lib/types";
-
-vi.mock("next-intl", () => ({
-  useTranslations: () => (key: string, values?: Record<string, unknown>) => {
-    if (values) {
-      return Object.entries(values).reduce(
-        (str, [k, v]) => str.replace(`{${k}}`, String(v)),
-        key
-      );
-    }
-    return key;
-  },
-  useLocale: () => "en",
-  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
-}));
+import { renderWithIntl } from "../../test-utils";
 
 vi.mock("@/i18n/navigation", () => ({
   Link: ({ children, href }: { children: React.ReactNode; href: string }) => (
@@ -80,7 +67,7 @@ describe("CallbackHandler", () => {
     mockSearchParams = new URLSearchParams("success=true&redirect_to=/products");
     mockedGetCurrentUser.mockResolvedValueOnce(mockUser);
 
-    render(<CallbackHandler />);
+    renderWithIntl(<CallbackHandler />);
 
     await waitFor(() => {
       expect(mockLoginComplete).toHaveBeenCalledWith(mockUser);
@@ -91,7 +78,7 @@ describe("CallbackHandler", () => {
   it("shows error immediately when error param is present", async () => {
     mockSearchParams = new URLSearchParams("error=invalid_state");
 
-    render(<CallbackHandler />);
+    renderWithIntl(<CallbackHandler />);
 
     await waitFor(() => {
       expect(screen.getByText(/Sign in failed/)).toBeInTheDocument();
@@ -104,7 +91,7 @@ describe("CallbackHandler", () => {
     mockSearchParams = new URLSearchParams("success=true");
     mockedGetCurrentUser.mockResolvedValueOnce(null);
 
-    render(<CallbackHandler />);
+    renderWithIntl(<CallbackHandler />);
 
     await waitFor(() => {
       expect(screen.getByText(/Sign in failed/)).toBeInTheDocument();
@@ -115,7 +102,7 @@ describe("CallbackHandler", () => {
     mockSearchParams = new URLSearchParams("success=true");
     mockedGetCurrentUser.mockRejectedValueOnce(new Error("Network error"));
 
-    render(<CallbackHandler />);
+    renderWithIntl(<CallbackHandler />);
 
     await waitFor(() => {
       expect(screen.getByText(/Sign in failed/)).toBeInTheDocument();
@@ -127,7 +114,7 @@ describe("CallbackHandler", () => {
     sessionStorage.setItem("auth_redirect_to", "/account");
     mockedGetCurrentUser.mockResolvedValueOnce(mockUser);
 
-    render(<CallbackHandler />);
+    renderWithIntl(<CallbackHandler />);
 
     await waitFor(() => {
       expect(mockReplace).toHaveBeenCalledWith("/account");
@@ -139,7 +126,7 @@ describe("CallbackHandler", () => {
     sessionStorage.setItem("auth_redirect_to", "/account");
     mockedGetCurrentUser.mockResolvedValueOnce(mockUser);
 
-    render(<CallbackHandler />);
+    renderWithIntl(<CallbackHandler />);
 
     await waitFor(() => {
       expect(mockReplace).toHaveBeenCalled();
@@ -151,7 +138,7 @@ describe("CallbackHandler", () => {
     mockSearchParams = new URLSearchParams("success=true&redirect_to=//evil.com");
     mockedGetCurrentUser.mockResolvedValueOnce(mockUser);
 
-    render(<CallbackHandler />);
+    renderWithIntl(<CallbackHandler />);
 
     await waitFor(() => {
       expect(mockReplace).toHaveBeenCalledWith("/");
@@ -162,7 +149,7 @@ describe("CallbackHandler", () => {
     mockedGetCurrentUser.mockReturnValue(new Promise(() => {})); // never resolves
     mockSearchParams = new URLSearchParams("success=true");
 
-    render(<CallbackHandler />);
+    renderWithIntl(<CallbackHandler />);
     expect(screen.getByText("Signing you in...")).toBeInTheDocument();
   });
 
@@ -171,7 +158,7 @@ describe("CallbackHandler", () => {
     const user = userEvent.setup();
     mockSearchParams = new URLSearchParams("error=token_exchange_failed");
 
-    render(<CallbackHandler />);
+    renderWithIntl(<CallbackHandler />);
 
     await waitFor(() => {
       expect(screen.getByText("Try Again")).toBeInTheDocument();

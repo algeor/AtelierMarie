@@ -1,20 +1,7 @@
 import React from "react";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { screen, fireEvent } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
-
-vi.mock("next-intl", () => ({
-  useTranslations: () => (key: string, values?: Record<string, unknown>) => {
-    if (values) {
-      return Object.entries(values).reduce(
-        (str, [k, v]) => str.replace(`{${k}}`, String(v)),
-        key
-      );
-    }
-    return key;
-  },
-  useLocale: () => "en",
-  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
-}));
+import { renderWithIntl } from "../../test-utils";
 
 vi.mock("@/i18n/navigation", () => ({
   Link: ({ children, href }: { children: React.ReactNode; href: string }) => (
@@ -66,14 +53,14 @@ describe("CartDrawer", () => {
 
   it("is hidden when isDrawerOpen is false", () => {
     mockUseCart.mockReturnValue({ ...baseCartState, isDrawerOpen: false });
-    const { container } = render(<CartDrawer />);
+    const { container } = renderWithIntl(<CartDrawer />);
     const wrapper = container.firstElementChild;
     expect(wrapper).toHaveAttribute("aria-hidden", "true");
   });
 
   it("is visible when isDrawerOpen is true", () => {
     mockUseCart.mockReturnValue({ ...baseCartState, isDrawerOpen: true });
-    const { container } = render(<CartDrawer />);
+    const { container } = renderWithIntl(<CartDrawer />);
     const wrapper = container.firstElementChild;
     expect(wrapper).toHaveAttribute("aria-hidden", "false");
   });
@@ -81,15 +68,15 @@ describe("CartDrawer", () => {
   it("calls closeDrawer on Escape key", () => {
     const closeDrawer = vi.fn();
     mockUseCart.mockReturnValue({ ...baseCartState, isDrawerOpen: true, closeDrawer });
-    render(<CartDrawer />);
+    renderWithIntl(<CartDrawer />);
     fireEvent.keyDown(document, { key: "Escape" });
     expect(closeDrawer).toHaveBeenCalled();
   });
 
   it("shows empty state when items array is empty", () => {
     mockUseCart.mockReturnValue({ ...baseCartState, isDrawerOpen: true, items: [] });
-    render(<CartDrawer />);
-    expect(screen.getByText("empty")).toBeInTheDocument();
+    renderWithIntl(<CartDrawer />);
+    expect(screen.getByText("Your cart is empty")).toBeInTheDocument();
   });
 
   it("shows items when present", () => {
@@ -113,7 +100,7 @@ describe("CartDrawer", () => {
       total_cents: 6000,
       item_count: 2,
     });
-    render(<CartDrawer />);
+    renderWithIntl(<CartDrawer />);
     expect(screen.getByText("Test Candle")).toBeInTheDocument();
   });
 });

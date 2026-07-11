@@ -1,21 +1,8 @@
 import React from "react";
-import { render, screen, act } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi, describe, it, expect, beforeEach } from "vitest";
-
-vi.mock("next-intl", () => ({
-  useTranslations: () => (key: string, values?: Record<string, unknown>) => {
-    if (values) {
-      return Object.entries(values).reduce(
-        (str, [k, v]) => str.replace(`{${k}}`, String(v)),
-        key
-      );
-    }
-    return key;
-  },
-  useLocale: () => "en",
-  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
-}));
+import { renderWithIntl } from "../../test-utils";
 
 vi.mock("@/i18n/navigation", () => ({
   Link: ({ children, href }: { children: React.ReactNode; href: string }) => (
@@ -54,14 +41,14 @@ describe("UserMenu", () => {
   });
 
   it("renders avatar when avatar_url is present", () => {
-    render(<UserMenu />);
+    renderWithIntl(<UserMenu />);
     const img = document.querySelector("img");
     expect(img).toHaveAttribute("src", "https://example.com/avatar.jpg");
   });
 
   it("opens dropdown on click", async () => {
     const user = userEvent.setup();
-    render(<UserMenu />);
+    renderWithIntl(<UserMenu />);
 
     const trigger = screen.getByRole("button", { expanded: false });
     await user.click(trigger);
@@ -71,7 +58,7 @@ describe("UserMenu", () => {
 
   it("closes dropdown on second click", async () => {
     const user = userEvent.setup();
-    render(<UserMenu />);
+    renderWithIntl(<UserMenu />);
 
     const trigger = screen.getByRole("button");
     await user.click(trigger);
@@ -83,27 +70,27 @@ describe("UserMenu", () => {
 
   it("contains expected links", async () => {
     const user = userEvent.setup();
-    render(<UserMenu />);
+    renderWithIntl(<UserMenu />);
 
     await user.click(screen.getByRole("button"));
 
-    expect(screen.getByRole("link", { name: "myAccount" })).toHaveAttribute("href", "/account");
-    expect(screen.getByRole("link", { name: "myOrders" })).toHaveAttribute("href", "/orders");
+    expect(screen.getByRole("link", { name: "My Account" })).toHaveAttribute("href", "/account");
+    expect(screen.getByRole("link", { name: "My Orders" })).toHaveAttribute("href", "/orders");
   });
 
   it("calls logout on Sign Out click", async () => {
     const user = userEvent.setup();
-    render(<UserMenu />);
+    renderWithIntl(<UserMenu />);
 
     await user.click(screen.getByRole("button"));
-    await user.click(screen.getByRole("menuitem", { name: "signOut" }));
+    await user.click(screen.getByRole("menuitem", { name: "Sign Out" }));
 
     expect(mockLogout).toHaveBeenCalled();
   });
 
   it("closes on Escape key", async () => {
     const user = userEvent.setup();
-    render(<UserMenu />);
+    renderWithIntl(<UserMenu />);
 
     await user.click(screen.getByRole("button"));
     expect(screen.getByRole("menu")).toBeInTheDocument();
@@ -114,7 +101,7 @@ describe("UserMenu", () => {
 
   it("has correct ARIA attributes", async () => {
     const user = userEvent.setup();
-    render(<UserMenu />);
+    renderWithIntl(<UserMenu />);
 
     const trigger = screen.getByRole("button");
     expect(trigger).toHaveAttribute("aria-haspopup", "menu");
@@ -148,8 +135,9 @@ describe("UserMenu with no avatar", () => {
     }));
 
     const { UserMenu: UserMenuNoAvatar } = await import("@/components/auth/UserMenu");
-    const { render: r, screen: s } = await import("@testing-library/react");
-    r(<UserMenuNoAvatar />);
+    const { renderWithIntl: renderWithFreshIntl } = await import("../../test-utils");
+    const { screen: s } = await import("@testing-library/react");
+    renderWithFreshIntl(<UserMenuNoAvatar />);
     expect(s.getByText("M")).toBeInTheDocument();
   });
 });

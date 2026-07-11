@@ -1011,8 +1011,8 @@ class TestRequireAdmin:
             assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_invalid_api_key_returns_403(self, app):
-        """Invalid Bearer key → 403."""
+    async def test_invalid_api_key_returns_401(self, app):
+        """Invalid Bearer key → 401."""
         from httpx import ASGITransport
         from httpx import AsyncClient as HttpxClient
 
@@ -1020,7 +1020,7 @@ class TestRequireAdmin:
         async with HttpxClient(transport=transport, base_url="http://test") as c:
             c.headers["Authorization"] = "Bearer wrong-key"
             response = await c.get("/v1/admin/dashboard")
-            assert response.status_code == 403
+            assert response.status_code == 401
 
     @pytest.mark.asyncio
     async def test_no_credentials_returns_401(self, app):

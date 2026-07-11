@@ -5,12 +5,23 @@ This subdirectory isolates the cost of per-test init_db + full middleware.
 """
 
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.config import get_settings
 from app.database import init_db
+
+_REALAPP_DIR = str(Path(__file__).parent)
+
+
+def pytest_collection_modifyitems(items):
+    """Apply the integration marker to all tests in this directory."""
+    for item in items:
+        if str(item.fspath).startswith(_REALAPP_DIR):
+            item.add_marker(pytest.mark.integration)
+
 
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
 

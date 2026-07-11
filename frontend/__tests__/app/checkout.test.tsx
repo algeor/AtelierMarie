@@ -1,25 +1,12 @@
 import React from "react";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { screen, fireEvent, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
+import { renderWithIntl } from "../test-utils";
 
 const mockPush = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush }),
-}));
-
-vi.mock("next-intl", () => ({
-  useTranslations: () => (key: string, values?: Record<string, unknown>) => {
-    if (values) {
-      return Object.entries(values).reduce(
-        (str, [k, v]) => str.replace(`{${k}}`, String(v)),
-        key
-      );
-    }
-    return key;
-  },
-  useLocale: () => "en",
-  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 vi.mock("@/i18n/navigation", () => ({
@@ -94,26 +81,26 @@ describe("Checkout Page", () => {
   it("redirects to /products when cart is empty", () => {
     mockCartState.items = [];
     mockCartState.item_count = 0;
-    render(<CheckoutPage />);
+    renderWithIntl(<CheckoutPage />);
     expect(mockPush).toHaveBeenCalledWith("/products");
   });
 
   it("shows email validation error on blur with invalid email", async () => {
-    render(<CheckoutPage />);
+    renderWithIntl(<CheckoutPage />);
     const emailInput = screen.getByLabelText(/email/i);
     fireEvent.change(emailInput, { target: { value: "not-an-email" } });
     fireEvent.blur(emailInput);
     await waitFor(() => {
-      expect(screen.getByText("emailInvalid")).toBeInTheDocument();
+      expect(screen.getByText("Please enter a valid email address")).toBeInTheDocument();
     });
   });
 
   it("shows 'Email is required' on submit with empty email", async () => {
-    render(<CheckoutPage />);
-    const submitButtons = screen.getAllByRole("button", { name: /placeOrder/i });
+    renderWithIntl(<CheckoutPage />);
+    const submitButtons = screen.getAllByRole("button", { name: /place order/i });
     fireEvent.click(submitButtons[0]);
     await waitFor(() => {
-      expect(screen.getByText("emailRequired")).toBeInTheDocument();
+      expect(screen.getByText("Email is required")).toBeInTheDocument();
     });
   });
 
@@ -131,11 +118,11 @@ describe("Checkout Page", () => {
       updated_at: "2026-07-01T00:00:00Z",
     });
 
-    render(<CheckoutPage />);
+    renderWithIntl(<CheckoutPage />);
     const emailInput = screen.getByLabelText(/email/i);
     fireEvent.change(emailInput, { target: { value: "test@example.com" } });
 
-    const submitButtons = screen.getAllByRole("button", { name: /placeOrder/i });
+    const submitButtons = screen.getAllByRole("button", { name: /place order/i });
     fireEvent.click(submitButtons[0]);
 
     await waitFor(() => {

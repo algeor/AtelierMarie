@@ -1,20 +1,7 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
-
-vi.mock("next-intl", () => ({
-  useTranslations: () => (key: string, values?: Record<string, unknown>) => {
-    if (values) {
-      return Object.entries(values).reduce(
-        (str, [k, v]) => str.replace(`{${k}}`, String(v)),
-        key
-      );
-    }
-    return key;
-  },
-  useLocale: () => "en",
-  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
-}));
+import { renderWithIntl } from "../../test-utils";
 
 vi.mock("@/i18n/navigation", () => ({
   Link: ({ children, href }: { children: React.ReactNode; href: string }) => (
@@ -85,7 +72,7 @@ describe("Header", () => {
       loginComplete: vi.fn(),
     });
 
-    render(<Header />);
+    renderWithIntl(<Header />);
     expect(screen.getByTestId("login-button")).toBeInTheDocument();
     expect(screen.queryByTestId("user-menu")).not.toBeInTheDocument();
   });
@@ -107,7 +94,7 @@ describe("Header", () => {
       loginComplete: vi.fn(),
     });
 
-    render(<Header />);
+    renderWithIntl(<Header />);
     expect(screen.getByTestId("user-menu")).toBeInTheDocument();
     expect(screen.queryByTestId("login-button")).not.toBeInTheDocument();
   });
@@ -123,7 +110,7 @@ describe("Header", () => {
       loginComplete: vi.fn(),
     });
 
-    render(<Header />);
+    renderWithIntl(<Header />);
     expect(screen.queryByTestId("login-button")).not.toBeInTheDocument();
     expect(screen.queryByTestId("user-menu")).not.toBeInTheDocument();
     // Skeleton is rendered (aria-hidden div)

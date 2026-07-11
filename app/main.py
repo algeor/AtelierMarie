@@ -1,7 +1,7 @@
 """FastAPI application factory and lifespan management."""
 
 import asyncio
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -20,6 +20,27 @@ from app.middleware.session import SessionMiddleware
 from app.routes import admin, auth, cart, comments, locale, orders, products, reactions
 
 logger = structlog.get_logger(__name__)
+SESSION_CLEANUP_INTERVAL_SECONDS = 3600
+
+
+async def session_cleanup_loop(
+    *,
+    interval_seconds: float = SESSION_CLEANUP_INTERVAL_SECONDS,
+    sleep: Callable[[float], Awaitable[object]] | None = None,
+    cleanup: Callable[[], int] | None = None,
+) -> None:
+    """Periodically remove expired sessions until cancelled."""
+    sleep_fn = sleep or asyncio.sleep
+    cleanup_fn = cleanup or cleanup_expired_sessions
+
+    while True:
+        await sleep_fn(interval_seconds)
+        try:
+            count = cleanup_fn()
+            if count:
+                logger.info("Cleaned up expired sessions", count=count)
+        except Exception:
+            logger.exception("Session cleanup failed")
 
 
 @asynccontextmanager
@@ -35,17 +56,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     (static_path / "products").mkdir(exist_ok=True)
 
     # Background task: clean expired sessions every hour
-    async def _session_cleanup_loop() -> None:
-        while True:
-            await asyncio.sleep(3600)
-            try:
-                count = cleanup_expired_sessions()
-                if count:
-                    logger.info("Cleaned up expired sessions", count=count)
-            except Exception:
-                logger.exception("Session cleanup failed")
-
-    task = asyncio.create_task(_session_cleanup_loop())
+    task = asyncio.create_task(session_cleanup_loop())
     yield
     task.cancel()
     try:

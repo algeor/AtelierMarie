@@ -1,3 +1,4 @@
+import { Component, type ReactNode } from "react";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
@@ -48,6 +49,24 @@ function renderWithProvider() {
       <TestComponent />
     </AuthProvider>
   );
+}
+
+class AuthErrorBoundary extends Component<
+  { children: ReactNode },
+  { message: string | null }
+> {
+  state = { message: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { message: error.message };
+  }
+
+  render() {
+    if (this.state.message) {
+      return <div data-testid="auth-error">{this.state.message}</div>;
+    }
+    return this.props.children;
+  }
 }
 
 describe("AuthContext", () => {
@@ -253,12 +272,22 @@ describe("AuthContext", () => {
         return null;
       }
 
-      // Suppress React error boundary console output
       const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      expect(() => render(<Orphan />)).toThrow(
-        "useAuth must be used within an AuthProvider"
-      );
-      consoleSpy.mockRestore();
+      const handleWindowError = (event: ErrorEvent) => event.preventDefault();
+      window.addEventListener("error", handleWindowError);
+      try {
+        render(
+          <AuthErrorBoundary>
+            <Orphan />
+          </AuthErrorBoundary>
+        );
+        expect(screen.getByTestId("auth-error")).toHaveTextContent(
+          "useAuth must be used within an AuthProvider"
+        );
+      } finally {
+        window.removeEventListener("error", handleWindowError);
+        consoleSpy.mockRestore();
+      }
     });
   });
 });

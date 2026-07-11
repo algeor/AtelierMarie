@@ -1,20 +1,7 @@
 import React from "react";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { screen, fireEvent, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
-
-vi.mock("next-intl", () => ({
-  useTranslations: () => (key: string, values?: Record<string, unknown>) => {
-    if (values) {
-      return Object.entries(values).reduce(
-        (str, [k, v]) => str.replace(`{${k}}`, String(v)),
-        key
-      );
-    }
-    return key;
-  },
-  useLocale: () => "en",
-  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
-}));
+import { renderWithIntl } from "../../test-utils";
 
 const mockAddToCart = vi.fn();
 const mockOpenDrawer = vi.fn();
@@ -35,19 +22,19 @@ describe("AddToCartButton", () => {
   });
 
   it("shows 'Add to Cart' text when idle", () => {
-    render(<AddToCartButton productId="test-candle" stock={5} />);
-    expect(screen.getByRole("button")).toHaveTextContent("addToCart");
+    renderWithIntl(<AddToCartButton productId="test-candle" stock={5} />);
+    expect(screen.getByRole("button")).toHaveTextContent("Add to Cart");
   });
 
   it("shows 'Out of Stock' and is disabled when stock is 0", () => {
-    render(<AddToCartButton productId="test-candle" stock={0} />);
+    renderWithIntl(<AddToCartButton productId="test-candle" stock={0} />);
     const button = screen.getByRole("button");
-    expect(button).toHaveTextContent("outOfStock");
+    expect(button).toHaveTextContent("Out of Stock");
     expect(button).toBeDisabled();
   });
 
   it("calls addToCart and openDrawer on click", async () => {
-    render(<AddToCartButton productId="test-candle" stock={5} />);
+    renderWithIntl(<AddToCartButton productId="test-candle" stock={5} />);
     fireEvent.click(screen.getByRole("button"));
     await waitFor(() => {
       expect(mockAddToCart).toHaveBeenCalledWith("test-candle", 1);
@@ -61,7 +48,7 @@ describe("AddToCartButton", () => {
     mockAddToCart.mockImplementation(
       () => new Promise((resolve) => setTimeout(resolve, 1000))
     );
-    render(<AddToCartButton productId="test-candle" stock={5} />);
+    renderWithIntl(<AddToCartButton productId="test-candle" stock={5} />);
     fireEvent.click(screen.getByRole("button"));
     expect(screen.getByRole("button")).toBeDisabled();
   });

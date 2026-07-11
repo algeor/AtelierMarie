@@ -113,6 +113,6 @@ async def require_admin(
 
     # Constant-time comparison to prevent timing attacks
     if not hmac.compare_digest(token.encode(), settings.admin_api_key.encode()):
-        raise HTTPException(status_code=403, detail="Invalid credentials")
+        raise HTTPException(status_code=401, detail="Invalid credentials")
 
     return None
