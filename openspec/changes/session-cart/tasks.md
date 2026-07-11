@@ -1,56 +1,56 @@
 ## 1. Database Schema Updates
 
-- [ ] 1.1 Add `CHECK (stock >= 0)` constraint to the `products` table in `app/database.py`
-- [ ] 1.2 Add `CHECK (quantity >= 1)` constraint to the `cart_items` table in `app/database.py`
-- [ ] 1.3 Add `ON DELETE CASCADE` to `cart_items.session_id` FK (so session cleanup removes orphaned cart items)
-- [ ] 1.4 Add index on `cart_items(session_id)` for fast cart lookups
-- [ ] 1.5 Add `session_absolute_max_age` (180 days in seconds) and `session_expiry_threshold` (7 days in seconds) to `app/config.py`
-- [ ] 1.6 Add `cart_max_quantity_per_item: int = 10` and `cart_max_distinct_items: int = 20` to `app/config.py`
-- [ ] 1.7 Add `session_skip_paths: list[str] = ["/health", "/metrics", "/docs", "/openapi.json"]` to `app/config.py`
-- [ ] 1.8 Add `session_cookie_secure: bool = True` to `app/config.py` (overridden to `False` in dev `.env`)
+- [x] 1.1 Add `CHECK (stock >= 0)` constraint to the `products` table in `app/database.py`
+- [x] 1.2 Add `CHECK (quantity >= 1)` constraint to the `cart_items` table in `app/database.py`
+- [x] 1.3 Add `ON DELETE CASCADE` to `cart_items.session_id` FK (so session cleanup removes orphaned cart items)
+- [x] 1.4 Add index on `cart_items(session_id)` for fast cart lookups
+- [x] 1.5 Add `session_absolute_max_age` (180 days in seconds) and `session_expiry_threshold` (7 days in seconds) to `app/config.py`
+- [x] 1.6 Add `cart_max_quantity_per_item: int = 10` and `cart_max_distinct_items: int = 20` to `app/config.py`
+- [x] 1.7 Add `session_skip_paths: list[str] = ["/health", "/metrics", "/docs", "/openapi.json"]` to `app/config.py`
+- [x] 1.8 Add `session_cookie_secure: bool = True` to `app/config.py` (overridden to `False` in dev `.env`)
 
 ## 2. Session Middleware Hardening
 
-- [ ] 2.1 Add UUID v4 format validation (regex) — reject malformed cookies without DB hit (treat as first-time visit)
-- [ ] 2.2 Add path-exclusion logic: skip session processing for paths matching `session_skip_paths` config. Use exact match for leaf paths (`/health`, `/docs`, `/openapi.json`) and prefix-with-trailing-slash for directory paths (`/docs/`, `/metrics/`). A request to `/health-records` must NOT match `/health`. Replace the existing hard-coded `_SESSION_SKIP_PATHS = frozenset({"/v1/health"})` with the config-driven list. Note: health check should be at `/health` (non-versioned), not `/v1/health` — update or add the route accordingly.
-- [ ] 2.3 Add DB validation for returning sessions: query `sessions` table by cookie value, check row exists
-- [ ] 2.4 Add expiry check: if `expires_at < now`, treat as invalid and create new session
-- [ ] 2.5 Add absolute lifetime check: if `created_at + session_absolute_max_age < now`, treat as expired
-- [ ] 2.6 Implement sliding expiry with threshold: only UPDATE `expires_at` when current value is within `session_expiry_threshold` of now
-- [ ] 2.7 Replace cookie when session is invalid/expired/malformed (set new cookie on response with correct attributes: HttpOnly, Secure in production, SameSite=Lax)
+- [x] 2.1 Add UUID v4 format validation (regex) — reject malformed cookies without DB hit (treat as first-time visit)
+- [x] 2.2 Add path-exclusion logic: skip session processing for paths matching `session_skip_paths` config. Use exact match for leaf paths (`/health`, `/docs`, `/openapi.json`) and prefix-with-trailing-slash for directory paths (`/docs/`, `/metrics/`). A request to `/health-records` must NOT match `/health`. Replace the existing hard-coded `_SESSION_SKIP_PATHS = frozenset({"/v1/health"})` with the config-driven list. Note: health check should be at `/health` (non-versioned), not `/v1/health` — update or add the route accordingly.
+- [x] 2.3 Add DB validation for returning sessions: query `sessions` table by cookie value, check row exists
+- [x] 2.4 Add expiry check: if `expires_at < now`, treat as invalid and create new session
+- [x] 2.5 Add absolute lifetime check: if `created_at + session_absolute_max_age < now`, treat as expired
+- [x] 2.6 Implement sliding expiry with threshold: only UPDATE `expires_at` when current value is within `session_expiry_threshold` of now
+- [x] 2.7 Replace cookie when session is invalid/expired/malformed (set new cookie on response with correct attributes: HttpOnly, Secure in production, SameSite=Lax)
 
 ## 3. Session Rotation on Login
 
-- [ ] 3.1 Implement session rotation helper within a single `BEGIN IMMEDIATE` transaction: (1) INSERT new session row with user_id, (2) UPDATE `cart_items` SET session_id = new WHERE session_id = old, (3) DELETE old session row. Ensure UPDATE precedes DELETE to avoid FK violations regardless of CASCADE.
-- [ ] 3.2 Wire rotation into auth callback (to be fully connected in Day 5 auth spec, but the helper function is implemented now)
+- [x] 3.1 Implement session rotation helper within a single `BEGIN IMMEDIATE` transaction: (1) INSERT new session row with user_id, (2) UPDATE `cart_items` SET session_id = new WHERE session_id = old, (3) DELETE old session row. Ensure UPDATE precedes DELETE to avoid FK violations regardless of CASCADE.
+- [x] 3.2 Wire rotation into auth callback (to be fully connected in Day 5 auth spec, but the helper function is implemented now)
 
 ## 4. Cart Service Layer
 
-- [ ] 4.1 Create `app/services/__init__.py`
-- [ ] 4.2 Create `app/services/cart_service.py` with custom exceptions (`InsufficientStockError`, `QuantityLimitError`, `CartFullError`, `ProductNotFoundError`, `CartItemNotFoundError`)
-- [ ] 4.3 Create `AddItemResult` dataclass with `cart: CartData` and `created: bool` fields
-- [ ] 4.4 Create `UnavailableItem` model with `product_id: str`, `product_name: str`, `reason: str` fields
-- [ ] 4.5 Implement `get_cart(conn, session_id)` — JOIN cart_items + products, filter inactive into `unavailable_items` (with product_name + reason), compute totals, return structured data
-- [ ] 4.6 Implement `add_item(conn, session_id, product_id, quantity)` — validate product exists/active, check stock (existing_qty + new_qty vs products.stock), check limits, INSERT or UPDATE quantity, return `AddItemResult` with `created` flag
-- [ ] 4.7 Implement `update_quantity(conn, session_id, product_id, quantity)` — validate item exists, MUST check quantity=0 BEFORE any SQL (if zero → DELETE row, never UPDATE with 0 which violates CHECK constraint), check stock (absolute new qty vs products.stock), check per-item limit
-- [ ] 4.8 Implement `remove_item(conn, session_id, product_id)` — validate item exists, DELETE row
+- [x] 4.1 Create `app/services/__init__.py`
+- [x] 4.2 Create `app/services/cart_service.py` with custom exceptions (`InsufficientStockError`, `QuantityLimitError`, `CartFullError`, `ProductNotFoundError`, `CartItemNotFoundError`)
+- [x] 4.3 Create `AddItemResult` dataclass with `cart: CartData` and `created: bool` fields
+- [x] 4.4 Create `UnavailableItem` model with `product_id: str`, `product_name: str`, `reason: str` fields
+- [x] 4.5 Implement `get_cart(conn, session_id)` — JOIN cart_items + products, filter inactive into `unavailable_items` (with product_name + reason), compute totals, return structured data
+- [x] 4.6 Implement `add_item(conn, session_id, product_id, quantity)` — validate product exists/active, check stock (existing_qty + new_qty vs products.stock), check limits, INSERT or UPDATE quantity, return `AddItemResult` with `created` flag
+- [x] 4.7 Implement `update_quantity(conn, session_id, product_id, quantity)` — validate item exists, MUST check quantity=0 BEFORE any SQL (if zero → DELETE row, never UPDATE with 0 which violates CHECK constraint), check stock (absolute new qty vs products.stock), check per-item limit
+- [x] 4.8 Implement `remove_item(conn, session_id, product_id)` — validate item exists, DELETE row
 
 ## 5. Cart Routes
 
-- [ ] 5.1 Replace stub in `app/routes/cart.py` with real router
-- [ ] 5.2 Add `product_id` path parameter validation: `Path(..., pattern=r"^[a-z0-9]+(-[a-z0-9]+)*$", max_length=100)`
-- [ ] 5.3 Implement `GET /v1/cart` — call `get_cart`, return `CartResponse`
-- [ ] 5.4 Implement `POST /v1/cart` — parse `AddToCartRequest`, call `add_item`, return 201 if `result.created` else 200, with `CartResponse`
-- [ ] 5.5 Implement `PATCH /v1/cart/{product_id}` — parse `UpdateCartItemRequest`, call `update_quantity`, return 200 with `CartResponse`
-- [ ] 5.6 Implement `DELETE /v1/cart/{product_id}` — call `remove_item`, return 200 with `CartResponse`
-- [ ] 5.7 Map service exceptions to HTTP responses (404, 409, 422) with consistent error format `{"error": {"code": "...", "message": "...", "details": {...}}}`
+- [x] 5.1 Replace stub in `app/routes/cart.py` with real router
+- [x] 5.2 Add `product_id` path parameter validation: `Path(..., pattern=r"^[a-z0-9]+(-[a-z0-9]+)*$", max_length=100)`
+- [x] 5.3 Implement `GET /v1/cart` — call `get_cart`, return `CartResponse`
+- [x] 5.4 Implement `POST /v1/cart` — parse `AddToCartRequest`, call `add_item`, return 201 if `result.created` else 200, with `CartResponse`
+- [x] 5.5 Implement `PATCH /v1/cart/{product_id}` — parse `UpdateCartItemRequest`, call `update_quantity`, return 200 with `CartResponse`
+- [x] 5.6 Implement `DELETE /v1/cart/{product_id}` — call `remove_item`, return 200 with `CartResponse`
+- [x] 5.7 Map service exceptions to HTTP responses (404, 409, 422) with consistent error format `{"error": {"code": "...", "message": "...", "details": {...}}}`
 
 ## 6. Cart Model Alignment
 
-- [ ] 6.1 Rename `total` → `total_cents` in `CartResponse` (aligns with core-ecommerce spec and CLAUDE.md naming convention)
-- [ ] 6.2 Add `unavailable_items: list[UnavailableItem] = []` field to `CartResponse` (with product_id, product_name, reason — not just opaque IDs)
-- [ ] 6.3 Create `UnavailableItem` Pydantic model in `app/models/cart.py`
-- [ ] 6.4 Update `AddToCartRequest.quantity` from `le=10` to `le=99` — Pydantic bound is intentionally wider than the configurable service-layer limit (see design Decision 5). Similarly update `UpdateCartItemRequest.quantity` from `le=10` to `le=99`.
+- [x] 6.1 Rename `total` → `total_cents` in `CartResponse` (aligns with core-ecommerce spec and CLAUDE.md naming convention)
+- [x] 6.2 Add `unavailable_items: list[UnavailableItem] = []` field to `CartResponse` (with product_id, product_name, reason — not just opaque IDs)
+- [x] 6.3 Create `UnavailableItem` Pydantic model in `app/models/cart.py`
+- [x] 6.4 Update `AddToCartRequest.quantity` from `le=10` to `le=99` — Pydantic bound is intentionally wider than the configurable service-layer limit (see design Decision 5). Similarly update `UpdateCartItemRequest.quantity` from `le=10` to `le=99`.
 
 ## 7. Tests — Session Middleware
 

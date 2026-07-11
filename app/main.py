@@ -108,10 +108,16 @@ def create_app() -> FastAPI:
         max_age=3600,
     )
 
-    # Health endpoint
-    @application.get("/v1/health", tags=["health"], summary="Health check")
+    # Health endpoint (non-versioned — excluded from session middleware)
+    @application.get("/health", tags=["health"], summary="Health check")
     async def health() -> JSONResponse:
         """Simple liveness probe. Returns 200 with `{\"status\": \"ok\"}` when the service is running."""
+        return JSONResponse({"status": "ok"})
+
+    # Legacy versioned health endpoint (kept for backward compatibility)
+    @application.get("/v1/health", tags=["health"], summary="Health check (versioned)")
+    async def health_v1() -> JSONResponse:
+        """Versioned health check — kept for backward compatibility."""
         return JSONResponse({"status": "ok"})
 
     # Routers
