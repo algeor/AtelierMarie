@@ -52,68 +52,68 @@ class TestProductModels:
 
     def test_create_product_valid(self):
         req = CreateProductRequest(
-            id="new-candle-200ml", name="New Candle", price_cents=2500, stock=10
+            id="new-candle-200ml", name_en="New Candle", price_cents=2500, stock=10
         )
         assert req.is_active is True
         assert req.is_featured is False
 
     def test_create_product_invalid_price_zero(self):
         with pytest.raises(ValidationError):
-            CreateProductRequest(id="bad-candle", name="Bad", price_cents=0, stock=5)
+            CreateProductRequest(id="bad-candle", name_en="Bad", price_cents=0, stock=5)
 
     def test_create_product_invalid_price_negative(self):
         with pytest.raises(ValidationError):
-            CreateProductRequest(id="bad-candle", name="Bad", price_cents=-100, stock=5)
+            CreateProductRequest(id="bad-candle", name_en="Bad", price_cents=-100, stock=5)
 
     def test_create_product_invalid_stock_negative(self):
         with pytest.raises(ValidationError):
-            CreateProductRequest(id="bad-candle", name="Bad", price_cents=1000, stock=-1)
+            CreateProductRequest(id="bad-candle", name_en="Bad", price_cents=1000, stock=-1)
 
     def test_create_product_boundary_price_one(self):
-        req = CreateProductRequest(id="cheap-candle", name="Cheap", price_cents=1, stock=0)
+        req = CreateProductRequest(id="cheap-candle", name_en="Cheap", price_cents=1, stock=0)
         assert req.price_cents == 1
         assert req.stock == 0
 
     def test_create_product_invalid_name_empty_string(self):
         with pytest.raises(ValidationError):
-            CreateProductRequest(id="bad-candle", name="", price_cents=1000, stock=5)
+            CreateProductRequest(id="bad-candle", name_en="", price_cents=1000, stock=5)
 
     def test_create_product_invalid_id_format(self):
         with pytest.raises(ValidationError):
-            CreateProductRequest(id="BAD ID!", name="Bad", price_cents=1000, stock=5)
+            CreateProductRequest(id="BAD ID!", name_en="Bad", price_cents=1000, stock=5)
 
     def test_create_product_invalid_id_uppercase(self):
         with pytest.raises(ValidationError):
-            CreateProductRequest(id="Bad-Candle", name="Bad", price_cents=1000, stock=5)
+            CreateProductRequest(id="Bad-Candle", name_en="Bad", price_cents=1000, stock=5)
 
     def test_create_product_invalid_days_to_craft_negative(self):
         with pytest.raises(ValidationError):
             CreateProductRequest(
-                id="test-candle", name="Test", price_cents=1000, stock=5, days_to_craft=-1
+                id="test-candle", name_en="Test", price_cents=1000, stock=5, days_to_craft=-1
             )
 
     def test_update_product_all_optional(self):
         req = UpdateProductRequest()
-        assert req.name is None
+        assert req.name_en is None
         assert req.price_cents is None
 
     def test_update_product_partial(self):
         req = UpdateProductRequest(price_cents=1500)
         assert req.price_cents == 1500
-        assert req.name is None
+        assert req.name_en is None
 
     def test_update_product_invalid_price_zero(self):
         with pytest.raises(ValidationError):
             UpdateProductRequest(price_cents=0)
 
-    def test_update_product_empty_name_becomes_none(self):
+    def test_update_product_empty_name_en_becomes_none(self):
         """Empty string is treated as 'not provided' for PATCH semantics."""
-        req = UpdateProductRequest(name="")
-        assert req.name is None
+        req = UpdateProductRequest(name_en="")
+        assert req.name_en is None
 
-    def test_update_product_explicit_null_name_rejected(self):
+    def test_update_product_explicit_null_name_en_rejected(self):
         with pytest.raises(ValidationError):
-            UpdateProductRequest.model_validate({"name": None})
+            UpdateProductRequest.model_validate({"name_en": None})
 
 
 class TestCartModels:
@@ -263,7 +263,7 @@ class TestBoundaryConstraints:
 
     def test_create_product_name_too_long(self):
         with pytest.raises(ValidationError):
-            CreateProductRequest(id="test-candle", name="x" * 201, price_cents=1000, stock=5)
+            CreateProductRequest(id="test-candle", name_en="x" * 201, price_cents=1000, stock=5)
 
     def test_create_order_shipping_address_too_long(self):
         with pytest.raises(ValidationError):
@@ -361,26 +361,26 @@ class TestProductIdPatternEdgeCases:
 
     def test_create_product_invalid_id_trailing_hyphen(self):
         with pytest.raises(ValidationError):
-            CreateProductRequest(id="lavender-", name="Bad", price_cents=1000, stock=5)
+            CreateProductRequest(id="lavender-", name_en="Bad", price_cents=1000, stock=5)
 
     def test_create_product_invalid_id_leading_hyphen(self):
         with pytest.raises(ValidationError):
-            CreateProductRequest(id="-lavender", name="Bad", price_cents=1000, stock=5)
+            CreateProductRequest(id="-lavender", name_en="Bad", price_cents=1000, stock=5)
 
     def test_create_product_invalid_id_double_hyphen(self):
         with pytest.raises(ValidationError):
-            CreateProductRequest(id="lavender--dream", name="Bad", price_cents=1000, stock=5)
+            CreateProductRequest(id="lavender--dream", name_en="Bad", price_cents=1000, stock=5)
 
     def test_create_product_invalid_id_only_hyphens(self):
         with pytest.raises(ValidationError):
-            CreateProductRequest(id="---", name="Bad", price_cents=1000, stock=5)
+            CreateProductRequest(id="---", name_en="Bad", price_cents=1000, stock=5)
 
     def test_create_product_valid_id_single_segment(self):
-        req = CreateProductRequest(id="lavender", name="Good", price_cents=1000, stock=5)
+        req = CreateProductRequest(id="lavender", name_en="Good", price_cents=1000, stock=5)
         assert req.id == "lavender"
 
     def test_create_product_valid_id_multi_segment(self):
         req = CreateProductRequest(
-            id="lavender-dream-300ml", name="Good", price_cents=1000, stock=5
+            id="lavender-dream-300ml", name_en="Good", price_cents=1000, stock=5
         )
         assert req.id == "lavender-dream-300ml"

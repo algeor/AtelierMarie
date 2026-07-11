@@ -49,7 +49,8 @@ async def client(app) -> AsyncGenerator[AsyncClient, None]:
 def active_product(db_path):
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO products (id, name, price_cents, stock, is_active) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO products (id, name_en, price_cents, stock, is_active)"
+            " VALUES (?, ?, ?, ?, ?)",
             ("test-candle", "Test Candle", 2500, 10, 1),
         )
     return "test-candle"

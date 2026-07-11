@@ -11,8 +11,8 @@ def _products(app, db_path):
     product_service.create_product(
         {
             "id": "lavender-dream-300ml",
-            "name": "Lavender Dream",
-            "description": "A calming lavender candle",
+            "name_en": "Lavender Dream",
+            "description_en": "A calming lavender candle",
             "price_cents": 3200,
             "category": "luxury-jar",
             "stock": 24,
@@ -21,8 +21,8 @@ def _products(app, db_path):
     product_service.create_product(
         {
             "id": "midnight-amber-300ml",
-            "name": "Midnight Amber",
-            "description": "Warm amber and sandalwood",
+            "name_en": "Midnight Amber",
+            "description_en": "Warm amber and sandalwood",
             "price_cents": 4500,
             "category": "luxury-jar",
             "stock": 12,
@@ -31,8 +31,8 @@ def _products(app, db_path):
     product_service.create_product(
         {
             "id": "vanilla-brulee-200ml",
-            "name": "Vanilla Crème Brûlée",
-            "description": "Rich vanilla custard dessert candle",
+            "name_en": "Vanilla Crème Brûlée",
+            "description_en": "Rich vanilla custard dessert candle",
             "price_cents": 2800,
             "category": "dessert",
             "stock": 0,

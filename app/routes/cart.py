@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Path, Request, Response
+from fastapi import APIRouter, Path, Query, Request, Response
 
 from app.database import get_db
 from app.models.cart import (
@@ -13,7 +13,7 @@ from app.models.cart import (
     UpdateCartItemRequest,
 )
 from app.models.common import PRODUCT_ID_PATTERN
-from app.models.products import ProductResponse
+from app.models.products import Locale, ProductResponse
 from app.services.cart_service import (
     CartData,
     add_item,
@@ -56,16 +56,24 @@ def _cart_data_to_response(data: CartData) -> CartResponse:
 
 
 @router.get("", response_model=CartResponse)
-async def view_cart(request: Request) -> CartResponse:
+async def view_cart(
+    request: Request,
+    locale: Locale = Query(default="en", description="Content locale (en or bg)"),
+) -> CartResponse:
     """Get the current session's cart contents."""
     session_id = request.state.session_id
     with get_db() as conn:
-        data = get_cart(conn, session_id)
+        data = get_cart(conn, session_id, locale=locale)
     return _cart_data_to_response(data)
 
 
 @router.post("", response_model=CartResponse)
-async def add_to_cart(request: Request, body: AddToCartRequest, response: Response) -> CartResponse:
+async def add_to_cart(
+    request: Request,
+    body: AddToCartRequest,
+    response: Response,
+    locale: Locale = Query(default="en", description="Content locale (en or bg)"),
+) -> CartResponse:
     """Add a product to the cart or increment existing quantity.
 
     Service exceptions (ProductNotFoundError, InsufficientStockError,
@@ -73,7 +81,7 @@ async def add_to_cart(request: Request, body: AddToCartRequest, response: Respon
     """
     session_id = request.state.session_id
     with get_db() as conn:
-        result = add_item(conn, session_id, body.product_id, body.quantity)
+        result = add_item(conn, session_id, body.product_id, body.quantity, locale=locale)
 
     response.status_code = 201 if result.created else 200
     return _cart_data_to_response(result.cart)
@@ -81,7 +89,10 @@ async def add_to_cart(request: Request, body: AddToCartRequest, response: Respon
 
 @router.patch("/{product_id}", response_model=CartResponse)
 async def update_cart_item(
-    request: Request, product_id: ProductIdPath, body: UpdateCartItemRequest
+    request: Request,
+    product_id: ProductIdPath,
+    body: UpdateCartItemRequest,
+    locale: Locale = Query(default="en", description="Content locale (en or bg)"),
 ) -> CartResponse:
     """Update the quantity of a cart item. Quantity 0 removes it.
 
@@ -90,19 +101,23 @@ async def update_cart_item(
     """
     session_id = request.state.session_id
     with get_db() as conn:
-        data = update_quantity(conn, session_id, product_id, body.quantity)
+        data = update_quantity(conn, session_id, product_id, body.quantity, locale=locale)
 
     return _cart_data_to_response(data)
 
 
 @router.delete("/{product_id}", response_model=CartResponse)
-async def remove_from_cart(request: Request, product_id: ProductIdPath) -> CartResponse:
+async def remove_from_cart(
+    request: Request,
+    product_id: ProductIdPath,
+    locale: Locale = Query(default="en", description="Content locale (en or bg)"),
+) -> CartResponse:
     """Remove an item from the cart entirely.
 
     CartItemNotFoundError propagates to global exception handler → 404.
     """
     session_id = request.state.session_id
     with get_db() as conn:
-        data = remove_item(conn, session_id, product_id)
+        data = remove_item(conn, session_id, product_id, locale=locale)
 
     return _cart_data_to_response(data)

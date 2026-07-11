@@ -11,8 +11,8 @@ def _products(db_path, app):
     product_service.create_product(
         {
             "id": "lavender-dream-300ml",
-            "name": "Lavender Dream",
-            "description": "A calming lavender candle",
+            "name_en": "Lavender Dream",
+            "description_en": "A calming lavender candle",
             "price_cents": 3200,
             "category": "luxury-jar",
             "stock": 24,
@@ -21,8 +21,8 @@ def _products(db_path, app):
     product_service.create_product(
         {
             "id": "inactive-candle",
-            "name": "Inactive Candle",
-            "description": "This one is deactivated",
+            "name_en": "Inactive Candle",
+            "description_en": "This one is deactivated",
             "price_cents": 1000,
             "category": "seasonal",
             "stock": 5,
@@ -84,7 +84,7 @@ class TestAdminCreateProduct:
             "/v1/admin/products",
             json={
                 "id": "new-candle-100ml",
-                "name": "New Candle",
+                "name_en": "New Candle",
                 "price_cents": 2000,
                 "stock": 10,
             },
@@ -92,7 +92,7 @@ class TestAdminCreateProduct:
         assert response.status_code == 201
         body = response.json()
         assert body["id"] == "new-candle-100ml"
-        assert body["name"] == "New Candle"
+        assert body["name_en"] == "New Candle"
         assert body["price_cents"] == 2000
 
     @pytest.mark.asyncio
@@ -101,7 +101,7 @@ class TestAdminCreateProduct:
             "/v1/admin/products",
             json={
                 "id": "lavender-dream-300ml",
-                "name": "Duplicate",
+                "name_en": "Duplicate",
                 "price_cents": 1000,
                 "stock": 1,
             },
@@ -116,7 +116,7 @@ class TestAdminCreateProduct:
             "/v1/admin/products",
             json={
                 "id": "x",
-                "name": "",
+                "name_en": "",
                 "price_cents": -1,
                 "stock": 0,
             },
@@ -151,7 +151,7 @@ class TestAdminGetProduct:
     async def test_returns_active_product(self, admin_client, _products):
         response = await admin_client.get("/v1/admin/products/lavender-dream-300ml")
         assert response.status_code == 200
-        assert response.json()["name"] == "Lavender Dream"
+        assert response.json()["name_en"] == "Lavender Dream"
 
     @pytest.mark.asyncio
     async def test_returns_inactive_product(self, admin_client, _products):
@@ -172,18 +172,18 @@ class TestAdminUpdateProduct:
     async def test_partial_update(self, admin_client, _products):
         response = await admin_client.put(
             "/v1/admin/products/lavender-dream-300ml",
-            json={"name": "Lavender Dream XL"},
+            json={"name_en": "Lavender Dream XL"},
         )
         assert response.status_code == 200
         body = response.json()
-        assert body["name"] == "Lavender Dream XL"
+        assert body["name_en"] == "Lavender Dream XL"
         assert body["price_cents"] == 3200  # Unchanged
 
     @pytest.mark.asyncio
     async def test_returns_404_for_missing(self, admin_client, _products):
         response = await admin_client.put(
             "/v1/admin/products/no-such-product",
-            json={"name": "X"},
+            json={"name_en": "X"},
         )
         assert response.status_code == 404
 

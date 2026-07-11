@@ -1,22 +1,9 @@
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import type { OrderListResponse } from "@/lib/types";
-
-vi.mock("next-intl", () => ({
-  useTranslations: () => (key: string, values?: Record<string, unknown>) => {
-    if (values) {
-      return Object.entries(values).reduce(
-        (str, [k, v]) => str.replace(`{${k}}`, String(v)),
-        key
-      );
-    }
-    return key;
-  },
-  useLocale: () => "en",
-  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
-}));
+import { renderWithIntl } from "../test-utils";
 
 vi.mock("@/i18n/navigation", () => ({
   Link: ({ children, href }: { children: React.ReactNode; href: string }) => (
@@ -83,7 +70,7 @@ describe("OrdersPage", () => {
 
   it("renders order list with correct fields", async () => {
     mockedGetOrders.mockResolvedValueOnce(ordersResponse);
-    render(<OrdersPage />);
+    renderWithIntl(<OrdersPage />);
 
     await waitFor(() => {
       expect(screen.getByText("#a1b2c3d4")).toBeInTheDocument();
@@ -101,12 +88,12 @@ describe("OrdersPage", () => {
       page: 1,
       limit: 20,
     });
-    render(<OrdersPage />);
+    renderWithIntl(<OrdersPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("noOrders")).toBeInTheDocument();
+      expect(screen.getByText("No orders yet")).toBeInTheDocument();
     });
-    expect(screen.getByText("startShopping")).toHaveAttribute("href", "/products");
+    expect(screen.getByText("Start Shopping")).toHaveAttribute("href", "/products");
   });
 
   it("shows anonymous CTA in empty state", async () => {
@@ -116,34 +103,34 @@ describe("OrdersPage", () => {
       page: 1,
       limit: 20,
     });
-    render(<OrdersPage />);
+    renderWithIntl(<OrdersPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("signInToSeeOrders")).toBeInTheDocument();
+      expect(screen.getByText("Sign in to see all your orders")).toBeInTheDocument();
     });
   });
 
   it("shows error state with retry button", async () => {
     mockedGetOrders.mockRejectedValueOnce(new Error("Network error"));
-    render(<OrdersPage />);
+    renderWithIntl(<OrdersPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("loadingError")).toBeInTheDocument();
+      expect(screen.getByText("Something went wrong loading your orders")).toBeInTheDocument();
     });
-    expect(screen.getByText("tryAgain")).toBeInTheDocument();
+    expect(screen.getByText("Try again")).toBeInTheDocument();
   });
 
   it("retries on Try again click", async () => {
     const user = userEvent.setup();
     mockedGetOrders.mockRejectedValueOnce(new Error("fail"));
-    render(<OrdersPage />);
+    renderWithIntl(<OrdersPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("tryAgain")).toBeInTheDocument();
+      expect(screen.getByText("Try again")).toBeInTheDocument();
     });
 
     mockedGetOrders.mockResolvedValueOnce(ordersResponse);
-    await user.click(screen.getByText("tryAgain"));
+    await user.click(screen.getByText("Try again"));
 
     await waitFor(() => {
       expect(screen.getByText("#a1b2c3d4")).toBeInTheDocument();
@@ -152,9 +139,9 @@ describe("OrdersPage", () => {
 
   it("shows loading skeleton", () => {
     mockedGetOrders.mockReturnValue(new Promise(() => {})); // never resolves
-    render(<OrdersPage />);
+    renderWithIntl(<OrdersPage />);
     // Skeleton elements are present (aria-hidden divs with animate-pulse)
-    expect(screen.getByText("title")).toBeInTheDocument();
+    expect(screen.getByText("My Orders")).toBeInTheDocument();
   });
 
   it("pagination: Previous disabled on page 1, Next disabled on last page", async () => {
@@ -167,13 +154,13 @@ describe("OrdersPage", () => {
       page: 1,
       limit: 20,
     });
-    render(<OrdersPage />);
+    renderWithIntl(<OrdersPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("previous")).toBeInTheDocument();
+      expect(screen.getByText("Previous")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("previous")).toBeDisabled();
-    expect(screen.getByText("next")).not.toBeDisabled();
+    expect(screen.getByText("Previous")).toBeDisabled();
+    expect(screen.getByText("Next")).not.toBeDisabled();
   });
 });

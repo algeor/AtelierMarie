@@ -66,17 +66,22 @@ export async function updateLocalePreference(locale: Locale): Promise<{ locale: 
   return apiClient.patch<{ locale: Locale }>("/v1/locale", { locale });
 }
 
-export async function getCart(): Promise<CartResponse> {
+function localeQuery(locale?: Locale): string {
+  return locale ? `?locale=${encodeURIComponent(locale)}` : "";
+}
+
+export async function getCart(locale?: Locale): Promise<CartResponse> {
   if (USE_MOCK) return (await getMock()).getCart();
-  return apiClient.get<CartResponse>("/v1/cart");
+  return apiClient.get<CartResponse>(`/v1/cart${localeQuery(locale)}`);
 }
 
 export async function addToCart(
   productId: string,
-  quantity = 1
+  quantity = 1,
+  locale?: Locale
 ): Promise<CartResponse> {
   if (USE_MOCK) return (await getMock()).addToCart(productId, quantity);
-  return apiClient.post<CartResponse>("/v1/cart", {
+  return apiClient.post<CartResponse>(`/v1/cart${localeQuery(locale)}`, {
     product_id: productId,
     quantity,
   });
@@ -84,21 +89,23 @@ export async function addToCart(
 
 export async function updateCartItem(
   productId: string,
-  quantity: number
+  quantity: number,
+  locale?: Locale
 ): Promise<CartResponse> {
   if (USE_MOCK) return (await getMock()).updateCartItem(productId, quantity);
   return apiClient.patch<CartResponse>(
-    `/v1/cart/${encodeURIComponent(productId)}`,
+    `/v1/cart/${encodeURIComponent(productId)}${localeQuery(locale)}`,
     { quantity }
   );
 }
 
 export async function removeFromCart(
-  productId: string
+  productId: string,
+  locale?: Locale
 ): Promise<CartResponse> {
   if (USE_MOCK) return (await getMock()).removeFromCart(productId);
   return apiClient.del<CartResponse>(
-    `/v1/cart/${encodeURIComponent(productId)}`
+    `/v1/cart/${encodeURIComponent(productId)}${localeQuery(locale)}`
   );
 }
 

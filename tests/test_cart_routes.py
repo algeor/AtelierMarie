@@ -25,7 +25,7 @@ def _seed_products(db_path: str, app):
     ]
     for pid, name, price, stock, active in products:
         conn.execute(
-            "INSERT INTO products (id, name, price_cents, stock, "
+            "INSERT INTO products (id, name_en, price_cents, stock, "
             "is_active, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
             (pid, name, price, stock, active),
@@ -161,7 +161,7 @@ async def test_post_cart_cart_full_422(client: AsyncClient, db_path: str):
     for i in range(20):
         pid = f"fill-route-{i:03d}"
         conn.execute(
-            "INSERT INTO products (id, name, price_cents, stock, "
+            "INSERT INTO products (id, name_en, price_cents, stock, "
             "is_active, created_at, updated_at) "
             "VALUES (?, ?, 1000, 50, 1, datetime('now'), datetime('now'))",
             (pid, f"Fill Route {i}"),
@@ -352,11 +352,11 @@ async def test_cart_isolation_between_sessions(tmp_path, monkeypatch):
     # Seed products
     conn = sqlite3.connect(db_file)
     conn.execute(
-        "INSERT INTO products (id, name, price_cents, stock, is_active, created_at, updated_at) "
+        "INSERT INTO products (id, name_en, price_cents, stock, is_active, created_at, updated_at) "
         "VALUES ('lavender-dream', 'Lavender Dream', 2500, 10, 1, datetime('now'), datetime('now'))"
     )
     conn.execute(
-        "INSERT INTO products (id, name, price_cents, stock, is_active, created_at, updated_at) "
+        "INSERT INTO products (id, name_en, price_cents, stock, is_active, created_at, updated_at) "
         "VALUES ('rose-garden', 'Rose Garden', 1800, 5, 1, datetime('now'), datetime('now'))"
     )
     conn.commit()

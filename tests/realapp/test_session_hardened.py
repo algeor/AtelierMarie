@@ -328,7 +328,7 @@ def test_session_rotation_migrates_cart(db_path: str, app):
     # Add products
     for i, (pid, stock) in enumerate([("product-a", 10), ("product-b", 10), ("product-c", 10)]):
         conn.execute(
-            "INSERT INTO products (id, name, price_cents, stock, "
+            "INSERT INTO products (id, name_en, price_cents, stock, "
             "is_active, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, 1, datetime('now'), datetime('now'))",
             (pid, f"Product {i}", 1000, stock),
@@ -427,7 +427,7 @@ def test_session_rotation_rollback_on_failure(db_path: str, app):
 
     # Add a product + cart item
     conn.execute(
-        "INSERT INTO products (id, name, price_cents, stock, "
+        "INSERT INTO products (id, name_en, price_cents, stock, "
         "is_active, created_at, updated_at) "
         "VALUES ('rollback-product', 'Rollback Product', 1000, 10, 1, "
         "datetime('now'), datetime('now'))"

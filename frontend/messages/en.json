@@ -45,7 +45,8 @@
     "signInToSeeOrders": "Sign in to see all your orders",
     "signInToViewAccount": "Sign in to view your account and order history",
     "userAvatar": "User avatar",
-    "userFallback": "User"
+    "userFallback": "User",
+    "authCheckFailed": "Failed to check authentication status."
   },
   "home": {
     "heroTitle": "Luxury Handcrafted Candles",
@@ -75,6 +76,25 @@
     "priceLowHigh": "Price: Low to High",
     "priceHighLow": "Price: High to Low",
     "newest": "Newest"
+  },
+  "comments": {
+    "title": "Comments",
+    "displayName": "Display name",
+    "displayNamePlaceholder": "Your name",
+    "comment": "Comment",
+    "commentPlaceholder": "Share your thoughts...",
+    "writeComment": "Please write a comment.",
+    "enterDisplayName": "Please enter a display name.",
+    "postComment": "Post Comment",
+    "posting": "Posting...",
+    "postFailed": "Failed to post comment.",
+    "loadFailed": "Unable to load comments. Please try again later.",
+    "empty": "No comments yet. Be the first to share your thoughts!",
+    "sortComments": "Sort comments",
+    "newestFirst": "Newest first",
+    "oldestFirst": "Oldest first",
+    "loveProduct": "Love this product",
+    "likeProduct": "Like this product"
   },
   "cart": {
     "title": "Your Cart",
@@ -170,6 +190,7 @@
     "all": "All",
     "orderId": "Order ID",
     "customer": "Customer",
+    "total": "Total",
     "status": "Status",
     "date": "Date",
     "actions": "Actions",
@@ -245,15 +266,32 @@
   },
   "errors": {
     "CART_EMPTY": "Your cart is empty",
+    "EMPTY_CART": "Your cart is empty",
     "INSUFFICIENT_STOCK": "Insufficient stock",
     "PRODUCT_NOT_FOUND": "Product not found",
+    "PRODUCT_UNAVAILABLE": "Some items are no longer available. Please review your cart.",
     "ORDER_NOT_FOUND": "Order not found",
+    "NOT_FOUND": "Not found",
     "INVALID_QUANTITY": "Invalid quantity",
+    "QUANTITY_LIMIT_EXCEEDED": "Quantity limit exceeded",
+    "CART_ITEM_NOT_FOUND": "Cart item not found",
+    "CART_FULL": "Your cart is full",
     "RATE_LIMIT_EXCEEDED": "Too many requests. Please wait a moment.",
+    "RATE_LIMITED": "Too many requests. Please wait a moment.",
     "UNAUTHORIZED": "Please sign in to continue",
     "FORBIDDEN": "You don't have permission to do this",
     "CONFLICT": "Some items are no longer available. Please review your cart.",
+    "BAD_REQUEST": "Please check your request and try again",
+    "INVALID_CONTENT_TYPE": "Please check your request and try again",
     "VALIDATION_ERROR": "Please check your input and try again",
+    "DUPLICATE": "This item already exists",
+    "INVALID_CSV": "The CSV file could not be imported",
+    "INVALID_STATUS": "Invalid status",
+    "INVALID_TRANSITION": "Invalid status transition",
+    "NO_SESSION": "No active session. Please refresh and try again.",
+    "NETWORK_ERROR": "Network error. Please try again.",
+    "INTERNAL_ERROR": "Something went wrong. Please try again.",
+    "SERVICE_UNAVAILABLE": "Service is temporarily unavailable. Please try again.",
     "UNKNOWN": "Something went wrong. Please try again."
   }
 }

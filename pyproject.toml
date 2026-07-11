@@ -33,6 +33,9 @@ include = ["app*"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-n auto --dist worksteal -q"
+markers = [
+    "integration: marks tests as integration tests (real middleware, slower)",
+]
 
 [tool.ruff]
 target-version = "py311"

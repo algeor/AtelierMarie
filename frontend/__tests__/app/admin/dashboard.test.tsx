@@ -1,6 +1,7 @@
 import React from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
+import { renderWithIntl } from "../../test-utils";
 
 // Mock next/navigation
 const mockPush = vi.fn();
@@ -9,21 +10,6 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush, replace: mockReplace }),
   usePathname: () => "/admin",
   useParams: () => ({}),
-}));
-
-// Mock next-intl
-vi.mock("next-intl", () => ({
-  useTranslations: () => (key: string, values?: Record<string, unknown>) => {
-    if (values) {
-      return Object.entries(values).reduce(
-        (str, [k, v]) => str.replace(`{${k}}`, String(v)),
-        key
-      );
-    }
-    return key;
-  },
-  useLocale: () => "en",
-  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 // Mock @/i18n/navigation
@@ -166,7 +152,7 @@ describe("Admin Dashboard", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const AdminDashboardPage = (await import("@/app/[locale]/admin/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <AdminDashboardPage />
@@ -175,7 +161,7 @@ describe("Admin Dashboard", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("dashboard")).toBeInTheDocument();
+      expect(screen.getByText("Dashboard")).toBeInTheDocument();
     });
 
     await waitFor(() => {
@@ -192,7 +178,7 @@ describe("Admin Dashboard", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const AdminDashboardPage = (await import("@/app/[locale]/admin/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <AdminDashboardPage />
@@ -201,11 +187,11 @@ describe("Admin Dashboard", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("dashboard")).toBeInTheDocument();
+      expect(screen.getByText("Dashboard")).toBeInTheDocument();
     });
 
     // Skeleton elements should be present (they render as divs with animate-pulse)
-    expect(screen.getByText("storeOverview")).toBeInTheDocument();
+    expect(screen.getByText("Overview of your store performance")).toBeInTheDocument();
   });
 
   it("shows error when stats fail to load", async () => {
@@ -215,7 +201,7 @@ describe("Admin Dashboard", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const AdminDashboardPage = (await import("@/app/[locale]/admin/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <AdminDashboardPage />
@@ -224,7 +210,7 @@ describe("Admin Dashboard", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Network error")).toBeInTheDocument();
+      expect(screen.getByText("Failed to load stats")).toBeInTheDocument();
     });
   });
 });

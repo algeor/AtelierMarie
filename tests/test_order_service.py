@@ -84,7 +84,8 @@ def products(conn):
     ]
     for pid, name, price, stock in products_data:
         conn.execute(
-            "INSERT INTO products (id, name, price_cents, stock, is_active) VALUES (?, ?, ?, ?, 1)",
+            "INSERT INTO products (id, name_en, price_cents, stock, is_active)"
+            " VALUES (?, ?, ?, ?, 1)",
             (pid, name, price, stock),
         )
     conn.commit()

@@ -1,20 +1,7 @@
 import React from "react";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { screen, waitFor, fireEvent } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
-
-vi.mock("next-intl", () => ({
-  useTranslations: () => (key: string, values?: Record<string, unknown>) => {
-    if (values) {
-      return Object.entries(values).reduce(
-        (str, [k, v]) => str.replace(`{${k}}`, String(v)),
-        key
-      );
-    }
-    return key;
-  },
-  useLocale: () => "en",
-  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
-}));
+import { renderWithIntl } from "../../test-utils";
 
 vi.mock("@/i18n/navigation", () => ({
   Link: ({ children, href }: { children: React.ReactNode; href: string }) => (
@@ -104,7 +91,7 @@ describe("Admin Orders List", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const AdminOrdersPage = (await import("@/app/[locale]/admin/orders/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <AdminOrdersPage />
@@ -119,8 +106,8 @@ describe("Admin Orders List", () => {
 
     expect(screen.getByText("€77.00")).toBeInTheDocument();
     expect(screen.getByText("€56.00")).toBeInTheDocument();
-    expect(screen.getByText("pending")).toBeInTheDocument();
-    expect(screen.getByText("confirmed")).toBeInTheDocument();
+    expect(screen.getAllByText("Pending").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Confirmed").length).toBeGreaterThan(0);
   });
 
   it("shows status filter pills", async () => {
@@ -130,7 +117,7 @@ describe("Admin Orders List", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const AdminOrdersPage = (await import("@/app/[locale]/admin/orders/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <AdminOrdersPage />
@@ -163,7 +150,7 @@ describe("Admin Orders List", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const AdminOrdersPage = (await import("@/app/[locale]/admin/orders/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <AdminOrdersPage />
@@ -175,7 +162,7 @@ describe("Admin Orders List", () => {
       expect(screen.getByText("a***@example.com")).toBeInTheDocument();
     });
 
-    const pendingPill = screen.getByText("Pending");
+    const pendingPill = screen.getByRole("button", { name: "Pending" });
     fireEvent.click(pendingPill);
 
     await waitFor(() => {
@@ -194,7 +181,7 @@ describe("Admin Orders List", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const AdminOrdersPage = (await import("@/app/[locale]/admin/orders/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <AdminOrdersPage />
@@ -226,7 +213,7 @@ describe("Admin Orders List", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const AdminOrdersPage = (await import("@/app/[locale]/admin/orders/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <AdminOrdersPage />
@@ -242,11 +229,11 @@ describe("Admin Orders List", () => {
     fireEvent.change(selects[0], { target: { value: "confirmed" } });
 
     await waitFor(() => {
-      expect(screen.getByText("Server error")).toBeInTheDocument();
+      expect(screen.getByText("Failed to update order status")).toBeInTheDocument();
     });
 
     // Original status should be restored (pending)
-    expect(screen.getByText("pending")).toBeInTheDocument();
+    expect(screen.getAllByText("Pending").length).toBeGreaterThan(0);
   });
 
   it("shows only valid transition options for each order status", async () => {
@@ -256,7 +243,7 @@ describe("Admin Orders List", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const AdminOrdersPage = (await import("@/app/[locale]/admin/orders/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <AdminOrdersPage />
@@ -288,7 +275,7 @@ describe("Admin Orders List", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const AdminOrdersPage = (await import("@/app/[locale]/admin/orders/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <AdminOrdersPage />
@@ -309,7 +296,7 @@ describe("Admin Orders List", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const AdminOrdersPage = (await import("@/app/[locale]/admin/orders/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <AdminOrdersPage />
@@ -334,7 +321,7 @@ describe("Admin Orders List", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const AdminOrdersPage = (await import("@/app/[locale]/admin/orders/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <AdminOrdersPage />

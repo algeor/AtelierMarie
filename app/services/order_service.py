@@ -4,16 +4,17 @@ All functions accept an explicit sqlite3.Connection and primitive parameters.
 Routes destructure Pydantic models before calling these functions.
 """
 
-import logging
 import sqlite3
 import uuid
 from datetime import UTC, datetime
-from typing import TypedDict
+from typing import Literal, TypedDict
+
+import structlog
 
 from app.constants import MAX_LIMIT, MAX_PAGE
 from app.models.orders import OrderStatus
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # SQLite-compatible datetime format
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
@@ -26,6 +27,15 @@ VALID_TRANSITIONS: dict[str, set[str]] = {
     "delivered": set(),
     "cancelled": set(),
 }
+
+Locale = Literal["en", "bg"]
+
+
+def _localized_product_name(locale: Locale) -> str:
+    """Return a safe SQL expression for locale-resolved product names."""
+    if locale == "bg":
+        return "COALESCE(NULLIF(p.name_bg, ''), p.name_en, '') AS name"
+    return "COALESCE(NULLIF(p.name_en, ''), p.name_bg, '') AS name"
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +139,7 @@ def checkout(
     shipping_address: str | None = None,
     notes: str | None = None,
     user_id: str | None = None,
+    locale: Locale = "en",
 ) -> OrderData:
     """Convert cart to an order atomically.
 
@@ -140,14 +151,15 @@ def checkout(
     """
     conn.execute("BEGIN IMMEDIATE")
     try:
+        name_expr = _localized_product_name(locale)
         # 1. Fetch cart items with product info
         cart_rows = conn.execute(
-            """
-            SELECT ci.product_id, ci.quantity, p.name, p.price_cents, p.stock, p.is_active
+            f"""
+            SELECT ci.product_id, ci.quantity, {name_expr}, p.price_cents, p.stock, p.is_active
             FROM cart_items ci
             JOIN products p ON p.id = ci.product_id
             WHERE ci.session_id = ?
-            """,
+            """,  # noqa: S608 - locale selects a fixed SQL expression above.
             (session_id,),
         ).fetchall()
 
@@ -359,7 +371,7 @@ def list_orders(
         page = 1
     page = min(page, MAX_PAGE)
     if limit < 1:
-        limit = 1
+        raise ValueError("limit must be at least 1")
     limit = min(limit, MAX_LIMIT)
 
     offset = (page - 1) * limit
@@ -471,13 +483,16 @@ def update_status(
             if cursor.rowcount == 0:
                 logger.warning(
                     "Could not restore stock for missing product",
-                    extra={"product_id": item["product_id"], "order_id": order_id},
+                    product_id=item["product_id"],
+                    order_id=order_id,
                 )
 
     # Log admin action
     logger.info(
         "Order status updated",
-        extra={"order_id": order_id, "old_status": current_status, "new_status": new_status},
+        order_id=order_id,
+        old_status=current_status,
+        new_status=new_status,
     )
 
     # Return updated order

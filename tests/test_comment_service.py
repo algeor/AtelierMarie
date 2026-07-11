@@ -31,7 +31,8 @@ def active_product(db):
 
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO products (id, name, price_cents, stock, is_active) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO products (id, name_en, price_cents, stock, is_active)"
+            " VALUES (?, ?, ?, ?, ?)",
             ("test-candle", "Test Candle", 2500, 10, 1),
         )
     return "test-candle"
@@ -44,7 +45,8 @@ def inactive_product(db):
 
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO products (id, name, price_cents, stock, is_active) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO products (id, name_en, price_cents, stock, is_active)"
+            " VALUES (?, ?, ?, ?, ?)",
             ("inactive-candle", "Inactive Candle", 2500, 10, 0),
         )
     return "inactive-candle"
@@ -155,7 +157,7 @@ class TestCommentRateLimits:
         with get_db() as conn:
             for i in range(3):
                 conn.execute(
-                    "INSERT INTO products (id, name, price_cents, stock, is_active) "
+                    "INSERT INTO products (id, name_en, price_cents, stock, is_active) "
                     "VALUES (?, ?, ?, ?, ?)",
                     (f"candle-{i}", f"Candle {i}", 2500, 10, 1),
                 )
@@ -172,7 +174,7 @@ class TestCommentRateLimits:
         with get_db() as conn:
             for i in range(11):
                 conn.execute(
-                    "INSERT INTO products (id, name, price_cents, stock, is_active) "
+                    "INSERT INTO products (id, name_en, price_cents, stock, is_active) "
                     "VALUES (?, ?, ?, ?, ?)",
                     (f"candle-{i}", f"Candle {i}", 2500, 10, 1),
                 )
@@ -258,12 +260,12 @@ class TestListAllComments:
 
         with get_db() as conn:
             conn.execute(
-                "INSERT INTO products (id, name, price_cents, stock, is_active) "
+                "INSERT INTO products (id, name_en, price_cents, stock, is_active) "
                 "VALUES (?, ?, ?, ?, ?)",
                 ("candle-a", "Candle A", 2500, 10, 1),
             )
             conn.execute(
-                "INSERT INTO products (id, name, price_cents, stock, is_active) "
+                "INSERT INTO products (id, name_en, price_cents, stock, is_active) "
                 "VALUES (?, ?, ?, ?, ?)",
                 ("candle-b", "Candle B", 2500, 10, 1),
             )

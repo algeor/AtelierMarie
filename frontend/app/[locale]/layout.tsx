@@ -1,11 +1,8 @@
-import type { Metadata } from "next";
 import { Playfair_Display, Inter } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getMessages } from "next-intl/server";
 import { redirect } from "next/navigation";
 import { routing } from "@/i18n/routing";
-import { getAlternateLanguages } from "@/lib/seo";
-import { AlternateLinks } from "@/components/seo/AlternateLinks";
 import { AnnouncementBar } from "@/components/layout/AnnouncementBar";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
@@ -33,16 +30,6 @@ type Props = {
   params: { locale: string };
 };
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { locale } = await params;
-  return {
-    alternates: {
-      languages: getAlternateLanguages(""),
-      canonical: `/${locale}`,
-    },
-  };
-}
-
 export default async function LocaleLayout({ children, params }: Props) {
   const { locale } = await params;
 
@@ -60,7 +47,6 @@ export default async function LocaleLayout({ children, params }: Props) {
         <NextIntlClientProvider messages={messages}>
           <AuthProvider>
             <CartProvider>
-              <AlternateLinks />
               <AnnouncementBar />
               <Header />
               <CartDrawer />

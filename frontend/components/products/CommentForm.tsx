@@ -1,8 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import { postComment } from "@/lib/api";
+import { ApiError } from "@/lib/api-client";
+import { useLocalizedError } from "@/lib/useLocalizedError";
 import type { CommentResponse } from "@/lib/types";
 
 interface CommentFormProps {
@@ -20,6 +23,8 @@ export function CommentForm({
   onCommentPosted,
   className,
 }: CommentFormProps) {
+  const t = useTranslations("comments");
+  const getLocalizedError = useLocalizedError();
   const [displayName, setDisplayName] = useState("");
   const [body, setBody] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -33,12 +38,12 @@ export function CommentForm({
 
     const trimmedBody = body.trim();
     if (!trimmedBody) {
-      setError("Please write a comment.");
+      setError(t("writeComment"));
       return;
     }
 
     if (!isLoggedInWithName && !displayName.trim()) {
-      setError("Please enter a display name.");
+      setError(t("enterDisplayName"));
       return;
     }
 
@@ -52,9 +57,7 @@ export function CommentForm({
       setBody("");
       setDisplayName("");
     } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : "Failed to post comment.";
-      setError(message);
+      setError(err instanceof ApiError ? getLocalizedError(err.code) : t("postFailed"));
     } finally {
       setSubmitting(false);
     }
@@ -68,7 +71,7 @@ export function CommentForm({
             htmlFor="comment-display-name"
             className="block text-sm font-medium text-charcoal mb-1"
           >
-            Display name
+            {t("displayName")}
           </label>
           <input
             id="comment-display-name"
@@ -76,7 +79,7 @@ export function CommentForm({
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
             maxLength={50}
-            placeholder="Your name"
+            placeholder={t("displayNamePlaceholder")}
             className="w-full rounded-brand border border-warm-gray/30 px-3 py-2 text-sm text-charcoal placeholder:text-muted-charcoal/50 focus:border-soft-brown focus:outline-none focus:ring-1 focus:ring-soft-brown"
           />
         </div>
@@ -87,7 +90,7 @@ export function CommentForm({
           htmlFor="comment-body"
           className="block text-sm font-medium text-charcoal mb-1"
         >
-          Comment
+          {t("comment")}
         </label>
         <textarea
           id="comment-body"
@@ -95,7 +98,7 @@ export function CommentForm({
           onChange={(e) => setBody(e.target.value)}
           maxLength={MAX_BODY_LENGTH}
           rows={3}
-          placeholder="Share your thoughts..."
+          placeholder={t("commentPlaceholder")}
           className="w-full resize-none rounded-brand border border-warm-gray/30 px-3 py-2 text-sm text-charcoal placeholder:text-muted-charcoal/50 focus:border-soft-brown focus:outline-none focus:ring-1 focus:ring-soft-brown"
         />
         <p className="mt-1 text-xs text-muted-charcoal text-right tabular-nums">
@@ -119,7 +122,7 @@ export function CommentForm({
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
         )}
       >
-        {submitting ? "Posting…" : "Post Comment"}
+        {submitting ? t("posting") : t("postComment")}
       </button>
     </form>
   );

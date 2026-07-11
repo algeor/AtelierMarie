@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import { getComments } from "@/lib/api";
 import type { CommentResponse, CommentSort } from "@/lib/types";
@@ -21,6 +22,8 @@ export function CommentThread({
   isLoggedInWithName,
   className,
 }: CommentThreadProps) {
+  const t = useTranslations("comments");
+  const tCommon = useTranslations("common");
   const [comments, setComments] = useState<CommentResponse[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -68,10 +71,10 @@ export function CommentThread({
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
   return (
-    <section className={cn("space-y-6", className)} aria-label="Comments">
+    <section className={cn("space-y-6", className)} aria-label={t("title")}>
       <div className="flex items-center justify-between">
         <h2 className="font-heading text-lg text-charcoal">
-          Comments {total > 0 && <span className="text-muted-charcoal">({total})</span>}
+          {t("title")} {total > 0 && <span className="text-muted-charcoal">({total})</span>}
         </h2>
         {total > 0 && (
           <SortDropdown value={sort} onChange={handleSortChange} />
@@ -86,13 +89,13 @@ export function CommentThread({
 
       {error && (
         <p className="text-sm text-muted-charcoal">
-          Unable to load comments. Please try again later.
+          {t("loadFailed")}
         </p>
       )}
 
       {!error && !loading && comments.length === 0 && (
         <p className="text-sm text-muted-charcoal py-4">
-          No comments yet. Be the first to share your thoughts!
+          {t("empty")}
         </p>
       )}
 
@@ -112,7 +115,7 @@ export function CommentThread({
             disabled={page <= 1}
             className="rounded-brand px-3 py-1 text-sm border border-warm-gray/30 disabled:opacity-50"
           >
-            Previous
+            {tCommon("previous")}
           </button>
           <span className="text-sm text-muted-charcoal tabular-nums">
             {page} / {totalPages}
@@ -123,7 +126,7 @@ export function CommentThread({
             disabled={page >= totalPages}
             className="rounded-brand px-3 py-1 text-sm border border-warm-gray/30 disabled:opacity-50"
           >
-            Next
+            {tCommon("next")}
           </button>
         </div>
       )}

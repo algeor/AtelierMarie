@@ -9,6 +9,7 @@ Tests cover:
 """
 
 import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -272,6 +273,7 @@ class TestBilingualSchemaMigration:
     """Tests for migrating pre-bilingual SQLite schemas."""
 
     def test_legacy_products_and_sessions_are_migrated(self, db_path):
+        Path(db_path).unlink(missing_ok=True)
         conn = sqlite3.connect(db_path)
         conn.executescript(
             """

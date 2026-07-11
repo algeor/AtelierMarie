@@ -1,5 +1,5 @@
-.PHONY: help setup setup-backend setup-frontend test test-backend test-frontend \
-       lint lint-backend lint-frontend format clean dev
+.PHONY: help setup setup-backend setup-frontend test test-backend test-unit test-integration \
+       test-frontend lint lint-backend lint-frontend format clean dev
 
 # Default
 help: ## Show this help
@@ -29,6 +29,14 @@ test: test-backend test-frontend ## Run ALL tests (backend + frontend)
 test-backend: ## Run pytest (Python backend)
 	@echo "═══ Running backend tests (pytest) ═══"
 	.venv/bin/pytest tests/ -v --tb=short
+
+test-unit: ## Run only unit tests (fast — excludes integration)
+	@echo "═══ Running unit tests ═══"
+	.venv/bin/pytest tests/ -v --tb=short -m "not integration"
+
+test-integration: ## Run only integration tests (real middleware)
+	@echo "═══ Running integration tests ═══"
+	.venv/bin/pytest tests/realapp/ -v --tb=short -m integration
 
 test-frontend: ## Run vitest (Next.js frontend)
 	@echo "═══ Running frontend tests (vitest) ═══"

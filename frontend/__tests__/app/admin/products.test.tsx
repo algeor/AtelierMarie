@@ -1,20 +1,7 @@
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { screen, waitFor, fireEvent } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import React from "react";
-
-vi.mock("next-intl", () => ({
-  useTranslations: () => (key: string, values?: Record<string, unknown>) => {
-    if (values) {
-      return Object.entries(values).reduce(
-        (str, [k, v]) => str.replace(`{${k}}`, String(v)),
-        key
-      );
-    }
-    return key;
-  },
-  useLocale: () => "en",
-  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
-}));
+import { renderWithIntl } from "../../test-utils";
 
 const mockPush = vi.fn();
 const mockReplace = vi.fn();
@@ -114,7 +101,7 @@ describe("Admin Products List", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const AdminProductsPage = (await import("@/app/[locale]/admin/products/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <AdminProductsPage />
@@ -140,7 +127,7 @@ describe("Admin Products List", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const AdminProductsPage = (await import("@/app/[locale]/admin/products/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <AdminProductsPage />
@@ -161,7 +148,7 @@ describe("Admin Products List", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const AdminProductsPage = (await import("@/app/[locale]/admin/products/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <AdminProductsPage />
@@ -190,7 +177,7 @@ describe("Admin Products List", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const AdminProductsPage = (await import("@/app/[locale]/admin/products/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <AdminProductsPage />
@@ -211,7 +198,7 @@ describe("Admin Products List", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const AdminProductsPage = (await import("@/app/[locale]/admin/products/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <AdminProductsPage />
@@ -220,7 +207,7 @@ describe("Admin Products List", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Network error")).toBeInTheDocument();
+      expect(screen.getByText("Failed to load products")).toBeInTheDocument();
     });
   });
 
@@ -236,7 +223,7 @@ describe("Admin Products List", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const AdminProductsPage = (await import("@/app/[locale]/admin/products/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <AdminProductsPage />
@@ -263,7 +250,7 @@ describe("Admin Product Form Validation", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const CreateProductPage = (await import("@/app/[locale]/admin/products/new/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <CreateProductPage />
@@ -292,7 +279,7 @@ describe("Admin Product Form Validation", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const CreateProductPage = (await import("@/app/[locale]/admin/products/new/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <CreateProductPage />
@@ -308,10 +295,10 @@ describe("Admin Product Form Validation", () => {
     fireEvent.change(screen.getByLabelText("Product ID (slug)"), {
       target: { value: "test-product" },
     });
-    fireEvent.change(screen.getByLabelText("nameEn"), {
+    fireEvent.change(screen.getByLabelText("Name (English)"), {
       target: { value: "Test Product" },
     });
-    fireEvent.change(screen.getByLabelText("category"), {
+    fireEvent.change(screen.getByLabelText("Category"), {
       target: { value: "Floral" },
     });
 
@@ -330,7 +317,7 @@ describe("Admin Product Form Validation", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const CreateProductPage = (await import("@/app/[locale]/admin/products/new/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <CreateProductPage />
@@ -346,10 +333,10 @@ describe("Admin Product Form Validation", () => {
     fireEvent.change(screen.getByLabelText("Product ID (slug)"), {
       target: { value: "test-product" },
     });
-    fireEvent.change(screen.getByLabelText("nameEn"), {
+    fireEvent.change(screen.getByLabelText("Name (English)"), {
       target: { value: "Test Product" },
     });
-    fireEvent.change(screen.getByLabelText("category"), {
+    fireEvent.change(screen.getByLabelText("Category"), {
       target: { value: "Floral" },
     });
     // Set a valid price
@@ -379,7 +366,7 @@ describe("Admin Product Form Validation", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const CreateProductPage = (await import("@/app/[locale]/admin/products/new/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <CreateProductPage />
@@ -395,10 +382,10 @@ describe("Admin Product Form Validation", () => {
     fireEvent.change(screen.getByLabelText("Product ID (slug)"), {
       target: { value: "test-product" },
     });
-    fireEvent.change(screen.getByLabelText("nameEn"), {
+    fireEvent.change(screen.getByLabelText("Name (English)"), {
       target: { value: "Test Product" },
     });
-    fireEvent.change(screen.getByLabelText("category"), {
+    fireEvent.change(screen.getByLabelText("Category"), {
       target: { value: "Floral" },
     });
     const priceInput = screen.getByLabelText("Price (EUR)");
@@ -421,7 +408,7 @@ describe("Admin Product Form Validation", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const EditProductPage = (await import("@/app/[locale]/admin/products/[id]/edit/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <EditProductPage />
@@ -448,7 +435,7 @@ describe("Admin Product Form Validation", () => {
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
     const EditProductPage = (await import("@/app/[locale]/admin/products/[id]/edit/page")).default;
 
-    render(
+    renderWithIntl(
       <AdminProvider>
         <AdminGuard>
           <EditProductPage />

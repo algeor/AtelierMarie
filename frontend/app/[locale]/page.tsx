@@ -4,10 +4,14 @@ import { HeroSection } from "@/components/products/HeroSection";
 import { ProductGrid } from "@/components/products/ProductGrid";
 import { ProductCard } from "@/components/products/ProductCard";
 import type { Locale } from "@/i18n/routing";
+import { getLocalizedAlternates } from "@/lib/seo";
 
-export const metadata = {
-  title: "Atelier Marie | Luxury Handcrafted Candles",
-};
+export function generateMetadata({ params }: { params: { locale: Locale } }) {
+  return {
+    title: "Atelier Marie | Luxury Handcrafted Candles",
+    alternates: getLocalizedAlternates(params.locale, ""),
+  };
+}
 
 export default async function HomePage({ params }: { params: { locale: Locale } }) {
   const t = await getTranslations({ locale: params.locale, namespace: "home" });

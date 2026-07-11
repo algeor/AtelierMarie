@@ -21,7 +21,7 @@ class TestProductConstraints:
         """CHECK (stock >= 0) rejects negative stock."""
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
-                "INSERT INTO products (id, name, price_cents, stock) VALUES (?, ?, ?, ?)",
+                "INSERT INTO products (id, name_en, price_cents, stock) VALUES (?, ?, ?, ?)",
                 ("test-candle", "Test", 1000, -1),
             )
 
@@ -29,7 +29,7 @@ class TestProductConstraints:
         """CHECK (price_cents > 0) rejects zero price."""
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
-                "INSERT INTO products (id, name, price_cents, stock) VALUES (?, ?, ?, ?)",
+                "INSERT INTO products (id, name_en, price_cents, stock) VALUES (?, ?, ?, ?)",
                 ("test-candle", "Test", 0, 10),
             )
 
@@ -37,14 +37,14 @@ class TestProductConstraints:
         """CHECK (price_cents > 0) rejects negative price."""
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
-                "INSERT INTO products (id, name, price_cents, stock) VALUES (?, ?, ?, ?)",
+                "INSERT INTO products (id, name_en, price_cents, stock) VALUES (?, ?, ?, ?)",
                 ("test-candle", "Test", -500, 10),
             )
 
     def test_valid_product_accepted(self, conn: sqlite3.Connection):
         """A valid product row is accepted by all constraints."""
         conn.execute(
-            "INSERT INTO products (id, name, price_cents, stock) VALUES (?, ?, ?, ?)",
+            "INSERT INTO products (id, name_en, price_cents, stock) VALUES (?, ?, ?, ?)",
             ("test-candle", "Test Candle", 1500, 5),
         )
         conn.commit()
@@ -61,7 +61,7 @@ class TestCartItemConstraints:
         future = (datetime.now(UTC) + timedelta(days=1)).isoformat()
         conn.execute("INSERT INTO sessions (id, expires_at) VALUES (?, ?)", ("sess-1", future))
         conn.execute(
-            "INSERT INTO products (id, name, price_cents, stock) VALUES (?, ?, ?, ?)",
+            "INSERT INTO products (id, name_en, price_cents, stock) VALUES (?, ?, ?, ?)",
             ("prod-1", "Product", 1000, 10),
         )
         conn.commit()
@@ -182,7 +182,7 @@ class TestUpdatedAtTriggers:
     def test_products_updated_at_auto_updates(self, conn: sqlite3.Connection):
         """Updating a product row auto-updates its updated_at timestamp."""
         conn.execute(
-            "INSERT INTO products (id, name, price_cents, stock, updated_at)"
+            "INSERT INTO products (id, name_en, price_cents, stock, updated_at)"
             " VALUES (?, ?, ?, ?, ?)",
             ("test-candle", "Test", 1000, 5, "2020-01-01T00:00:00"),
         )
@@ -190,7 +190,7 @@ class TestUpdatedAtTriggers:
 
         # Update the product
         conn.execute(
-            "UPDATE products SET name = ? WHERE id = ?",
+            "UPDATE products SET name_en = ? WHERE id = ?",
             ("Updated", "test-candle"),
         )
         conn.commit()

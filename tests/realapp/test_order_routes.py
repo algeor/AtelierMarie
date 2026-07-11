@@ -17,11 +17,11 @@ def _seed_order_products(db_path, app):
     """Seed products needed by order tests (uses realapp conftest's app)."""
     conn = sqlite3.connect(db_path)
     conn.execute(
-        "INSERT INTO products (id, name, price_cents, stock, is_active, created_at, updated_at) "
+        "INSERT INTO products (id, name_en, price_cents, stock, is_active, created_at, updated_at) "
         "VALUES ('lavender-dream', 'Lavender Dream', 2500, 10, 1, datetime('now'), datetime('now'))"
     )
     conn.execute(
-        "INSERT INTO products (id, name, price_cents, stock, is_active, created_at, updated_at) "
+        "INSERT INTO products (id, name_en, price_cents, stock, is_active, created_at, updated_at) "
         "VALUES ('midnight-amber', 'Midnight Amber', 3500, 5, 1, datetime('now'), datetime('now'))"
     )
     conn.commit()

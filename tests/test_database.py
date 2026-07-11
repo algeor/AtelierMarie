@@ -90,26 +90,28 @@ class TestDatabaseConstraints:
     def test_product_price_zero_rejected(self, db_conn: sqlite3.Connection):
         with pytest.raises(sqlite3.IntegrityError):
             db_conn.execute(
-                "INSERT INTO products (id, name, price_cents, stock) VALUES ('test', 'Test', 0, 5)"
+                "INSERT INTO products (id, name_en, price_cents, stock)"
+                " VALUES ('test', 'Test', 0, 5)"
             )
 
     def test_product_price_negative_rejected(self, db_conn: sqlite3.Connection):
         with pytest.raises(sqlite3.IntegrityError):
             db_conn.execute(
-                "INSERT INTO products (id, name, price_cents, stock) "
+                "INSERT INTO products (id, name_en, price_cents, stock) "
                 "VALUES ('test', 'Test', -100, 5)"
             )
 
     def test_product_negative_stock_rejected(self, db_conn: sqlite3.Connection):
         with pytest.raises(sqlite3.IntegrityError):
             db_conn.execute(
-                "INSERT INTO products (id, name, price_cents, stock) "
+                "INSERT INTO products (id, name_en, price_cents, stock) "
                 "VALUES ('test', 'Test', 1000, -1)"
             )
 
     def test_product_zero_stock_allowed(self, db_conn: sqlite3.Connection):
         db_conn.execute(
-            "INSERT INTO products (id, name, price_cents, stock) VALUES ('test', 'Test', 1000, 0)"
+            "INSERT INTO products (id, name_en, price_cents, stock)"
+            " VALUES ('test', 'Test', 1000, 0)"
         )
         db_conn.commit()
         row = db_conn.execute("SELECT stock FROM products WHERE id = 'test'").fetchone()
@@ -139,7 +141,7 @@ class TestDatabaseConstraints:
         expires = (datetime.now(UTC) + timedelta(days=1)).strftime(_DT_FMT)
         db_conn.execute("INSERT INTO sessions (id, expires_at) VALUES ('s1', ?)", (expires,))
         db_conn.execute(
-            "INSERT INTO products (id, name, price_cents, stock) "
+            "INSERT INTO products (id, name_en, price_cents, stock) "
             "VALUES ('prod-1', 'Test Product', 1000, 10)"
         )
         db_conn.execute(

@@ -1,7 +1,8 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi, describe, it, expect, beforeEach } from "vitest";
+import { renderWithIntl } from "../test-utils";
 
 const mockLogin = vi.fn();
 
@@ -9,20 +10,6 @@ vi.mock("next/link", () => ({
   default: ({ children, href }: { children: React.ReactNode; href: string }) => (
     <a href={href}>{children}</a>
   ),
-}));
-
-vi.mock("next-intl", () => ({
-  useTranslations: () => (key: string, values?: Record<string, unknown>) => {
-    if (values) {
-      return Object.entries(values).reduce(
-        (str, [k, v]) => str.replace(`{${k}}`, String(v)),
-        key
-      );
-    }
-    return key;
-  },
-  useLocale: () => "en",
-  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 vi.mock("@/i18n/navigation", () => ({
@@ -67,19 +54,19 @@ describe("AccountPage", () => {
     });
 
     it("shows user name and email", () => {
-      render(<AccountPage />);
+      renderWithIntl(<AccountPage />);
       expect(screen.getByText("Marie")).toBeInTheDocument();
       expect(screen.getByText("marie@ateliermarie.com")).toBeInTheDocument();
     });
 
     it("shows avatar image", () => {
-      render(<AccountPage />);
+      renderWithIntl(<AccountPage />);
       const img = screen.getByRole("img");
       expect(img).toHaveAttribute("src", "https://example.com/avatar.jpg");
     });
 
     it("shows My Orders link", () => {
-      render(<AccountPage />);
+      renderWithIntl(<AccountPage />);
       expect(screen.getByText("My Orders")).toHaveAttribute("href", "/orders");
     });
   });
@@ -98,7 +85,7 @@ describe("AccountPage", () => {
     });
 
     it("shows sign in prompt", () => {
-      render(<AccountPage />);
+      renderWithIntl(<AccountPage />);
       expect(
         screen.getByText("Sign in to view your account and order history")
       ).toBeInTheDocument();
@@ -106,7 +93,7 @@ describe("AccountPage", () => {
 
     it("shows Sign In with Google button that calls login", async () => {
       const user = userEvent.setup();
-      render(<AccountPage />);
+      renderWithIntl(<AccountPage />);
 
       const button = screen.getByText("Sign In with Google");
       await user.click(button);
@@ -126,7 +113,7 @@ describe("AccountPage", () => {
         loginComplete: vi.fn(),
       });
 
-      render(<AccountPage />);
+      renderWithIntl(<AccountPage />);
       // Should not show the sign-in prompt or user info
       expect(screen.queryByText("Sign In with Google")).not.toBeInTheDocument();
       expect(screen.queryByText("marie@ateliermarie.com")).not.toBeInTheDocument();

@@ -42,7 +42,8 @@ def active_product(db_path):
     """Insert an active product."""
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO products (id, name, price_cents, stock, is_active) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO products (id, name_en, price_cents, stock, is_active)"
+            " VALUES (?, ?, ?, ?, ?)",
             ("test-candle", "Test Candle", 2500, 10, 1),
         )
     return "test-candle"
@@ -53,7 +54,8 @@ def inactive_product(db_path):
     """Insert an inactive product."""
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO products (id, name, price_cents, stock, is_active) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO products (id, name_en, price_cents, stock, is_active)"
+            " VALUES (?, ?, ?, ?, ?)",
             ("inactive-candle", "Inactive Candle", 2500, 10, 0),
         )
     return "inactive-candle"

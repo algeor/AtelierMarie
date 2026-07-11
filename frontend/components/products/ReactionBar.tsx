@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import { getReactions, toggleReaction } from "@/lib/api";
 import type { ReactionCountsResponse } from "@/lib/types";
@@ -11,6 +12,7 @@ interface ReactionBarProps {
 }
 
 export function ReactionBar({ productId, className }: ReactionBarProps) {
+  const t = useTranslations("comments");
   const [data, setData] = useState<ReactionCountsResponse | null>(null);
   const [error, setError] = useState(false);
   const debounceRef = useRef<{ heart: NodeJS.Timeout | null; thumbs_up: NodeJS.Timeout | null }>({
@@ -67,14 +69,14 @@ export function ReactionBar({ productId, className }: ReactionBarProps) {
         count={data.heart.count}
         active={data.heart.reacted}
         onClick={() => handleToggle("heart")}
-        label="Love this product"
+        label={t("loveProduct")}
       />
       <ReactionButton
         emoji="👍"
         count={data.thumbs_up.count}
         active={data.thumbs_up.reacted}
         onClick={() => handleToggle("thumbs_up")}
-        label="Like this product"
+        label={t("likeProduct")}
       />
     </div>
   );

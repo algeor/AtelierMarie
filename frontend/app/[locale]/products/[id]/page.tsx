@@ -8,6 +8,7 @@ import { formatPrice } from "@/lib/utils";
 import { AddToCartSection } from "@/components/products/AddToCartSection";
 import { ProductSocialSection } from "@/components/products/ProductSocialSection";
 import type { Locale } from "@/i18n/routing";
+import { getLocalizedAlternates } from "@/lib/seo";
 
 interface ProductPageProps {
   params: { id: string; locale: Locale };
@@ -18,10 +19,16 @@ export async function generateMetadata({
 }: ProductPageProps): Promise<Metadata> {
   try {
     const product = await getProduct(params.id, params.locale);
-    return { title: product.name };
+    return {
+      title: product.name,
+      alternates: getLocalizedAlternates(params.locale, `/products/${params.id}`),
+    };
   } catch {
     const t = await getTranslations({ locale: params.locale, namespace: "products" });
-    return { title: t("notFound") };
+    return {
+      title: t("notFound"),
+      alternates: getLocalizedAlternates(params.locale, `/products/${params.id}`),
+    };
   }
 }
 

@@ -230,7 +230,8 @@ def list_all_comments(
         total = count_row["cnt"]
 
         rows = conn.execute(
-            f"SELECT c.id, c.product_id, p.name as product_name, "  # noqa: S608
+            f"SELECT c.id, c.product_id, "  # noqa: S608
+            f"COALESCE(NULLIF(p.name_en, ''), p.name_bg, '') as product_name, "
             f"c.display_name, c.body, c.created_at "
             f"FROM comments c JOIN products p ON c.product_id = p.id "
             f"{where_clause} ORDER BY c.created_at DESC LIMIT ? OFFSET ?",

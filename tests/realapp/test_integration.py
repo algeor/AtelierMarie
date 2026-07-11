@@ -24,7 +24,7 @@ def _seed_products(db_path: str, app):
     ]
     for pid, name, price, stock, active in products:
         conn.execute(
-            "INSERT INTO products (id, name, price_cents, stock, "
+            "INSERT INTO products (id, name_en, price_cents, stock, "
             "is_active, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
             (pid, name, price, stock, active),

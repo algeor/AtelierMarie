@@ -6,13 +6,29 @@ No HTTP concerns — testable without FastAPI/Starlette.
 
 import sqlite3
 from dataclasses import dataclass, field
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 import structlog
 
 from app.config import get_settings
 
 logger = structlog.get_logger(__name__)
+
+Locale = Literal["en", "bg"]
+
+
+def _localized_product_columns(locale: Locale) -> tuple[str, str]:
+    """Return safe SQL expressions for locale-resolved product content."""
+    if locale == "bg":
+        return (
+            "COALESCE(NULLIF(p.name_bg, ''), p.name_en, '') AS name",
+            "COALESCE(NULLIF(p.description_bg, ''), p.description_en) AS description",
+        )
+    return (
+        "COALESCE(NULLIF(p.name_en, ''), p.name_bg, '') AS name",
+        "COALESCE(NULLIF(p.description_en, ''), p.description_bg) AS description",
+    )
+
 
 # --- Custom Exceptions ---
 
@@ -122,12 +138,13 @@ class AddItemResult:
 # --- Service Functions ---
 
 
-def get_cart(conn: sqlite3.Connection, session_id: str) -> CartData:
+def get_cart(conn: sqlite3.Connection, session_id: str, locale: Locale = "en") -> CartData:
     """Retrieve the cart for a session, separating active and unavailable items."""
+    name_expr, description_expr = _localized_product_columns(locale)
     rows = conn.execute(
-        """
+        f"""
         SELECT ci.product_id, ci.quantity, ci.added_at,
-               p.id AS p_id, p.name, p.description, p.materials,
+               p.id AS p_id, {name_expr}, {description_expr}, p.materials,
                p.days_to_craft, p.price_cents, p.category,
                p.image_url, p.stock, p.is_active, p.is_featured,
                p.created_at, p.updated_at
@@ -135,7 +152,7 @@ def get_cart(conn: sqlite3.Connection, session_id: str) -> CartData:
         LEFT JOIN products p ON ci.product_id = p.id
         WHERE ci.session_id = ?
         ORDER BY ci.added_at
-        """,
+        """,  # noqa: S608 - locale selects fixed SQL expressions above.
         (session_id,),
     ).fetchall()
 
@@ -198,7 +215,11 @@ def get_cart(conn: sqlite3.Connection, session_id: str) -> CartData:
 
 
 def add_item(
-    conn: sqlite3.Connection, session_id: str, product_id: str, quantity: int
+    conn: sqlite3.Connection,
+    session_id: str,
+    product_id: str,
+    quantity: int,
+    locale: Locale = "en",
 ) -> AddItemResult:
     """Add a product to the cart or increment existing quantity.
 
@@ -283,17 +304,21 @@ def add_item(
 
     # Read cart AFTER transaction is complete — a failure here does not mask the write.
     # The caller (route) handles read errors at the HTTP layer.
-    cart = get_cart(conn, session_id)
+    cart = get_cart(conn, session_id, locale=locale)
     return AddItemResult(cart=cart, created=created)
 
 
 def update_quantity(
-    conn: sqlite3.Connection, session_id: str, product_id: str, quantity: int
+    conn: sqlite3.Connection,
+    session_id: str,
+    product_id: str,
+    quantity: int,
+    locale: Locale = "en",
 ) -> CartData:
     """Set the absolute quantity for a cart item. Quantity 0 removes the item."""
     # Handle quantity=0 BEFORE any SQL — avoid violating CHECK (quantity >= 1)
     if quantity == 0:
-        return remove_item(conn, session_id, product_id)
+        return remove_item(conn, session_id, product_id, locale=locale)
 
     settings = get_settings()
 
@@ -354,10 +379,15 @@ def update_quantity(
         raise
 
     # Read cart AFTER transaction is complete — a failure here does not mask the write.
-    return get_cart(conn, session_id)
+    return get_cart(conn, session_id, locale=locale)
 
 
-def remove_item(conn: sqlite3.Connection, session_id: str, product_id: str) -> CartData:
+def remove_item(
+    conn: sqlite3.Connection,
+    session_id: str,
+    product_id: str,
+    locale: Locale = "en",
+) -> CartData:
     """Remove an item from the cart entirely.
 
     Uses a single DELETE + rowcount check for atomicity (no TOCTOU window).
@@ -370,4 +400,4 @@ def remove_item(conn: sqlite3.Connection, session_id: str, product_id: str) -> C
     if cursor.rowcount == 0:
         raise CartItemNotFoundError(product_id)
 
-    return get_cart(conn, session_id)
+    return get_cart(conn, session_id, locale=locale)

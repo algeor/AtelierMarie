@@ -31,4 +31,11 @@ export function getCanonicalUrl(locale: Locale, pathname: string): string {
   return `${BASE_URL}/${locale}${pathname}`;
 }
 
+export function getLocalizedAlternates(locale: Locale, pathname: string) {
+  return {
+    languages: getAlternateLanguages(pathname),
+    canonical: getCanonicalUrl(locale, pathname),
+  };
+}
+
 export { BASE_URL };

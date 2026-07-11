@@ -56,9 +56,12 @@ def create_order(
     try:
         with get_db() as conn:
             row = conn.execute(
-                "SELECT user_id FROM sessions WHERE id = ?", (session_id,)
+                "SELECT user_id, preferred_locale FROM sessions WHERE id = ?", (session_id,)
             ).fetchone()
             user_id = row["user_id"] if row else None
+            locale = (
+                row["preferred_locale"] if row and row["preferred_locale"] in {"en", "bg"} else "en"
+            )
 
             order_data = checkout(
                 conn=conn,
@@ -68,6 +71,7 @@ def create_order(
                 shipping_address=body.shipping_address,
                 notes=body.notes,
                 user_id=user_id,
+                locale=locale,
             )
     except EmptyCartError:
         return JSONResponse(

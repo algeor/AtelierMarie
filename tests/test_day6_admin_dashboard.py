@@ -13,7 +13,7 @@ def _seeded_data(db_path, app):
 
     # Products
     conn.executemany(
-        "INSERT INTO products (id, name, price_cents, stock, is_active) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO products (id, name_en, price_cents, stock, is_active) VALUES (?, ?, ?, ?, ?)",
         [
             ("candle-a", "Candle A", 2500, 20, 1),
             ("candle-b", "Candle B", 3500, 3, 1),  # low stock
@@ -100,7 +100,7 @@ class TestErrorHandlers:
         """Validation errors return consistent envelope."""
         response = await admin_client.post(
             "/v1/admin/products",
-            json={"id": "x", "name": "", "price_cents": -1, "stock": 0},
+            json={"id": "x", "name_en": "", "price_cents": -1, "stock": 0},
         )
         assert response.status_code == 422
         body = response.json()
@@ -141,7 +141,7 @@ class TestInputValidationEdgeCases:
         """Whitespace-only name is rejected."""
         response = await admin_client.post(
             "/v1/admin/products",
-            json={"id": "test-candle", "name": "   ", "price_cents": 1000, "stock": 5},
+            json={"id": "test-candle", "name_en": "   ", "price_cents": 1000, "stock": 5},
         )
         assert response.status_code == 422
 
@@ -150,17 +150,22 @@ class TestInputValidationEdgeCases:
         """Leading/trailing whitespace in name is trimmed."""
         response = await admin_client.post(
             "/v1/admin/products",
-            json={"id": "trim-test", "name": "  Trimmed Name  ", "price_cents": 1000, "stock": 5},
+            json={
+                "id": "trim-test",
+                "name_en": "  Trimmed Name  ",
+                "price_cents": 1000,
+                "stock": 5,
+            },
         )
         assert response.status_code == 201
-        assert response.json()["name"] == "Trimmed Name"
+        assert response.json()["name_en"] == "Trimmed Name"
 
     @pytest.mark.asyncio
     async def test_negative_price_rejected(self, admin_client):
         """Negative price is rejected."""
         response = await admin_client.post(
             "/v1/admin/products",
-            json={"id": "negative-price", "name": "Bad", "price_cents": -100, "stock": 5},
+            json={"id": "negative-price", "name_en": "Bad", "price_cents": -100, "stock": 5},
         )
         assert response.status_code == 422
 
@@ -169,7 +174,7 @@ class TestInputValidationEdgeCases:
         """Zero price is rejected (price must be gt=0)."""
         response = await admin_client.post(
             "/v1/admin/products",
-            json={"id": "zero-price", "name": "Free", "price_cents": 0, "stock": 5},
+            json={"id": "zero-price", "name_en": "Free", "price_cents": 0, "stock": 5},
         )
         assert response.status_code == 422
 
@@ -178,7 +183,12 @@ class TestInputValidationEdgeCases:
         """Price exceeding max (99_999_99) is rejected."""
         response = await admin_client.post(
             "/v1/admin/products",
-            json={"id": "huge-price", "name": "Expensive", "price_cents": 100_000_00, "stock": 5},
+            json={
+                "id": "huge-price",
+                "name_en": "Expensive",
+                "price_cents": 100_000_00,
+                "stock": 5,
+            },
         )
         assert response.status_code == 422
 
@@ -187,7 +197,7 @@ class TestInputValidationEdgeCases:
         """Stock exceeding max (99999) is rejected."""
         response = await admin_client.post(
             "/v1/admin/products",
-            json={"id": "huge-stock", "name": "Many", "price_cents": 1000, "stock": 100000},
+            json={"id": "huge-stock", "name_en": "Many", "price_cents": 1000, "stock": 100000},
         )
         assert response.status_code == 422
 
@@ -196,7 +206,7 @@ class TestInputValidationEdgeCases:
         """Negative stock is rejected."""
         response = await admin_client.post(
             "/v1/admin/products",
-            json={"id": "neg-stock", "name": "Negative", "price_cents": 1000, "stock": -1},
+            json={"id": "neg-stock", "name_en": "Negative", "price_cents": 1000, "stock": -1},
         )
         assert response.status_code == 422
 
@@ -207,7 +217,7 @@ class TestInputValidationEdgeCases:
             "/v1/admin/products",
             json={
                 "id": "bad-url",
-                "name": "Bad URL",
+                "name_en": "Bad URL",
                 "price_cents": 1000,
                 "stock": 5,
                 "image_url": "ftp://evil.com/image.jpg",
@@ -222,7 +232,7 @@ class TestInputValidationEdgeCases:
             "/v1/admin/products",
             json={
                 "id": "relative-url",
-                "name": "Relative URL Product",
+                "name_en": "Relative URL Product",
                 "price_cents": 1000,
                 "stock": 5,
                 "image_url": "/static/products/relative-url.webp",
@@ -238,7 +248,7 @@ class TestInputValidationEdgeCases:
             "/v1/admin/products",
             json={
                 "id": "https-url",
-                "name": "HTTPS URL Product",
+                "name_en": "HTTPS URL Product",
                 "price_cents": 1000,
                 "stock": 5,
                 "image_url": "https://cdn.example.com/image.webp",
@@ -253,7 +263,7 @@ class TestInputValidationEdgeCases:
             "/v1/admin/products",
             json={
                 "id": "Invalid ID With Spaces!",
-                "name": "Bad ID",
+                "name_en": "Bad ID",
                 "price_cents": 1000,
                 "stock": 5,
             },
@@ -267,7 +277,7 @@ class TestInputValidationEdgeCases:
             "/v1/admin/products",
             json={
                 "id": "slow-candle",
-                "name": "Very Slow Candle",
+                "name_en": "Very Slow Candle",
                 "price_cents": 1000,
                 "stock": 5,
                 "days_to_craft": 400,

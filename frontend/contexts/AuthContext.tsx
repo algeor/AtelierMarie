@@ -11,6 +11,8 @@ import {
 import type { UserResponse } from "@/lib/types";
 import { getCurrentUser, logout as apiLogout } from "@/lib/api";
 import { validateRedirectPath } from "@/lib/validateRedirectPath";
+import enMessages from "@/messages/en.json";
+import bgMessages from "@/messages/bg.json";
 
 // --- State ---
 
@@ -94,6 +96,13 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+function getAuthCheckFailedMessage(): string {
+  if (typeof window !== "undefined" && window.location.pathname.startsWith("/bg")) {
+    return bgMessages.auth.authCheckFailed;
+  }
+  return enMessages.auth.authCheckFailed;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(authReducer, INITIAL_STATE);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -136,7 +145,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!cancelled) {
           dispatch({
             type: "HYDRATE_FAILURE",
-            error: "Failed to check authentication status.",
+            error: getAuthCheckFailedMessage(),
           });
         }
       }

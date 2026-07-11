@@ -16,8 +16,8 @@ def _seeded_db(db_path):
     product_service.create_product(
         {
             "id": "lavender-dream-300ml",
-            "name": "Lavender Dream",
-            "description": "A calming lavender candle",
+            "name_en": "Lavender Dream",
+            "description_en": "A calming lavender candle",
             "price_cents": 3200,
             "category": "luxury-jar",
             "stock": 24,
@@ -26,8 +26,8 @@ def _seeded_db(db_path):
     product_service.create_product(
         {
             "id": "midnight-amber-300ml",
-            "name": "Midnight Amber",
-            "description": "Warm amber and sandalwood",
+            "name_en": "Midnight Amber",
+            "description_en": "Warm amber and sandalwood",
             "price_cents": 4500,
             "category": "luxury-jar",
             "stock": 12,
@@ -36,8 +36,8 @@ def _seeded_db(db_path):
     product_service.create_product(
         {
             "id": "vanilla-brulee-200ml",
-            "name": "Vanilla Crème Brûlée",
-            "description": "Rich vanilla custard",
+            "name_en": "Vanilla Crème Brûlée",
+            "description_en": "Rich vanilla custard",
             "price_cents": 2800,
             "category": "dessert",
             "stock": 0,
@@ -126,13 +126,13 @@ class TestCreateProduct:
         product = product_service.create_product(
             {
                 "id": "test-candle-100ml",
-                "name": "Test Candle",
+                "name_en": "Test Candle",
                 "price_cents": 1500,
                 "stock": 5,
             }
         )
         assert product["id"] == "test-candle-100ml"
-        assert product["name"] == "Test Candle"
+        assert product["name_en"] == "Test Candle"
         assert product["price_cents"] == 1500
         assert product["stock"] == 5
         assert product["is_active"] == 1
@@ -144,7 +144,7 @@ class TestCreateProduct:
             product_service.create_product(
                 {
                     "id": "lavender-dream-300ml",
-                    "name": "Duplicate",
+                    "name_en": "Duplicate",
                     "price_cents": 1000,
                     "stock": 1,
                 }
@@ -159,23 +159,23 @@ class TestUpsertProduct:
         product = product_service.upsert_product(
             "new-candle",
             {
-                "name": "New Candle",
+                "name_en": "New Candle",
                 "price_cents": 2000,
                 "stock": 10,
             },
         )
         assert product["id"] == "new-candle"
-        assert product["name"] == "New Candle"
+        assert product["name_en"] == "New Candle"
 
     def test_updates_existing_product(self, _seeded_db):
         product = product_service.upsert_product(
             "lavender-dream-300ml",
             {
-                "name": "Updated Lavender",
+                "name_en": "Updated Lavender",
                 "price_cents": 3500,
             },
         )
-        assert product["name"] == "Updated Lavender"
+        assert product["name_en"] == "Updated Lavender"
         assert product["price_cents"] == 3500
         # Stock should be preserved
         assert product["stock"] == 24
@@ -188,26 +188,26 @@ class TestUpdateProduct:
         product = product_service.update_product(
             "lavender-dream-300ml",
             {
-                "name": "Lavender Dream XL",
+                "name_en": "Lavender Dream XL",
             },
         )
-        assert product["name"] == "Lavender Dream XL"
+        assert product["name_en"] == "Lavender Dream XL"
         assert product["price_cents"] == 3200  # Unchanged
 
     def test_raises_not_found(self, _seeded_db):
         with pytest.raises(NotFoundError):
-            product_service.update_product("no-such-product", {"name": "X"})
+            product_service.update_product("no-such-product", {"name_en": "X"})
 
     def test_updates_multiple_fields(self, _seeded_db):
         product = product_service.update_product(
             "lavender-dream-300ml",
             {
-                "name": "New Name",
+                "name_en": "New Name",
                 "price_cents": 9999,
                 "stock": 100,
             },
         )
-        assert product["name"] == "New Name"
+        assert product["name_en"] == "New Name"
         assert product["price_cents"] == 9999
         assert product["stock"] == 100
 
@@ -286,7 +286,7 @@ class TestProductConstraints:
             with get_db() as conn:
                 conn.execute(
                     "INSERT INTO products "
-                    "(id, name, price_cents, stock, is_active, created_at, updated_at) "
+                    "(id, name_en, price_cents, stock, is_active, created_at, updated_at) "
                     "VALUES ('bad-stock', 'Bad', 1000, -1, 1, "
                     "datetime('now'), datetime('now'))"
                 )
@@ -296,7 +296,7 @@ class TestProductConstraints:
         product = product_service.create_product(
             {
                 "id": "zero-stock",
-                "name": "Zero Stock Candle",
+                "name_en": "Zero Stock Candle",
                 "price_cents": 1000,
                 "stock": 0,
             }

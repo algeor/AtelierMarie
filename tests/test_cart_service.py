@@ -48,7 +48,7 @@ def cart_db(db_path: str, app) -> sqlite3.Connection:
     ]
     for pid, name, price, stock, active in products:
         conn.execute(
-            "INSERT INTO products (id, name, price_cents, stock, "
+            "INSERT INTO products (id, name_en, price_cents, stock, "
             "is_active, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
             (pid, name, price, stock, active),
@@ -188,7 +188,7 @@ class TestAddItemLimits:
         for i in range(20):
             pid = f"bulk-product-{i:03d}"
             cart_db.execute(
-                "INSERT INTO products (id, name, price_cents, stock, "
+                "INSERT INTO products (id, name_en, price_cents, stock, "
                 "is_active, created_at, updated_at) "
                 "VALUES (?, ?, 1000, 50, 1, datetime('now'), datetime('now'))",
                 (pid, f"Bulk Product {i}"),
@@ -208,7 +208,7 @@ class TestAddItemLimits:
         for i in range(19):
             pid = f"fill-product-{i:03d}"
             cart_db.execute(
-                "INSERT INTO products (id, name, price_cents, stock, "
+                "INSERT INTO products (id, name_en, price_cents, stock, "
                 "is_active, created_at, updated_at) "
                 "VALUES (?, ?, 1000, 50, 1, datetime('now'), datetime('now'))",
                 (pid, f"Fill Product {i}"),
@@ -327,7 +327,7 @@ def test_concurrent_stock_depletion(db_path: str, app):
             (sid, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
         )
     conn.execute(
-        "INSERT INTO products (id, name, price_cents, stock, is_active, created_at, updated_at) "
+        "INSERT INTO products (id, name_en, price_cents, stock, is_active, created_at, updated_at) "
         "VALUES ('race-product', 'Race Product', 1000, 1, 1, datetime('now'), datetime('now'))"
     )
     conn.commit()
@@ -432,7 +432,7 @@ class TestBoundaryValues:
         for i in range(19):
             pid = f"boundary-product-{i:03d}"
             cart_db.execute(
-                "INSERT INTO products (id, name, price_cents, stock, "
+                "INSERT INTO products (id, name_en, price_cents, stock, "
                 "is_active, created_at, updated_at) "
                 "VALUES (?, ?, 1000, 50, 1, datetime('now'), datetime('now'))",
                 (pid, f"Boundary Product {i}"),
@@ -451,7 +451,7 @@ class TestBoundaryValues:
         for i in range(20):
             pid = f"limit-product-{i:03d}"
             cart_db.execute(
-                "INSERT INTO products (id, name, price_cents, stock, "
+                "INSERT INTO products (id, name_en, price_cents, stock, "
                 "is_active, created_at, updated_at) "
                 "VALUES (?, ?, 1000, 50, 1, datetime('now'), datetime('now'))",
                 (pid, f"Limit Product {i}"),
@@ -488,7 +488,7 @@ def test_concurrent_per_item_limit(db_path: str, app):
         ("shared-session", now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
     )
     conn.execute(
-        "INSERT INTO products (id, name, price_cents, stock, is_active, created_at, updated_at) "
+        "INSERT INTO products (id, name_en, price_cents, stock, is_active, created_at, updated_at) "
         "VALUES ('limit-race', 'Limit Race', 1000, 20, 1, datetime('now'), datetime('now'))"
     )
     conn.commit()

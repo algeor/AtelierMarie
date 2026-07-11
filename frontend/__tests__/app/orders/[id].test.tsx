@@ -1,21 +1,8 @@
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import type { OrderResponse } from "@/lib/types";
-
-vi.mock("next-intl", () => ({
-  useTranslations: () => (key: string, values?: Record<string, unknown>) => {
-    if (values) {
-      return Object.entries(values).reduce(
-        (str, [k, v]) => str.replace(`{${k}}`, String(v)),
-        key
-      );
-    }
-    return key;
-  },
-  useLocale: () => "en",
-  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
-}));
+import { renderWithIntl } from "../../test-utils";
 
 vi.mock("@/i18n/navigation", () => ({
   Link: ({ children, href }: { children: React.ReactNode; href: string }) => (
@@ -67,7 +54,7 @@ describe("OrderDetailPage", () => {
 
   it("displays order details", async () => {
     mockedGetOrder.mockResolvedValueOnce(mockOrder);
-    render(<OrderDetailPage />);
+    renderWithIntl(<OrderDetailPage />);
 
     await waitFor(() => {
       expect(screen.getByText("Order #a1b2c3d4")).toBeInTheDocument();
@@ -82,7 +69,7 @@ describe("OrderDetailPage", () => {
 
   it("shows status timeline", async () => {
     mockedGetOrder.mockResolvedValueOnce(mockOrder);
-    render(<OrderDetailPage />);
+    renderWithIntl(<OrderDetailPage />);
 
     await waitFor(() => {
       expect(screen.getByText("Pending")).toBeInTheDocument();
@@ -94,7 +81,7 @@ describe("OrderDetailPage", () => {
 
   it("shows 'Order not found' on 404", async () => {
     mockedGetOrder.mockRejectedValueOnce(new Error("Not found"));
-    render(<OrderDetailPage />);
+    renderWithIntl(<OrderDetailPage />);
 
     await waitFor(() => {
       expect(screen.getByText("Order not found")).toBeInTheDocument();
@@ -104,7 +91,7 @@ describe("OrderDetailPage", () => {
 
   it("shows loading skeleton", () => {
     mockedGetOrder.mockReturnValue(new Promise(() => {}));
-    render(<OrderDetailPage />);
+    renderWithIntl(<OrderDetailPage />);
 
     // Skeleton elements visible (aria-hidden pulse divs)
     const skeletons = document.querySelectorAll("[aria-hidden='true']");

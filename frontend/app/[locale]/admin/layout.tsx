@@ -1,10 +1,15 @@
 import { AdminProvider } from "@/contexts/AdminContext";
 import { AdminGuard } from "@/components/admin/AdminGuard";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
+import type { Locale } from "@/i18n/routing";
+import { getLocalizedAlternates } from "@/lib/seo";
 
-export const metadata = {
-  title: "Admin | Atelier Marie",
-};
+export function generateMetadata({ params }: { params: { locale: Locale } }) {
+  return {
+    title: "Admin | Atelier Marie",
+    alternates: getLocalizedAlternates(params.locale, "/admin"),
+  };
+}
 
 export default function AdminLayout({
   children,

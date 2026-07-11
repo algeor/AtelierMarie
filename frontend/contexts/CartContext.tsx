@@ -8,6 +8,7 @@ import {
   useReducer,
   useRef,
 } from "react";
+import type { Locale } from "@/i18n/routing";
 import type { CartItemResponse, CartResponse } from "@/lib/types";
 import { addToCart, getCart, removeFromCart, updateCartItem } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
@@ -154,7 +155,13 @@ const CartContext = createContext<CartContextValue | null>(null);
 
 // --- Provider ---
 
+function getPathLocale(): Locale {
+  if (typeof window === "undefined") return "en";
+  return window.location.pathname.startsWith("/bg") ? "bg" : "en";
+}
+
 export function CartProvider({ children }: { children: React.ReactNode }) {
+  const locale = getPathLocale();
   const getLocalizedError = useLocalizedError();
   const [state, dispatch] = useReducer(cartReducer, INITIAL_STATE);
   const stateRef = useRef(state);
@@ -189,7 +196,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     async function hydrate() {
       dispatch({ type: "HYDRATE_START" });
       try {
-        const cart = await getCart();
+        const cart = await getCart(locale);
         if (!cancelled) {
           dispatch({ type: "HYDRATE_SUCCESS", payload: cart });
         }
@@ -207,7 +214,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [getLocalizedError]);
+  }, [getLocalizedError, locale]);
 
   const handleAddToCart = useCallback(
     async (productId: string, quantity = 1) => {
@@ -215,7 +222,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: "OPTIMISTIC_ADD", payload: { productId, quantity } });
 
       try {
-        const cart = await addToCart(productId, quantity);
+        const cart = await addToCart(productId, quantity, locale);
         dispatch({ type: "API_SUCCESS", payload: cart });
       } catch (error) {
         dispatch({
@@ -227,7 +234,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         });
       }
     },
-    [getLocalizedError]
+    [getLocalizedError, locale]
   );
 
   const handleUpdateQuantity = useCallback(
@@ -236,7 +243,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: "OPTIMISTIC_UPDATE", payload: { productId, quantity } });
 
       try {
-        const cart = await updateCartItem(productId, quantity);
+        const cart = await updateCartItem(productId, quantity, locale);
         dispatch({ type: "API_SUCCESS", payload: cart });
       } catch (error) {
         dispatch({
@@ -248,7 +255,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         });
       }
     },
-    [getLocalizedError]
+    [getLocalizedError, locale]
   );
 
   const handleRemoveItem = useCallback(async (productId: string) => {
@@ -256,7 +263,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: "OPTIMISTIC_REMOVE", payload: { productId } });
 
     try {
-      const cart = await removeFromCart(productId);
+      const cart = await removeFromCart(productId, locale);
       dispatch({ type: "API_SUCCESS", payload: cart });
     } catch (error) {
       dispatch({
@@ -267,12 +274,12 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         },
       });
     }
-  }, [getLocalizedError]);
+  }, [getLocalizedError, locale]);
 
   const refreshCart = useCallback(async () => {
     dispatch({ type: "HYDRATE_START" });
     try {
-      const cart = await getCart();
+      const cart = await getCart(locale);
       dispatch({ type: "HYDRATE_SUCCESS", payload: cart });
     } catch (error) {
       dispatch({
@@ -280,7 +287,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         payload: error instanceof ApiError ? getLocalizedError(error.code) : getLocalizedError("UNKNOWN"),
       });
     }
-  }, [getLocalizedError]);
+  }, [getLocalizedError, locale]);
 
   // Refresh cart when session is rotated (login/logout)
   useEffect(() => {
