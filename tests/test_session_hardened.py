@@ -416,3 +416,53 @@ async def test_db_failure_returns_500(client: AsyncClient):
     }
     # Verify no traceback in response body
     assert "Traceback" not in response.text
+
+
+# --- 7.13 Session rotation rollback on failure ---
+
+
+def test_session_rotation_rollback_on_failure(db_path: str, app):
+    """If rotation fails mid-transaction, old session and cart remain intact."""
+    conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.row_factory = sqlite3.Row
+
+    now = datetime.now(UTC)
+    old_session = "aaaaaaaa-bbbb-4ccc-9ddd-eeeeeeeeeeee"
+    conn.execute(
+        "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
+        (old_session, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
+    )
+
+    # Add a product + cart item
+    conn.execute(
+        "INSERT INTO products (id, name, price_cents, stock, is_active, created_at, updated_at) "
+        "VALUES ('rollback-product', 'Rollback Product', 1000, 10, 1, datetime('now'), datetime('now'))"
+    )
+    conn.execute(
+        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, ?, ?)",
+        (old_session, "rollback-product", 3),
+    )
+    conn.commit()
+
+    # Attempt rotation with an invalid user_id (FK violation — no such user)
+    # This should trigger the rollback path
+    with pytest.raises(Exception):  # noqa: B017 — IntegrityError from FK violation
+        rotate_session(conn, old_session, "nonexistent-user-id")
+
+    # Verify old session still exists (rollback succeeded)
+    old_row = conn.execute(
+        "SELECT id FROM sessions WHERE id = ?", (old_session,)
+    ).fetchone()
+    assert old_row is not None, "Old session should still exist after failed rotation"
+
+    # Verify cart items still attached to old session
+    items = conn.execute(
+        "SELECT product_id, quantity FROM cart_items WHERE session_id = ?",
+        (old_session,),
+    ).fetchall()
+    assert len(items) == 1
+    assert items[0]["product_id"] == "rollback-product"
+    assert items[0]["quantity"] == 3
+
+    conn.close()
