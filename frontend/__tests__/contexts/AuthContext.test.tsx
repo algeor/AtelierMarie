@@ -1,5 +1,5 @@
 import { render, screen, waitFor, act } from "@testing-library/react";
-import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+import { vi, describe, it, expect, beforeEach } from "vitest";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import type { UserResponse } from "@/lib/types";
 
@@ -55,16 +55,11 @@ function renderWithProvider() {
 describe("AuthContext", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.useFakeTimers();
     // Mock window.location
     Object.defineProperty(window, "location", {
       value: { pathname: "/products", href: "" },
       writable: true,
     });
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
   });
 
   describe("hydration", () => {
@@ -229,6 +224,8 @@ describe("AuthContext", () => {
 
   describe("error auto-clear", () => {
     it("clears error after 5 seconds", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+
       mockedGetCurrentUser.mockRejectedValueOnce(new Error("fail"));
       renderWithProvider();
 
@@ -243,6 +240,8 @@ describe("AuthContext", () => {
       });
 
       expect(screen.getByTestId("error")).toHaveTextContent("");
+
+      vi.useRealTimers();
     });
   });
 

@@ -67,9 +67,11 @@ describe("AccountPage", () => {
     render(<AccountPage />);
     expect(screen.getByText("Marie")).toBeInTheDocument();
     expect(screen.getByText("marie@ateliermarie.com")).toBeInTheDocument();
-    expect(screen.getByRole("img")).toHaveAttribute(
+    // Avatar rendered via next/image (alt includes user name, so role="img")
+    const img = screen.getByRole("img", { name: /marie avatar/i });
+    expect(img).toHaveAttribute(
       "src",
-      "https://example.com/avatar.jpg"
+      expect.stringContaining(encodeURIComponent("https://example.com/avatar.jpg"))
     );
     expect(screen.getByText("My Orders")).toBeInTheDocument();
     expect(screen.getByText("Sign Out")).toBeInTheDocument();

@@ -30,8 +30,13 @@ describe("UserMenu", () => {
 
   it("renders avatar when avatar_url is present", () => {
     render(<UserMenu />);
-    const img = screen.getByRole("img");
-    expect(img).toHaveAttribute("src", mockUser.avatar_url);
+    const img = screen.getByRole("presentation");
+    expect(img.tagName).toBe("IMG");
+    // Next.js Image optimizes src; verify original URL is in the srcset
+    expect(img).toHaveAttribute(
+      "src",
+      expect.stringContaining(encodeURIComponent(mockUser.avatar_url!))
+    );
   });
 
   it("renders initial circle when avatar_url is null", () => {
