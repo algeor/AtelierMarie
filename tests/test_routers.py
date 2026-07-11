@@ -2,6 +2,8 @@
 
 import pytest
 
+from app.config import get_settings
+
 ADMIN_ROUTES = [
     ("GET", "/v1/admin/orders"),
     ("POST", "/v1/admin/products/import"),
@@ -41,13 +43,25 @@ async def test_auth_logout_succeeds_when_anonymous(client):
     assert response.status_code == 200
 
 
+@pytest.fixture()
+def _unconfigure_oauth(monkeypatch, app):
+    """Ensure OAuth is NOT configured for this test."""
+    get_settings.cache_clear()
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "")
+    monkeypatch.setenv("GOOGLE_REDIRECT_URI", "")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
 @pytest.mark.asyncio
-async def test_auth_login_redirects_to_google(client):
-    """GET /v1/auth/login redirects to Google OAuth when configured."""
+@pytest.mark.usefixtures("_unconfigure_oauth")
+async def test_auth_login_returns_503_without_oauth(client):
+    """GET /v1/auth/login returns 503 when OAuth is NOT configured."""
     response = await client.get(
         "/v1/auth/login", params={"redirect_to": "/"}, follow_redirects=False
     )
-    # Without google_client_id configured, returns 503
     assert response.status_code == 503
     body = response.json()
     assert body["error"]["code"] == "AUTH_NOT_CONFIGURED"

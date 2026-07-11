@@ -38,6 +38,18 @@ def _configure_oauth(monkeypatch, app):
 
 
 @pytest.fixture()
+def _unconfigure_oauth(monkeypatch, app):
+    """Ensure OAuth is NOT configured for tests that expect 503."""
+    get_settings.cache_clear()
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "")
+    monkeypatch.setenv("GOOGLE_REDIRECT_URI", "")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+@pytest.fixture()
 def user_in_db(db_path) -> UserResponse:
     """Insert a test user and return the UserResponse."""
     user_id = "user-test-001"
@@ -286,6 +298,7 @@ class TestUpsertUser:
 
 class TestLoginRoute:
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("_unconfigure_oauth")
     async def test_login_returns_503_without_config(self, client: AsyncClient):
         """GET /v1/auth/login returns 503 when OAuth is not configured."""
         response = await client.get("/v1/auth/login", follow_redirects=False)

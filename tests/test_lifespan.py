@@ -143,6 +143,6 @@ async def test_lifespan_cleanup_loop_logs_count(tmp_path, monkeypatch):
             except TimeoutError:
                 pass
 
-        mock_logger.info.assert_called_with("Cleaned up %d expired sessions", 5)
+        mock_logger.info.assert_called_with("Cleaned up expired sessions", count=5)
 
     get_settings.cache_clear()

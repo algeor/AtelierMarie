@@ -24,6 +24,13 @@ def db_conn(db_path: str) -> sqlite3.Connection:
 class TestCleanupExpiredSessions:
     """Verify cleanup_expired_sessions() deletes only expired rows."""
 
+    @pytest.fixture(autouse=True)
+    def _clear_all_sessions(self, db_conn):
+        """Remove all pre-existing sessions so tests start from a clean slate."""
+        db_conn.execute("DELETE FROM sessions")
+        db_conn.commit()
+        yield
+
     def test_removes_expired_sessions(self, db_conn: sqlite3.Connection):
         expired_at = (datetime.now(UTC) - timedelta(days=1)).strftime(_DT_FMT)
         db_conn.execute(

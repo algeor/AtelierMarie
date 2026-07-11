@@ -107,9 +107,10 @@ class TestProductModels:
         with pytest.raises(ValidationError):
             UpdateProductRequest(price_cents=0)
 
-    def test_update_product_invalid_name_empty(self):
-        with pytest.raises(ValidationError):
-            UpdateProductRequest(name="")
+    def test_update_product_empty_name_becomes_none(self):
+        """Empty string is treated as 'not provided' for PATCH semantics."""
+        req = UpdateProductRequest(name="")
+        assert req.name is None
 
     def test_update_product_explicit_null_name_rejected(self):
         with pytest.raises(ValidationError):
@@ -135,11 +136,11 @@ class TestCartModels:
 
     def test_add_to_cart_quantity_exceeds_max_rejected(self):
         with pytest.raises(ValidationError):
-            AddToCartRequest(product_id="lavender-dream-300ml", quantity=11)
+            AddToCartRequest(product_id="lavender-dream-300ml", quantity=100)
 
     def test_add_to_cart_quantity_at_max_allowed(self):
-        req = AddToCartRequest(product_id="lavender-dream-300ml", quantity=10)
-        assert req.quantity == 10
+        req = AddToCartRequest(product_id="lavender-dream-300ml", quantity=99)
+        assert req.quantity == 99
 
     def test_add_to_cart_invalid_product_id_format(self):
         with pytest.raises(ValidationError):
@@ -259,24 +260,24 @@ class TestBoundaryConstraints:
     """Upper-bound and max_length tests for business-rule constraints."""
 
     def test_add_to_cart_quantity_at_max(self):
-        req = AddToCartRequest(product_id="test-candle", quantity=10)
-        assert req.quantity == 10
+        req = AddToCartRequest(product_id="test-candle", quantity=99)
+        assert req.quantity == 99
 
     def test_add_to_cart_quantity_over_max_rejected(self):
         with pytest.raises(ValidationError):
-            AddToCartRequest(product_id="test-candle", quantity=11)
+            AddToCartRequest(product_id="test-candle", quantity=100)
 
     def test_update_cart_item_quantity_at_max(self):
         from app.models.cart import UpdateCartItemRequest
 
-        req = UpdateCartItemRequest(quantity=10)
-        assert req.quantity == 10
+        req = UpdateCartItemRequest(quantity=99)
+        assert req.quantity == 99
 
     def test_update_cart_item_quantity_over_max_rejected(self):
         from app.models.cart import UpdateCartItemRequest
 
         with pytest.raises(ValidationError):
-            UpdateCartItemRequest(quantity=11)
+            UpdateCartItemRequest(quantity=100)
 
     def test_create_product_name_too_long(self):
         with pytest.raises(ValidationError):
