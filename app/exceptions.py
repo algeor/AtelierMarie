@@ -29,11 +29,18 @@ def register_exception_handlers(app: FastAPI) -> None:
         # objects (ValueError instances) in the 'ctx' field
         sanitized_errors = []
         for err in errors:
+            # Ensure input is JSON-serializable (bytes from form data isn't)
+            raw_input = err.get("input")
+            if isinstance(raw_input, bytes):
+                raw_input = raw_input.decode("utf-8", errors="replace")
+            elif not isinstance(raw_input, (str, int, float, bool, list, dict, type(None))):
+                raw_input = str(raw_input)
+
             sanitized = {
                 "type": err.get("type"),
                 "loc": err.get("loc"),
                 "msg": err.get("msg"),
-                "input": err.get("input"),
+                "input": raw_input,
             }
             sanitized_errors.append(sanitized)
 

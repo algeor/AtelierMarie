@@ -1,13 +1,21 @@
-"""Admin endpoints — product CRUD, CSV import, dashboard stats."""
+"""Admin endpoints — product CRUD, CSV import, order management, dashboard stats."""
 
 import csv
 import io
+from typing import get_args
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.responses import JSONResponse
 
+from app.database import get_db
 from app.dependencies.auth import require_admin
 from app.models.admin import DashboardResponse
+from app.models.orders import (
+    OrderListResponse,
+    OrderResponse,
+    OrderStatus,
+    UpdateOrderStatusRequest,
+)
 from app.models.products import (
     CreateProductRequest,
     CSVImportError,
@@ -17,6 +25,13 @@ from app.models.products import (
     UpdateProductRequest,
 )
 from app.services import admin_service, product_service
+from app.services.order_service import (
+    InvalidStateTransitionError,
+    OrderNotFoundError,
+    get_order_admin,
+    list_orders_admin,
+    update_status,
+)
 from app.services.product_service import DuplicateError, NotFoundError
 
 router = APIRouter(dependencies=[Depends(require_admin)])
@@ -266,21 +281,100 @@ async def admin_import_products(
 
 @router.get(
     "/orders",
+    response_model=OrderListResponse,
     summary="List all orders (admin)",
     description="List all orders with optional status filter and pagination. "
     "Requires admin authentication.",
 )
-async def admin_list_orders() -> JSONResponse:
-    """List all orders (stub — implemented in Day 3)."""
-    return JSONResponse(
-        status_code=501,
-        content={
-            "error": {
-                "code": "NOT_IMPLEMENTED",
-                "message": "Order admin endpoints not yet implemented",
-            }
-        },
+def admin_list_orders(
+    status: str | None = Query(default=None, description="Filter by order status"),
+    page: int = Query(default=1, ge=1, description="Page number"),
+    limit: int = Query(default=20, ge=1, le=100, description="Items per page"),
+) -> OrderListResponse | JSONResponse:
+    """List all orders with optional status filter."""
+    # Validate status value against OrderStatus literal
+    if status is not None:
+        valid_statuses = get_args(OrderStatus)
+        if status not in valid_statuses:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "error": {
+                        "code": "INVALID_STATUS",
+                        "message": f"Invalid status '{status}'. Must be one of: {', '.join(valid_statuses)}",
+                    }
+                },
+            )
+
+    with get_db() as conn:
+        result = list_orders_admin(conn=conn, status=status, page=page, limit=limit)
+
+    return OrderListResponse(
+        orders=[OrderResponse.model_validate(o) for o in result["items"]],
+        total=result["total"],
+        page=result["page"],
+        limit=result["limit"],
     )
+
+
+@router.get(
+    "/orders/{order_id}",
+    response_model=OrderResponse,
+    summary="Get order detail (admin)",
+    description="Get full order details including items, customer info, shipping address, "
+    "and notes. No ownership check — admin can view any order.",
+)
+def admin_get_order_detail(order_id: str) -> OrderResponse | JSONResponse:
+    """Get full order detail for admin (no ownership check)."""
+    try:
+        with get_db() as conn:
+            order_data = get_order_admin(conn=conn, order_id=order_id)
+    except OrderNotFoundError:
+        return JSONResponse(
+            status_code=404,
+            content={"error": {"code": "NOT_FOUND", "message": "Order not found"}},
+        )
+
+    return OrderResponse.model_validate(order_data)
+
+
+@router.patch(
+    "/orders/{order_id}/status",
+    response_model=OrderResponse,
+    summary="Update order status (admin)",
+    description="Update order status with state machine validation. "
+    "Restores stock on cancellation.",
+)
+def admin_update_order_status(
+    order_id: str,
+    body: UpdateOrderStatusRequest,
+) -> OrderResponse | JSONResponse:
+    """Update order status (admin-only, state machine enforced)."""
+    try:
+        with get_db() as conn:
+            order_data = update_status(conn=conn, order_id=order_id, new_status=body.status)
+    except OrderNotFoundError:
+        return JSONResponse(
+            status_code=404,
+            content={"error": {"code": "NOT_FOUND", "message": "Order not found"}},
+        )
+    except InvalidStateTransitionError as e:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "INVALID_TRANSITION",
+                    "message": str(e),
+                    "details": {
+                        "order_id": e.order_id,
+                        "current_status": e.current_status,
+                        "requested_status": e.requested_status,
+                    },
+                }
+            },
+        )
+
+    return OrderResponse.model_validate(order_data)
 
 
 @router.get(
