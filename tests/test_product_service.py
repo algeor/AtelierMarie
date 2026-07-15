@@ -302,3 +302,34 @@ class TestProductConstraints:
             }
         )
         assert product["stock"] == 0
+
+class TestGetLowStockProducts:
+    """Tests for get_low_stock_products."""
+    def test_returns_products_at_threshold(self, _seeded_db):
+        result = product_service.get_low_stock_products(threshold=5)
+        ids = {p["id"] for p in result}
+        assert ids == {"vanilla-brulee-200ml"}
+    
+    def test_returns_products_bellow_threshold(self, _seeded_db):
+        result = product_service.get_low_stock_products(threshold=6)
+        ids = {p["id"] for p in result}
+        assert ids == {"vanilla-brulee-200ml"}
+    
+    def test_returns_no_products_at_or_below_threshold(self, _seeded_db):
+        product = product_service.update_product(
+            "vanilla-brulee-200ml",
+            {
+                "stock": 6,
+            },
+        )
+        result = product_service.get_low_stock_products(threshold=5)
+        assert result == []
+
+    def test_exception_at_negative_threshold(self):
+        with pytest.raises(ValueError, match="Threshold must be non-negative"):
+            product_service.get_low_stock_products(threshold=-1)
+
+    def test_high_threshold_returns_all_products(self, _seeded_db):
+          """Threshold above all stocks: all three products returned."""
+          result = product_service.get_low_stock_products(threshold=100)
+          assert len(result) == 3

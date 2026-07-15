@@ -102,6 +102,10 @@ class CreateProductRequest(BaseModel):
         """Strip whitespace; reject strings that become empty after trimming."""
         if v is None:
             return None
+        # Type-guard: let Pydantic emit a clean type error for non-strings instead
+        # of raising TypeError from .strip() inside the validator.
+        if not isinstance(v, str):
+            return v
         stripped = v.strip()
         if not stripped and v:
             msg = "must not be blank (whitespace-only)"
@@ -166,6 +170,10 @@ class UpdateProductRequest(BaseModel):
         """Strip whitespace; reject strings that become empty after trimming."""
         if v is None:
             return None
+        # Type-guard: let Pydantic emit a clean type error for non-strings instead
+        # of raising TypeError from .strip() inside the validator.
+        if not isinstance(v, str):
+            return v
         stripped = v.strip()
         if not stripped and v:
             msg = "must not be blank (whitespace-only)"

@@ -75,11 +75,11 @@ class TestCartItemConstraints:
             )
 
     def test_quantity_over_max_rejected(self, conn: sqlite3.Connection):
-        """CHECK (quantity <= 99) rejects quantity exceeding limit."""
+        """CHECK (quantity <= 10) rejects quantity exceeding limit."""
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
                 "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, ?, ?)",
-                ("sess-1", "prod-1", 100),
+                ("sess-1", "prod-1", 11),
             )
 
     def test_valid_quantity_accepted(self, conn: sqlite3.Connection):

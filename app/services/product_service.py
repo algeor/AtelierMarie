@@ -6,6 +6,7 @@ from typing import Literal
 
 from app.constants import MAX_LIMIT, MAX_PAGE
 from app.database import get_db
+from app.models.common import calculate_offset
 
 Locale = Literal["en", "bg"]
 
@@ -171,7 +172,7 @@ def list_products_admin(
     limit: int = 20,
 ) -> tuple[list[dict], int]:
     """List all products (active and inactive) with pagination. For admin use."""
-    offset = (page - 1) * limit
+    offset = calculate_offset(page, limit)
 
     with get_db() as conn:
         count_row = conn.execute("SELECT COUNT(*) as cnt FROM products").fetchone()
@@ -452,3 +453,20 @@ def search_products(
         ).fetchall()
 
     return [_resolve_locale_fields(_row_to_dict(r), locale) for r in rows]
+
+
+def get_low_stock_products(threshold: int = 5) -> list[dict]:
+    
+    """Return active products whose stock is at or below the threshold.
+
+      Intended for admin low-stock reports. Returns [] if nothing matches.
+    """
+    if threshold < 0:
+        raise ValueError("Threshold must be non-negative") 
+    with get_db() as conn:
+          rows = conn.execute(
+              "SELECT * FROM products WHERE stock <= ? AND is_active = 1",
+              (threshold,),
+          ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+

@@ -287,7 +287,7 @@ async def test_post_cart_quantity_zero_422(client: AsyncClient):
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("_seed_products")
 async def test_post_cart_quantity_100_422(client: AsyncClient):
-    """POST /v1/cart with quantity=100 → 422 (Pydantic le=99)."""
+    """POST /v1/cart with quantity=100 → 422 (Pydantic le=10)."""
     response = await client.post("/v1/cart", json={"product_id": "lavender-dream", "quantity": 100})
     assert response.status_code == 422
 
