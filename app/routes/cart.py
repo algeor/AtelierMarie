@@ -55,7 +55,7 @@ def _cart_data_to_response(data: CartData) -> CartResponse:
     )
 
 
-@router.get("", response_model=CartResponse)
+@router.get("", response_model=CartResponse, summary="View cart")
 async def view_cart(
     request: Request,
     locale: Locale = Query(default="en", description="Content locale (en or bg)"),
@@ -67,7 +67,7 @@ async def view_cart(
     return _cart_data_to_response(data)
 
 
-@router.post("", response_model=CartResponse)
+@router.post("", response_model=CartResponse, summary="Add item to cart")
 async def add_to_cart(
     request: Request,
     body: AddToCartRequest,
@@ -87,7 +87,7 @@ async def add_to_cart(
     return _cart_data_to_response(result.cart)
 
 
-@router.patch("/{product_id}", response_model=CartResponse)
+@router.patch("/{product_id}", response_model=CartResponse, summary="Update cart item quantity")
 async def update_cart_item(
     request: Request,
     product_id: ProductIdPath,
@@ -106,7 +106,7 @@ async def update_cart_item(
     return _cart_data_to_response(data)
 
 
-@router.delete("/{product_id}", response_model=CartResponse)
+@router.delete("/{product_id}", response_model=CartResponse, summary="Remove item from cart")
 async def remove_from_cart(
     request: Request,
     product_id: ProductIdPath,

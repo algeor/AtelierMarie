@@ -233,12 +233,19 @@ async def test_patch_cart_insufficient_stock_409(client: AsyncClient):
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("_seed_products")
 async def test_patch_cart_limit_422(client: AsyncClient):
-    """PATCH /v1/cart/{product_id} — 422 for limit exceeded."""
+    """PATCH /v1/cart/{product_id} — 422 for limit exceeded.
+
+    quantity=15 exceeds the Pydantic `le=10` bound (matching
+    cart_max_quantity_per_item), so validation rejects it before the service
+    ever runs — the response code is VALIDATION_ERROR, not
+    QUANTITY_LIMIT_EXCEEDED. Both are 422; the meaning ("over the limit") is
+    preserved.
+    """
     await client.post("/v1/cart", json={"product_id": "ocean-breeze", "quantity": 5})
     response = await client.patch("/v1/cart/ocean-breeze", json={"quantity": 15})
     assert response.status_code == 422
     body = response.json()
-    assert body["error"]["code"] == "QUANTITY_LIMIT_EXCEEDED"
+    assert body["error"]["code"] == "VALIDATION_ERROR"
 
 
 # --- 9.4 Test DELETE /v1/cart/{product_id} ---

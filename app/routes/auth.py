@@ -22,7 +22,7 @@ router = APIRouter()
 _SQLITE_DT_FMT = "%Y-%m-%d %H:%M:%S"
 
 
-@router.get("/login")
+@router.get("/login", summary="Start Google OAuth login")
 async def login(
     request: Request,
     session_id: Annotated[str, Depends(require_session)],
@@ -52,7 +52,7 @@ async def login(
     return RedirectResponse(url=auth_url, status_code=302)
 
 
-@router.get("/callback")
+@router.get("/callback", summary="Google OAuth callback")
 async def callback(
     request: Request,
     session_id: Annotated[str, Depends(require_session)],
@@ -162,7 +162,7 @@ async def callback(
         )
 
 
-@router.get("/me")
+@router.get("/me", summary="Get current authenticated user")
 async def get_me(
     request: Request,
     session_id: Annotated[str, Depends(require_session)],
@@ -188,7 +188,7 @@ async def get_me(
     return JSONResponse(status_code=200, content=current_user.model_dump())
 
 
-@router.post("/logout")
+@router.post("/logout", summary="Log out and rotate session")
 async def logout(
     request: Request,
     session_id: Annotated[str, Depends(require_session)],
