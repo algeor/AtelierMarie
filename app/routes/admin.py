@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse, Response
 
 from app.constants import MAX_PRICE_CENTS, MAX_STOCK
 from app.database import get_db
-from app.dependencies.auth import require_admin     
+from app.dependencies.auth import require_admin
 from app.models.admin import DashboardResponse, LowStockProductsResponse
 from app.models.comments import AdminCommentListResponse, AdminCommentResponse
 from app.models.orders import (
@@ -93,7 +93,7 @@ async def admin_list_products(
     products, total = product_service.list_products_admin(page=page, limit=limit)
 
     return ProductAdminListResponse(
-        products=[ProductAdminResponse(**p) for p in products],      
+        products=[ProductAdminResponse(**p) for p in products],
         total=total,
         page=page,
         limit=limit,

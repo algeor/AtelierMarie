@@ -309,12 +309,12 @@ class TestGetLowStockProducts:
         result = product_service.get_low_stock_products(threshold=5)
         ids = {p["id"] for p in result}
         assert ids == {"vanilla-brulee-200ml"}
-    
+
     def test_returns_products_bellow_threshold(self, _seeded_db):
         result = product_service.get_low_stock_products(threshold=6)
         ids = {p["id"] for p in result}
         assert ids == {"vanilla-brulee-200ml"}
-    
+
     def test_returns_no_products_at_or_below_threshold(self, _seeded_db):
         product = product_service.update_product(
             "vanilla-brulee-200ml",

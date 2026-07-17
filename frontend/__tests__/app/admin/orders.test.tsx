@@ -72,7 +72,7 @@ const MOCK_ORDERS: OrderResponse[] = [
 ];
 
 const MOCK_ORDER_LIST: OrderListResponse = {
-  orders: MOCK_ORDERS,
+  items: MOCK_ORDERS,
   total: 2,
   page: 1,
   limit: 100,
@@ -311,7 +311,7 @@ describe("Admin Orders List", () => {
 
   it("shows empty state when no orders exist", async () => {
     mockedGetAdminOrders.mockResolvedValue({
-      orders: [],
+      items: [],
       total: 0,
       page: 1,
       limit: 100,

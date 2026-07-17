@@ -28,7 +28,7 @@ export default function OrdersPage() {
     setState("loading");
     try {
       const data = await getOrders(pageNum, limit);
-      setOrders(data.orders);
+      setOrders(data.items);
       setTotal(data.total);
       setPage(pageNum);
       setState("success");

@@ -310,7 +310,7 @@ export async function getOrders(
   const start = (page - 1) * limit;
   const slice = mockOrders.slice(start, start + limit);
   return {
-    orders: slice,
+    items: slice,
     total: mockOrders.length,
     page,
     limit,
@@ -555,7 +555,7 @@ export async function getAdminOrders(
   const start = (page - 1) * limit;
   const slice = filtered.slice(start, start + limit);
   return {
-    orders: slice,
+    items: slice,
     total: filtered.length,
     page,
     limit,

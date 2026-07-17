@@ -85,7 +85,7 @@ export interface OrderResponse {
 }
 
 export interface OrderListResponse {
-  orders: OrderResponse[];
+  items: OrderResponse[];
   total: number;
   page: number;
   limit: number;

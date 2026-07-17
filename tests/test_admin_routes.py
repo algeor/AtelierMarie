@@ -311,4 +311,3 @@ class TestAdminLowStockProducts:
     async def test_accepts_valid_key(self, admin_client, _products):
         response = await admin_client.get("/v1/admin/products/low-stock")
         assert response.status_code == 200
-    
