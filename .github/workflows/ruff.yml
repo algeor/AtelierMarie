@@ -1,0 +1,27 @@
+name: Ruff Analysis
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ruff:
+    name: Ruff Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Run Ruff linting
+        uses: astral-sh/ruff-action@v3
+        with:
+          args: check .
+
+      - name: Run Ruff formatting check
+        uses: astral-sh/ruff-action@v3
+        with:
+          args: format --check .
