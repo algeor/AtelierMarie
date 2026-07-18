@@ -166,4 +166,9 @@ describe("Message file completeness", () => {
     expect(bgMessages.locale.switchToEnglish).toBeDefined();
     expect(bgMessages.locale.switchToBulgarian).toBeDefined();
   });
+
+  it("locale namespace has changeLanguage in both locales", () => {
+    expect(enMessages.locale.changeLanguage).toBeDefined();
+    expect(bgMessages.locale.changeLanguage).toBeDefined();
+  });
 });

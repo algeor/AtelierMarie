@@ -261,6 +261,7 @@
     }
   },
   "locale": {
+    "changeLanguage": "Смяна на език",
     "switchToEnglish": "Switch to English",
     "switchToBulgarian": "Превключи на български"
   },
