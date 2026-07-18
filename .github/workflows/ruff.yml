@@ -1,4 +1,4 @@
-name: Ruff Analysis
+name: Backend Ruff Lint Analysis
 
 on:
   push:
@@ -8,20 +8,22 @@ permissions:
   contents: read
 
 jobs:
-  ruff:
-    name: Ruff Analysis
+  lint-frontend:
+    name: Frontend Lint Analysis
     runs-on: ubuntu-latest
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Run Ruff linting
-        uses: astral-sh/ruff-action@v3
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          args: check .
+          python-version: "3.11"
 
-      - name: Run Ruff formatting check
-        uses: astral-sh/ruff-action@v3
-        with:
-          args: format --check .
+      - name: Setup Frontend
+        run: make setup-backend
+
+      - name: Run backend Ruff linting
+        run: make lint-backend
+      
