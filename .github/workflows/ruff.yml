@@ -1,0 +1,29 @@
+name: Backend Ruff Lint Analysis
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-frontend:
+    name: Frontend Lint Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup Frontend
+        run: make setup-backend
+
+      - name: Run backend Ruff linting
+        run: make lint-backend
+      

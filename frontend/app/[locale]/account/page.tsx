@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { useAuth } from "@/contexts/AuthContext";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -53,9 +54,11 @@ export default function AccountPage() {
       <div className="bg-white rounded-brand p-8 shadow-sm border border-champagne-beige">
         <div className="flex flex-col items-center gap-4">
           {user.avatar_url ? (
-            <img
+            <Image
               src={user.avatar_url}
               alt={user.name ?? t("userAvatar")}
+              width={96}
+              height={96}
               className="w-24 h-24 rounded-full object-cover"
             />
           ) : (

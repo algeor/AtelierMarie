@@ -41,7 +41,7 @@ import OrdersPage from "@/app/[locale]/orders/page";
 const mockedGetOrders = vi.mocked(getOrders);
 
 const ordersResponse: OrderListResponse = {
-  orders: [
+  items: [
     {
       id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
       status: "pending",
@@ -83,7 +83,7 @@ describe("OrdersPage", () => {
 
   it("shows empty state when no orders", async () => {
     mockedGetOrders.mockResolvedValueOnce({
-      orders: [],
+      items: [],
       total: 0,
       page: 1,
       limit: 20,
@@ -98,7 +98,7 @@ describe("OrdersPage", () => {
 
   it("shows anonymous CTA in empty state", async () => {
     mockedGetOrders.mockResolvedValueOnce({
-      orders: [],
+      items: [],
       total: 0,
       page: 1,
       limit: 20,
@@ -146,8 +146,8 @@ describe("OrdersPage", () => {
 
   it("pagination: Previous disabled on page 1, Next disabled on last page", async () => {
     mockedGetOrders.mockResolvedValueOnce({
-      orders: Array.from({ length: 20 }, (_, i) => ({
-        ...ordersResponse.orders[0]!,
+      items: Array.from({ length: 20 }, (_, i) => ({
+        ...ordersResponse.items[0]!,
         id: `order-${i}`,
       })),
       total: 25,

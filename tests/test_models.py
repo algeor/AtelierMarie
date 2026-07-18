@@ -135,11 +135,11 @@ class TestCartModels:
 
     def test_add_to_cart_quantity_exceeds_max_rejected(self):
         with pytest.raises(ValidationError):
-            AddToCartRequest(product_id="lavender-dream-300ml", quantity=100)
+            AddToCartRequest(product_id="lavender-dream-300ml", quantity=11)
 
     def test_add_to_cart_quantity_at_max_allowed(self):
-        req = AddToCartRequest(product_id="lavender-dream-300ml", quantity=99)
-        assert req.quantity == 99
+        req = AddToCartRequest(product_id="lavender-dream-300ml", quantity=10)
+        assert req.quantity == 10
 
     def test_add_to_cart_invalid_product_id_format(self):
         with pytest.raises(ValidationError):
@@ -242,24 +242,24 @@ class TestBoundaryConstraints:
     """Upper-bound and max_length tests for business-rule constraints."""
 
     def test_add_to_cart_quantity_at_max(self):
-        req = AddToCartRequest(product_id="test-candle", quantity=99)
-        assert req.quantity == 99
+        req = AddToCartRequest(product_id="test-candle", quantity=10)
+        assert req.quantity == 10
 
     def test_add_to_cart_quantity_over_max_rejected(self):
         with pytest.raises(ValidationError):
-            AddToCartRequest(product_id="test-candle", quantity=100)
+            AddToCartRequest(product_id="test-candle", quantity=11)
 
     def test_update_cart_item_quantity_at_max(self):
         from app.models.cart import UpdateCartItemRequest
 
-        req = UpdateCartItemRequest(quantity=99)
-        assert req.quantity == 99
+        req = UpdateCartItemRequest(quantity=10)
+        assert req.quantity == 10
 
     def test_update_cart_item_quantity_over_max_rejected(self):
         from app.models.cart import UpdateCartItemRequest
 
         with pytest.raises(ValidationError):
-            UpdateCartItemRequest(quantity=100)
+            UpdateCartItemRequest(quantity=11)
 
     def test_create_product_name_too_long(self):
         with pytest.raises(ValidationError):
@@ -384,3 +384,38 @@ class TestProductIdPatternEdgeCases:
             id="lavender-dream-300ml", name_en="Good", price_cents=1000, stock=5
         )
         assert req.id == "lavender-dream-300ml"
+
+
+class TestSection2ChangedBehavior:
+    """Tests for validation tightening in admin-polish-edge-cases (2.6)."""
+
+    def test_add_to_cart_quantity_11_rejected(self):
+        """le=10 rejects quantity=11 (previously accepted under le=99)."""
+        with pytest.raises(ValidationError):
+            AddToCartRequest(product_id="lavender-dream-300ml", quantity=11)
+
+    def test_create_product_non_string_name_clean_error(self):
+        """Non-string name_en produces clean ValidationError, not TypeError from .strip()."""
+        with pytest.raises(ValidationError):
+            CreateProductRequest(id="test-candle", name_en=123, price_cents=1000, stock=5)
+
+    def test_create_order_whitespace_only_customer_name_rejected(self):
+        """customer_name='   ' rejected after strip (previously accepted)."""
+        with pytest.raises(ValidationError):
+            CreateOrderRequest(customer_email="a@b.com", customer_name="   ")
+
+
+class TestCalculateOffset:
+    """Tests for `calculate_offset` helper in app/models/common.py (task 4.4)."""
+
+    def test_page_one_returns_zero(self):
+        from app.models.common import calculate_offset
+        assert calculate_offset(1, 20) == 0
+
+    def test_page_two_limit_twenty_returns_twenty(self):
+        from app.models.common import calculate_offset
+        assert calculate_offset(2, 20) == 20
+
+    def test_page_three_limit_ten(self):
+        from app.models.common import calculate_offset
+        assert calculate_offset(3, 10) == 20

@@ -285,3 +285,29 @@ class TestAdminCSVImport:
         assert body["created"] == 0
         assert body["updated"] == 0
         assert body["errors"] == []
+
+class TestAdminLowStockProducts:
+    """Tests for GET /v1/admin/products/low-stock."""
+    @pytest.mark.asyncio
+    async def test_rejects_no_token(self, app):
+        from httpx import ASGITransport, AsyncClient
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            response = await c.get("/v1/admin/products/low-stock")
+            assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_key(self, app):
+        from httpx import ASGITransport, AsyncClient
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            c.headers["Authorization"] = "Bearer wrong-key"
+            response = await c.get("/v1/admin/products/low-stock")
+            assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_accepts_valid_key(self, admin_client, _products):
+        response = await admin_client.get("/v1/admin/products/low-stock")
+        assert response.status_code == 200

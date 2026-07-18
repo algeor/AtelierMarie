@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
@@ -46,11 +46,7 @@ export default function AdminProductsPage() {
     };
   }, [searchParams, t]);
 
-  useEffect(() => {
-    loadProducts();
-  }, []);
-
-  async function loadProducts() {
+  const loadProducts = useCallback(async () => {
     try {
       setIsLoading(true);
       const data = await getAdminProducts(1, 100);
@@ -60,7 +56,11 @@ export default function AdminProductsPage() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, [getLocalizedError, t]);
+
+  useEffect(() => {
+    loadProducts();
+  }, [loadProducts]);
 
   async function toggleActive(product: AdminProductResponse) {
     const previousActive = product.is_active;

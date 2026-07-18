@@ -17,6 +17,10 @@ from app.services.cart_service import (
     ProductNotFoundError,
     QuantityLimitError,
 )
+from app.services.order_service import (
+    InvalidStateTransitionError,
+    OrderNotFoundError,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -71,7 +75,13 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
-        """Wrap Starlette/FastAPI HTTPExceptions in our standard envelope."""
+        """Wrap Starlette/FastAPI HTTPExceptions in our standard envelope.
+
+        Dict-detail passthrough: if `detail` is a dict containing both `code` and
+        `message`, use them directly and put any remaining keys into `details`.
+        Otherwise fall back to a status-derived code with the raw detail in
+        `message` (or `details` for non-string dicts).
+        """
         # Map common status codes to error codes
         code_map = {
             400: "BAD_REQUEST",
@@ -88,19 +98,29 @@ def register_exception_handlers(app: FastAPI) -> None:
             503: "SERVICE_UNAVAILABLE",
         }
 
-        error_code = code_map.get(exc.status_code, "ERROR")
-        detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+        default_code = code_map.get(exc.status_code, "ERROR")
 
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={
-                "error": {
-                    "code": error_code,
-                    "message": detail,
-                    "details": None,
-                }
-            },
-        )
+        if isinstance(exc.detail, dict) and "code" in exc.detail and "message" in exc.detail:
+            extra = {k: v for k, v in exc.detail.items() if k not in ("code", "message")}
+            envelope = {
+                "code": exc.detail["code"],
+                "message": exc.detail["message"],
+                "details": extra or None,
+            }
+        elif isinstance(exc.detail, dict):
+            envelope = {
+                "code": default_code,
+                "message": code_map.get(exc.status_code, "Error"),
+                "details": exc.detail,
+            }
+        else:
+            envelope = {
+                "code": default_code,
+                "message": exc.detail if isinstance(exc.detail, str) else str(exc.detail),
+                "details": None,
+            }
+
+        return JSONResponse(status_code=exc.status_code, content={"error": envelope})
 
     # --- Cart service exception handlers ---
 
@@ -165,6 +185,42 @@ def register_exception_handlers(app: FastAPI) -> None:
                     "code": "CART_FULL",
                     "message": str(exc),
                     "details": {"max_items": exc.max_items},
+                }
+            },
+        )
+
+    # --- Order service exception handlers ---
+
+    @app.exception_handler(OrderNotFoundError)
+    async def order_not_found_handler(
+        request: Request, exc: OrderNotFoundError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": {
+                    "code": "ORDER_NOT_FOUND",
+                    "message": str(exc),
+                    "details": {"order_id": exc.order_id},
+                }
+            },
+        )
+
+    @app.exception_handler(InvalidStateTransitionError)
+    async def invalid_state_transition_handler(
+        request: Request, exc: InvalidStateTransitionError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "INVALID_TRANSITION",
+                    "message": str(exc),
+                    "details": {
+                        "order_id": exc.order_id,
+                        "current_status": exc.current_status,
+                        "requested_status": exc.requested_status,
+                    },
                 }
             },
         )

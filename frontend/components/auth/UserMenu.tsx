@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { useAuth } from "@/contexts/AuthContext";
@@ -63,9 +64,11 @@ export function UserMenu() {
         className="flex items-center gap-2 rounded-brand p-1 transition-colors duration-fast hover:bg-cream focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"
       >
         {user?.avatar_url ? (
-          <img
+          <Image
             src={user.avatar_url}
             alt=""
+            width={32}
+            height={32}
             className="w-8 h-8 rounded-full object-cover"
           />
         ) : (

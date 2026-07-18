@@ -72,7 +72,7 @@ export default function AdminOrdersPage() {
         }
         setError(null);
         const data = await getAdminOrders(1, 100, statusFilter || undefined);
-        setOrders(data.orders);
+        setOrders(data.items);
       } catch (err) {
         setError(err instanceof ApiError ? getLocalizedError(err.code) : t("errors.loadOrders"));
       } finally {

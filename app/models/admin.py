@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel, Field
 
+from app.models.products import ProductAdminResponse
+
 
 class ProductStats(BaseModel):
     """Product-level statistics."""
@@ -26,3 +28,11 @@ class DashboardResponse(BaseModel):
     products: ProductStats
     orders: OrderStats
     low_stock_count: int = Field(..., description="Active products with stock <= 5")
+
+
+class LowStockProductsResponse(BaseModel):
+    """Low-stock products list."""
+
+    products: list[ProductAdminResponse]
+    total: int
+    threshold: int

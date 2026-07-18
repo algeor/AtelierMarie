@@ -1,0 +1,29 @@
+name: Frontend Unit Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test-frontend:
+    name: Frontend Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Setup Frontend
+        run: make setup-frontend
+
+      - name: Run frontend unit tests
+        run: make test-frontend
+      

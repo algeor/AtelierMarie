@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { BASE_URL } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +16,7 @@ interface ProductImageProps {
 export function ProductImage({
   name,
   imageUrl,
+  sizes = "(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw",
   priority = false,
   className,
 }: ProductImageProps) {
@@ -44,11 +46,13 @@ export function ProductImage({
 
   return (
     <div className={cn("relative w-full aspect-[4/5] rounded-brand overflow-hidden", className)}>
-      <img
+      <Image
         src={resolvedImageUrl}
         alt={name}
-        loading={priority ? "eager" : "lazy"}
-        className="h-full w-full object-cover"
+        fill
+        sizes={sizes}
+        priority={priority}
+        className="object-cover"
         onError={() => setHasError(true)}
       />
     </div>
