@@ -156,7 +156,6 @@ async def test_invalid_state_transition_handled_globally(probe_app):
 @pytest.mark.asyncio
 async def test_unhandled_exception_does_not_leak(probe_app):
     """RuntimeError → 500 with generic message, no leaked traceback/class/message."""
-    transport = ASGITransport(app=probe_app)
     # Starlette's default behavior for unhandled exceptions in tests is to raise.
     # Our catch-all handler intercepts BEFORE that; but AsyncClient will propagate
     # if the handler didn't run. Wrap in raises=False by using raise_app_exceptions.

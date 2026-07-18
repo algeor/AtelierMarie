@@ -1,6 +1,7 @@
 """Admin response models — dashboard stats."""
 
 from pydantic import BaseModel, Field
+
 from app.models.products import ProductAdminResponse
 
 

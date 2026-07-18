@@ -24,7 +24,7 @@ from app.models.products import (
     CSVImportResponse,
     ProductAdminListResponse,
     ProductAdminResponse,
-    UpdateProductRequest
+    UpdateProductRequest,
 )
 from app.services import admin_service, product_service
 from app.services.auth_service import get_oauth_circuit_breaker

@@ -316,7 +316,7 @@ class TestGetLowStockProducts:
         assert ids == {"vanilla-brulee-200ml"}
 
     def test_returns_no_products_at_or_below_threshold(self, _seeded_db):
-        product = product_service.update_product(
+        product_service.update_product(
             "vanilla-brulee-200ml",
             {
                 "stock": 6,
