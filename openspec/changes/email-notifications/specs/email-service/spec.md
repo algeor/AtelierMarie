@@ -2,17 +2,17 @@
 
 ### Requirement: Email service sends notifications on order state transitions
 
-The system SHALL send a transactional email to the customer whenever their order transitions to a new state (pending, confirmed, shipped, delivered, cancelled). Emails are dispatched asynchronously via FastAPI BackgroundTasks and SHALL NOT block or fail the HTTP response.
+The system SHALL send a transactional email to the customer whenever their order transitions to a customer-facing state (placed/pending, shipped, delivered, cancelled). The `confirmed` transition SHALL NOT send a customer email. Emails are dispatched asynchronously via FastAPI BackgroundTasks and SHALL NOT block or fail the HTTP response.
 
 #### Scenario: Customer receives email after checkout
 
 - **WHEN** a customer completes checkout (order transitions to "pending")
 - **THEN** the system sends an "order placed" email to the customer's email address with order summary, item list, and total
 
-#### Scenario: Customer receives email on order confirmation
+#### Scenario: Order confirmation does not email the customer
 
 - **WHEN** admin confirms an order (status → "confirmed")
-- **THEN** the system sends an "order confirmed" email to the customer
+- **THEN** no customer email is sent (pending→confirmed is an internal step; the next customer email is on ship)
 
 #### Scenario: Customer receives email on order shipped
 
@@ -27,7 +27,7 @@ The system SHALL send a transactional email to the customer whenever their order
 #### Scenario: Customer receives email on order cancellation
 
 - **WHEN** an order is cancelled (status → "cancelled")
-- **THEN** the system sends an "order cancelled" email to the customer
+- **THEN** the system sends an "order cancelled" email to the customer that states a refund is being processed
 
 #### Scenario: Email failure does not affect order operation
 
@@ -85,3 +85,45 @@ The system SHALL read all email configuration from environment variables via Pyd
 
 - **WHEN** no email environment variables are set
 - **THEN** the system uses the console provider and logs emails without sending
+
+### Requirement: Email language follows the order's snapshotted locale
+
+The system SHALL determine the language of every customer email from the locale stored on the order row, not from the acting session. This ensures admin-triggered emails (shipped, delivered, cancelled) are sent in the customer's language rather than the admin's.
+
+#### Scenario: Admin-triggered email uses customer locale
+
+- **WHEN** a customer placed an order with locale "bg" and an admin (locale "en") marks it shipped
+- **THEN** the "order shipped" email is rendered from the Bulgarian template, using `orders.locale`
+
+#### Scenario: Locale read from order after session expiry
+
+- **WHEN** an order is shipped after the customer's original session has expired
+- **THEN** the email language is still determined correctly from `orders.locale` with no session lookup
+
+### Requirement: Every send attempt is recorded in an order-email log
+
+The system SHALL record each email send attempt in an append-only `order_emails` table capturing order_id, event, recipient, status (sent/failed/skipped), optional error, and timestamp. Recording the log row SHALL happen inside the background task and SHALL NOT propagate failures.
+
+#### Scenario: Successful send logged
+
+- **WHEN** a customer email is sent successfully
+- **THEN** a row is written to `order_emails` with status "sent", the recipient, and the event
+
+#### Scenario: Failed send logged
+
+- **WHEN** the provider raises an error while sending
+- **THEN** a row is written with status "failed" and the provider error message, and the order operation is unaffected
+
+### Requirement: Duplicate emails are suppressed via a DB-level idempotency guard
+
+The system SHALL NOT send the same customer email twice for the same order and event. A partial UNIQUE index on `order_emails(order_id, event) WHERE status='sent'` is the arbiter: the send path inserts the "sent" row first, and a uniqueness violation means the email was already sent and the send is skipped. This closes the check-then-send race across concurrent tasks and multiple workers.
+
+#### Scenario: Concurrent sends of the same event produce one email
+
+- **WHEN** two background tasks for the same (order_id, event) run concurrently (e.g. admin double-click or multiple workers)
+- **THEN** exactly one email is sent; the losing insert hits the UNIQUE index and is logged with status "skipped_duplicate"
+
+#### Scenario: Distinct events for the same order each send once
+
+- **WHEN** an order progresses placed → shipped → delivered
+- **THEN** three distinct emails are sent, one per event, each logged as "sent"

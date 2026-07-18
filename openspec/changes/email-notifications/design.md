@@ -70,6 +70,10 @@ Currently there is no email infrastructure — no transactional emails, no admin
 - Celery/RQ: massive infrastructure overhead for ~20 emails/day
 - asyncio task: harder to test, risk of lost tasks on shutdown
 
+**Connection lifetime caveat:** The background task runs *after* the HTTP response, by which point the request's `with get_db()` context manager has already committed and closed its connection (routes use an inline `with get_db() as conn:`, e.g. `orders.py:57`, `admin.py:413`, not `Depends`). The task therefore MUST open its own connection (`with get_db() as conn:`) inside the background function to do its fresh read — it cannot capture and reuse the request-scoped connection. The task receives only plain values (order_id, event, locale) as arguments, never a live connection or ORM object. `get_db()` opens a fresh `sqlite3.connect` per call (`database.py:411`), so a background-thread read is safe.
+
+_Note (corrected): a captured-connection bug does **not** pass-in-tests-but-fail-in-prod. The async test client (httpx `ASGITransport`) drives the full ASGI cycle including background tasks, and the route's `with` block closes the connection before the task runs in tests too — so the bug fails in tests as well. Open a fresh connection because it is correct, not because tests would otherwise miss it._
+
 ### 4. Provider Abstraction via Protocol Class
 
 **Choice:** `EmailProvider` Protocol with `send()` method; implementations: `ResendProvider`, `ConsoleProvider`
@@ -112,35 +116,97 @@ Currently there is no email infrastructure — no transactional emails, no admin
 - Bulgarian templates can be added incrementally
 - Silent fallback better than crashing on missing translation
 
+### 8. Customer Locale Snapshotted onto the Order
+
+**Choice:** Add a `locale` column to the `orders` table, captured at checkout. All emails read locale **from the order row**, never from a session.
+
+**Rationale:**
+- `preferred_locale` lives on the `sessions` table, not `orders` (verified: `database.py:44`). Customer-facing emails for `shipped`/`delivered`/`cancelled` are triggered by an **admin** action — so `request.state.preferred_locale` in the admin route is the *admin's* locale, not the customer's. Reading it there would send a Bulgarian customer an English "shipped" email.
+- Sessions expire at 30 days; an order shipped weeks later may have no surviving session to look up.
+- The value is already available at checkout (`orders.py:59-63` reads it). Snapshotting it onto the order is consistent with the project's existing **order-snapshot** decision (name/price frozen on `order_items`). Locale is the same class of fact: true-at-purchase-time.
+
+**Consequence:** tasks.md 8.5 ("read preferred_locale in admin route") is wrong and flips to "read `locale` from the order row." A schema migration adds `orders.locale TEXT NOT NULL DEFAULT 'en'`.
+
+### 9. Which Transitions Email the Customer
+
+**Choice:** Send customer email on **placed** (checkout → pending), **shipped**, **delivered**, and **cancelled**. Do **NOT** send a separate "confirmed" email.
+
+**Rationale:**
+- pending→confirmed is an internal admin step. A second near-identical email moments after "order placed" reads as noise and burns quota (see Risks: free tier).
+- The meaningful customer touchpoints are: we got your order → it's on its way → it arrived → (if applicable) it's cancelled.
+
+**Consequence:** `order_confirmed.txt` (EN + BG) templates and the "confirmed" scenario are dropped from scope. The `confirmed` transition still happens in the state machine and still fires an admin-side event if needed, but sends no customer email.
+
+### 10. Cancellation is Admin-Only; Refund is Out-of-Band
+
+**Choice:** No customer-facing cancel endpoint. Cancellation only via `PATCH /v1/admin/orders/{id}/status` (verified: `admin.py:401`, transition map `order_service.py:24-28`). A customer who wants to cancel contacts the shop (email/phone); the admin cancels, stock is restored, and a refund is issued manually (no payment integration in scope).
+
+**Rationale:**
+- Matches how a small family business actually operates — a human confirms and refunds.
+- The "order cancelled" email SHALL tell the customer a refund is being processed, so the manual refund is not a silent surprise.
+
+### 11. Order-Email Log Table (Idempotency + Audit + Re-send Foundation)
+
+**Choice:** Add an append-only `order_emails` table recording every send attempt.
+
+```sql
+CREATE TABLE IF NOT EXISTS order_emails (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id   TEXT NOT NULL REFERENCES orders(id),
+    event      TEXT NOT NULL,      -- placed | shipped | delivered | cancelled | admin_new_order
+    recipient  TEXT NOT NULL,
+    status     TEXT NOT NULL,      -- sent | failed | skipped_duplicate | skipped_suppressed
+    reason     TEXT,               -- provider error (failed) or skip detail
+    sent_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_order_emails_order_id ON order_emails(order_id);
+-- DB-level idempotency arbiter: at most one successful send per (order_id, event).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_order_emails_sent_unique
+    ON order_emails(order_id, event) WHERE status = 'sent';
+```
+
+**Rationale:**
+- **Idempotency (defense in depth, not toggle-driven):** NOTE — the earlier "shipped→confirmed→shipped toggle" justification was wrong: the state machine is strictly forward (`order_service.py:24-28`; `shipped:{delivered}`, no back-edges) and same-state re-entry returns 422, so no customer event can fire twice through the API. The real duplicate risk is **concurrent/retried sends** (admin double-click, client retry, or multiple uvicorn workers) racing the check-then-send. The **partial UNIQUE index** makes the DB the arbiter (insert-first, then send; a duplicate insert fails and the send is skipped), closing the check-then-insert TOCTOU. Resend's `Idempotency-Key` (Decision 14) covers only its own 24h POST window and is not a substitute.
+- **Audit:** when a customer says "I never got it," there's a queryable record, not just scattered structlog lines. Distinct skip reasons (`skipped_duplicate` vs `skipped_suppressed`) keep the trail legible.
+- **Re-send foundation:** the deferred admin re-send button has a table to read from and write to.
+- **In-flight loss:** a deploy/crash between response and task means the task never runs and no row is written — the audit table then can't distinguish "never attempted" from "sent but unlogged." Accepted risk at this scale; a `queued` row written before dispatch is a future option (recorded in Risks).
+
+Still fire-and-forget: writing the log row happens inside the background task alongside the send; a logging failure is caught and never propagates.
+
 ## Risks / Trade-offs
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| Resend free tier exceeded (100/day) | Some emails not sent | Log rate-limit, alert admin. Upgrade to paid ($20/mo) if needed. At 5 transitions × 20 orders = 100 emails, this is the ceiling. |
+| Resend free tier exceeded (100/day) | Some emails not sent | Log rate-limit, alert admin. ~4 emails/order (placed+shipped+delivered/cancelled+admin) → free tier holds to ~25 orders/day; budget Pro ($20/mo) for headroom. |
 | Resend service outage | Emails delayed/lost | Fire-and-forget logging. Manual re-send from admin. No customer-facing error. |
 | Template rendering bug | One email type broken | Per-template try/catch. Other email types unaffected. Structured log with full context. |
 | Domain not registered | Cannot send from branded address | Console provider works for dev/test. Production blocked until domain ready — but code is ready. |
-| Tracking URL patterns change | Broken links in shipped emails | Admin can override with custom URL. Patterns stored as config, not hardcoded. |
-| Email contains stale order data | Customer confusion | Email context built from fresh DB read at send time (inside BackgroundTask), not from the request. |
+| Tracking URL patterns change | Broken links in shipped emails | Admin can override with custom URL. Patterns are static code in `app/constants.py` (NOT pydantic Settings), editable in one place. |
+| Email contains stale order data | Customer confusion | Email context built from a fresh DB read at send time, on the task's own connection (see Decision 3), not from the request. |
+| Task lost on shutdown/crash | Email never sent, no log row | Accepted at this scale (no retry). Optional future: write a `queued` row before dispatch so the audit table distinguishes "never attempted" from "unlogged." |
 | No retry = lost emails | Customer never gets notification | Acceptable at this scale. Admin can manually trigger re-send. Future: add simple retry (1 attempt after 60s). |
 
 ## Migration Plan
 
 **Database schema changes:**
 ```sql
-ALTER TABLE orders ADD COLUMN tracking_number TEXT;
-ALTER TABLE orders ADD COLUMN tracking_carrier TEXT;
-ALTER TABLE orders ADD COLUMN tracking_url TEXT;
+-- New columns on orders (added via the migrate path, see below)
+tracking_number  TEXT
+tracking_carrier TEXT
+tracking_url     TEXT
+locale           TEXT NOT NULL DEFAULT 'en'
+-- New table (created via _SCHEMA_SQL)
+order_emails (...)   -- see Decision 11
 ```
 
-Applied at startup in `database.py` schema initialization (idempotent `ALTER TABLE ... ADD COLUMN` with IF NOT EXISTS pattern or try/except for SQLite).
+SQLite has **no** `ADD COLUMN IF NOT EXISTS`. Reuse the repo's existing idempotent helper `_add_column_if_missing()` (`database.py:310-319`, PRAGMA-driven — same pattern as the `preferred_locale` migration at `database.py:329-337`) inside `_migrate_existing_schema`, so **existing databases** get the new columns. Also add the columns to the `CREATE TABLE orders` block in `_SCHEMA_SQL` for **fresh** DBs (that block is `CREATE TABLE IF NOT EXISTS`, so on its own it never alters an existing table). `order_emails` is created via `CREATE TABLE IF NOT EXISTS` in `_SCHEMA_SQL`. `orders.locale` is safe to add because it carries a `DEFAULT`.
 
 **Deployment steps:**
 1. Deploy code with `email_provider = "console"` (no emails sent, just logged)
 2. Verify tracking fields work in admin UI
 3. Register domain + configure DNS + verify in Resend
-4. Set `EMAIL_PROVIDER=resend`, `EMAIL_API_KEY=re_xxx`, `ADMIN_NOTIFICATION_EMAIL=owner@gmail.com`
-5. Send test email via admin dashboard
+4. Set `EMAIL_PROVIDER=resend`, `EMAIL_API_KEY=re_xxx`, `RESEND_WEBHOOK_SECRET=whsec_xxx`, `ADMIN_NOTIFICATION_EMAIL=owner@gmail.com`
+5. Trigger a real test order (or use `GET /v1/admin/orders/{id}/emails` to inspect the audit log) — there is no dedicated "send test email" endpoint in this change
 6. Switch to production
 
 **Rollback:**
@@ -148,8 +214,95 @@ Applied at startup in `database.py` schema initialization (idempotent `ALTER TAB
 - Tracking columns are additive (no data loss on rollback)
 - No breaking changes to existing API contracts (tracking fields are optional additions)
 
-## Open Questions
+## Deliverability (Research-Driven)
 
-1. **Currency display in emails** — Bulgarian customers: "лв" or "BGN"? International: "€" or "EUR"? (Currently proposal assumes "лв" for BG, "€" for EN)
-2. **Order placed vs confirmed** — should "order placed" email be sent immediately at checkout (pending), or wait until admin confirms? (Current design: send on both transitions)
-3. **Admin re-send** — should we add a "Resend notification" button in the admin UI for this change, or defer to a future change?
+Findings from a 2025-2026 research pass. Split into account/DNS setup (one-time, out of code) and code-level design.
+
+### Setup / account (one-time, no code)
+
+- **Sending subdomain, not root.** Send from `send.ateliermarie.com` (or `mail.`/`updates.`), isolating transactional reputation from the brand domain. `EMAIL_FROM_ADDRESS` becomes `orders@send.ateliermarie.com` once the domain exists. Resend recommends this.
+- **Full auth stack.** Publish Resend-generated SPF (TXT + MX), DKIM (TXT), and DMARC. Keep the **MX record** — it routes bounce/complaint feedback and gives SPF alignment for DMARC. DKIM is **1024-bit** (Resend does not offer 2048-bit; RFC-compliant, fine here).
+- **DMARC progression.** Start `_dmarc` at `p=none` with a readable `rua`; after 2-4 weeks of clean reports move to `quarantine`, then `reject`. `pct`/`ruf` tags are widely ignored — don't rely on them.
+- **EU sending region.** Create the domain in Ireland (`eu-west-1`). Caveat: region controls where mail is sent from, **not** data residency — Resend processes/stores account data in the US. Sign Resend's **DPA**; document Resend as a GDPR processor (transfer covered by SCCs / EU-US DPF).
+- **Monitoring.** Verify the domain in **Google Postmaster Tools** (only source of Gmail spam-rate; will show "insufficient data" at low volume but accrues). **abv.bg / mail.bg expose no postmaster tooling or feedback loops** (confirmed absence) — rely on clean auth + test against real abv.bg/mail.bg inboxes before launch.
+- **Skip at this scale:** dedicated IP (Resend gates it to >3,000/day; a cold dedicated IP hurts deliverability), BIMI/VMC (requires `p=reject` + registered trademark + ~$1,400/yr).
+
+### Cost correction (supersedes "Cost €0" in proposal)
+
+Resend Free tier is **100 emails/day**. After Decision 9 (no "confirmed" email) each order generates ~4 emails (placed + shipped + delivered-or-cancelled + admin alert), so the free tier holds up to **~25 orders/day**, then bursts exceed it. Honest plan: free tier is viable at current volume; **budget Resend Pro ($20/mo, 50k/mo, no daily cap)** as headroom, not "free forever." Config must not assume the daily cap never bites — log rate-limit responses.
+
+### Code-level decisions
+
+### 13. Disable open/click tracking
+
+Resend open-tracking pixels and rewritten click links are phisher-like signals that "have been seen to negatively impact inbox placement." Transactional mail doesn't need open metrics. Send with tracking **off**.
+
+### 14. Idempotency key on every provider send
+
+Pass Resend's `Idempotency-Key` header as `<event>/<order_id>` (e.g. `order-shipped/AM-12ab34`). This guards against duplicate API sends within Resend's 24h window. It **complements** the `order_emails` table (Decision 11): the header stops accidental double-POSTs; the table stops re-sends across status toggles indefinitely and provides the audit trail.
+
+### 15. Consume bounce/complaint/suppression webhooks
+
+Add a webhook endpoint (`POST /v1/webhooks/resend`) handling `email.bounced`, `email.complained`, `email.suppressed`. On a hard bounce or complaint, mark the customer's email undeliverable (a small `suppressed_emails` table) so the store stops generating mail to a known-bad address — mirroring Resend's own suppression into our data. Note: Gmail does **not** fire `email.complained` (visible only in Postmaster Tools).
+
+**Signature verification (concrete — "signature-verified" alone is insufficient):** Resend uses **Svix**. Verify with the `svix` library (or an explicit equivalent):
+- Config: add `resend_webhook_secret: SecretStr` (prefix `whsec_`) to `app/config.py` and `.env.example`. Without it the endpoint cannot be built.
+- Read the **raw body** (`await request.body()`) *before* JSON parsing — the HMAC-SHA256 is computed over `{svix-id}.{svix-timestamp}.{raw_body}`; any re-serialization breaks it.
+- Enforce **timestamp tolerance** (±5 min) to reject replays — a captured valid webhook could otherwise be replayed to suppress an arbitrary customer address (denial-of-email).
+- Constant-time compare via `hmac.compare_digest` (as `auth.py:115` already does).
+- Add `/v1/webhooks/resend` to `session_skip_paths` (`config.py:61-70`) so the session middleware doesn't set a cookie on a machine-to-machine call; mount it outside the admin router (public, authenticated by signature only). Apply a body-size limit.
+
+### 16. Validate email address at checkout
+
+Hard bounces to invalid addresses are the single biggest reputation risk for a new domain. **Already satisfied:** `CreateOrderRequest.customer_email` is `EmailStr` (`models/orders.py:46`) with `email-validator` in deps — so format validation exists. Remaining optional work: typo/MX checks on common-domain typos (e.g. `gmial.com`). Guardrail targets: bounce < 4% (aim ~0), complaint < 0.1% (aim 0).
+
+### 17. Plain-text-first is a recorded trade-off
+
+Filters treat plain-text-*only* as slightly unusual for a commercial sender, and HTML-only worse; best practice is `multipart/alternative` with matched text+HTML parts. We ship plain-text-only at launch for speed and accept the minor trade-off; the "HTML templates later" work (out of scope) SHOULD produce multipart, not HTML-only.
+
+### 18. Cyrillic subject headers must be MIME-encoded
+
+Bulgarian subjects/display names require RFC 2047 encoded-words (`=?utf-8?B?…?=`); bodies are UTF-8. When sending via the Resend SDK/API (JSON), confirm the emitted `Subject` header is encoded-word form, not raw UTF-8 bytes — add a test asserting a Cyrillic subject round-trips correctly. No `List-Unsubscribe` header on transactional mail (only add it if a marketing stream is introduced later, on a separate subdomain).
+
+### 19. Canonical `EmailEvent` vocabulary (single source of truth)
+
+The "event" token is the spine of the feature — it appears in the `order_emails.event` column, template filenames, idempotency keys, and route logic — and must have exactly one canonical form. Define in `app/constants.py` (CLAUDE.md: cross-module strings live here):
+
+```python
+EmailEvent = Literal["placed", "shipped", "delivered", "cancelled", "admin_new_order"]
+
+# OrderStatus → EmailEvent (None = no customer email)
+STATUS_TO_EMAIL_EVENT: dict[str, str | None] = {
+    "pending": "placed",       # NOTE: status is "pending", event is "placed"
+    "confirmed": None,         # no email (Decision 9)
+    "shipped": "shipped",
+    "delivered": "delivered",
+    "cancelled": "cancelled",
+}
+```
+
+Derived forms are computed from the event, never re-spelled: template file = `order_{event}.txt`, idempotency key = `order-{event}/{order_id}`. This kills the `pending`/`placed`/`order_placed`/`order-shipped` inconsistency. **Route wiring must map status→event** (so `send_order_email(event="pending")` becomes `event=STATUS_TO_EMAIL_EVENT[status]`, skipping when `None`).
+
+### 20. Jinja2 autoescape OFF for `.txt`; template inputs constrained
+
+The renderer `Environment` MUST set `autoescape=False` — for plain-text `.txt`, HTML-escaping is a bug (`Ben & Co` → `Ben &amp; Co`). Consequence to record now: when HTML/multipart templates are added later (Decision 17), autoescape must be turned **on** for `.html`, because `customer_name`/`shipping_address` are stored raw (unlike comments, which use `sanitize_text` at `comment_service.py:120`) and would otherwise be an email-client XSS/spoofing vector. User-supplied values (`customer_name`, `tracking_url`) MUST NOT flow into `Subject`/`From`/`Reply-To` (header injection); `tracking_url` should be constrained to `http(s)://` before the HTML phase.
+
+### 21. `TRACKING_REQUIRED` is a service-layer error, not a Pydantic validator
+
+The 422 with `code: "TRACKING_REQUIRED"` (order-tracking spec) cannot come from a Pydantic `model_validator` — that raises `RequestValidationError` → the framework envelope, not our `{"error":{"code":...}}` form. The conditional check (required only when `status=="shipped"`) lives in the service and raises a custom exception translated inline like `InvalidStateTransitionError` (`admin.py:420-434`). Also: `update_status(conn, order_id, new_status)` (`order_service.py:446`) has no tracking params and its `UPDATE` writes only `status` — signature + UPDATE must be extended to persist tracking.
+
+### 22. Email logs correlate by order_id + event (request_id is unavailable)
+
+`RequestIdMiddleware` resets `request_id_var` in a `finally` before background tasks run (`request_id.py:43-49`), so email logs would carry no `request_id`. Email logs and `order_emails` rows MUST explicitly bind `order_id` + `event` (the task already receives both) as the correlation keys. Optionally pass `request_id` into the task as an argument if request-level tracing is wanted.
+
+### 23. GDPR coverage for new PII stores
+
+`order_emails.recipient` and `suppressed_emails` hold email addresses. Existing erasure anonymizes by `user_id`, but anonymous checkouts have no `user_id`, so these would be un-erasable by construction. Decision: the erasure job MUST also scrub/anonymize `order_emails.recipient` (e.g. by `order_id` join to erased orders) and age out `suppressed_emails`. Console-provider and structlog output MUST NOT log full bodies in production and SHOULD log a hashed/truncated recipient — there is no log-redaction processor today (`logging_config.py`), so this is new work, not an existing guarantee.
+
+## Resolved / Open Questions
+
+1. **Currency display in emails** — RESOLVED: "€" for EN, "лв" for BG (per email-templates spec).
+2. **Which transitions email the customer** — RESOLVED: placed, shipped, delivered, cancelled. No "confirmed" email (Decision 9).
+3. **Customer-initiated cancellation** — RESOLVED: admin-only; manual refund out of band; cancelled email mentions the refund (Decision 10).
+4. **Customer locale for admin-triggered emails** — RESOLVED: snapshot `orders.locale` at checkout (Decision 8).
+5. **Admin re-send** — deferred, but built on the `order_emails` log table (Decision 11).

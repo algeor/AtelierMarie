@@ -68,7 +68,7 @@ Add a transactional email integration that fires on every order state transition
 | Custom "from" | Only your Gmail address | `orders@yourdomain.com` |
 | Reliability | Google can block without notice | Built for this purpose |
 | Tracking | None | Open/bounce/spam tracking |
-| Cost | €0 | €0 at this scale |
+| Cost | €0 | €0 free (≤~25 orders/day); Pro $20/mo for headroom |
 | Code | smtplib + TLS + connection mgmt | One HTTP POST |
 
 ### Setup Requirements
@@ -101,11 +101,12 @@ When ready:
 | Event | Recipient | Content |
 |-------|-----------|---------|
 | Order placed (→ pending) | Customer | Confirmation, order summary, total |
-| Order confirmed | Customer | "We're preparing your order" |
 | Order shipped | Customer | Tracking number, carrier, tracking link |
 | Order delivered | Customer | "Your order has arrived — enjoy!" |
-| Order cancelled | Customer | Cancellation notice |
+| Order cancelled | Customer | Cancellation notice + refund being processed |
 | New order alert | Owner | Order summary, customer info, admin link |
+
+_No "order confirmed" email — pending→confirmed is an internal admin step (see design Decision 9)._
 
 ## Shipping & Tracking
 
@@ -287,17 +288,22 @@ Tracking fields optional for other transitions, required when `status = "shipped
 
 ## Scope
 
+> **Recommended split (see design-gaps.md #16):** the inbound-deliverability suite — `POST /v1/webhooks/resend` + Svix verification, `suppressed_emails`, and the audit read endpoint — is a separable follow-up change (a new public route family with its own security surface). It is kept here for now; confirm the boundary before implementation kickoff so the notification core can ship and review independently.
+
 ### In Scope
 - Email service with Resend provider
 - Console provider for dev/test
-- Plain text templates (EN + BG) for all 5 order transitions
+- Plain text templates (EN + BG) for the customer transitions (placed, shipped, delivered, cancelled)
 - Admin new-order notification (single recipient)
 - Tracking number/carrier/URL on shipped transition
-- Schema migration for tracking fields
+- Schema migration for tracking fields, order locale snapshot, and `order_emails` log
 - Admin UI expansion for shipping form
 - Configuration via env vars
-- Structured logging of all send attempts
+- Structured logging of all send attempts + `order_emails` audit rows
 - Bilingual subject lines and bodies
+- Deliverability: sending subdomain, SPF/DKIM/DMARC, tracking disabled, idempotency keys, Cyrillic subject encoding
+- Bounce/complaint/suppression webhook endpoint (mark recipient undeliverable)
+- Email format validation at checkout
 
 ### Out of Scope (Future)
 - HTML rich templates (luxury brand design)
@@ -312,9 +318,12 @@ Tracking fields optional for other transitions, required when `status = "shipped
 ## Prerequisites (Before Implementation)
 
 1. **Register a domain** — check availability of `ateliermarie.com` / `.bg`
-2. **Sign up for Resend** — free tier at [resend.com](https://resend.com)
-3. **Configure DNS** — add SPF, DKIM, DMARC records at registrar
-4. **Verify domain in Resend** — takes minutes once DNS propagates
+2. **Sign up for Resend** — free tier at [resend.com](https://resend.com); plan to upgrade to Pro ($20/mo) once above ~25 orders/day
+3. **Create the Resend domain in the EU region** (`eu-west-1`) on a sending **subdomain** (`send.…`), not the root
+4. **Configure DNS** — add SPF (TXT + MX), DKIM, DMARC (`p=none` to start) records
+5. **Verify domain in Resend** — takes minutes once DNS propagates
+6. **Sign Resend's DPA** and document Resend as a GDPR processor
+7. **Verify domain in Google Postmaster Tools**; prepare real abv.bg / mail.bg test inboxes for pre-launch deliverability checks
 
 ## Dependencies
 
