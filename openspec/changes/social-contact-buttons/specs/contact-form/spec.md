@@ -1,11 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: Contact page with submission form
-The system SHALL provide a contact page at `/contact` containing a form with fields for name, email address, and message, allowing visitors to send inquiries to the shop owner.
+The system SHALL provide a contact page at `/contact` containing a form with fields for name, email address, and personalized message, allowing visitors to send inquiries to the shop owner.
 
 #### Scenario: Contact page renders with form
 - **WHEN** a visitor navigates to `/contact`
-- **THEN** the page displays a heading ("Contact Us" or "Get in Touch"), a brief intro paragraph, and a form with labeled fields for name (text input), email (email input), and message (textarea)
+- **THEN** the page displays a heading ("Contact Us" or "Get in Touch"), a brief intro paragraph, and a form with labeled fields for name (text input), email (email input), and personalized message (textarea)
 
 #### Scenario: Form requires all fields
 - **WHEN** a visitor attempts to submit the form with any field empty
@@ -28,11 +28,11 @@ The system SHALL provide a contact page at `/contact` containing a form with fie
 - **THEN** all fields are focusable in logical order, labels are associated with inputs via `htmlFor`/`id`, and the submit button is keyboard-activatable
 
 ### Requirement: Backend contact endpoint receives and delivers messages
-The system SHALL expose a `POST /v1/contact` endpoint that validates the submission, persists it to the database, and sends an email notification to the configured owner address.
+The system SHALL expose a `POST /v1/contact` endpoint that validates the submission, persists it to the database, and enqueues an email notification to the configured owner address through the shared email provider architecture.
 
-#### Scenario: Valid submission is persisted and emailed
+#### Scenario: Valid submission is persisted and email is queued
 - **WHEN** a valid POST request is received with `name`, `email`, and `message` fields
-- **THEN** the system persists the message to the `contact_messages` table, sends an email to the configured `CONTACT_EMAIL` address, and returns HTTP 201 with `{"status": "sent"}`
+- **THEN** the system persists the message to the `contact_messages` table, queues a background email to the configured `ADMIN_NOTIFICATION_EMAIL` address using the shared email service, and returns HTTP 201 with `{"status": "received"}`
 
 #### Scenario: Missing required fields returns 422
 - **WHEN** a POST request is missing any of the required fields (name, email, message)
@@ -47,8 +47,12 @@ The system SHALL expose a `POST /v1/contact` endpoint that validates the submiss
 - **THEN** the system returns HTTP 429 with `{"detail": "Too many requests. Please try again later."}`
 
 #### Scenario: Email delivery failure does not lose the message
-- **WHEN** email delivery fails (SMTP error, timeout)
-- **THEN** the message remains persisted in the database, the error is logged, and the endpoint still returns HTTP 201 (message is saved even if email is delayed)
+- **WHEN** email delivery fails (provider error, quota error, template rendering error, timeout)
+- **THEN** the message remains persisted in the database, the error is logged, `email_sent` remains false, and the endpoint still returns HTTP 201 (message is saved even if email is delayed)
+
+#### Scenario: Shared email provider architecture is used
+- **WHEN** a contact notification email is sent
+- **THEN** the system uses the shared `EmailProvider` factory and `contact_message` Jinja2 template rather than SMTP-specific contact code
 
 #### Scenario: Honeypot field catches bots
 - **WHEN** a POST request includes a non-empty value for the hidden `website` field (honeypot)

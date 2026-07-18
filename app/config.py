@@ -1,6 +1,7 @@
 """Application configuration via environment variables."""
 
 from functools import lru_cache
+from typing import Literal
 
 import structlog
 from pydantic import model_validator
@@ -36,6 +37,14 @@ class Settings(BaseSettings):
 
     # Admin
     admin_api_key: str = ""
+
+    # Email notifications
+    email_provider: Literal["console", "resend"] = "console"
+    email_api_key: str = ""
+    email_from_address: str = "orders@example.invalid"
+    email_from_name: str = "Atelier Marie"
+    email_reply_to: str = ""
+    admin_notification_email: str = ""
 
     # CORS
     cors_origins: list[str] = ["http://localhost:3000"]
@@ -94,6 +103,11 @@ class Settings(BaseSettings):
             _logger.warning(
                 "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET not set in production. "
                 "Google OAuth will be unavailable."
+            )
+        if self.email_provider == "resend" and not self.email_api_key:
+            _logger.warning(
+                "EMAIL_PROVIDER is set to resend but EMAIL_API_KEY is empty. "
+                "Email sending will be unavailable."
             )
         return self
 
