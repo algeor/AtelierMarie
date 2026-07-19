@@ -35,11 +35,11 @@ class CartResponse(BaseModel):
 class AddToCartRequest(BaseModel):
     """Input for adding a product to the cart."""
 
-    product_id: str = Field(..., pattern=PRODUCT_ID_PATTERN)
-    quantity: int = Field(default=1, ge=1, le=99)
+    product_id: str = Field(..., pattern=PRODUCT_ID_PATTERN, min_length=1, max_length=100)
+    quantity: int = Field(default=1, ge=1, le=10)
 
 
 class UpdateCartItemRequest(BaseModel):
     """Input for updating cart item quantity. Quantity 0 means remove."""
 
-    quantity: int = Field(..., ge=0, le=99)
+    quantity: int = Field(..., ge=0, le=10)

@@ -62,7 +62,8 @@ describe("AccountPage", () => {
     it("shows avatar image", () => {
       renderWithIntl(<AccountPage />);
       const img = screen.getByRole("img");
-      expect(img).toHaveAttribute("src", "https://example.com/avatar.jpg");
+      // next/image proxies external URLs through /_next/image?url=<encoded>&...
+      expect(img.getAttribute("src")).toContain(encodeURIComponent("https://example.com/avatar.jpg"));
     });
 
     it("shows My Orders link", () => {

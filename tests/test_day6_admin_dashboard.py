@@ -91,6 +91,13 @@ class TestAdminDashboard:
             response = await c.get("/v1/admin/dashboard")
             assert response.status_code == 401
 
+    @pytest.mark.asyncio
+    async def test_dashboard_has_no_store_cache_header(self, admin_client):
+        """Dashboard responses must never be cached (spec: input-validation/admin-dashboard)."""
+        response = await admin_client.get("/v1/admin/dashboard")
+        assert response.status_code == 200
+        assert "no-store" in response.headers.get("cache-control", "")
+
 
 class TestErrorHandlers:
     """Tests for global exception handlers."""

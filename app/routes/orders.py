@@ -15,7 +15,6 @@ from app.models.orders import (
 from app.services.order_service import (
     EmptyCartError,
     InsufficientStockError,
-    OrderNotFoundError,
     ProductUnavailableError,
     checkout,
     get_order,
@@ -152,25 +151,19 @@ def list_my_orders(
 def get_order_detail(
     order_id: str,
     session_id: Annotated[str, Depends(require_session)],
-) -> OrderResponse | JSONResponse:
+) -> OrderResponse:
     """Get a specific order by ID (with ownership check)."""
-    try:
-        with get_db() as conn:
-            row = conn.execute(
-                "SELECT user_id FROM sessions WHERE id = ?", (session_id,)
-            ).fetchone()
-            user_id = row["user_id"] if row else None
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT user_id FROM sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+        user_id = row["user_id"] if row else None
 
-            order_data = get_order(
-                conn=conn,
-                order_id=order_id,
-                session_id=session_id,
-                user_id=user_id,
-            )
-    except OrderNotFoundError:
-        return JSONResponse(
-            status_code=404,
-            content={"error": {"code": "NOT_FOUND", "message": "Order not found"}},
+        order_data = get_order(
+            conn=conn,
+            order_id=order_id,
+            session_id=session_id,
+            user_id=user_id,
         )
 
     return OrderResponse.model_validate(order_data)

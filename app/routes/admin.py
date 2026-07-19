@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse, Response
 from app.constants import MAX_PRICE_CENTS, MAX_STOCK
 from app.database import get_db
 from app.dependencies.auth import require_admin
-from app.models.admin import DashboardResponse
+from app.models.admin import DashboardResponse, LowStockProductsResponse
 from app.models.comments import AdminCommentListResponse, AdminCommentResponse
 from app.models.orders import (
     OrderListResponse,
@@ -40,8 +40,6 @@ from app.services.image_service import (
     validate_image_file,
 )
 from app.services.order_service import (
-    InvalidStateTransitionError,
-    OrderNotFoundError,
     get_order_admin,
     list_orders_admin,
     update_status,
@@ -57,6 +55,10 @@ router = APIRouter(dependencies=[Depends(require_admin)])
     status_code=201,
     summary="Create product",
     description="Create a new product with a unique slug ID. Returns 409 if the ID already exists.",
+    responses={
+        409: {"description": "Product with this ID already exists"},
+        422: {"description": "Validation error"},
+    },
 )
 async def admin_create_product(body: CreateProductRequest) -> ProductAdminResponse | JSONResponse:
     """Create a new product."""
@@ -99,10 +101,29 @@ async def admin_list_products(
 
 
 @router.get(
+    "/products/low-stock",
+    response_model=LowStockProductsResponse,
+    summary="List products with low stock (admin)",
+    description="Return active products whose stock is at or below the given threshold.",
+  )
+async def admin_list_low_stock_products(
+    threshold: int = Query(default=5, ge=0, description="Stock threshold (inclusive)"),
+) -> LowStockProductsResponse:
+    """List admin products at or below the given stock threshold."""
+    products = product_service.get_low_stock_products(threshold=threshold)
+    return LowStockProductsResponse(
+        products=[ProductAdminResponse(**p) for p in products],
+        total=len(products),
+        threshold=threshold,
+    )
+
+
+@router.get(
     "/products/{product_id}",
     response_model=ProductAdminResponse,
     summary="Get product (admin)",
     description="Get any product by ID regardless of active status.",
+    responses={404: {"description": "Product not found"}},
 )
 async def admin_get_product(product_id: str) -> ProductAdminResponse | JSONResponse:
     """Get any product (active or inactive) by ID."""
@@ -123,6 +144,10 @@ async def admin_get_product(product_id: str) -> ProductAdminResponse | JSONRespo
     summary="Update product",
     description="Partially update a product. Only provided fields are modified; "
     "omitted fields remain unchanged.",
+    responses={
+        404: {"description": "Product not found"},
+        422: {"description": "Validation error"},
+    },
 )
 async def admin_update_product(
     product_id: str, body: UpdateProductRequest
@@ -147,6 +172,7 @@ async def admin_update_product(
     summary="Delete product (soft)",
     description="Soft-delete a product by setting is_active=0. "
     "The product remains in the database for order history integrity.",
+    responses={404: {"description": "Product not found"}},
 )
 async def admin_delete_product(product_id: str) -> ProductAdminResponse | JSONResponse:
     """Soft-delete a product (set is_active=0)."""
@@ -383,16 +409,10 @@ def admin_list_orders(
     description="Get full order details including items, customer info, shipping address, "
     "and notes. No ownership check — admin can view any order.",
 )
-def admin_get_order_detail(order_id: str) -> OrderResponse | JSONResponse:
+def admin_get_order_detail(order_id: str) -> OrderResponse:
     """Get full order detail for admin (no ownership check)."""
-    try:
-        with get_db() as conn:
-            order_data = get_order_admin(conn=conn, order_id=order_id)
-    except OrderNotFoundError:
-        return JSONResponse(
-            status_code=404,
-            content={"error": {"code": "NOT_FOUND", "message": "Order not found"}},
-        )
+    with get_db() as conn:
+        order_data = get_order_admin(conn=conn, order_id=order_id)
 
     return OrderResponse.model_validate(order_data)
 
@@ -403,35 +423,18 @@ def admin_get_order_detail(order_id: str) -> OrderResponse | JSONResponse:
     summary="Update order status (admin)",
     description="Update order status with state machine validation. "
     "Restores stock on cancellation.",
+    responses={
+        404: {"description": "Order not found"},
+        422: {"description": "Invalid state transition or validation error"},
+    },
 )
 def admin_update_order_status(
     order_id: str,
     body: UpdateOrderStatusRequest,
-) -> OrderResponse | JSONResponse:
+) -> OrderResponse:
     """Update order status (admin-only, state machine enforced)."""
-    try:
-        with get_db() as conn:
-            order_data = update_status(conn=conn, order_id=order_id, new_status=body.status)
-    except OrderNotFoundError:
-        return JSONResponse(
-            status_code=404,
-            content={"error": {"code": "NOT_FOUND", "message": "Order not found"}},
-        )
-    except InvalidStateTransitionError as e:
-        return JSONResponse(
-            status_code=422,
-            content={
-                "error": {
-                    "code": "INVALID_TRANSITION",
-                    "message": str(e),
-                    "details": {
-                        "order_id": e.order_id,
-                        "current_status": e.current_status,
-                        "requested_status": e.requested_status,
-                    },
-                }
-            },
-        )
+    with get_db() as conn:
+        order_data = update_status(conn=conn, order_id=order_id, new_status=body.status)
 
     return OrderResponse.model_validate(order_data)
 
@@ -442,13 +445,19 @@ def admin_update_order_status(
     summary="Admin dashboard stats",
     description="Returns aggregate statistics: product counts (total/active), "
     "order counts by status, total revenue, and low-stock alerts.",
+    responses={
+        401: {"description": "Authentication required"},
+        403: {"description": "Admin access required"},
+    },
 )
-async def admin_dashboard() -> DashboardResponse:
+async def admin_dashboard(response: Response) -> DashboardResponse:
     """Admin dashboard with basic store statistics.
 
     Returns product counts, order counts, revenue, and low-stock alerts.
     All monetary values are in cents.
     """
+    # Sensitive business data — never cache in proxies or browsers.
+    response.headers["Cache-Control"] = "no-store, no-cache"
     stats = admin_service.get_dashboard_stats()
     return DashboardResponse(**stats)
 

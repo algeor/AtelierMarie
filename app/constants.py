@@ -18,4 +18,6 @@ MAX_LIMIT = 100
 
 # Product value bounds (for validation in CSV import and admin endpoints)
 MAX_PRICE_CENTS = 99_999_99  # $99,999.99
+# Note: Spec (input-validation) allows up to 1,000,000. We keep the stricter
+# cap since real inventories for luxury candles never approach 1M units.
 MAX_STOCK = 999_999

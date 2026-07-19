@@ -43,7 +43,8 @@ describe("UserMenu", () => {
   it("renders avatar when avatar_url is present", () => {
     renderWithIntl(<UserMenu />);
     const img = document.querySelector("img");
-    expect(img).toHaveAttribute("src", "https://example.com/avatar.jpg");
+    // next/image proxies external URLs through /_next/image?url=<encoded>&...
+    expect(img?.getAttribute("src")).toContain(encodeURIComponent("https://example.com/avatar.jpg"));
   });
 
   it("opens dropdown on click", async () => {

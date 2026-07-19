@@ -35,3 +35,12 @@ class PaginationParams(BaseModel):
 # FastAPI-compatible dependency for pagination query params
 PageParam = Annotated[int, Query(ge=1, description="Page number (1-based)")]
 LimitParam = Annotated[int, Query(ge=1, le=100, description="Items per page (max 100)")]
+
+
+def calculate_offset(page: int, limit: int) -> int:
+    """Compute SQL OFFSET from 1-based `page` and page `limit`.
+
+    Callers already validate `page >= 1` and `limit >= 1` at the request boundary,
+    so no clamping happens here — bad inputs surface as negative offsets by design.
+    """
+    return (page - 1) * limit

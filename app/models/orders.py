@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.models.delivery import DeliveryInfo
 
@@ -59,10 +59,24 @@ class CreateOrderRequest(BaseModel):
     openspec change `shipping-courier-integration` Decision 1.
     """
 
-    customer_email: EmailStr
-    customer_name: str | None = Field(default=None, max_length=200)
+    customer_email: EmailStr = Field(..., max_length=320)
+    customer_name: str | None = Field(default=None, min_length=1, max_length=200)
     delivery: DeliveryInfo
     notes: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("customer_name", mode="before")
+    @classmethod
+    def _strip_customer_name(cls, v: str | None) -> str | None:
+        """Strip whitespace; reject strings that become empty after trimming."""
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            return v
+        stripped = v.strip()
+        if not stripped:
+            msg = "customer_name must not be blank (whitespace-only)"
+            raise ValueError(msg)
+        return stripped
 
 
 class UpdateOrderStatusRequest(BaseModel):
