@@ -29,7 +29,7 @@ _Evidence: order_service.py:206; tasks.md:71; design.md:154,164,231; models/orde
 ### 2. ⚑ `order_emails` idempotency is a TOCTOU race — no `UNIQUE(order_id, event)`
 The DDL in design.md Decision 11 has no unique constraint. Idempotency is "check for a sent row, then insert" — two concurrent status updates (admin double-click, client retry, or multiple uvicorn workers under systemd) both read "none," both send, both insert → duplicate customer email. Resend's `Idempotency-Key` (Decision 14) only guards duplicate POSTs within its 24h window; it does not prevent two of our rows or two distinct API calls that each pass the local check.
 
-**Fix:** add `UNIQUE(order_id, event)` (or a partial unique index on `status='sent'`); insert-first-then-send; add a concurrency test firing two sends for the same (order_id, event) asserting exactly one email.
+**Fix:** add a DB-backed send claim keyed by `(order_id, event)` plus a partial unique index on successful sends; acquire the claim before sending, insert the `sent` row only after provider success, and add a concurrency test firing two sends for the same (order_id, event) asserting one provider call while the claim is active.
 _Evidence: design.md:150-161; email-service/spec.md idempotency scenario_
 
 ### 3. ⚑ Idempotency scenario tests an impossible state transition
@@ -119,7 +119,7 @@ Decision 3's caveat claims a captured-connection bug "would pass in TestClient b
 
 _Status: ✅ APPLIED (2026-07-15). All blockers 1–5 and high gaps 6–10 folded into design.md / specs / tasks.md. Only the physical scope-split (item 9 below) is deferred pending confirmation of the boundary — captured as a note in proposal.md Scope._
 
-1. **design.md Decision 11 DDL** → ✅ added partial `UNIQUE(order_id, event) WHERE status='sent'` and a `reason` column; `status` now has `skipped_duplicate`/`skipped_suppressed` (gaps 2, 20).
+1. **design.md Decision 11 DDL** → ✅ added partial `UNIQUE(order_id, event) WHERE status='sent'`, a `reason` column, and an `order_email_send_claims` table; `status` now has `skipped_duplicate`/`skipped_in_flight`/`skipped_suppressed` (gaps 2, 20).
 2. **design.md Decision 11 rationale + email-service/spec.md scenario** → ✅ rewritten to concurrent-send (the toggle transition is impossible) (gap 3).
 3. **design.md migration wording + proposal.md** → ✅ replaced "ADD COLUMN IF NOT EXISTS" with `_add_column_if_missing` via `_migrate_existing_schema` + `_SCHEMA_SQL` (gap 4).
 4. **email-deliverability/spec.md webhook requirement** → ✅ Svix scheme, `resend_webhook_secret`, replay + raw-body + constant-time + skip-path, duplicate-idempotent (gap 5).

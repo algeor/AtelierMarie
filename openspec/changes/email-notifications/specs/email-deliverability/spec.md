@@ -30,12 +30,12 @@ The system SHALL send transactional emails with open-tracking and click-tracking
 
 ### Requirement: No provider-level idempotency key (DB index is the guard)
 
-ZeptoMail does not offer a send-level idempotency key. The system SHALL NOT depend on any provider-level dedup and SHALL rely solely on the `order_emails` partial UNIQUE index (see the email-service capability) to prevent duplicate sends.
+ZeptoMail does not offer a send-level idempotency key. The system SHALL NOT depend on any provider-level dedup and SHALL rely solely on the DB-backed send claim plus the `order_emails` partial UNIQUE index (see the email-service capability) to suppress duplicate sends.
 
 #### Scenario: Duplicate suppression is application-level only
 
 - **WHEN** the same `(order_id, event)` send is attempted twice
-- **THEN** the second send is prevented by the `order_emails` UNIQUE index (not by any provider idempotency header), and no provider idempotency key is attached to the request
+- **THEN** the second send is prevented by the DB send claim or `order_emails` UNIQUE index (not by any provider idempotency header), and no provider idempotency key is attached to the request
 
 ### Requirement: Bounce and complaint webhooks suppress undeliverable recipients
 

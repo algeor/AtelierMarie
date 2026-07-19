@@ -102,7 +102,7 @@ The system SHALL determine the language of every customer email from the locale 
 
 ### Requirement: Every send attempt is recorded in an order-email log
 
-The system SHALL record each email send attempt in an append-only `order_emails` table capturing order_id, event, recipient, status (sent/failed/skipped), optional error, and timestamp. Recording the log row SHALL happen inside the background task and SHALL NOT propagate failures.
+The system SHALL record each email send attempt in an append-only `order_emails` table capturing order_id, event, recipient, status (sent/failed/skipped_duplicate/skipped_in_flight/skipped_suppressed), optional error or skip reason, and timestamp. Recording the log row SHALL happen inside the background task and SHALL NOT propagate failures.
 
 #### Scenario: Successful send logged
 
@@ -116,12 +116,17 @@ The system SHALL record each email send attempt in an append-only `order_emails`
 
 ### Requirement: Duplicate emails are suppressed via a DB-level idempotency guard
 
-The system SHALL NOT send the same customer email twice for the same order and event. A partial UNIQUE index on `order_emails(order_id, event) WHERE status='sent'` is the arbiter: the send path inserts the "sent" row first, and a uniqueness violation means the email was already sent and the send is skipped. This closes the check-then-send race across concurrent tasks and multiple workers.
+The system SHALL suppress duplicate customer emails for the same order and event with a DB-backed send claim keyed by `(order_id, event)`. The send path SHALL acquire an in-flight claim before calling the provider; if a successful send is already recorded, the send is skipped as `skipped_duplicate`, and if another worker holds an unexpired in-flight claim, the send is skipped as `skipped_in_flight`. The system SHALL insert the `order_emails` row with status "sent" only after the provider call succeeds. If the provider raises an error, the system SHALL write a "failed" attempt and leave the claim retryable rather than marking the email as sent. A partial UNIQUE index on `order_emails(order_id, event) WHERE status='sent'` remains the audit invariant that at most one successful send is recorded.
 
 #### Scenario: Concurrent sends of the same event produce one email
 
 - **WHEN** two background tasks for the same (order_id, event) run concurrently (e.g. admin double-click or multiple workers)
-- **THEN** exactly one email is sent; the losing insert hits the UNIQUE index and is logged with status "skipped_duplicate"
+- **THEN** at most one task acquires the in-flight claim and calls the provider; the loser is logged with status "skipped_in_flight" or, if the winner already completed, "skipped_duplicate"
+
+#### Scenario: Failed send remains retryable
+
+- **WHEN** the provider raises an error after the task acquires the in-flight claim
+- **THEN** a "failed" row is written, no "sent" row is written, and a later retry can acquire the claim and attempt the send again
 
 #### Scenario: Distinct events for the same order each send once
 

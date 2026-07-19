@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     admin_api_key: str = ""
 
     # Email notifications
-    email_provider: Literal["console", "resend"] = "console"
+    email_provider: Literal["console", "zeptomail"] = "console"
     email_api_key: str = ""
     email_from_address: str = "orders@example.invalid"
     email_from_name: str = "Atelier Marie"
@@ -104,9 +104,9 @@ class Settings(BaseSettings):
                 "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET not set in production. "
                 "Google OAuth will be unavailable."
             )
-        if self.email_provider == "resend" and not self.email_api_key:
+        if self.email_provider == "zeptomail" and not self.email_api_key:
             _logger.warning(
-                "EMAIL_PROVIDER is set to resend but EMAIL_API_KEY is empty. "
+                "EMAIL_PROVIDER is set to zeptomail but EMAIL_API_KEY is empty. "
                 "Email sending will be unavailable."
             )
         return self

@@ -370,6 +370,25 @@ class TestProductionConfigValidation:
         )
         assert s.environment == "production"
 
+    def test_zeptomail_provider_is_valid_and_warns_without_api_key(self, monkeypatch):
+        from app import config
+
+        warnings = []
+
+        class FakeLogger:
+            def warning(self, message):
+                warnings.append(message)
+
+        monkeypatch.setattr(config, "_logger", FakeLogger())
+
+        s = config.Settings(email_provider="zeptomail", email_api_key="")
+
+        assert s.email_provider == "zeptomail"
+        assert warnings == [
+            "EMAIL_PROVIDER is set to zeptomail but EMAIL_API_KEY is empty. "
+            "Email sending will be unavailable."
+        ]
+
     def test_production_accepts_missing_google_creds(self):
         """Missing Google creds in production logs a warning but doesn't block startup."""
         from app.config import Settings
