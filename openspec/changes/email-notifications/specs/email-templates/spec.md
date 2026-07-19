@@ -82,18 +82,27 @@ The system SHALL convert price_cents to locale-appropriate display strings befor
 
 ### Requirement: All order transition templates exist in English
 
-The system SHALL include English templates for all 5 order transitions plus the admin alert.
+The system SHALL include English templates for all 4 customer-facing order transitions (placed, shipped, delivered, cancelled) plus the admin alert. There is no "confirmed" template — the confirmed transition sends no customer email.
 
 #### Scenario: All EN templates present
 
 - **WHEN** the application is deployed
-- **THEN** the following template files exist: `en/order_placed.txt`, `en/order_confirmed.txt`, `en/order_shipped.txt`, `en/order_delivered.txt`, `en/order_cancelled.txt`, `en/admin_new_order.txt`
+- **THEN** the following template files exist: `en/order_placed.txt`, `en/order_shipped.txt`, `en/order_delivered.txt`, `en/order_cancelled.txt`, `en/admin_new_order.txt`
 
 ### Requirement: All order transition templates exist in Bulgarian
 
-The system SHALL include Bulgarian templates for all 5 customer-facing order transitions.
+The system SHALL include Bulgarian templates for all 4 customer-facing order transitions.
 
 #### Scenario: All BG templates present
 
 - **WHEN** the application is deployed
-- **THEN** the following template files exist: `bg/order_placed.txt`, `bg/order_confirmed.txt`, `bg/order_shipped.txt`, `bg/order_delivered.txt`, `bg/order_cancelled.txt`
+- **THEN** the following template files exist: `bg/order_placed.txt`, `bg/order_shipped.txt`, `bg/order_delivered.txt`, `bg/order_cancelled.txt`
+
+### Requirement: Cancelled template states refund is being processed
+
+The "order_cancelled" template SHALL inform the customer that a refund is being processed, since cancellation is admin-initiated and refunds are handled out of band.
+
+#### Scenario: Cancellation email mentions refund
+
+- **WHEN** an "order cancelled" email is rendered in either locale
+- **THEN** the body includes a sentence telling the customer their refund is being processed

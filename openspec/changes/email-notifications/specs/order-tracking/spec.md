@@ -95,3 +95,22 @@ The system SHALL include tracking_number, tracking_carrier, and tracking_url in 
 
 - **WHEN** a pending or confirmed order is fetched
 - **THEN** tracking_number, tracking_carrier, and tracking_url are null in the response
+
+### Requirement: Orders snapshot the customer's locale at checkout
+
+The system SHALL store the customer's preferred locale on the order row at the moment of checkout, so that language is a fact of the order rather than a lookup against a (possibly expired, possibly different) session.
+
+#### Scenario: Locale column added to orders schema
+
+- **WHEN** the database schema is initialized
+- **THEN** the `orders` table includes a `locale` column (TEXT NOT NULL DEFAULT 'en')
+
+#### Scenario: Locale captured from session at checkout
+
+- **WHEN** a customer with session locale "bg" completes checkout
+- **THEN** the created order row has `locale = "bg"`
+
+#### Scenario: Emails read locale from the order, not the session
+
+- **WHEN** any order email is generated (including admin-triggered shipped/delivered/cancelled)
+- **THEN** the template locale is taken from `orders.locale`, never from the acting request's session
