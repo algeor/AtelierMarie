@@ -1,9 +1,9 @@
 ## 1. Dependencies & Configuration
 
-- [ ] 1.1 Add `resend` and `jinja2` to `pyproject.toml` dependencies (consider `resend` as an optional extra — console provider never imports it; `jinja2` is core)
-- [ ] 1.2 Email settings in `app/config.py` already exist; reconcile `email_from_address` default (`orders@example.invalid`) with the sending-subdomain requirement, and consider `EmailStr` for addresses + `SecretStr` for `email_api_key`
-- [ ] 1.3 Add production validation for email settings (warn if resend provider but no API key)
-- [ ] 1.4 Add `resend_webhook_secret: SecretStr` to `app/config.py` + `.env.example` (required for the webhook endpoint)
+- [ ] 1.1 Add `jinja2` (core) to `pyproject.toml`; for ZeptoMail either add the `zeptomail` SDK **or** use a thin `httpx` POST (httpx already present — no new dep). Console provider never imports the sender lib.
+- [ ] 1.2 Email settings in `app/config.py` already exist; reconcile `email_from_address` default (`orders@example.invalid` → `orders@theateliermarie.com`, root-domain alias), `email_provider` Literal to `["console", "zeptomail"]`, `email_reply_to` default `contacts@theateliermarie.com`, and use `EmailStr` for addresses + `SecretStr` for `email_api_key`
+- [ ] 1.3 Add production validation for email settings (warn if zeptomail provider but no API key)
+- [ ] 1.4 Add `zeptomail_webhook_auth_key: SecretStr` to `app/config.py` + `.env.example` (required for the webhook endpoint — follow-up)
 - [ ] 1.5 Define `EmailEvent` Literal + `STATUS_TO_EMAIL_EVENT` map in `app/constants.py` (single source; `pending→placed`, `confirmed→None`)
 - [ ] 1.6 Move carrier URL patterns into `app/constants.py` (used by service + validation + frontend dropdown — NOT pydantic Settings)
 
@@ -30,9 +30,9 @@
 - [ ] 4.1 Create `app/email/__init__.py`
 - [ ] 4.2 Create `app/email/providers/__init__.py` with `EmailProvider` Protocol (method: `send(to, subject, body, reply_to, tags)`)
 - [ ] 4.3 Implement `app/email/providers/console_provider.py` — logs email to structlog, no network
-- [ ] 4.4 Implement `app/email/providers/resend_provider.py` — sends via `resend.Emails.send()`
+- [ ] 4.4 Implement `app/email/providers/zeptomail_provider.py` — sends via the ZeptoMail HTTP API (EU host) as an `httpx` POST (or the `zeptomail` SDK); tracking disabled; no idempotency key (ZeptoMail has none — DB index is the guard)
 - [ ] 4.5 Create provider factory function: returns provider based on `settings.email_provider`
-- [ ] 4.6 Write tests for console provider (verify log output) and resend provider (mock resend SDK)
+- [ ] 4.6 Write tests for console provider (verify log output) and ZeptoMail provider (mock the HTTP call / SDK)
 
 ## 5. Template Renderer
 
@@ -94,15 +94,18 @@ _(No order_confirmed templates — confirmed transition sends no customer email,
 
 ## 11. Deliverability
 
-- [ ] 11.1 Resend provider: disable open/click tracking on every send
-- [ ] 11.2 Resend provider: attach `Idempotency-Key` header as `order-{event}/{order_id}`
+- [ ] 11.1 ZeptoMail provider: disable open/click tracking on every send
+- [ ] 11.2 (No provider idempotency key — ZeptoMail offers none; duplicate suppression is the `order_emails` UNIQUE index, task 7.7)
 - [ ] 11.3 Verify Cyrillic subject headers are RFC 2047 encoded-words (add a round-trip test)
 - [ ] 11.4 (Format validation already satisfied by `EmailStr` at `models/orders.py:46`) — optional: add typo/MX check on common-domain typos
-- [ ] 11.5 Add `POST /v1/webhooks/resend` (bounced/complained/suppressed): Svix verification over the **raw body** using `resend_webhook_secret`, **reject stale timestamps** (replay), `hmac.compare_digest`; add path to `session_skip_paths`; mount outside admin router
+- [ ] 11.5 Add `POST /v1/webhooks/zeptomail` (hard_bounce/soft_bounce/fbl_complaint): verify ZeptoMail's `producer-signature` HMAC-SHA256 (`ts`/`s`/`s-algorithm`) over the **raw body** using `zeptomail_webhook_auth_key`, **reject stale timestamps** (replay), `hmac.compare_digest`; add path to `session_skip_paths`; mount outside admin router
 - [ ] 11.6 Create `suppressed_emails` store; skip + log (`skipped_suppressed`) sends to suppressed addresses
 - [ ] 11.7 Write tests: invalid-signature 401/403, stale-timestamp replay rejected, raw-body verification, hard-bounce suppression, duplicate-bounce idempotent, suppressed-address send skipped
 - [ ] 11.8 Ensure no `List-Unsubscribe` header is added to transactional mail
-- [ ] 11.9 (Ops, no code) Sending subdomain + SPF/DKIM/DMARC + EU region + Postmaster Tools + Resend DPA — documented in proposal prerequisites
+- [ ] 11.9 (Ops, no code) Root-domain sending identity: ZeptoMail **DKIM TXT** (selector `19154433`, Default) + **bounce CNAME** (`bounce-zem → cluster89.zeptomail.eu`, carries SPF/return-path — no root-SPF merge) + **DMARC** (`_dmarc` TXT, `p=none`) + EU DC + Postmaster Tools + ZeptoMail DPA — documented in proposal prerequisites & EMAIL_SETUP.md
+- [ ] 11.10 (Ops, post-launch, no code) **DMARC progression:** keep `_dmarc` at `p=none` and watch the aggregate reports (rua → `contacts@`) for 2–4 weeks; confirm the only sending sources are Zoho (replies) + ZeptoMail (order mail); then tighten `p=none` → `p=quarantine` → `p=reject`. (This is what clears the MXToolbox "Quarantine/Reject not enabled" flag — intentionally not done at launch.)
+- [ ] 11.11 (Ops, no code) Confirm the **Zoho DKIM** selector (`dkim._domainkey`) shows **verified** in the Zoho console so replies sent from the `contacts@` inbox are DKIM-signed.
+- [ ] 11.12 (Ops, optional/cosmetic, no code) Delete the duplicate `zoho-verification` TXT record at the root. **BIMI is intentionally deferred** (requires DMARC `p=reject` + a VMC certificate ~$1k/yr) — revisit only if a brand logo in the inbox is wanted. The MXToolbox `http` "not resolved" flag is expected until a website is pointed at the domain — unrelated to email.
 
 ## 12. Auditability & GDPR
 

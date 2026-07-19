@@ -1,5 +1,11 @@
 # Email Notifications — Design Gap Analysis
 
+> ℹ️ **Superseded provider (2026-07-19):** this audit predates the switch from
+> **Resend → Zoho ZeptoMail (EU)** and from a `send.` subdomain → **root domain**.
+> References below to Resend, Svix/`whsec_`, the 100/day cap, and the idempotency
+> key are historical. Current design: `proposal.md`, `design.md` (Decisions 1, 14,
+> 15, 24), the specs, and `EMAIL_SETUP.md`.
+
 _Generated from a research + multi-agent review pass (2026-07-15). Four reviewers examined the proposal/design/specs against the real codebase along four lenses: correctness & integration, security & privacy, testing & observability, architecture & scope. Gaps found independently by multiple reviewers are marked ⚑ (high confidence)._
 
 > Several blockers below are corrections to specs authored during this same session — see "Corrections to already-written artifacts" at the end for the exact edits needed.
