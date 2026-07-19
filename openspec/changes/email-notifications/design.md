@@ -311,7 +311,9 @@ The 422 with `code: "TRACKING_REQUIRED"` (order-tracking spec) cannot come from 
 - **Least churn:** mirrors the original HTTP-based provider shape, so the provider abstraction/tasks/tests are unchanged by the vendor swap.
 - **Encoding:** the API/SDK handles RFC 2047 subject encoding (Decision 18); hand-rolled `EmailMessage` puts that on us.
 
-**Alternative kept as fallback:** SMTP via stdlib `smtplib` (`smtp.zeptomail.eu`, 587 STARTTLS, username `emailapikey`, password = Send Mail token) — validated by a manual spike. Viable if API egress ever surprises us, at the cost of the points above. Either transport lives behind the same `EmailProvider` Protocol.
+**Alternative kept as fallback:** SMTP via stdlib `smtplib` (`smtp.zeptomail.eu`, 587 STARTTLS, username `emailapikey`, password = Send Mail token) — validated by a manual spike. Either transport lives behind the same `EmailProvider` Protocol.
+
+**Decision (reaffirmed after weighing provider-portability):** start with the **API**. SMTP's one real advantage is portability — switching sending providers (e.g. to another transactional vendor, or Gmail/Workspace SMTP) becomes a config-only change because every provider speaks SMTP, whereas each API is bespoke. We accept that trade for now because the API gives richer errors + a message ID (which the deferred bounce/suppression follow-up benefits from) and a cleaner async path, and because the `EmailProvider` Protocol makes **switching to an `SmtpProvider` a single-file change with no data migration** if portability later outweighs those. Note: swapping the *sender* still requires re-doing DNS auth (DKIM/SPF/return-path) for the new provider regardless of transport — SMTP only saves the code change, not the DNS work. Google Workspace, if adopted, is an **inbox** replacement (Zoho → Workspace = MX/DKIM change only) and is independent of this transport choice; it is not a transactional sender.
 
 ## Resolved / Open Questions
 
