@@ -15,9 +15,11 @@ Add a transactional email integration that fires on every order state transition
 | Question | Answer |
 |----------|--------|
 | Brand name | Atelier Marie (real name) |
-| Domain | Not yet registered — need to acquire one (`.com`, `.bg`, or both — check availability) |
-| Registrar/DNS | Not yet — will be set up alongside domain purchase |
-| Email provider | **Resend** (100 emails/day free, modern API, great DX) |
+| Domain | **`theateliermarie.com`** (registered; MX already pointed at Zoho for the `contacts@` mailbox) |
+| Registrar/DNS | DNS managed at the domain registrar; Zoho MX/SPF/DKIM already present for inbound mail |
+| Email provider | **Zoho ZeptoMail (EU data center)** — transactional API, pay-as-you-go, keeps sending data in-region |
+| Sending identity | **Root domain with aliases** (`orders@theateliermarie.com`, `noreply@…`) — no `send.` subdomain |
+| Human mailbox | Zoho Mail `contacts@theateliermarie.com` — backs `Reply-To` + admin notifications (aliases funnel into it) |
 | Delivered email | Yes — send "your order has arrived" notification |
 | Tracking numbers | Yes — full tracking info (number + carrier + link) on ship |
 | Admin notifications | Yes — single owner email on new order |
@@ -43,58 +45,87 @@ Add a transactional email integration that fires on every order state transition
 │                              ┌──────────────────────────┐         │
 │                              │  email_service.py         │         │
 │                              │  - render template        │         │
-│                              │  - call Resend API        │         │
+│                              │  - POST ZeptoMail API     │         │
 │                              │  - log success/failure    │         │
 │                              └────────────┬─────────────┘         │
 │                                           │                       │
 │                                           ▼                       │
 │                              ┌──────────────────────────┐         │
-│                              │  Resend API               │         │
-│                              │  from: orders@<domain>    │         │
+│                              │  ZeptoMail API (EU)       │         │
+│                              │  from: orders@theatelier… │         │
+│                              │  reply-to: contacts@…     │         │
 │                              └──────────────────────────┘         │
 │                                                                   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Email Provider: Resend
+## Email Provider: Zoho ZeptoMail (EU)
 
-### Why Resend (Not Gmail SMTP)
+### Why ZeptoMail (Not Zoho Mail SMTP, Not Gmail SMTP)
 
-| Concern | Gmail SMTP | Resend |
-|---------|-----------|--------|
-| Deliverability | Medium-low (shared IP) | High (dedicated sending IPs) |
-| Daily limit | ~500 | 100/day free (3000/month) |
-| Spam risk | HIGH | Low |
-| Custom "from" | Only your Gmail address | `orders@yourdomain.com` |
-| Reliability | Google can block without notice | Built for this purpose |
-| Tracking | None | Open/bounce/spam tracking |
-| Cost | €0 | €0 free (≤~25 orders/day); Pro $20/mo for headroom |
-| Code | smtplib + TLS + connection mgmt | One HTTP POST |
+The shop's human mailbox (`contacts@theateliermarie.com`) is on Zoho Mail, but a
+**mailbox is not a transactional sender**. Order emails go through **ZeptoMail** —
+Zoho's dedicated transactional product (the SES/Resend equivalent) — not through
+the Zoho Mail SMTP that backs the inbox.
+
+| Concern | Gmail SMTP | Zoho Mail SMTP (`smtppro.zoho.com`) | **ZeptoMail (chosen)** |
+|---------|-----------|--------------------------------------|------------------------|
+| Purpose | personal inbox | personal inbox | **built for transactional** |
+| Plan needed | Gmail account | **paid Zoho Mail plan** (free = web only) | free tier, then pay-as-you-go |
+| Reputation | shared, fragile | **your human-mail reputation** | isolated sender reputation |
+| Custom "from" | only your Gmail | your mailbox address | any address on the domain |
+| Bounce/complaint feedback | none | none | **webhooks** (hard/soft bounce, FBL) |
+| Data residency | US | EU (zoho.eu) | **EU DC — data stays in-region** |
+| Cost | €0 | ~€1/user/mo | free 10k credit, then ~€2.50/10k |
+| Send interface | SMTP | SMTP | **HTTP API** (or SMTP) |
+
+**Why not Zoho Mail SMTP even though we already pay for the mailbox:** it needs a
+paid plan for SMTP access, is rate-limited for human use, and — critically —
+blasting order emails through it couples the store's sending reputation to the
+`contacts@` inbox it depends on. That is the exact reputation risk this change
+sets out to avoid.
+
+**GDPR note:** ZeptoMail EU keeps sending/processing data in the EU, matching the
+`zoho.eu` mailbox — simpler than Resend, which sends from the EU but stores
+account data in the US.
 
 ### Setup Requirements
 
-1. Register a domain (see Domain section below)
-2. Sign up at [resend.com](https://resend.com) (free)
-3. Add domain in Resend dashboard
-4. Add 3 DNS records at registrar:
-   - **SPF** (TXT) — authorizes Resend to send for your domain
-   - **DKIM** (TXT) — cryptographic signature proving emails aren't forged
-   - **DMARC** (TXT) — policy for handling unverified emails
-5. Resend verifies → sending enabled as `orders@yourdomain.com`
+1. Sign up for **ZeptoMail** and create a Mail Agent in the **EU data center**
+2. Add and verify the domain **`theateliermarie.com`** (root — see Sending Identity)
+3. Add the DNS records ZeptoMail provides:
+   - **SPF** — ZeptoMail's `include:` **merged into the existing Zoho SPF record** (one `v=spf1` record only — see below)
+   - **DKIM** (TXT) — ZeptoMail's selector, coexists with Zoho's DKIM selector
+   - **DMARC** (TXT) — single policy on `_dmarc`, covers both senders
+4. ZeptoMail verifies → generate a **Send Mail token** (API key)
+5. Send via the ZeptoMail HTTP API as `orders@theateliermarie.com`
 
-**Reply-To**: Owner's personal email (so customer replies go to inbox).
+**Reply-To**: `contacts@theateliermarie.com` (Zoho mailbox — customer replies land in a human inbox).
 
-## Domain (TODO — Pre-requisite, Parked)
+## Sending Identity: Root Domain + Aliases (no subdomain)
 
-Domain not yet registered. Brand name / domain choice under review — does not block implementation. The `EMAIL_FROM_ADDRESS` is a config value that gets set once the domain is decided.
+Transactional mail is sent from the **root domain** using aliases
+(`orders@theateliermarie.com`, `noreply@theateliermarie.com`), **not** a `send.`
+subdomain. This is a deliberate simplification for a transactional-only,
+low-volume sender; the tradeoff is that order-mail reputation is not isolated
+from the human `contacts@` inbox.
 
-**Registrar recommendation**: Cloudflare (no markup pricing, best DNS, easy Resend integration).
+**DNS mechanism (as verified).** ZeptoMail authenticates the domain with a
+**DKIM TXT** record (selector `19154433`, marked Default) plus a **bounce
+CNAME** (`bounce-zem.theateliermarie.com → cluster89.zeptomail.eu`). The CNAME
+handles the return-path and SPF alignment, so **the existing Zoho SPF record is
+left untouched — no root-SPF merge is needed.** DKIM is aligned on the root
+domain, so DMARC passes on DKIM; the bounce CNAME adds SPF alignment on top.
+DMARC is a single record on `_dmarc`.
 
-When ready:
-1. Register domain on Cloudflare
-2. Add Resend SPF/DKIM/DMARC records (3 TXT records, 5 minutes)
-3. Set `EMAIL_FROM_ADDRESS` env var
-4. Done
+> General caution (did not apply here): a domain may have only **one** `v=spf1`
+> record — two produces an SPF `permerror`. If a future provider ever asks you
+> to add an SPF `include:`, merge it into the single existing record rather than
+> adding a second.
+
+**Forward note:** any future *marketing* stream (newsletter, promotions) MUST use
+a dedicated subdomain — never the root — so it can never harm transactional or
+human-mail deliverability.
 
 ## Emails to Send
 
@@ -213,11 +244,11 @@ New env vars in `app/config.py`:
 
 ```python
 # Email
-email_provider: Literal["resend", "console"] = "console"
-email_api_key: str = ""
-email_from_address: str = "orders@ateliermarie.com"
+email_provider: Literal["zeptomail", "console"] = "console"
+email_api_key: SecretStr = SecretStr("")             # ZeptoMail Send Mail token
+email_from_address: str = "orders@theateliermarie.com"
 email_from_name: str = "Atelier Marie"
-email_reply_to: str = ""
+email_reply_to: str = "contacts@theateliermarie.com" # Zoho human mailbox
 admin_notification_email: str = ""
 ```
 
@@ -233,7 +264,7 @@ app/
     __init__.py
     providers/
       __init__.py            # EmailProvider protocol
-      resend_provider.py     # Resend API implementation
+      zeptomail_provider.py  # ZeptoMail HTTP API implementation
       console_provider.py    # Dev/test: logs to stdout
     templates/
       en/
@@ -279,19 +310,19 @@ Tracking fields optional for other transitions, required when `status = "shipped
 
 | Failure | Impact | Handling |
 |---------|--------|----------|
-| Resend API down | Customer doesn't get email | Log warning, order succeeds |
+| ZeptoMail API down | Customer doesn't get email | Log warning, order succeeds |
 | Invalid customer email | Bounce | Log, no retry |
 | Template rendering error | No email sent | Log error with full context |
-| DNS not configured | All emails fail | Startup warning log |
-| Rate limit hit (100/day) | Some emails delayed | Log, degrade gracefully |
+| DNS not configured / two SPF records | All emails fail (SPF permerror) | Startup warning log; single merged SPF record (see Sending Identity) |
+| Sending quota / credit exhausted | Some emails delayed | Log, degrade gracefully |
 | Tracking URL invalid | Broken link in email | Admin's responsibility (validated at input) |
 
 ## Scope
 
-> **Recommended split (see design-gaps.md #16):** the inbound-deliverability suite — `POST /v1/webhooks/resend` + Svix verification, `suppressed_emails`, and the audit read endpoint — is a separable follow-up change (a new public route family with its own security surface). It is kept here for now; confirm the boundary before implementation kickoff so the notification core can ship and review independently.
+> **Recommended split (see design-gaps.md #16):** the inbound-deliverability suite — `POST /v1/webhooks/zeptomail` + `producer-signature` HMAC verification, `suppressed_emails`, and the audit read endpoint — is a separable follow-up change (a new public route family with its own security surface). It is kept here for now; confirm the boundary before implementation kickoff so the notification core can ship and review independently.
 
 ### In Scope
-- Email service with Resend provider
+- Email service with ZeptoMail (EU) HTTP API provider
 - Console provider for dev/test
 - Plain text templates (EN + BG) for the customer transitions (placed, shipped, delivered, cancelled)
 - Admin new-order notification (single recipient)
@@ -301,7 +332,7 @@ Tracking fields optional for other transitions, required when `status = "shipped
 - Configuration via env vars
 - Structured logging of all send attempts + `order_emails` audit rows
 - Bilingual subject lines and bodies
-- Deliverability: sending subdomain, SPF/DKIM/DMARC, tracking disabled, idempotency keys, Cyrillic subject encoding
+- Deliverability: root-domain sending identity, merged SPF + DKIM + DMARC, tracking disabled, Cyrillic subject encoding
 - Bounce/complaint/suppression webhook endpoint (mark recipient undeliverable)
 - Email format validation at checkout
 
@@ -309,28 +340,27 @@ Tracking fields optional for other transitions, required when `status = "shipped
 - HTML rich templates (luxury brand design)
 - Retry queue / dead letter
 - Email preference management (unsubscribe)
-- Marketing emails (abandoned cart, promotions)
+- Marketing emails (abandoned cart, promotions) — MUST use a dedicated subdomain when added
 - Carrier auto-detection from tracking number format
-- Delivery webhooks from Resend
+- Open/click/delivery event webhooks from ZeptoMail (only bounce/complaint consumed)
 - Multiple admin notification recipients
-- Domain registration (separate prerequisite task)
 
 ## Prerequisites (Before Implementation)
 
-1. **Register a domain** — check availability of `ateliermarie.com` / `.bg`
-2. **Sign up for Resend** — free tier at [resend.com](https://resend.com); plan to upgrade to Pro ($20/mo) once above ~25 orders/day
-3. **Create the Resend domain in the EU region** (`eu-west-1`) on a sending **subdomain** (`send.…`), not the root
-4. **Configure DNS** — add SPF (TXT + MX), DKIM, DMARC (`p=none` to start) records
-5. **Verify domain in Resend** — takes minutes once DNS propagates
-6. **Sign Resend's DPA** and document Resend as a GDPR processor
+1. **Domain** — `theateliermarie.com` is registered; Zoho MX/SPF/DKIM already present for the `contacts@` mailbox
+2. **Sign up for ZeptoMail** — free 10k-email credit to start; then pay-as-you-go (~€2.50 / 10k, credits valid 6 months, no daily cap)
+3. **Create the ZeptoMail Mail Agent in the EU data center** and verify the **root** domain `theateliermarie.com`
+4. **Configure DNS** — **merge** ZeptoMail's SPF `include:` into the existing Zoho `v=spf1` record (one record only), add ZeptoMail's DKIM selector, keep DMARC `p=none` to start
+5. **Verify domain in ZeptoMail** and generate a **Send Mail token**; store it as `EMAIL_API_KEY` (SecretStr)
+6. **Sign ZeptoMail's DPA** and document ZeptoMail (Zoho, EU DC) as a GDPR processor
 7. **Verify domain in Google Postmaster Tools**; prepare real abv.bg / mail.bg test inboxes for pre-launch deliverability checks
 
 ## Dependencies
 
-- `resend` Python SDK (`pip install resend`)
+- `zeptomail` Python SDK (`pip install zeptomail`) **or** a thin `httpx` POST (httpx is already present — no new dep required)
 - `jinja2` — explicit dependency (NOT installed as transitive dep — must add to `pyproject.toml`)
-- Domain with DNS access
-- Resend API key
+- Domain with DNS access (SPF merge)
+- ZeptoMail Send Mail token
 
 ## Implementation Order
 
@@ -338,7 +368,7 @@ Tracking fields optional for other transitions, required when `status = "shipped
 2. Update `UpdateOrderStatusRequest` model (add optional tracking fields)
 3. Update `update_status()` service (persist tracking data, validate required on ship)
 4. Email provider abstraction + console provider
-5. Resend provider
+5. ZeptoMail provider (HTTP API)
 6. Template renderer + templates (EN/BG)
 7. Email service (orchestrates render → send)
 8. Wire into routes via BackgroundTasks

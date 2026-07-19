@@ -34,9 +34,9 @@ The system SHALL send a transactional email to the customer whenever their order
 - **WHEN** the email provider is unavailable or returns an error
 - **THEN** the order status change succeeds normally and the failure is logged via structlog
 
-#### Scenario: Email rate limit hit
+#### Scenario: Email quota or credit exhausted
 
-- **WHEN** the Resend daily quota (100 emails/day) is exceeded
+- **WHEN** the ZeptoMail provider returns a quota/credit-exhausted error
 - **THEN** the system logs a warning and the order operation completes without sending the email
 
 ### Requirement: Admin receives notification on new order
@@ -62,14 +62,14 @@ The system SHALL use a provider protocol (`EmailProvider`) that allows swapping 
 - **WHEN** `EMAIL_PROVIDER` is set to "console"
 - **THEN** all emails are logged to stdout with full context (recipient, subject, body) and no network call is made
 
-#### Scenario: Resend provider in production
+#### Scenario: ZeptoMail provider in production
 
-- **WHEN** `EMAIL_PROVIDER` is set to "resend" and `EMAIL_API_KEY` is configured
-- **THEN** emails are sent via the Resend API using the configured from-address and API key
+- **WHEN** `EMAIL_PROVIDER` is set to "zeptomail" and `EMAIL_API_KEY` is configured
+- **THEN** emails are sent via the ZeptoMail HTTP API using the configured from-address and Send Mail token
 
-#### Scenario: Missing API key with Resend provider
+#### Scenario: Missing API key with ZeptoMail provider
 
-- **WHEN** `EMAIL_PROVIDER` is "resend" but `EMAIL_API_KEY` is empty
+- **WHEN** `EMAIL_PROVIDER` is "zeptomail" but `EMAIL_API_KEY` is empty
 - **THEN** the system logs a startup warning and all email sends are skipped with an error log
 
 ### Requirement: Email configuration via environment variables

@@ -20,26 +20,26 @@ Currently there is no email infrastructure — no transactional emails, no admin
 - Email preference management / unsubscribe flows
 - Marketing emails (abandoned cart, promotions)
 - Multiple admin notification recipients
-- Webhook-based delivery tracking from Resend
+- Webhook-based delivery tracking from ZeptoMail (only bounce/complaint consumed, in the follow-up)
 - Domain registration (separate prerequisite, does not block code)
 
 ## Decisions
 
-### 1. Resend as Email Provider (over Gmail SMTP / Brevo)
+### 1. Zoho ZeptoMail (EU) as Email Provider (over Zoho Mail SMTP / Gmail SMTP / Resend)
 
-**Choice:** Resend Python SDK
+**Choice:** Zoho **ZeptoMail** in the **EU data center**, via its HTTP API (see Decision 24 for API-vs-SMTP)
 
 **Rationale:**
-- Purpose-built transactional API vs repurposing a personal mailbox
-- Free tier (100/day, 3000/month) covers expected volume
-- Modern Python SDK: one HTTP POST, typed params, async support
-- Custom from-address via DNS (no mail server needed)
-- Delivery tracking, bounce detection included
-- Google can kill SMTP access without warning; Resend cannot
+- Purpose-built transactional service — not a repurposed mailbox. The shop's `contacts@theateliermarie.com` inbox is on Zoho Mail, but a mailbox is not a sender.
+- **EU data residency:** ZeptoMail EU keeps sending/processing data in-region, matching the `zoho.eu` mailbox. (Resend sends from the EU but stores account data in the US — a GDPR wrinkle this avoids.)
+- Pay-as-you-go with no daily cap: free 10k-email credit, then ~€2.50 / 10k (credits valid 6 months). Simpler and cheaper at this volume than Resend's 100/day free + $20/mo Pro.
+- Bounce / spam-complaint **webhooks** (hard/soft bounce, feedback-loop) feed the suppression store.
+- One vendor for both the human mailbox and transactional sending.
 
 **Alternatives rejected:**
-- Gmail SMTP: unreliable, unprofessional from-address, no tracking, can be revoked
-- Brevo: viable but heavier SDK, more marketing-focused, less developer-friendly
+- **Zoho Mail SMTP** (`smtppro.zoho.com`): needs a paid Mail plan for SMTP access, is rate-limited for human sending, and couples the store's sending reputation to the `contacts@` inbox — the exact reputation risk this change avoids.
+- **Gmail SMTP:** unreliable, unprofessional from-address, no feedback loops, revocable.
+- **Resend:** viable and originally chosen, but US account-data residency and a two-vendor split; superseded once the Zoho mailbox made ZeptoMail the natural fit.
 
 ### 2. Jinja2 for Template Rendering (over string.Template / f-strings)
 
@@ -76,7 +76,7 @@ _Note (corrected): a captured-connection bug does **not** pass-in-tests-but-fail
 
 ### 4. Provider Abstraction via Protocol Class
 
-**Choice:** `EmailProvider` Protocol with `send()` method; implementations: `ResendProvider`, `ConsoleProvider`
+**Choice:** `EmailProvider` Protocol with `send()` method; implementations: `ZeptoMailProvider`, `ConsoleProvider`
 
 **Rationale:**
 - Console provider enables testing without network
@@ -166,7 +166,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_order_emails_sent_unique
 ```
 
 **Rationale:**
-- **Idempotency (defense in depth, not toggle-driven):** NOTE — the earlier "shipped→confirmed→shipped toggle" justification was wrong: the state machine is strictly forward (`order_service.py:24-28`; `shipped:{delivered}`, no back-edges) and same-state re-entry returns 422, so no customer event can fire twice through the API. The real duplicate risk is **concurrent/retried sends** (admin double-click, client retry, or multiple uvicorn workers) racing the check-then-send. The **partial UNIQUE index** makes the DB the arbiter (insert-first, then send; a duplicate insert fails and the send is skipped), closing the check-then-insert TOCTOU. Resend's `Idempotency-Key` (Decision 14) covers only its own 24h POST window and is not a substitute.
+- **Idempotency (defense in depth, not toggle-driven):** NOTE — the earlier "shipped→confirmed→shipped toggle" justification was wrong: the state machine is strictly forward (`order_service.py:24-28`; `shipped:{delivered}`, no back-edges) and same-state re-entry returns 422, so no customer event can fire twice through the API. The real duplicate risk is **concurrent/retried sends** (admin double-click, client retry, or multiple uvicorn workers) racing the check-then-send. The **partial UNIQUE index** makes the DB the arbiter (insert-first, then send; a duplicate insert fails and the send is skipped), closing the check-then-insert TOCTOU. **This is now the *sole* idempotency guard:** ZeptoMail does not document a send-level idempotency key (unlike Resend's `Idempotency-Key`), so there is no provider-level dedup to lean on — the DB index carries it entirely (see Decision 14).
 - **Audit:** when a customer says "I never got it," there's a queryable record, not just scattered structlog lines. Distinct skip reasons (`skipped_duplicate` vs `skipped_suppressed`) keep the trail legible.
 - **Re-send foundation:** the deferred admin re-send button has a table to read from and write to.
 - **In-flight loss:** a deploy/crash between response and task means the task never runs and no row is written — the audit table then can't distinguish "never attempted" from "sent but unlogged." Accepted risk at this scale; a `queued` row written before dispatch is a future option (recorded in Risks).
@@ -177,8 +177,8 @@ Still fire-and-forget: writing the log row happens inside the background task al
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| Resend free tier exceeded (100/day) | Some emails not sent | Log rate-limit, alert admin. ~4 emails/order (placed+shipped+delivered/cancelled+admin) → free tier holds to ~25 orders/day; budget Pro ($20/mo) for headroom. |
-| Resend service outage | Emails delayed/lost | Fire-and-forget logging. Manual re-send from admin. No customer-facing error. |
+| ZeptoMail credit/quota exhausted | Some emails not sent | Log the error response, alert admin. ~4 emails/order (placed+shipped+delivered/cancelled+admin); free 10k credit then pay-as-you-go (~€2.50/10k, no daily cap) covers this scale comfortably. |
+| ZeptoMail service outage | Emails delayed/lost | Fire-and-forget logging. Manual re-send from admin. No customer-facing error. |
 | Template rendering bug | One email type broken | Per-template try/catch. Other email types unaffected. Structured log with full context. |
 | Domain not registered | Cannot send from branded address | Console provider works for dev/test. Production blocked until domain ready — but code is ready. |
 | Tracking URL patterns change | Broken links in shipped emails | Admin can override with custom URL. Patterns are static code in `app/constants.py` (NOT pydantic Settings), editable in one place. |
@@ -204,8 +204,8 @@ SQLite has **no** `ADD COLUMN IF NOT EXISTS`. Reuse the repo's existing idempote
 **Deployment steps:**
 1. Deploy code with `email_provider = "console"` (no emails sent, just logged)
 2. Verify tracking fields work in admin UI
-3. Register domain + configure DNS + verify in Resend
-4. Set `EMAIL_PROVIDER=resend`, `EMAIL_API_KEY=re_xxx`, `RESEND_WEBHOOK_SECRET=whsec_xxx`, `ADMIN_NOTIFICATION_EMAIL=owner@gmail.com`
+3. Register domain + configure DNS + verify in ZeptoMail (EU)
+4. Set `EMAIL_PROVIDER=zeptomail`, `EMAIL_API_KEY=<ZeptoMail Send Mail token>`, `ZEPTOMAIL_WEBHOOK_AUTH_KEY=<key>` (follow-up), `ADMIN_NOTIFICATION_EMAIL=contacts@theateliermarie.com`
 5. Trigger a real test order (or use `GET /v1/admin/orders/{id}/emails` to inspect the audit log) — there is no dedicated "send test email" endpoint in this change
 6. Switch to production
 
@@ -220,37 +220,38 @@ Findings from a 2025-2026 research pass. Split into account/DNS setup (one-time,
 
 ### Setup / account (one-time, no code)
 
-- **Sending subdomain, not root.** Send from `send.ateliermarie.com` (or `mail.`/`updates.`), isolating transactional reputation from the brand domain. `EMAIL_FROM_ADDRESS` becomes `orders@send.ateliermarie.com` once the domain exists. Resend recommends this.
-- **Full auth stack.** Publish Resend-generated SPF (TXT + MX), DKIM (TXT), and DMARC. Keep the **MX record** — it routes bounce/complaint feedback and gives SPF alignment for DMARC. DKIM is **1024-bit** (Resend does not offer 2048-bit; RFC-compliant, fine here).
-- **DMARC progression.** Start `_dmarc` at `p=none` with a readable `rua`; after 2-4 weeks of clean reports move to `quarantine`, then `reject`. `pct`/`ruf` tags are widely ignored — don't rely on them.
-- **EU sending region.** Create the domain in Ireland (`eu-west-1`). Caveat: region controls where mail is sent from, **not** data residency — Resend processes/stores account data in the US. Sign Resend's **DPA**; document Resend as a GDPR processor (transfer covered by SCCs / EU-US DPF).
+- **Root domain + aliases, not a subdomain (decision reversed).** Send from the **root** `theateliermarie.com` using aliases (`orders@`, `noreply@`); `EMAIL_FROM_ADDRESS = orders@theateliermarie.com`, `Reply-To = contacts@theateliermarie.com`. This is a deliberate simplification for a transactional-only, low-volume sender. Tradeoff accepted: order-mail reputation is **not** isolated from the human `contacts@` inbox (a `send.` subdomain would isolate it — chosen against for operational simplicity). Any future *marketing* stream MUST use a dedicated subdomain, never the root.
+- **DNS auth via DKIM + bounce CNAME (no SPF merge).** As verified for this account, ZeptoMail authenticates with a **DKIM TXT** (selector `19154433`, Default, 1024-bit; an optional 2048-bit `1916479283` selector is also offered) plus a **bounce CNAME** (`bounce-zem → cluster89.zeptomail.eu`) that carries return-path + SPF alignment. The existing Zoho `v=spf1` record is **left untouched**. General caution (didn't apply here): a domain may have only one `v=spf1` record — if a provider ever hands you an SPF `include:`, merge it into that one record rather than adding a second (a second = `permerror`).
+- **Full auth stack.** Publish the ZeptoMail DKIM TXT + bounce CNAME, plus a DMARC record. DKIM is aligned on the root domain, so DMARC passes on DKIM even before SPF. Verify the domain in the ZeptoMail console before enabling sends.
+- **DMARC progression.** Start `_dmarc` at `p=none` with a readable `rua` (`contacts@theateliermarie.com`); after 2-4 weeks of clean reports move to `quarantine`, then `reject`. `pct`/`ruf` tags are widely ignored — don't rely on them.
+- **EU data center.** Create the ZeptoMail Mail Agent in the **EU DC** (`smtp.zeptomail.eu` / EU API host). Unlike Resend, this keeps account/sending data in the EU — sign ZeptoMail's **DPA** and document Zoho (EU) as a GDPR processor.
 - **Monitoring.** Verify the domain in **Google Postmaster Tools** (only source of Gmail spam-rate; will show "insufficient data" at low volume but accrues). **abv.bg / mail.bg expose no postmaster tooling or feedback loops** (confirmed absence) — rely on clean auth + test against real abv.bg/mail.bg inboxes before launch.
-- **Skip at this scale:** dedicated IP (Resend gates it to >3,000/day; a cold dedicated IP hurts deliverability), BIMI/VMC (requires `p=reject` + registered trademark + ~$1,400/yr).
+- **Skip at this scale:** dedicated IP (ZeptoMail offers it as an annual add-on; a cold dedicated IP hurts deliverability below high volume), BIMI/VMC (requires `p=reject` + registered trademark + ~$1,400/yr).
 
-### Cost correction (supersedes "Cost €0" in proposal)
+### Cost model (supersedes "Cost €0" in proposal)
 
-Resend Free tier is **100 emails/day**. After Decision 9 (no "confirmed" email) each order generates ~4 emails (placed + shipped + delivered-or-cancelled + admin alert), so the free tier holds up to **~25 orders/day**, then bursts exceed it. Honest plan: free tier is viable at current volume; **budget Resend Pro ($20/mo, 50k/mo, no daily cap)** as headroom, not "free forever." Config must not assume the daily cap never bites — log rate-limit responses.
+ZeptoMail is **pay-as-you-go with no daily cap**: a free **10,000-email credit** to start, then credits at ~€2.50 / 10,000 emails (valid 6 months). After Decision 9 (no "confirmed" email) each order generates ~4 emails (placed + shipped + delivered-or-cancelled + admin alert), so ~25 orders/day ≈ 100 emails/day ≈ 3,000/month — the initial free credit alone covers roughly three months, and thereafter the cost is trivial. There is no 100/day cliff to design around (that was a Resend constraint); still log any quota/credit error responses and degrade gracefully.
 
 ### Code-level decisions
 
 ### 13. Disable open/click tracking
 
-Resend open-tracking pixels and rewritten click links are phisher-like signals that "have been seen to negatively impact inbox placement." Transactional mail doesn't need open metrics. Send with tracking **off**.
+ZeptoMail supports open/click tracking (its webhook exposes `open`/`click` events), and tracking pixels + rewritten click links are phisher-like signals that "have been seen to negatively impact inbox placement." Transactional mail doesn't need open metrics. Send with tracking **off** on every send.
 
-### 14. Idempotency key on every provider send
+### 14. No provider-level idempotency key (DB index is the sole guard)
 
-Pass Resend's `Idempotency-Key` header as `<event>/<order_id>` (e.g. `order-shipped/AM-12ab34`). This guards against duplicate API sends within Resend's 24h window. It **complements** the `order_emails` table (Decision 11): the header stops accidental double-POSTs; the table stops re-sends across status toggles indefinitely and provides the audit trail.
+**Superseded by the ZeptoMail switch.** Resend offered an `Idempotency-Key` header; ZeptoMail does **not** document a send-level idempotency key. There is therefore no provider-level dedup, and the derived `order-{event}/{order_id}` key form is dropped. Duplicate suppression relies entirely on the `order_emails` partial UNIQUE index (Decision 11): insert the `sent` row first, and a uniqueness violation means "already sent → skip." A concurrency test (two sends for the same `(order_id, event)` → exactly one email) is the safety net, since there is no second layer behind it.
 
 ### 15. Consume bounce/complaint/suppression webhooks
 
-Add a webhook endpoint (`POST /v1/webhooks/resend`) handling `email.bounced`, `email.complained`, `email.suppressed`. On a hard bounce or complaint, mark the customer's email undeliverable (a small `suppressed_emails` table) so the store stops generating mail to a known-bad address — mirroring Resend's own suppression into our data. Note: Gmail does **not** fire `email.complained` (visible only in Postmaster Tools).
+Add a webhook endpoint (`POST /v1/webhooks/zeptomail`) handling ZeptoMail's `hard_bounce`, `soft_bounce`, and `fbl_complaint` (feedback-loop / spam-complaint) events. On a hard bounce or complaint, mark the customer's email undeliverable (a small `suppressed_emails` table) so the store stops generating mail to a known-bad address. Note: Gmail does **not** fire complaint events to third parties (visible only in Postmaster Tools).
 
-**Signature verification (concrete — "signature-verified" alone is insufficient):** Resend uses **Svix**. Verify with the `svix` library (or an explicit equivalent):
-- Config: add `resend_webhook_secret: SecretStr` (prefix `whsec_`) to `app/config.py` and `.env.example`. Without it the endpoint cannot be built.
-- Read the **raw body** (`await request.body()`) *before* JSON parsing — the HMAC-SHA256 is computed over `{svix-id}.{svix-timestamp}.{raw_body}`; any re-serialization breaks it.
-- Enforce **timestamp tolerance** (±5 min) to reject replays — a captured valid webhook could otherwise be replayed to suppress an arbitrary customer address (denial-of-email).
+**Signature verification (ZeptoMail scheme — NOT Svix):** ZeptoMail signs each webhook with a `producer-signature` header carrying three parts — `ts` (timestamp), `s` (the HMAC), and `s-algorithm` (`HMAC-SHA256`) — computed over the payload using a **configurable Authentication Key** set on the Mail Agent. Verify as follows:
+- Config: add `zeptomail_webhook_auth_key: SecretStr` to `app/config.py` and `.env.example`. Without it the endpoint cannot be built. (This replaces the earlier Resend/Svix `resend_webhook_secret` / `whsec_` design.)
+- Read the **raw body** (`await request.body()`) *before* JSON parsing — the HMAC is computed over the raw bytes; any re-serialization breaks it.
+- Enforce **timestamp tolerance** (±5 min) using the `ts` component to reject replays — a captured valid webhook could otherwise be replayed to suppress an arbitrary customer address (denial-of-email).
 - Constant-time compare via `hmac.compare_digest` (as `auth.py:115` already does).
-- Add `/v1/webhooks/resend` to `session_skip_paths` (`config.py:61-70`) so the session middleware doesn't set a cookie on a machine-to-machine call; mount it outside the admin router (public, authenticated by signature only). Apply a body-size limit.
+- Add `/v1/webhooks/zeptomail` to `session_skip_paths` (`config.py:61-70`) so the session middleware doesn't set a cookie on a machine-to-machine call; mount it outside the admin router (public, authenticated by signature only). Apply a body-size limit.
 
 ### 16. Validate email address at checkout
 
@@ -262,7 +263,7 @@ Filters treat plain-text-*only* as slightly unusual for a commercial sender, and
 
 ### 18. Cyrillic subject headers must be MIME-encoded
 
-Bulgarian subjects/display names require RFC 2047 encoded-words (`=?utf-8?B?…?=`); bodies are UTF-8. When sending via the Resend SDK/API (JSON), confirm the emitted `Subject` header is encoded-word form, not raw UTF-8 bytes — add a test asserting a Cyrillic subject round-trips correctly. No `List-Unsubscribe` header on transactional mail (only add it if a marketing stream is introduced later, on a separate subdomain).
+Bulgarian subjects/display names require RFC 2047 encoded-words (`=?utf-8?B?…?=`); bodies are UTF-8. When sending via the ZeptoMail API (JSON) or SMTP, confirm the emitted `Subject` header is encoded-word form, not raw UTF-8 bytes — add a test asserting a Cyrillic subject round-trips correctly. No `List-Unsubscribe` header on transactional mail (only add it if a marketing stream is introduced later, on a separate subdomain).
 
 ### 19. Canonical `EmailEvent` vocabulary (single source of truth)
 
@@ -281,7 +282,7 @@ STATUS_TO_EMAIL_EVENT: dict[str, str | None] = {
 }
 ```
 
-Derived forms are computed from the event, never re-spelled: template file = `order_{event}.txt`, idempotency key = `order-{event}/{order_id}`. This kills the `pending`/`placed`/`order_placed`/`order-shipped` inconsistency. **Route wiring must map status→event** (so `send_order_email(event="pending")` becomes `event=STATUS_TO_EMAIL_EVENT[status]`, skipping when `None`).
+Derived forms are computed from the event, never re-spelled: template file = `order_{event}.txt`. (There is no idempotency-key form — ZeptoMail has no send-level idempotency key; see Decision 14.) This kills the `pending`/`placed`/`order_placed` inconsistency. **Route wiring must map status→event** (so `send_order_email(event="pending")` becomes `event=STATUS_TO_EMAIL_EVENT[status]`, skipping when `None`).
 
 ### 20. Jinja2 autoescape OFF for `.txt`; template inputs constrained
 
@@ -298,6 +299,19 @@ The 422 with `code: "TRACKING_REQUIRED"` (order-tracking spec) cannot come from 
 ### 23. GDPR coverage for new PII stores
 
 `order_emails.recipient` and `suppressed_emails` hold email addresses. Existing erasure anonymizes by `user_id`, but anonymous checkouts have no `user_id`, so these would be un-erasable by construction. Decision: the erasure job MUST also scrub/anonymize `order_emails.recipient` (e.g. by `order_id` join to erased orders) and age out `suppressed_emails`. Console-provider and structlog output MUST NOT log full bodies in production and SHOULD log a hashed/truncated recipient — there is no log-redaction processor today (`logging_config.py`), so this is new work, not an existing guarantee.
+
+### 24. ZeptoMail HTTP API over SMTP
+
+**Choice:** Send via the ZeptoMail **HTTP API** (EU host), not SMTP.
+
+**Rationale:**
+- **Async fit:** a single stateless HTTPS POST via `httpx` (already a dependency) — no threadpool hop, no SMTP connection/TLS/handshake state. `smtplib` is blocking and would run in a worker thread under BackgroundTasks.
+- **Structured errors:** the API returns an HTTP status + JSON error body, which maps cleanly onto the `order_emails.reason` audit column. SMTP reply codes are clumsier to parse.
+- **Egress:** outbound 443 is always open; SMTP submission ports (587/465) are usually fine but not guaranteed on every host (Oracle Cloud hard-blocks port 25; confirm 587 egress if SMTP is ever used).
+- **Least churn:** mirrors the original HTTP-based provider shape, so the provider abstraction/tasks/tests are unchanged by the vendor swap.
+- **Encoding:** the API/SDK handles RFC 2047 subject encoding (Decision 18); hand-rolled `EmailMessage` puts that on us.
+
+**Alternative kept as fallback:** SMTP via stdlib `smtplib` (`smtp.zeptomail.eu`, 587 STARTTLS, username `emailapikey`, password = Send Mail token) — validated by a manual spike. Viable if API egress ever surprises us, at the cost of the points above. Either transport lives behind the same `EmailProvider` Protocol.
 
 ## Resolved / Open Questions
 
