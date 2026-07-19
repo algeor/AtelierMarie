@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from app.database import init_db
+from app.models.delivery import DeliveryInfo, DeliveryOffice
 from app.services.order_service import (
     EmptyCartError,
     InsufficientStockError,
@@ -35,6 +36,21 @@ def db_path(tmp_path) -> str:
 def _clean_tables():
     """No-op: function-scoped db_path means each test starts fresh."""
     yield
+
+
+@pytest.fixture()
+def delivery() -> DeliveryInfo:
+    """Reusable office-pickup delivery payload for checkout calls."""
+    return DeliveryInfo(
+        method="office",
+        office=DeliveryOffice(
+            courier="econt",
+            office_id="1001",
+            office_name="Sofia Center",
+            office_type="office",
+            phone="+359888123456",
+        ),
+    )
 
 
 @pytest.fixture()
@@ -115,14 +131,14 @@ def cart_with_items(conn, session_a, products):
 class TestCheckoutSuccess:
     """4.2: Successful checkout creates order, snapshots prices, decrements stock, clears cart."""
 
-    def test_successful_checkout(self, conn, cart_with_items, products):
+    def test_successful_checkout(self, conn, cart_with_items, products, delivery):
         session_id = cart_with_items
         order = checkout(
             conn=conn,
             session_id=session_id,
             customer_email="marie@example.com",
             customer_name="Marie",
-            shipping_address="123 Candle Lane",
+            delivery=delivery,
         )
         conn.commit()
 
@@ -130,7 +146,9 @@ class TestCheckoutSuccess:
         assert order["status"] == "pending"
         assert order["customer_email"] == "marie@example.com"
         assert order["customer_name"] == "Marie"
-        assert order["shipping_address"] == "123 Candle Lane"
+        assert order["delivery_method"] == "office"
+        assert order["delivery_courier"] == "econt"
+        assert order["delivery_details"]["office_id"] == "1001"
         assert len(order["items"]) == 2
 
         # Price snapshots correct
@@ -165,15 +183,15 @@ class TestCheckoutSuccess:
 class TestCheckoutEmptyCart:
     """4.3: Checkout with empty cart raises EmptyCartError."""
 
-    def test_empty_cart_raises(self, conn, session_a, products):
+    def test_empty_cart_raises(self, conn, session_a, products, delivery):
         with pytest.raises(EmptyCartError):
-            checkout(conn=conn, session_id=session_a, customer_email="test@example.com")
+            checkout(conn=conn, session_id=session_a, customer_email="test@example.com", delivery=delivery)
 
 
 class TestCheckoutInsufficientStock:
     """4.4: Checkout with insufficient stock raises InsufficientStockError."""
 
-    def test_insufficient_stock_raises(self, conn, session_a, products):
+    def test_insufficient_stock_raises(self, conn, session_a, products, delivery):
         # Add 6 units but only 5 in stock
         conn.execute(
             "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, ?, ?)",
@@ -182,7 +200,7 @@ class TestCheckoutInsufficientStock:
         conn.commit()
 
         with pytest.raises(InsufficientStockError) as exc_info:
-            checkout(conn=conn, session_id=session_a, customer_email="test@example.com")
+            checkout(conn=conn, session_id=session_a, customer_email="test@example.com", delivery=delivery)
 
         assert exc_info.value.failures[0]["available"] == 5
         assert exc_info.value.failures[0]["requested"] == 6
@@ -203,7 +221,7 @@ class TestCheckoutInsufficientStock:
 class TestCheckoutDeactivatedProduct:
     """4.5: Checkout with deactivated product raises ProductUnavailableError."""
 
-    def test_deactivated_product_raises(self, conn, session_a, products):
+    def test_deactivated_product_raises(self, conn, session_a, products, delivery):
         # Deactivate a product
         conn.execute("UPDATE products SET is_active = 0 WHERE id = 'lavender-dream'")
         conn.execute(
@@ -213,7 +231,7 @@ class TestCheckoutDeactivatedProduct:
         conn.commit()
 
         with pytest.raises(ProductUnavailableError) as exc_info:
-            checkout(conn=conn, session_id=session_a, customer_email="test@example.com")
+            checkout(conn=conn, session_id=session_a, customer_email="test@example.com", delivery=delivery)
 
         assert exc_info.value.failures[0]["product_id"] == "lavender-dream"
 
@@ -231,7 +249,7 @@ class TestCheckoutDeactivatedProduct:
 class TestCheckoutMultipleFailures:
     """4.5b: Checkout with MULTIPLE failing items returns ALL failures."""
 
-    def test_multiple_stock_failures(self, conn, session_a, products):
+    def test_multiple_stock_failures(self, conn, session_a, products, delivery):
         # Both products have insufficient stock for requested quantities
         conn.execute(
             "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, ?, ?)",
@@ -244,7 +262,7 @@ class TestCheckoutMultipleFailures:
         conn.commit()
 
         with pytest.raises(InsufficientStockError) as exc_info:
-            checkout(conn=conn, session_id=session_a, customer_email="test@example.com")
+            checkout(conn=conn, session_id=session_a, customer_email="test@example.com", delivery=delivery)
 
         # Both failures reported
         product_ids = [f["product_id"] for f in exc_info.value.failures]
@@ -255,7 +273,7 @@ class TestCheckoutMultipleFailures:
 class TestCheckoutIntegrityConstraint:
     """4.6: CHECK constraint defense-in-depth raises InsufficientStockError."""
 
-    def test_integrity_error_on_stock_decrement(self, conn, session_a, products):
+    def test_integrity_error_on_stock_decrement(self, conn, session_a, products, delivery):
         # Set stock to exactly 1, put 1 in cart
         conn.execute("UPDATE products SET stock = 1 WHERE id = 'lavender-dream'")
         conn.execute(
@@ -271,15 +289,15 @@ class TestCheckoutIntegrityConstraint:
 
         # Now checkout will try to decrement from 0, triggering CHECK constraint
         with pytest.raises(InsufficientStockError):
-            checkout(conn=conn, session_id=session_a, customer_email="test@example.com")
+            checkout(conn=conn, session_id=session_a, customer_email="test@example.com", delivery=delivery)
 
 
 class TestPriceSnapshotImmutability:
     """4.7: Product price change after checkout does not affect existing order."""
 
-    def test_price_change_after_checkout(self, conn, cart_with_items):
+    def test_price_change_after_checkout(self, conn, cart_with_items, delivery):
         session_id = cart_with_items
-        order = checkout(conn=conn, session_id=session_id, customer_email="test@example.com")
+        order = checkout(conn=conn, session_id=session_id, customer_email="test@example.com", delivery=delivery)
         conn.commit()
 
         original_price = next(
@@ -303,8 +321,8 @@ class TestPriceSnapshotImmutability:
 class TestOrderIdFormat:
     """4.8: Created order ID matches UUID v4 format."""
 
-    def test_order_id_is_uuid4(self, conn, cart_with_items):
-        order = checkout(conn=conn, session_id=cart_with_items, customer_email="test@example.com")
+    def test_order_id_is_uuid4(self, conn, cart_with_items, delivery):
+        order = checkout(conn=conn, session_id=cart_with_items, customer_email="test@example.com", delivery=delivery)
         conn.commit()
 
         # Validate UUID v4 format
@@ -315,8 +333,8 @@ class TestOrderIdFormat:
 class TestTotalCentsServerComputed:
     """4.9: total_cents is computed server-side as sum(price_cents × quantity)."""
 
-    def test_total_computed_correctly(self, conn, cart_with_items):
-        order = checkout(conn=conn, session_id=cart_with_items, customer_email="test@example.com")
+    def test_total_computed_correctly(self, conn, cart_with_items, delivery):
+        order = checkout(conn=conn, session_id=cart_with_items, customer_email="test@example.com", delivery=delivery)
         conn.commit()
 
         expected = sum(item["price_cents"] * item["quantity"] for item in order["items"])
@@ -327,7 +345,7 @@ class TestTotalCentsServerComputed:
 class TestConcurrentCheckoutLastUnit:
     """4.10: Two sessions for last unit — one succeeds, one fails."""
 
-    def test_last_unit_race(self, conn, session_a, session_b, products):
+    def test_last_unit_race(self, conn, session_a, session_b, products, delivery):
         # Both sessions have the last unit of vanilla-brulee (stock=1)
         conn.execute(
             "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, ?, ?)",
@@ -340,13 +358,13 @@ class TestConcurrentCheckoutLastUnit:
         conn.commit()
 
         # First checkout succeeds
-        order = checkout(conn=conn, session_id=session_a, customer_email="a@example.com")
+        order = checkout(conn=conn, session_id=session_a, customer_email="a@example.com", delivery=delivery)
         conn.commit()
         assert order["status"] == "pending"
 
         # Second checkout fails — stock is now 0
         with pytest.raises(InsufficientStockError):
-            checkout(conn=conn, session_id=session_b, customer_email="b@example.com")
+            checkout(conn=conn, session_id=session_b, customer_email="b@example.com", delivery=delivery)
 
         # Stock is 0
         stock = conn.execute("SELECT stock FROM products WHERE id = 'vanilla-brulee'").fetchone()[0]
@@ -361,10 +379,10 @@ class TestConcurrentCheckoutLastUnit:
 class TestListOrders:
     """5.1: list_orders returns only orders belonging to session/user, sorted DESC."""
 
-    def test_list_orders_session_only(self, conn, cart_with_items, session_b, products):
+    def test_list_orders_session_only(self, conn, cart_with_items, session_b, products, delivery):
         session_id = cart_with_items
         # Create an order for session_a
-        checkout(conn=conn, session_id=session_id, customer_email="a@example.com")
+        checkout(conn=conn, session_id=session_id, customer_email="a@example.com", delivery=delivery)
         conn.commit()
 
         # Add cart for session_b and create order
@@ -373,7 +391,7 @@ class TestListOrders:
             (session_b, "lavender-dream", 1),
         )
         conn.commit()
-        checkout(conn=conn, session_id=session_b, customer_email="b@example.com")
+        checkout(conn=conn, session_id=session_b, customer_email="b@example.com", delivery=delivery)
         conn.commit()
 
         # list_orders for session_a should only show 1 order
@@ -381,7 +399,7 @@ class TestListOrders:
         assert result["total"] == 1
         assert result["items"][0]["session_id"] == session_id
 
-    def test_list_orders_by_user_id_across_sessions(self, conn, session_a, session_b, products):
+    def test_list_orders_by_user_id_across_sessions(self, conn, session_a, session_b, products, delivery):
         user_id = "user-123"
         # Link both sessions to same user
         conn.execute(
@@ -398,7 +416,7 @@ class TestListOrders:
             (session_a, "lavender-dream", 1),
         )
         conn.commit()
-        checkout(conn=conn, session_id=session_a, customer_email="u@test.com", user_id=user_id)
+        checkout(conn=conn, session_id=session_a, customer_email="u@test.com", user_id=user_id, delivery=delivery)
         conn.commit()
 
         conn.execute(
@@ -406,7 +424,7 @@ class TestListOrders:
             (session_b, "midnight-amber", 1),
         )
         conn.commit()
-        checkout(conn=conn, session_id=session_b, customer_email="u@test.com", user_id=user_id)
+        checkout(conn=conn, session_id=session_b, customer_email="u@test.com", user_id=user_id, delivery=delivery)
         conn.commit()
 
         # list_orders by user_id returns both
@@ -453,18 +471,18 @@ class TestListOrders:
 class TestGetOrder:
     """5.2: get_order returns order for owner, raises for non-owner."""
 
-    def test_owner_can_access(self, conn, cart_with_items):
+    def test_owner_can_access(self, conn, cart_with_items, delivery):
         session_id = cart_with_items
-        order = checkout(conn=conn, session_id=session_id, customer_email="t@t.com")
+        order = checkout(conn=conn, session_id=session_id, customer_email="t@t.com", delivery=delivery)
         conn.commit()
 
         result = get_order(conn=conn, order_id=order["id"], session_id=session_id)
         assert result["id"] == order["id"]
         assert len(result["items"]) == 2
 
-    def test_non_owner_gets_not_found(self, conn, cart_with_items, session_b):
+    def test_non_owner_gets_not_found(self, conn, cart_with_items, session_b, delivery):
         session_id = cart_with_items
-        order = checkout(conn=conn, session_id=session_id, customer_email="t@t.com")
+        order = checkout(conn=conn, session_id=session_id, customer_email="t@t.com", delivery=delivery)
         conn.commit()
 
         with pytest.raises(OrderNotFoundError):
@@ -474,7 +492,7 @@ class TestGetOrder:
 class TestGetOrderAuthenticated:
     """5.3: get_order with user_id finds orders from any session."""
 
-    def test_user_id_access_cross_session(self, conn, session_a, session_b, products):
+    def test_user_id_access_cross_session(self, conn, session_a, session_b, products, delivery):
         user_id = "user-456"
         conn.execute(
             "INSERT INTO users (id, google_id, email) VALUES (?, ?, ?)",
@@ -488,7 +506,7 @@ class TestGetOrderAuthenticated:
             (session_a, "lavender-dream", 1),
         )
         conn.commit()
-        order = checkout(conn=conn, session_id=session_a, customer_email="t@t.com", user_id=user_id)
+        order = checkout(conn=conn, session_id=session_a, customer_email="t@t.com", user_id=user_id, delivery=delivery)
         conn.commit()
 
         # Access from session_b with same user_id
@@ -499,8 +517,8 @@ class TestGetOrderAuthenticated:
 class TestListOrdersPagination:
     """5.4: Pagination edge cases."""
 
-    def test_page_beyond_last_returns_empty(self, conn, cart_with_items):
-        checkout(conn=conn, session_id=cart_with_items, customer_email="t@t.com")
+    def test_page_beyond_last_returns_empty(self, conn, cart_with_items, delivery):
+        checkout(conn=conn, session_id=cart_with_items, customer_email="t@t.com", delivery=delivery)
         conn.commit()
 
         result = list_orders(conn=conn, session_id=cart_with_items, page=99)
@@ -706,7 +724,7 @@ class TestDoubleCancellation:
 class TestCheckoutSetsUserId:
     """6.7: Checkout from authenticated session sets user_id on order."""
 
-    def test_user_id_set_on_checkout(self, conn, session_a, products):
+    def test_user_id_set_on_checkout(self, conn, session_a, products, delivery):
         user_id = "user-789"
         conn.execute(
             "INSERT INTO users (id, google_id, email) VALUES (?, ?, ?)",
@@ -719,7 +737,7 @@ class TestCheckoutSetsUserId:
         )
         conn.commit()
 
-        order = checkout(conn=conn, session_id=session_a, customer_email="t@t.com", user_id=user_id)
+        order = checkout(conn=conn, session_id=session_a, customer_email="t@t.com", user_id=user_id, delivery=delivery)
         conn.commit()
 
         assert order["user_id"] == user_id
@@ -765,14 +783,14 @@ class TestUpdateStatusLog:
 class TestBackfillUserId:
     """6.9: Backfill user_id on login for existing orders."""
 
-    def test_backfill_user_id_on_orders(self, conn, session_a, products):
+    def test_backfill_user_id_on_orders(self, conn, session_a, products, delivery):
         # Create order without user_id
         conn.execute(
             "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, ?, ?)",
             (session_a, "lavender-dream", 1),
         )
         conn.commit()
-        order = checkout(conn=conn, session_id=session_a, customer_email="t@t.com")
+        order = checkout(conn=conn, session_id=session_a, customer_email="t@t.com", delivery=delivery)
         conn.commit()
 
         assert order["user_id"] is None

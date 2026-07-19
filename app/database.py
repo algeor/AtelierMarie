@@ -67,7 +67,9 @@ CREATE TABLE IF NOT EXISTS orders (
     total_cents INTEGER NOT NULL CHECK (total_cents >= 0),
     customer_email TEXT NOT NULL,
     customer_name  TEXT,
-    shipping_address TEXT,
+    delivery_method TEXT CHECK (delivery_method IN ('office', 'door')),
+    delivery_courier TEXT CHECK (delivery_courier IN ('speedy', 'econt')),
+    delivery_details TEXT,  -- JSON blob (DeliveryOffice or DeliveryDoor)
     notes       TEXT,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
@@ -334,6 +336,21 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
             session_columns,
             "preferred_locale",
             "preferred_locale TEXT NOT NULL DEFAULT 'en'",
+        )
+
+    if _table_exists(conn, "orders"):
+        order_columns = _table_columns(conn, "orders")
+        # Structured delivery columns (added by shipping-courier-integration).
+        # CHECK constraints omitted here because SQLite ALTER TABLE ADD COLUMN
+        # doesn't support them; validation happens at the Pydantic layer.
+        _add_column_if_missing(
+            conn, "orders", order_columns, "delivery_method", "delivery_method TEXT"
+        )
+        _add_column_if_missing(
+            conn, "orders", order_columns, "delivery_courier", "delivery_courier TEXT"
+        )
+        _add_column_if_missing(
+            conn, "orders", order_columns, "delivery_details", "delivery_details TEXT"
         )
 
 

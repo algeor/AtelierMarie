@@ -37,7 +37,9 @@ const mockOrder: OrderResponse = {
   total_cents: 7700,
   customer_email: "alice@example.com",
   customer_name: "Alice",
-  shipping_address: null,
+  delivery_method: null,
+  delivery_courier: null,
+  delivery_details: null,
   notes: null,
   items: [
     { product_id: "p1", product_name: "Lavender Dreams", price_cents: 3200, quantity: 1 },

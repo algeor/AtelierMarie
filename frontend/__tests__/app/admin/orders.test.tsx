@@ -47,7 +47,17 @@ const MOCK_ORDERS: OrderResponse[] = [
     total_cents: 7700,
     customer_email: "alice@example.com",
     customer_name: "Alice Johnson",
-    shipping_address: "123 Main St, Paris, FR",
+    delivery_method: "door",
+    delivery_courier: "speedy",
+    delivery_details: {
+      courier: "speedy",
+      city: "Sofia",
+      postal_code: "1000",
+      street: "123 Main St",
+      building: null,
+      apartment: null,
+      phone: "+359888123456",
+    },
     notes: null,
     items: [
       { product_id: "lavender-dreams-300ml", product_name: "Lavender Dreams", price_cents: 3200, quantity: 1 },
@@ -61,7 +71,15 @@ const MOCK_ORDERS: OrderResponse[] = [
     total_cents: 5600,
     customer_email: "bob@example.com",
     customer_name: "Bob Smith",
-    shipping_address: "456 Oak Ave, Lyon, FR",
+    delivery_method: "office",
+    delivery_courier: "econt",
+    delivery_details: {
+      courier: "econt",
+      office_id: "1001",
+      office_name: "Econt Sofia Center",
+      office_type: "office",
+      phone: "+359888654321",
+    },
     notes: null,
     items: [
       { product_id: "citrus-garden-200ml", product_name: "Citrus Garden", price_cents: 2800, quantity: 2 },
@@ -72,7 +90,7 @@ const MOCK_ORDERS: OrderResponse[] = [
 ];
 
 const MOCK_ORDER_LIST: OrderListResponse = {
-  orders: MOCK_ORDERS,
+  items: MOCK_ORDERS,
   total: 2,
   page: 1,
   limit: 100,
@@ -311,7 +329,7 @@ describe("Admin Orders List", () => {
 
   it("shows empty state when no orders exist", async () => {
     mockedGetAdminOrders.mockResolvedValue({
-      orders: [],
+      items: [],
       total: 0,
       page: 1,
       limit: 100,

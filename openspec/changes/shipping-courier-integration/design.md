@@ -6,6 +6,8 @@ The existing `POST /v1/orders` accepts `shipping_address: str | None`. The front
 
 Speedy and Econt both have public APIs for office listings, but for MVP we'll use static office data (periodically refreshed) to avoid runtime API dependencies on checkout.
 
+> **Scope note:** This change delivers the **delivery picker** (structured method/courier/office/door object, admin display, JSON office data). Real-time **shipping price calculation** (courier calc APIs, per-product weight, free-shipping threshold, two-phase pricing UX, fallback) has been split into a sibling change: `shipping-pricing`. Decisions 10–14 below describe the intended pricing design but are implemented in that follow-on. Decisions 1–9, 15–17 are in-scope for this change. This change ships with `shipping_cents = 0` as a placeholder.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -287,6 +289,57 @@ The checkout flow:
 This supersedes the original Decision #5 ordering (which had courier choice at step 2, before location). The key insight: customers want to compare prices, and price depends on destination — so destination must come first.
 
 **Rationale:** Price is the #1 decision factor for courier choice in Bulgaria. Showing both options with prices lets the customer make an informed decision without guessing.
+
+### 16. Server-side validation of `shipping_cents` via range check (not re-calculation)
+
+**Decision:** The frontend passes `shipping_cents` (obtained from `/v1/delivery/calculate`) in the checkout payload. The server validates it with a simple bounded range check rather than re-calling the courier API during checkout:
+
+```python
+SHIPPING_CENTS_MIN = 0           # 0 when free-shipping threshold is met
+SHIPPING_CENTS_MAX = 3000        # €30 — well above any real Bulgaria domestic rate
+
+# In order_service.checkout():
+if items_total_cents >= FREE_SHIPPING_THRESHOLD_CENTS:
+    shipping_cents = 0           # server-enforced, ignore frontend value
+elif not (SHIPPING_CENTS_MIN <= shipping_cents <= SHIPPING_CENTS_MAX):
+    raise InvalidShippingPriceError(...)
+```
+
+**Alternatives considered:**
+- *Trust the frontend value verbatim:* Customer could tamper with the payload and pay €0.01 shipping. Rejected.
+- *Re-call the courier `/calculate` endpoint during checkout:* Adds an external dependency to the atomic checkout transaction, violates Goal #7 (checkout POST < 200ms, no external calls). Rejected.
+- *Signed price token (JWT with `{courier, dest_hash, cents, exp}` issued by `/calculate` and verified in checkout):* Cryptographically tight but overkill at this scale. Rejected for MVP; could be added later if fraud becomes a real signal.
+
+**Rationale:** The realistic worst case is a tampered value in `[0, MAX]` — bounded margin loss. At a family-business scale with low fraud risk, the range check is the right effort/risk tradeoff. Free-shipping threshold is always server-enforced regardless of what the frontend sends, so the biggest loss vector (setting `shipping_cents = 0` on a small order) is closed.
+
+### 17. Bilingual i18n coupling — plumb translations from day one
+
+**Decision:** All customer-facing strings in the new delivery components (method labels, courier names, disclaimers, validation messages, admin section headers) go through `useTranslations` with keys under a `checkout.delivery.*` namespace, even if only Bulgarian values are populated initially.
+
+Concrete namespace shape (populated in `frontend/messages/bg.json` and `frontend/messages/en.json`):
+```json
+"checkout": {
+  "delivery": {
+    "method": {
+      "office": "Вземи от офис",
+      "door": "Доставка до врата"
+    },
+    "courier": { "speedy": "Speedy", "econt": "Econt" },
+    "officeType": { "office": "Офис", "apt": "Автомат" },
+    "priceEstimate": "Ориентировъчна цена",
+    "priceExact": "Финална цена",
+    "freeShipping": "Безплатна доставка",
+    "amountToFreeShipping": "Добави още за {amount} за безплатна доставка",
+    "phonePlaceholder": "+359..."
+  }
+}
+```
+
+**Alternatives considered:**
+- *Hardcode Bulgarian strings, translate later:* The `bilingual-i18n` change touches every checkout string. Hardcoding here means re-plumbing every one of them through translations in that change — double the work, and easy to miss strings that are only visible mid-flow. Rejected.
+- *Wait for bilingual-i18n to land first:* Delays this change indefinitely. Rejected.
+
+**Rationale:** The cost of adding a translation key at write-time is trivial. The cost of retrofitting them across a multi-step checkout flow later is high (every string is a merge conflict risk, easy to miss error messages that only surface conditionally). Adding the keys now is cheap insurance whether i18n ships before, alongside, or after this change.
 
 ## Risks / Trade-offs
 

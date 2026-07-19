@@ -17,7 +17,7 @@ from app.exceptions import register_exception_handlers
 from app.logging_config import configure_logging
 from app.middleware.request_id import RequestIdMiddleware
 from app.middleware.session import SessionMiddleware
-from app.routes import admin, auth, cart, comments, locale, orders, products, reactions
+from app.routes import admin, auth, cart, comments, locale, orders, products, reactions, delivery
 
 logger = structlog.get_logger(__name__)
 SESSION_CLEANUP_INTERVAL_SECONDS = 3600
@@ -162,6 +162,7 @@ def create_app() -> FastAPI:
     application.include_router(reactions.router, prefix="/v1/products", tags=["reactions"])
     application.include_router(comments.router, prefix="/v1/products", tags=["comments"])
     application.include_router(locale.router, prefix="/v1/locale", tags=["locale"])
+    application.include_router(delivery.router, prefix="/v1/delivery", tags=["delivery"])
 
     # Global exception handlers for consistent error format
     register_exception_handlers(application)

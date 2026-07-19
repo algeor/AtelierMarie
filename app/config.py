@@ -59,6 +59,7 @@ class Settings(BaseSettings):
         "/v1/redoc",
         "/v1/openapi.json",
     ]
+    
 
     # Cart limits
     cart_max_quantity_per_item: int = 10

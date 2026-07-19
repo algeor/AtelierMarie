@@ -119,14 +119,76 @@
     "emailInvalid": "Моля, въведете валиден имейл адрес",
     "name": "Име",
     "namePlaceholder": "Пълно име",
-    "shippingAddress": "Адрес за доставка (по избор)",
-    "addressPlaceholder": "Улица, град, пощенски код",
     "orderNotes": "Бележки към поръчката (по избор)",
     "notesPlaceholder": "Специални изисквания...",
     "placeOrder": "Направи поръчка",
     "placingOrder": "Поръчката се обработва...",
     "unavailableItems": "Някои артикули вече не са налични. Моля, прегледайте кошницата.",
-    "genericError": "Нещо се обърка. Моля, опитайте отново."
+    "genericError": "Нещо се обърка. Моля, опитайте отново.",
+    "delivery": {
+      "sectionTitle": "Доставка",
+      "method": {
+        "label": "Начин на доставка",
+        "office": "Вземи от офис",
+        "door": "Доставка до врата",
+        "required": "Моля, изберете начин на доставка"
+      },
+      "courier": {
+        "label": "Куриер",
+        "speedy": "Speedy",
+        "econt": "Econt",
+        "required": "Моля, изберете куриер"
+      },
+      "officeType": {
+        "all": "Всички",
+        "office": "Офис",
+        "apt": "Автомат",
+        "lockerHint": "Ще получите SMS код за отваряне на шкафчето"
+      },
+      "office": {
+        "cityLabel": "Град",
+        "cityPlaceholder": "Търси град...",
+        "searchLabel": "Търси офис",
+        "searchPlaceholder": "Филтрирай по име или адрес...",
+        "loading": "Зареждане на офиси...",
+        "empty": "Няма намерени офиси за този град",
+        "selectCityFirst": "Въведете град, за да видите офисите",
+        "selected": "Избран офис",
+        "change": "Промени",
+        "required": "Моля, изберете офис"
+      },
+      "door": {
+        "cityLabel": "Град",
+        "cityPlaceholder": "напр. София",
+        "cityRequired": "Градът е задължителен",
+        "postalCodeLabel": "Пощенски код",
+        "postalCodePlaceholder": "1000",
+        "postalCodeRequired": "Пощенският код е задължителен",
+        "streetLabel": "Улица и номер",
+        "streetPlaceholder": "напр. бул. Витоша 100",
+        "streetRequired": "Улицата е задължителна",
+        "buildingLabel": "Блок / Вход (по избор)",
+        "buildingPlaceholder": "напр. А",
+        "apartmentLabel": "Етаж / Апартамент (по избор)",
+        "apartmentPlaceholder": "напр. 12"
+      },
+      "phoneLabel": "Телефон за куриера",
+      "phonePlaceholder": "+359...",
+      "phoneRequired": "Телефонът е задължителен",
+      "phoneInvalid": "Моля, въведете валиден телефонен номер",
+      "display": {
+        "sectionTitle": "Доставка",
+        "methodLabel": "Начин",
+        "courierLabel": "Куриер",
+        "officeLabel": "Офис",
+        "addressLabel": "Адрес",
+        "phoneLabel": "Телефон",
+        "postalCode": "Пощ. код",
+        "building": "Блок/Вход",
+        "apartment": "Ет./Ап.",
+        "none": "Не е посочено"
+      }
+    }
   },
   "orders": {
     "title": "Моите поръчки",

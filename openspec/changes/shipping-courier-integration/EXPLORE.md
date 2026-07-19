@@ -1,5 +1,7 @@
 # Shipping Courier Integration — Explore Questions
 
+> **Status:** Most of the questions below have been resolved. See the **Resolved threads** section at the end for the current position on each. Anything not listed there is either still open or intentionally deferred.
+
 ## Timing & Priority
 
 1. **Is this moving up from "add-on" tier?** It's in `add-ons/` alongside the blog. Meanwhile `auth-image-upload`, `bilingual-i18n`, and `social-contact-buttons` are active. What's the trigger for starting this?
@@ -104,3 +106,35 @@ Both couriers have official APIs for fetching office lists. No scraping needed.
 - Courier tracking integration — how far out?
 - What happens when a customer places an order and the office closes the next day? Is the courier's office_id stable enough to use as a reference?
 - Nightly sync script using the same API endpoints (trivial upgrade from the one-off fetch script).
+
+---
+
+## Resolved threads
+
+Cross-references point to `design.md` Decisions (D1–D17) and the sibling `shipping-pricing` change where relevant.
+
+| # | Question | Resolution |
+|---|----------|------------|
+| 1 | Priority / trigger for starting | Active. Sibling `shipping-pricing` split off so this can ship without waiting on courier accounts. |
+| 2 | Order vs. bilingual-i18n | Not blocked — D17 requires all new strings go through `useTranslations` under `checkout.delivery.*` from day one, so i18n can land before/after/with this. |
+| 3 | Local/atelier pickup as third method | Out of scope for this change. `method` remains `office | door`. Reopen if the owner wants it. |
+| 4 | "No preference" courier option | Rejected — customer picks explicitly. Courier comparison (in `shipping-pricing`) surfaces both prices side by side to make the choice easy. |
+| 5 | Where office data comes from | Official courier APIs. Econt Nomenclatures + Speedy Location. See EXPLORE §"Resolved: Office Data Source". |
+| 6 | Refresh cadence | Manual one-off script for MVP (`scripts/fetch_courier_offices.py`, task 2.2). Nightly cron is a future upgrade. |
+| 7 | Data-size / latency | City-filter endpoints (`GET /v1/delivery/cities`, `GET /v1/delivery/offices?city=…`). See D2, D4. |
+| 8 | Auto-prefix `+359` | Deferred. Frontend field placeholder set to `+359...` via i18n key (task 8.1). Server-side regex accepts flexible formats. |
+| 9 | Phone UX location | Phone is a required field on both `DeliveryOffice` and `DeliveryDoor` (D7). Rendered inline with the office/address details step, not a separate step. |
+| 10 | `delivery_service.py` naming | Kept as `service` for consistency with existing service-layer pattern. Pure in-memory data access is acceptable at this scale. |
+| 11 | Startup failure mode for missing JSON | Log warning, return empty arrays (per D2 loose contract). Startup log line confirms office counts loaded. Health-check endpoint not added — deferred. |
+| 12 | Schema migration strategy | Additive `ALTER TABLE` at startup, matching the codebase's existing pattern in `app/database.py`. No live prod DB yet, so this is safe. |
+| 13 | Frontend-backend coupling | Same VPS, deployed together via `make` targets and systemd restart. Breaking API change is acceptable pre-launch. |
+| 14 | Mock API strategy | Frontend can develop against `lib/mock-api.ts` (task 6.4) which serves the same office JSON shape. |
+| 15 | Smallest useful slice | Achieved by splitting off `shipping-pricing`. This change delivers picker + admin display; pricing is the follow-on. |
+| 16 | Office picker complexity / combobox lib | Custom component (task 5.3), same click-outside + Escape pattern used in `LanguageToggle`/`UserMenu`. No dropdown library. |
+| — | Shipping_cents server validation | Range check `[0, SHIPPING_CENTS_MAX]` with server-enforced free-shipping override — D16. |
+| — | i18n coupling | All delivery strings go through `useTranslations` under `checkout.delivery.*` from day one — D17. |
+| — | Sender office assumption | Single-origin via `SPEEDY_SENDER_OFFICE_ID` / `ECONT_SENDER_OFFICE_ID` env vars (`shipping-pricing` design §1–2). Multi-origin deferred. |
+| — | Approximate → exact price delta as bait-and-switch risk | Disclaimer shown ("Ориентировъчна цена..."). If real deltas turn out to be > ~15% commonly, revisit skipping the approximate phase — `shipping-pricing` design "Risks". |
+| — | Legacy `shipping_address` order handling | Choice deferred to task 4.6: either delete pre-launch test orders and remove the legacy branch, or keep read-side fallback. Not left as ongoing ambiguity in code. |
+
+Anything not in this table is still open — most notably the courier-tracking / label-generation follow-on work listed under "Future Considerations" above.

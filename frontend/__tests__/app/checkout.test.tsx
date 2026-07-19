@@ -48,6 +48,25 @@ vi.mock("@/lib/api", () => ({
   createOrder: vi.fn(),
 }));
 
+vi.mock("@/components/checkout/DeliverySection", () => ({
+  DeliverySection: () => <div data-testid="delivery-section" />,
+  validateDelivery: () => ({
+    valid: true,
+    errors: {},
+    normalized: {
+      method: "office",
+      office: {
+        courier: "speedy",
+        office_id: "SP-1",
+        office_name: "Speedy Office 1",
+        office_type: "office",
+        phone: "+359888123456",
+      },
+      door: null,
+    },
+  }),
+}));
+
 vi.mock("next/link", () => ({
   default: ({ children, href }: { children: React.ReactNode; href: string }) => (
     <a href={href}>{children}</a>
@@ -111,7 +130,9 @@ describe("Checkout Page", () => {
       total_cents: 2500,
       customer_email: "test@example.com",
       customer_name: null,
-      shipping_address: null,
+      delivery_method: null,
+      delivery_courier: null,
+      delivery_details: null,
       notes: null,
       items: [{ product_id: "lavender-dream", product_name: "Lavender Dream", price_cents: 2500, quantity: 1 }],
       created_at: "2026-07-01T00:00:00Z",

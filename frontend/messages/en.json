@@ -119,14 +119,76 @@
     "emailInvalid": "Please enter a valid email address",
     "name": "Name",
     "namePlaceholder": "Full name",
-    "shippingAddress": "Shipping Address (optional)",
-    "addressPlaceholder": "Street, city, postal code",
     "orderNotes": "Order Notes (optional)",
     "notesPlaceholder": "Any special requests...",
     "placeOrder": "Place Order",
     "placingOrder": "Placing order...",
     "unavailableItems": "Some items are no longer available. Please review your cart.",
-    "genericError": "Something went wrong. Please try again."
+    "genericError": "Something went wrong. Please try again.",
+    "delivery": {
+      "sectionTitle": "Delivery",
+      "method": {
+        "label": "Delivery method",
+        "office": "Pick up from office",
+        "door": "Door delivery",
+        "required": "Please select a delivery method"
+      },
+      "courier": {
+        "label": "Courier",
+        "speedy": "Speedy",
+        "econt": "Econt",
+        "required": "Please select a courier"
+      },
+      "officeType": {
+        "all": "All",
+        "office": "Office",
+        "apt": "Locker (Автомат)",
+        "lockerHint": "You'll receive an SMS code to open the locker"
+      },
+      "office": {
+        "cityLabel": "City",
+        "cityPlaceholder": "Search city...",
+        "searchLabel": "Search offices",
+        "searchPlaceholder": "Filter by name or address...",
+        "loading": "Loading offices...",
+        "empty": "No offices found for this city",
+        "selectCityFirst": "Enter a city to see offices",
+        "selected": "Selected office",
+        "change": "Change",
+        "required": "Please select an office"
+      },
+      "door": {
+        "cityLabel": "City",
+        "cityPlaceholder": "e.g., Sofia",
+        "cityRequired": "City is required",
+        "postalCodeLabel": "Postal code",
+        "postalCodePlaceholder": "1000",
+        "postalCodeRequired": "Postal code is required",
+        "streetLabel": "Street and number",
+        "streetPlaceholder": "e.g., Vitosha Blvd 100",
+        "streetRequired": "Street is required",
+        "buildingLabel": "Building / Entrance (optional)",
+        "buildingPlaceholder": "e.g., A",
+        "apartmentLabel": "Floor / Apartment (optional)",
+        "apartmentPlaceholder": "e.g., 12"
+      },
+      "phoneLabel": "Phone for courier",
+      "phonePlaceholder": "+359...",
+      "phoneRequired": "Phone number is required",
+      "phoneInvalid": "Please enter a valid phone number",
+      "display": {
+        "sectionTitle": "Delivery",
+        "methodLabel": "Method",
+        "courierLabel": "Courier",
+        "officeLabel": "Office",
+        "addressLabel": "Address",
+        "phoneLabel": "Phone",
+        "postalCode": "Postal code",
+        "building": "Building",
+        "apartment": "Apt/Floor",
+        "none": "Not specified"
+      }
+    }
   },
   "orders": {
     "title": "My Orders",

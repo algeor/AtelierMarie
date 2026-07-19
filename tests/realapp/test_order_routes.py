@@ -11,6 +11,19 @@ from app.config import get_settings
 
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
 
+# Reusable structured-delivery block for /v1/orders POSTs. Kept as a module-
+# level dict so the JSON body composes with `**DELIVERY` (or nested inline).
+DELIVERY_OFFICE_ECONT = {
+    "method": "office",
+    "office": {
+        "courier": "econt",
+        "office_id": "1001",
+        "office_name": "Sofia Center",
+        "office_type": "office",
+        "phone": "+359888123456",
+    },
+}
+
 
 @pytest.fixture(autouse=True)
 def _seed_order_products(db_path, app):
@@ -83,7 +96,7 @@ class TestCreateOrder:
     async def test_checkout_success_201(self, order_client):
         resp = await order_client.post(
             "/v1/orders",
-            json={"customer_email": "marie@example.com", "customer_name": "Marie"},
+            json={"customer_email": "marie@example.com", "customer_name": "Marie", "delivery": DELIVERY_OFFICE_ECONT},
         )
         assert resp.status_code == 201
         data = resp.json()
@@ -110,7 +123,7 @@ class TestCreateOrder:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             c.cookies.set(settings.session_cookie_name, sid)
-            resp = await c.post("/v1/orders", json={"customer_email": "t@t.com"})
+            resp = await c.post("/v1/orders", json={"customer_email": "t@t.com", "delivery": DELIVERY_OFFICE_ECONT})
         assert resp.status_code == 400
         assert resp.json()["error"]["code"] == "EMPTY_CART"
 
@@ -136,33 +149,34 @@ class TestCreateOrder:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             c.cookies.set(settings.session_cookie_name, sid)
-            resp = await c.post("/v1/orders", json={"customer_email": "t@t.com"})
+            resp = await c.post("/v1/orders", json={"customer_email": "t@t.com", "delivery": DELIVERY_OFFICE_ECONT})
         assert resp.status_code == 409
         assert resp.json()["error"]["code"] == "INSUFFICIENT_STOCK"
 
     # 7.4: POST returns 422 for invalid email, overly long fields
     async def test_invalid_email_422(self, order_client):
-        resp = await order_client.post("/v1/orders", json={"customer_email": "not-an-email"})
+        resp = await order_client.post("/v1/orders", json={"customer_email": "not-an-email", "delivery": DELIVERY_OFFICE_ECONT})
         assert resp.status_code == 422
 
     async def test_overly_long_customer_name_422(self, order_client):
         resp = await order_client.post(
             "/v1/orders",
-            json={"customer_email": "ok@ok.com", "customer_name": "X" * 201},
-        )
-        assert resp.status_code == 422
-
-    async def test_overly_long_shipping_address_422(self, order_client):
-        resp = await order_client.post(
-            "/v1/orders",
-            json={"customer_email": "ok@ok.com", "shipping_address": "X" * 1001},
+            json={
+                "customer_email": "ok@ok.com",
+                "customer_name": "X" * 201,
+                "delivery": DELIVERY_OFFICE_ECONT,
+            },
         )
         assert resp.status_code == 422
 
     async def test_overly_long_notes_422(self, order_client):
         resp = await order_client.post(
             "/v1/orders",
-            json={"customer_email": "ok@ok.com", "notes": "X" * 2001},
+            json={
+                "customer_email": "ok@ok.com",
+                "notes": "X" * 2001,
+                "delivery": DELIVERY_OFFICE_ECONT,
+            },
         )
         assert resp.status_code == 422
 
@@ -177,7 +191,7 @@ class TestListMyOrders:
 
     async def test_list_orders_paginated(self, order_client):
         # Create an order first
-        await order_client.post("/v1/orders", json={"customer_email": "t@t.com"})
+        await order_client.post("/v1/orders", json={"customer_email": "t@t.com", "delivery": DELIVERY_OFFICE_ECONT})
 
         resp = await order_client.get("/v1/orders")
         assert resp.status_code == 200
@@ -195,7 +209,7 @@ class TestListMyOrders:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             c.cookies.set(settings.session_cookie_name, order_session_id)
-            resp = await c.post("/v1/orders", json={"customer_email": "a@a.com"})
+            resp = await c.post("/v1/orders", json={"customer_email": "a@a.com", "delivery": DELIVERY_OFFICE_ECONT})
             assert resp.status_code == 201
 
         # Create session B (no orders)
@@ -232,7 +246,7 @@ class TestGetOrderDetail:
         # Create order with session A
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             c.cookies.set(settings.session_cookie_name, order_session_id)
-            resp = await c.post("/v1/orders", json={"customer_email": "a@a.com"})
+            resp = await c.post("/v1/orders", json={"customer_email": "a@a.com", "delivery": DELIVERY_OFFICE_ECONT})
             order_id = resp.json()["id"]
 
         # Session B tries to access
@@ -262,7 +276,7 @@ class TestAdminUpdateStatus:
 
     async def test_invalid_transition_422(self, admin_order_client):
         # Create order
-        resp = await admin_order_client.post("/v1/orders", json={"customer_email": "t@t.com"})
+        resp = await admin_order_client.post("/v1/orders", json={"customer_email": "t@t.com", "delivery": DELIVERY_OFFICE_ECONT})
         order_id = resp.json()["id"]
 
         # Try invalid transition: pending → shipped
@@ -307,7 +321,7 @@ class TestAdminListOrders:
 
     async def test_admin_list_all_orders(self, admin_order_client):
         # Create an order
-        await admin_order_client.post("/v1/orders", json={"customer_email": "t@t.com"})
+        await admin_order_client.post("/v1/orders", json={"customer_email": "t@t.com", "delivery": DELIVERY_OFFICE_ECONT})
 
         resp = await admin_order_client.get("/v1/admin/orders")
         assert resp.status_code == 200
@@ -316,7 +330,7 @@ class TestAdminListOrders:
 
     async def test_admin_filter_by_status(self, admin_order_client):
         # Create an order (status: pending)
-        await admin_order_client.post("/v1/orders", json={"customer_email": "t@t.com"})
+        await admin_order_client.post("/v1/orders", json={"customer_email": "t@t.com", "delivery": DELIVERY_OFFICE_ECONT})
 
         # Filter by pending
         resp = await admin_order_client.get("/v1/admin/orders?status=pending")
@@ -365,8 +379,8 @@ class TestAdminGetOrderDetail:
             json={
                 "customer_email": "t@t.com",
                 "customer_name": "Test",
-                "shipping_address": "123 St",
                 "notes": "Handle with care",
+                "delivery": DELIVERY_OFFICE_ECONT,
             },
         )
         order_id = resp.json()["id"]
@@ -376,8 +390,10 @@ class TestAdminGetOrderDetail:
         data = resp.json()
         assert data["customer_email"] == "t@t.com"
         assert data["customer_name"] == "Test"
-        assert data["shipping_address"] == "123 St"
         assert data["notes"] == "Handle with care"
+        assert data["delivery_method"] == "office"
+        assert data["delivery_courier"] == "econt"
+        assert data["delivery_details"]["office_id"] == "1001"
         assert len(data["items"]) == 2
 
     async def test_non_admin_gets_401(self, order_client):

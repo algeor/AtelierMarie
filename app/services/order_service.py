@@ -4,6 +4,7 @@ All functions accept an explicit sqlite3.Connection and primitive parameters.
 Routes destructure Pydantic models before calling these functions.
 """
 
+import json
 import sqlite3
 import uuid
 from datetime import UTC, datetime
@@ -12,6 +13,7 @@ from typing import Literal, TypedDict
 import structlog
 
 from app.constants import MAX_LIMIT, MAX_PAGE
+from app.models.delivery import DeliveryInfo
 from app.models.orders import OrderStatus
 
 logger = structlog.get_logger(__name__)
@@ -110,9 +112,13 @@ class OrderData(TypedDict):
     user_id: str | None
     status: str
     total_cents: int
+    items_total_cents: int
+    shipping_cents: int
     customer_email: str
     customer_name: str | None
-    shipping_address: str | None
+    delivery_method: str | None
+    delivery_courier: str | None
+    delivery_details: dict | None
     notes: str | None
     created_at: str
     updated_at: str
@@ -135,8 +141,8 @@ def checkout(
     conn: sqlite3.Connection,
     session_id: str,
     customer_email: str,
+    delivery: DeliveryInfo,
     customer_name: str | None = None,
-    shipping_address: str | None = None,
     notes: str | None = None,
     user_id: str | None = None,
     locale: Locale = "en",
@@ -148,7 +154,21 @@ def checkout(
 
     Validates stock, creates order with price snapshots, decrements stock,
     and clears cart items — all within an explicit transaction.
+
+    `delivery` is JSON-serialized into `orders.delivery_details` with
+    `ensure_ascii=False` so Cyrillic office/city names round-trip readably.
+    `shipping_cents` is 0 in this change (real pricing lands in
+    `shipping-pricing`); the value is server-enforced.
     """
+    # Serialize delivery sub-object (office or door) into JSON blob.
+    # ensure_ascii=False preserves Cyrillic — see HANDOFF gotcha #5.
+    delivery_sub = delivery.office if delivery.method == "office" else delivery.door
+    delivery_details_json = json.dumps(
+        delivery_sub.model_dump() if delivery_sub is not None else None,
+        ensure_ascii=False,
+    )
+    delivery_courier = delivery_sub.courier if delivery_sub is not None else None
+
     conn.execute("BEGIN IMMEDIATE")
     try:
         name_expr = _localized_product_name(locale)
@@ -196,14 +216,19 @@ def checkout(
         # 3. Create order
         order_id = str(uuid.uuid4())
         now = datetime.now(UTC).strftime(_DT_FMT)
-        total_cents = sum(row["price_cents"] * row["quantity"] for row in cart_rows)
+        items_total_cents = sum(row["price_cents"] * row["quantity"] for row in cart_rows)
+        # shipping_cents is a placeholder in this change — the shipping-pricing
+        # follow-on adds real courier calculation + free-shipping threshold.
+        shipping_cents = 0
+        total_cents = items_total_cents + shipping_cents
 
         conn.execute(
             """
             INSERT INTO orders (id, session_id, user_id, status, total_cents,
-                               customer_email, customer_name, shipping_address, notes,
-                               created_at, updated_at)
-            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
+                               customer_email, customer_name,
+                               delivery_method, delivery_courier, delivery_details,
+                               notes, created_at, updated_at)
+            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 order_id,
@@ -212,7 +237,9 @@ def checkout(
                 total_cents,
                 customer_email,
                 customer_name,
-                shipping_address,
+                delivery.method,
+                delivery_courier,
+                delivery_details_json,
                 notes,
                 now,
                 now,
@@ -276,9 +303,13 @@ def checkout(
         user_id=user_id,
         status="pending",
         total_cents=total_cents,
+        items_total_cents=items_total_cents,
+        shipping_cents=shipping_cents,
         customer_email=customer_email,
         customer_name=customer_name,
-        shipping_address=shipping_address,
+        delivery_method=delivery.method,
+        delivery_courier=delivery_courier,
+        delivery_details=json.loads(delivery_details_json) if delivery_details_json else None,
         notes=notes,
         created_at=now,
         updated_at=now,
@@ -308,15 +339,39 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
         for ir in item_rows
     ]
 
+    # Delivery details JSON blob → dict (or None for legacy rows).
+    delivery_details_raw = row["delivery_details"] if "delivery_details" in row.keys() else None
+    delivery_details: dict | None
+    if delivery_details_raw:
+        try:
+            delivery_details = json.loads(delivery_details_raw)
+        except json.JSONDecodeError:
+            logger.warning(
+                "order_delivery_details_invalid_json",
+                order_id=order_id,
+            )
+            delivery_details = None
+    else:
+        delivery_details = None
+
+    # shipping_cents column is added by shipping-pricing; safe-default to 0.
+    shipping_cents = row["shipping_cents"] if "shipping_cents" in row.keys() else 0
+    total_cents = row["total_cents"]
+    items_total_cents = total_cents - shipping_cents
+
     return OrderData(
         id=row["id"],
         session_id=row["session_id"],
         user_id=row["user_id"],
         status=row["status"],
-        total_cents=row["total_cents"],
+        total_cents=total_cents,
+        items_total_cents=items_total_cents,
+        shipping_cents=shipping_cents,
         customer_email=row["customer_email"],
         customer_name=row["customer_name"],
-        shipping_address=row["shipping_address"],
+        delivery_method=row["delivery_method"] if "delivery_method" in row.keys() else None,
+        delivery_courier=row["delivery_courier"] if "delivery_courier" in row.keys() else None,
+        delivery_details=delivery_details,
         notes=row["notes"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],

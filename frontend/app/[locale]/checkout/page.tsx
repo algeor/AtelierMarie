@@ -10,11 +10,18 @@ import { useLocalizedError } from "@/lib/useLocalizedError";
 import { formatPrice } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
+import {
+  DeliverySection,
+  validateDelivery,
+  type DeliveryValidationErrors,
+} from "@/components/checkout/DeliverySection";
+import type { DeliveryInfo } from "@/lib/types";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function CheckoutPage() {
   const t = useTranslations("checkout");
+  const tRoot = useTranslations();
   const tCart = useTranslations("cart");
   const getLocalizedError = useLocalizedError();
   const router = useRouter();
@@ -23,23 +30,21 @@ export default function CheckoutPage() {
   // Form state
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
-  const [address, setAddress] = useState("");
   const [notes, setNotes] = useState("");
+  const [delivery, setDelivery] = useState<Partial<DeliveryInfo>>({});
+  const [deliveryErrors, setDeliveryErrors] = useState<DeliveryValidationErrors>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // Refs for focus management
   const emailRef = useRef<HTMLInputElement>(null);
   const hasRedirected = useRef(false);
 
-  // Refresh cart on mount for freshest prices
   useEffect(() => {
     refreshCart();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Redirect to products if cart is empty after loading
   useEffect(() => {
     if (!isLoading && items.length === 0 && !hasRedirected.current) {
       hasRedirected.current = true;
@@ -47,12 +52,15 @@ export default function CheckoutPage() {
     }
   }, [isLoading, items.length, router]);
 
-  const validateEmail = useCallback((value: string): string | null => {
-    if (!value.trim()) return t("emailRequired");
-    if (value.length > 254) return t("emailTooLong");
-    if (!EMAIL_REGEX.test(value)) return t("emailInvalid");
-    return null;
-  }, [t]);
+  const validateEmail = useCallback(
+    (value: string): string | null => {
+      if (!value.trim()) return t("emailRequired");
+      if (value.length > 254) return t("emailTooLong");
+      if (!EMAIL_REGEX.test(value)) return t("emailInvalid");
+      return null;
+    },
+    [t],
+  );
 
   const handleEmailBlur = useCallback(() => {
     const error = validateEmail(email);
@@ -68,7 +76,6 @@ export default function CheckoutPage() {
       e.preventDefault();
       setSubmitError(null);
 
-      // Validate
       const emailError = validateEmail(email);
       if (emailError) {
         setErrors({ email: emailError });
@@ -76,14 +83,21 @@ export default function CheckoutPage() {
         return;
       }
 
+      const { valid, errors: dErrors, normalized } = validateDelivery(delivery, (k) => tRoot(k));
+      if (!valid || !normalized) {
+        setDeliveryErrors(dErrors);
+        return;
+      }
+
       setErrors({});
+      setDeliveryErrors({});
       setIsSubmitting(true);
 
       try {
         const order = await createOrder({
           customer_email: email.trim(),
           customer_name: name.trim() || null,
-          shipping_address: address.trim() || null,
+          delivery: normalized,
           notes: notes.trim() || null,
         });
         router.push(`/orders/${order.id}/confirmation`);
@@ -97,10 +111,9 @@ export default function CheckoutPage() {
         setIsSubmitting(false);
       }
     },
-    [email, name, address, notes, validateEmail, router, t, getLocalizedError]
+    [email, name, notes, delivery, validateEmail, router, t, tRoot, getLocalizedError],
   );
 
-  // Loading skeleton
   if (isLoading) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
@@ -122,19 +135,14 @@ export default function CheckoutPage() {
     );
   }
 
-  // Don't render form if cart is empty (redirect will fire)
-  if (items.length === 0) {
-    return null;
-  }
+  if (items.length === 0) return null;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
       <h1 className="mb-8 font-heading text-3xl text-charcoal">{t("title")}</h1>
 
       <div className="grid gap-12 lg:grid-cols-[1fr_400px]">
-        {/* Contact & Shipping Form */}
         <form id="checkout-form" onSubmit={handleSubmit} noValidate>
-          {/* Submission error */}
           <div aria-live="polite" className="mb-6">
             {submitError && (
               <div className="rounded-brand border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -145,10 +153,7 @@ export default function CheckoutPage() {
 
           {/* Email */}
           <div className="mb-6">
-            <label
-              htmlFor="checkout-email"
-              className="mb-1.5 block text-sm font-medium text-soft-brown"
-            >
+            <label htmlFor="checkout-email" className="mb-1.5 block text-sm font-medium text-soft-brown">
               {t("email")} <span className="text-red-700">*</span>
             </label>
             <input
@@ -167,10 +172,7 @@ export default function CheckoutPage() {
               placeholder={t("emailPlaceholder")}
             />
             {errors.email && (
-              <p
-                id="checkout-email-error"
-                className="mt-1.5 text-sm text-red-700"
-              >
+              <p id="checkout-email-error" className="mt-1.5 text-sm text-red-700">
                 {errors.email}
               </p>
             )}
@@ -178,10 +180,7 @@ export default function CheckoutPage() {
 
           {/* Name */}
           <div className="mb-6">
-            <label
-              htmlFor="checkout-name"
-              className="mb-1.5 block text-sm font-medium text-soft-brown"
-            >
+            <label htmlFor="checkout-name" className="mb-1.5 block text-sm font-medium text-soft-brown">
               {t("name")}
             </label>
             <input
@@ -195,31 +194,12 @@ export default function CheckoutPage() {
             />
           </div>
 
-          {/* Shipping Address */}
-          <div className="mb-6">
-            <label
-              htmlFor="checkout-address"
-              className="mb-1.5 block text-sm font-medium text-soft-brown"
-            >
-              {t("shippingAddress")}
-            </label>
-            <textarea
-              id="checkout-address"
-              rows={3}
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              maxLength={500}
-              className="w-full rounded-brand border border-champagne-beige px-4 py-3 text-charcoal bg-warm-ivory placeholder:text-soft-brown/50 focus:outline-none focus:ring-2 focus:ring-soft-brown focus:ring-offset-2 focus:ring-offset-warm-ivory"
-              placeholder={t("addressPlaceholder")}
-            />
-          </div>
+          {/* Delivery */}
+          <DeliverySection value={delivery} onChange={setDelivery} errors={deliveryErrors} />
 
           {/* Order Notes */}
           <div className="mb-6">
-            <label
-              htmlFor="checkout-notes"
-              className="mb-1.5 block text-sm font-medium text-soft-brown"
-            >
+            <label htmlFor="checkout-notes" className="mb-1.5 block text-sm font-medium text-soft-brown">
               {t("orderNotes")}
             </label>
             <textarea
@@ -233,40 +213,24 @@ export default function CheckoutPage() {
             />
           </div>
 
-          {/* Submit button (visible on mobile, hidden on desktop where sidebar has it) */}
           <div className="lg:hidden">
-            <Button
-              type="submit"
-              variant="primary"
-              size="lg"
-              isLoading={isSubmitting}
-              className="w-full"
-            >
+            <Button type="submit" variant="primary" size="lg" isLoading={isSubmitting} className="w-full">
               {isSubmitting ? t("placingOrder") : t("placeOrder")}
             </Button>
           </div>
         </form>
 
-        {/* Order Summary Sidebar */}
         <aside className="lg:sticky lg:top-24 lg:self-start">
           <div className="rounded-brand border border-champagne-beige bg-warm-ivory p-6">
-            <h2 className="mb-4 font-heading text-xl text-charcoal">
-              {t("orderSummary")}
-            </h2>
+            <h2 className="mb-4 font-heading text-xl text-charcoal">{t("orderSummary")}</h2>
 
             <ul className="divide-y divide-champagne-beige">
               {items.map((item) => (
-                <li
-                  key={item.product_id}
-                  className="flex items-center justify-between py-3 text-sm"
-                >
+                <li key={item.product_id} className="flex items-center justify-between py-3 text-sm">
                   <div className="flex-1 pr-4">
-                    <p className="font-medium text-charcoal">
-                      {item.product.name}
-                    </p>
+                    <p className="font-medium text-charcoal">{item.product.name}</p>
                     <p className="text-soft-brown">
-                      {item.quantity} &times;{" "}
-                      {formatPrice(item.product.price_cents)}
+                      {item.quantity} &times; {formatPrice(item.product.price_cents)}
                     </p>
                   </div>
                   <p className="font-medium text-charcoal">
@@ -277,15 +241,10 @@ export default function CheckoutPage() {
             </ul>
 
             <div className="mt-4 flex items-center justify-between border-t border-champagne-beige pt-4">
-              <span className="font-heading text-lg text-charcoal">
-                {tCart("subtotal")}
-              </span>
-              <span className="font-heading text-lg text-charcoal">
-                {formatPrice(total_cents)}
-              </span>
+              <span className="font-heading text-lg text-charcoal">{tCart("subtotal")}</span>
+              <span className="font-heading text-lg text-charcoal">{formatPrice(total_cents)}</span>
             </div>
 
-            {/* Desktop submit button */}
             <div className="mt-6 hidden lg:block">
               <Button
                 type="submit"

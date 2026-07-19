@@ -1,0 +1,167 @@
+[
+  {
+    "id": "speedy-sf-001",
+    "name": "София Център - бул. Витоша 50",
+    "name_en": "Sofia Center - Vitosha Blvd 50",
+    "type": "office",
+    "city": "София",
+    "city_en": "Sofia",
+    "address": "бул. Витоша 50",
+    "working_hours": "Пон-Пет 09:00-19:00, Съб 09:00-14:00",
+    "working_hours_en": "Mon-Fri 09:00-19:00, Sat 09:00-14:00"
+  },
+  {
+    "id": "speedy-sf-002",
+    "name": "София Младост 1 - бул. Ал. Малинов 47",
+    "name_en": "Sofia Mladost 1 - Al. Malinov Blvd 47",
+    "type": "office",
+    "city": "София",
+    "city_en": "Sofia",
+    "address": "бул. Александър Малинов 47",
+    "working_hours": "Пон-Пет 09:00-18:00, Съб 09:00-14:00",
+    "working_hours_en": "Mon-Fri 09:00-18:00, Sat 09:00-14:00"
+  },
+  {
+    "id": "speedy-sf-003",
+    "name": "София Люлин - автомат Кауфланд",
+    "name_en": "Sofia Lyulin - Kaufland locker",
+    "type": "apt",
+    "city": "София",
+    "city_en": "Sofia",
+    "address": "бул. Царица Йоанна 15",
+    "working_hours": "24/7",
+    "working_hours_en": "24/7"
+  },
+  {
+    "id": "speedy-sf-004",
+    "name": "София Студентски град - автомат",
+    "name_en": "Sofia Studentski grad - locker",
+    "type": "apt",
+    "city": "София",
+    "city_en": "Sofia",
+    "address": "ул. Проф. Христо Данов 3",
+    "working_hours": "24/7",
+    "working_hours_en": "24/7"
+  },
+  {
+    "id": "speedy-pd-001",
+    "name": "Пловдив Център - ул. 6-ти септември 152",
+    "name_en": "Plovdiv Center - 6th September St 152",
+    "type": "office",
+    "city": "Пловдив",
+    "city_en": "Plovdiv",
+    "address": "ул. 6-ти септември 152",
+    "working_hours": "Пон-Пет 09:00-19:00, Съб 09:00-14:00",
+    "working_hours_en": "Mon-Fri 09:00-19:00, Sat 09:00-14:00"
+  },
+  {
+    "id": "speedy-pd-002",
+    "name": "Пловдив Тракия - автомат",
+    "name_en": "Plovdiv Trakia - locker",
+    "type": "apt",
+    "city": "Пловдив",
+    "city_en": "Plovdiv",
+    "address": "бул. Освобождение 21",
+    "working_hours": "24/7",
+    "working_hours_en": "24/7"
+  },
+  {
+    "id": "speedy-vr-001",
+    "name": "Варна Център - бул. Владислав Варненчик 10",
+    "name_en": "Varna Center - Vladislav Varnenchik Blvd 10",
+    "type": "office",
+    "city": "Варна",
+    "city_en": "Varna",
+    "address": "бул. Владислав Варненчик 10",
+    "working_hours": "Пон-Пет 09:00-19:00, Съб 09:00-14:00",
+    "working_hours_en": "Mon-Fri 09:00-19:00, Sat 09:00-14:00"
+  },
+  {
+    "id": "speedy-vr-002",
+    "name": "Варна Морска гара - автомат",
+    "name_en": "Varna Sea Station - locker",
+    "type": "apt",
+    "city": "Варна",
+    "city_en": "Varna",
+    "address": "Приморски парк 1",
+    "working_hours": "24/7",
+    "working_hours_en": "24/7"
+  },
+  {
+    "id": "speedy-bs-001",
+    "name": "Бургас Център - ул. Александровска 78",
+    "name_en": "Burgas Center - Aleksandrovska St 78",
+    "type": "office",
+    "city": "Бургас",
+    "city_en": "Burgas",
+    "address": "ул. Александровска 78",
+    "working_hours": "Пон-Пет 09:00-19:00, Съб 09:00-14:00",
+    "working_hours_en": "Mon-Fri 09:00-19:00, Sat 09:00-14:00"
+  },
+  {
+    "id": "speedy-bs-002",
+    "name": "Бургас Меден рудник - автомат",
+    "name_en": "Burgas Meden rudnik - locker",
+    "type": "apt",
+    "city": "Бургас",
+    "city_en": "Burgas",
+    "address": "ж.к. Меден рудник, бл. 42",
+    "working_hours": "24/7",
+    "working_hours_en": "24/7"
+  },
+  {
+    "id": "speedy-rs-001",
+    "name": "Русе Център - ул. Александровска 45",
+    "name_en": "Ruse Center - Aleksandrovska St 45",
+    "type": "office",
+    "city": "Русе",
+    "city_en": "Ruse",
+    "address": "ул. Александровска 45",
+    "working_hours": "Пон-Пет 09:00-18:00, Съб 09:00-14:00",
+    "working_hours_en": "Mon-Fri 09:00-18:00, Sat 09:00-14:00"
+  },
+  {
+    "id": "speedy-sz-001",
+    "name": "Стара Загора Център - ул. Цар Симеон Велики 100",
+    "name_en": "Stara Zagora Center - Tsar Simeon Veliki St 100",
+    "type": "office",
+    "city": "Стара Загора",
+    "city_en": "Stara Zagora",
+    "address": "ул. Цар Симеон Велики 100",
+    "working_hours": "Пон-Пет 09:00-18:00, Съб 09:00-14:00",
+    "working_hours_en": "Mon-Fri 09:00-18:00, Sat 09:00-14:00"
+  },
+  {
+    "id": "speedy-pl-001",
+    "name": "Плевен Център - ул. Данаил Попов 22",
+    "name_en": "Pleven Center - Danail Popov St 22",
+    "type": "office",
+    "city": "Плевен",
+    "city_en": "Pleven",
+    "address": "ул. Данаил Попов 22",
+    "working_hours": "Пон-Пет 09:00-18:00, Съб 09:00-14:00",
+    "working_hours_en": "Mon-Fri 09:00-18:00, Sat 09:00-14:00"
+  },
+  {
+    "id": "speedy-vt-001",
+    "name": "Велико Търново Център - ул. Васил Левски 15",
+    "name_en": "Veliko Tarnovo Center - Vasil Levski St 15",
+    "type": "office",
+    "city": "Велико Търново",
+    "city_en": "Veliko Tarnovo",
+    "address": "ул. Васил Левски 15",
+    "working_hours": "Пон-Пет 09:00-18:00, Съб 09:00-14:00",
+    "working_hours_en": "Mon-Fri 09:00-18:00, Sat 09:00-14:00"
+  },
+  {
+    "id": "speedy-bl-001",
+    "name": "Благоевград Център - ул. Тодор Александров 25",
+    "name_en": "Blagoevgrad Center - Todor Aleksandrov St 25",
+    "type": "office",
+    "city": "Благоевград",
+    "city_en": "Blagoevgrad",
+    "address": "ул. Тодор Александров 25",
+    "working_hours": "Пон-Пет 09:00-18:00, Съб 09:00-14:00",
+    "working_hours_en": "Mon-Fri 09:00-18:00, Sat 09:00-14:00"
+  }
+]
