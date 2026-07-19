@@ -13,7 +13,7 @@
 - [ ] 2.2 Add carrier URL pattern mapping (speedy, econt, dhl, fedex) in `app/constants.py` (per task 1.6)
 - [ ] 2.3 Write tests for tracking URL auto-generation from carrier + number
 - [ ] 2.4 Add `locale TEXT NOT NULL DEFAULT 'en'` column to orders (same migrate-path + `_SCHEMA_SQL` approach); snapshot session `preferred_locale` onto the order in the checkout service (value already read at `orders.py:59-63`; add `locale` to the INSERT + `OrderData`)
-- [ ] 2.5 Create `order_emails` table (order_id, event, recipient, status, reason, sent_at) in `_SCHEMA_SQL`, with index on order_id **and a partial UNIQUE index `(order_id, event) WHERE status='sent'`**
+- [ ] 2.5 Create `order_emails` table (order_id, event, recipient, status, reason, sent_at) in `_SCHEMA_SQL`, with index on order_id **and a partial UNIQUE index `(order_id, event) WHERE status='sent'`**; create `order_email_send_claims` keyed by `(order_id, event)` for in-flight coordination
 - [ ] 2.6 Write test: order created with locale "bg" persists `orders.locale = "bg"`
 
 ## 3. Order Status API — Tracking Support
@@ -63,8 +63,8 @@ _(No order_confirmed templates — confirmed transition sends no customer email,
 - [ ] 7.4 Add comprehensive error handling: catch all provider/render exceptions, log, never raise
 - [ ] 7.5 Write tests for email service using an in-memory `RecordingProvider` double (assert subject/body/absence of List-Unsubscribe); verify template/locale selection and context building
 - [ ] 7.6 Select template locale from `orders.locale` (fresh DB read in the background task), never from the acting session
-- [ ] 7.7 Idempotency via the partial UNIQUE index: **insert the `sent` row first**, then send; on uniqueness violation skip + log `skipped_duplicate` (closes the check-then-send race)
-- [ ] 7.8 Write an `order_emails` row (sent/failed/skipped_duplicate/skipped_suppressed, with `reason`) inside the background task; bind `order_id`+`event` on all logs (request_id is unavailable in tasks — Decision 22); catch logging failures so they never propagate
+- [ ] 7.7 Idempotency via DB send claims plus the partial UNIQUE index: acquire an `in_flight` claim before sending; skip/log `skipped_in_flight` if another worker owns an unexpired claim; skip/log `skipped_duplicate` if a successful send is already recorded; insert the `sent` row only after provider success
+- [ ] 7.8 Write an `order_emails` row (sent/failed/skipped_duplicate/skipped_in_flight/skipped_suppressed, with `reason`) inside the background task; bind `order_id`+`event` on all logs (request_id is unavailable in tasks — Decision 22); catch logging failures so they never propagate
 - [ ] 7.9 Ensure the background task opens its own `with get_db()` connection (request connection is closed by the time the task runs)
 - [ ] 7.10 Write tests: concurrent duplicate-event → one email, locale-from-order (admin locale differs from customer), provider-raises → `failed` row + order unaffected, log rows written
 

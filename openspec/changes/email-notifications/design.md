@@ -147,7 +147,7 @@ _Note (corrected): a captured-connection bug does **not** pass-in-tests-but-fail
 
 ### 11. Order-Email Log Table (Idempotency + Audit + Re-send Foundation)
 
-**Choice:** Add an append-only `order_emails` table recording every send attempt.
+**Choice:** Add an append-only `order_emails` table recording every send attempt, plus a DB-backed claim row that coordinates one active sender per `(order_id, event)`.
 
 ```sql
 CREATE TABLE IF NOT EXISTS order_emails (
@@ -163,13 +163,22 @@ CREATE INDEX IF NOT EXISTS idx_order_emails_order_id ON order_emails(order_id);
 -- DB-level idempotency arbiter: at most one successful send per (order_id, event).
 CREATE UNIQUE INDEX IF NOT EXISTS idx_order_emails_sent_unique
     ON order_emails(order_id, event) WHERE status = 'sent';
+
+CREATE TABLE IF NOT EXISTS order_email_send_claims (
+    order_id         TEXT NOT NULL REFERENCES orders(id),
+    event            TEXT NOT NULL,
+    status           TEXT NOT NULL,      -- in_flight | sent | failed
+    lease_expires_at TEXT,
+    updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (order_id, event)
+);
 ```
 
 **Rationale:**
-- **Idempotency (defense in depth, not toggle-driven):** NOTE — the earlier "shipped→confirmed→shipped toggle" justification was wrong: the state machine is strictly forward (`order_service.py:24-28`; `shipped:{delivered}`, no back-edges) and same-state re-entry returns 422, so no customer event can fire twice through the API. The real duplicate risk is **concurrent/retried sends** (admin double-click, client retry, or multiple uvicorn workers) racing the check-then-send. The **partial UNIQUE index** makes the DB the arbiter (insert-first, then send; a duplicate insert fails and the send is skipped), closing the check-then-insert TOCTOU. **This is now the *sole* idempotency guard:** ZeptoMail does not document a send-level idempotency key (unlike Resend's `Idempotency-Key`), so there is no provider-level dedup to lean on — the DB index carries it entirely (see Decision 14).
+- **Idempotency (defense in depth, not toggle-driven):** NOTE — the earlier "shipped→confirmed→shipped toggle" justification was wrong: the state machine is strictly forward (`order_service.py:24-28`; `shipped:{delivered}`, no back-edges) and same-state re-entry returns 422, so no customer event can fire twice through the API. The real duplicate risk is **concurrent/retried sends** (admin double-click, client retry, or multiple uvicorn workers) racing the check-then-send. The claim table makes the DB the concurrency arbiter: a task must acquire an `in_flight` claim before calling ZeptoMail, and competing tasks skip as `skipped_in_flight` (or `skipped_duplicate` once a successful send is recorded). The append-only `order_emails` row with status `sent` is inserted only after the provider succeeds; failed provider calls write `failed` and leave the claim retryable. The partial UNIQUE index on `order_emails(order_id, event) WHERE status = 'sent'` remains the audit invariant that at most one successful send is recorded. **This is now the *sole* idempotency guard:** ZeptoMail does not document a send-level idempotency key (unlike Resend's `Idempotency-Key`), so there is no provider-level dedup to lean on — the DB claim/index carries it entirely (see Decision 14).
 - **Audit:** when a customer says "I never got it," there's a queryable record, not just scattered structlog lines. Distinct skip reasons (`skipped_duplicate` vs `skipped_suppressed`) keep the trail legible.
 - **Re-send foundation:** the deferred admin re-send button has a table to read from and write to.
-- **In-flight loss:** a deploy/crash between response and task means the task never runs and no row is written — the audit table then can't distinguish "never attempted" from "sent but unlogged." Accepted risk at this scale; a `queued` row written before dispatch is a future option (recorded in Risks).
+- **In-flight loss:** a deploy/crash between response and task means the task never runs and no row is written — the audit table then can't distinguish "never attempted" from "sent but unlogged." If a worker crashes after acquiring a claim but before provider success, the lease expires and a retry can attempt the send instead of suppressing it forever. If a worker crashes after ZeptoMail accepts the message but before the `sent` row is committed, a retry can send a duplicate because ZeptoMail has no idempotency key; that is the unavoidable residual risk of using a provider without send-level dedup.
 
 Still fire-and-forget: writing the log row happens inside the background task alongside the send; a logging failure is caught and never propagates.
 
@@ -240,7 +249,7 @@ ZeptoMail supports open/click tracking (its webhook exposes `open`/`click` event
 
 ### 14. No provider-level idempotency key (DB index is the sole guard)
 
-**Superseded by the ZeptoMail switch.** Resend offered an `Idempotency-Key` header; ZeptoMail does **not** document a send-level idempotency key. There is therefore no provider-level dedup, and the derived `order-{event}/{order_id}` key form is dropped. Duplicate suppression relies entirely on the `order_emails` partial UNIQUE index (Decision 11): insert the `sent` row first, and a uniqueness violation means "already sent → skip." A concurrency test (two sends for the same `(order_id, event)` → exactly one email) is the safety net, since there is no second layer behind it.
+**Superseded by the ZeptoMail switch.** Resend offered an `Idempotency-Key` header; ZeptoMail does **not** document a send-level idempotency key. There is therefore no provider-level dedup, and the derived `order-{event}/{order_id}` key form is dropped. Duplicate suppression relies entirely on the DB claim and `order_emails` partial UNIQUE index (Decision 11): acquire an in-flight claim before the provider call, insert the `sent` row only after success, and skip future sends once success is recorded. A concurrency test (two sends for the same `(order_id, event)` → one provider call while the claim is active) is the safety net, since there is no second layer behind it.
 
 ### 15. Consume bounce/complaint/suppression webhooks
 
