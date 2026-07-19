@@ -14,6 +14,7 @@
 - [ ] 2.3 Write tests for tracking URL auto-generation from carrier + number
 - [ ] 2.4 Add `locale TEXT NOT NULL DEFAULT 'en'` column to orders (same migrate-path + `_SCHEMA_SQL` approach); snapshot session `preferred_locale` onto the order in the checkout service (value already read at `orders.py:59-63`; add `locale` to the INSERT + `OrderData`)
 - [ ] 2.5 Create `order_emails` table (order_id, event, recipient, status, reason, sent_at) in `_SCHEMA_SQL`, with index on order_id **and a partial UNIQUE index `(order_id, event) WHERE status='sent'`**; create `order_email_send_claims` keyed by `(order_id, event)` for in-flight coordination
+- [ ] 2.5a Add outbox columns to `order_emails` for durable retry (design Decision 25): `attempts INTEGER NOT NULL DEFAULT 0`, `next_attempt_at TEXT`; extend the `status` set with `queued` (intent written, not yet sent) and `failed_permanent` (terminal — poison message / MAX attempts, minimal dead-letter)
 - [ ] 2.6 Write test: order created with locale "bg" persists `orders.locale = "bg"`
 
 ## 3. Order Status API — Tracking Support
@@ -62,20 +63,29 @@ _(No order_confirmed templates — confirmed transition sends no customer email,
 - [ ] 7.3 Implement `send_admin_alert(order_data)` for new-order notification to owner
 - [ ] 7.4 Add comprehensive error handling: catch all provider/render exceptions, log, never raise
 - [ ] 7.5 Write tests for email service using an in-memory `RecordingProvider` double (assert subject/body/absence of List-Unsubscribe); verify template/locale selection and context building
-- [ ] 7.6 Select template locale from `orders.locale` (fresh DB read in the background task), never from the acting session
-- [ ] 7.7 Idempotency via DB send claims plus the partial UNIQUE index: acquire an `in_flight` claim before sending; skip/log `skipped_in_flight` if another worker owns an unexpired claim; skip/log `skipped_duplicate` if a successful send is already recorded; insert the `sent` row only after provider success
-- [ ] 7.8 Write an `order_emails` row (sent/failed/skipped_duplicate/skipped_in_flight/skipped_suppressed, with `reason`) inside the background task; bind `order_id`+`event` on all logs (request_id is unavailable in tasks — Decision 22); catch logging failures so they never propagate
-- [ ] 7.9 Ensure the background task opens its own `with get_db()` connection (request connection is closed by the time the task runs)
-- [ ] 7.10 Write tests: concurrent duplicate-event → one email, locale-from-order (admin locale differs from customer), provider-raises → `failed` row + order unaffected, log rows written
+- [ ] 7.6 Select template locale from `orders.locale` (fresh DB read in the sweeper's send path), never from the acting session
+- [ ] 7.7 Idempotency via DB send claims plus the partial UNIQUE index: acquire an `in_flight` claim before sending; skip/log `skipped_in_flight` if another worker's sweeper owns an unexpired claim; skip/log `skipped_duplicate` if a successful send is already recorded; insert the `sent` row only after provider success
+- [ ] 7.8 Update the `order_emails` row to its terminal/attempt state (sent/failed/failed_permanent/skipped_duplicate/skipped_in_flight/skipped_suppressed, with `reason`) inside the send path; bind `order_id`+`event` on all logs (request_id is unavailable outside the request — Decision 22); catch logging failures so they never propagate
+- [ ] 7.9 Ensure the send path opens its own `with get_db()` connection (it runs in the sweeper loop, not a request)
+- [ ] 7.10 Write tests: concurrent duplicate-event (two sweepers / two workers) → one email, locale-from-order (admin locale differs from customer), transient provider error → `failed` row stays retryable + attempts incremented, permanent error / MAX attempts → `failed_permanent` + admin alert, log rows written
 
-## 8. Route Integration (BackgroundTasks)
+## 8. Route Integration (durable outbox write)
 
-- [ ] 8.1 Add `BackgroundTasks` parameter to `create_order` route in `app/routes/orders.py`
-- [ ] 8.2 After successful checkout, fire `send_order_email(event="placed")` (map `pending`→`placed` via `STATUS_TO_EMAIL_EVENT`; NOT `event="pending"`) + `send_admin_alert()`
-- [ ] 8.3 Add `BackgroundTasks` parameter to `admin_update_order_status` route in `app/routes/admin.py`
-- [ ] 8.4 Fire `send_order_email(event=STATUS_TO_EMAIL_EVENT[new_status])` after a successful transition; skip when the map returns `None` (confirmed)
-- [ ] 8.5 Locale comes from the order row via the task's fresh DB read (7.6) — the admin route does NOT pass a session locale
-- [ ] 8.6 Write a `tests/realapp/` integration test (real middleware + real DB, RecordingProvider): checkout and ship, assert the email side-effect succeeded — proving the task read the DB on its own connection
+- [ ] 8.1 In `create_order` (`app/routes/orders.py`), within the checkout transaction, insert `order_emails` rows with `status='queued'` for the customer `placed` email **and** the `admin_new_order` email — same `BEGIN/COMMIT` as the order, so the intent survives any crash (design Decision 25). No `BackgroundTasks`.
+- [ ] 8.2 Derive the customer event as `event="placed"` (map `pending`→`placed` via `STATUS_TO_EMAIL_EVENT`; NOT `event="pending"`) when writing the queued row
+- [ ] 8.3 In `admin_update_order_status` (`app/routes/admin.py`), after a successful transition, insert a `queued` `order_emails` row in the same transaction as the status `UPDATE`
+- [ ] 8.4 Compute the event via `STATUS_TO_EMAIL_EVENT[new_status]`; write no row when the map returns `None` (confirmed)
+- [ ] 8.5 Locale is not passed by the route — the sweeper's send path reads `orders.locale` on its own fresh DB read (7.6); the admin route never passes a session locale
+- [ ] 8.6 Write a `tests/realapp/` integration test (real middleware + real DB, RecordingProvider): checkout and ship write `queued` rows in the order transaction; drive one sweeper tick and assert the email side-effect succeeded and rows reach `sent` — proving the send path read the DB on its own connection
+
+## 8b. Sweeper Loop (delivery guarantee)
+
+- [ ] 8b.1 Add `email_outbox_loop()` in `app/main.py` — a clone of `session_cleanup_loop` (`main.py:26`): `while True: await sleep(~15s); drain_email_outbox()`, swallowing/logging all exceptions so the loop never dies
+- [ ] 8b.2 Register the loop as an `asyncio.create_task` in `lifespan` alongside the session-cleanup task; cancel + await it on shutdown (same pattern as `main.py:59-64`)
+- [ ] 8b.3 Implement `drain_email_outbox()`: `SELECT` rows `WHERE status IN ('queued','failed') AND (next_attempt_at IS NULL OR next_attempt_at <= now) AND attempts < MAX`; for each, run the send path (7.6–7.9 — acquire claim, render, send)
+- [ ] 8b.4 On transient failure (5xx/timeout): increment `attempts`, set `next_attempt_at` via exponential backoff, leave status retryable (`failed`)
+- [ ] 8b.5 On permanent failure (4xx/render error) or `attempts` reaching MAX: set `status='failed_permanent'` and emit an admin alert (structured error log at minimum; queue an `admin_new_order`-style alert if the failure is itself an email is out of scope — log it)
+- [ ] 8b.6 Write tests (can call `drain_email_outbox()` directly, no real loop): queued row → sent; provider down for N ticks then recovers → eventually sent, no duplicate; MAX attempts → `failed_permanent` + alert; two concurrent drains (simulating 2 workers) → one provider call via the claim
 
 ## 9. Frontend — Order Tracking Display
 
