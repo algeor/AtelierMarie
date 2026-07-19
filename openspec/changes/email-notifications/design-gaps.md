@@ -5,6 +5,12 @@
 > References below to Resend, Svix/`whsec_`, the 100/day cap, and the idempotency
 > key are historical. Current design: `proposal.md`, `design.md` (Decisions 1, 14,
 > 15, 24), the specs, and `EMAIL_SETUP.md`.
+>
+> ℹ️ **Superseded dispatch model (2026-07-19):** this audit also predates the switch
+> from **fire-and-forget `BackgroundTasks` → durable transactional outbox + asyncio
+> sweeper** (design Decision 25). References below to `BackgroundTasks` as the
+> delivery mechanism are historical; item **#18 (in-flight loss)** is now **resolved**
+> — see the footnote on that item.
 
 _Generated from a research + multi-agent review pass (2026-07-15). Four reviewers examined the proposal/design/specs against the real codebase along four lenses: correctness & integration, security & privacy, testing & observability, architecture & scope. Gaps found independently by multiple reviewers are marked ⚑ (high confidence)._
 
@@ -97,6 +103,7 @@ _Evidence: tasks.md 5.1; design.md Decision 3; comment_service.py:120-121_
 - **16. ⚑ Scope too large** — two reviewers flagged this. Deliverability (webhook route family + suppression store + validation + idempotency + Cyrillic + DMARC ops) is separable from the notification core (service, provider abstraction, templates, BackgroundTasks, tracking schema/API/UI). Recommend splitting deliverability/webhooks into a follow-up change so the core ships and reviews independently.
 - **17. Audit table has no query surface; runbook references a non-existent feature** — Migration Plan step 5 says "send test email via admin dashboard," but no task builds a test-send or a read endpoint. Add a minimal `GET /v1/admin/orders/{id}/emails` (delivers the promised auditability) or remove the runbook step.
 - **18. `order_emails` loses in-flight sends on shutdown** — a deploy/crash between response and task means no row is written at all (not even "failed"), so the audit table can't distinguish "never attempted" from "sent but unlogged." Write a `pending`/`queued` row before dispatch, or document as accepted risk.
+  > ✅ **RESOLVED (2026-07-19) by design Decision 25.** The durable outbox writes the `queued` row **in the same transaction as the order**, before any send — so a crash/deploy/OOM can no longer lose the email or the row; the sweeper resumes it on restart. This is the "write a `queued` row before dispatch" option, adopted as the delivery model rather than an accepted risk.
 - **19. Missing test coverage** — both-templates-missing (skip + error log) and provider-raises (swallow, `failed` row, order unaffected) are speced but not tasked; webhook tests omit replay, malformed-but-signed payloads, unknown/duplicate events.
 - **20. `order_emails.status` conflates two "skipped" reasons** — idempotency-skip vs suppression-skip share one value; add a `reason`/`detail` column.
 - **21. Consider a `RecordingProvider` test double** — asserting rendered content (subject/body, Cyrillic MIME, absence of `List-Unsubscribe`) via captured log strings is brittle; the `EmailProvider` Protocol makes an in-memory recorder trivial. Keep log-capture for the failure paths.

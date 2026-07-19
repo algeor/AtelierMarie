@@ -25,37 +25,40 @@ Add a transactional email integration that fires on every order state transition
 | Admin notifications | Yes — single owner email on new order |
 | Carriers | Speedy, Econt, DHL/FedEx (international) |
 | Templates | Plain text to start, bilingual (EN/BG), HTML later |
-| Failure mode | Fire-and-forget — never blocks orders |
+| Failure mode | **Durable outbox** — never blocks orders, never loses handoff (see design Decision 25) |
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  Trigger Points (existing code)                                  │
+│  Trigger Points (existing code) — write intent in the order txn  │
 │                                                                   │
-│  routes/orders.py  ──▶ checkout()        ──┐                     │
-│  routes/admin.py   ──▶ update_status()   ──┤                     │
-│                                             │                     │
-│                                             ▼                     │
-│                              ┌──────────────────────────┐         │
-│                              │  FastAPI BackgroundTasks  │         │
-│                              └────────────┬─────────────┘         │
-│                                           │                       │
+│  routes/orders.py  ──▶ checkout()      ──┐                       │
+│  routes/admin.py   ──▶ update_status() ──┤  same BEGIN/COMMIT     │
 │                                           ▼                       │
-│                              ┌──────────────────────────┐         │
-│                              │  email_service.py         │         │
-│                              │  - render template        │         │
-│                              │  - POST ZeptoMail API     │         │
-│                              │  - log success/failure    │         │
-│                              └────────────┬─────────────┘         │
-│                                           │                       │
-│                                           ▼                       │
-│                              ┌──────────────────────────┐         │
-│                              │  ZeptoMail API (EU)       │         │
-│                              │  from: orders@theatelier… │         │
-│                              │  reply-to: contacts@…     │         │
-│                              └──────────────────────────┘         │
-│                                                                   │
+│                        ┌────────────────────────────────┐        │
+│                        │  order_emails (status='queued') │        │
+│                        │  — durable; survives any crash   │       │
+│                        └────────────────┬─────────────────┘       │
+│                                          │  (HTTP response returns now) │
+│  ────────────────────────────────────── │ ───────────────────────│
+│  Sweeper loop (asyncio, per worker; ~15s; main.py:26 clone)       │
+│                                          ▼                        │
+│                        ┌────────────────────────────────┐        │
+│                        │  acquire claim (Decision 11)     │       │
+│                        │  → email_service.py              │       │
+│                        │     render → POST ZeptoMail API  │       │
+│                        │  success       → status='sent'   │       │
+│                        │  transient     → retry w/ backoff│       │
+│                        │  permanent/MAX → failed_permanent│       │
+│                        │                  + admin alert   │       │
+│                        └────────────────┬─────────────────┘       │
+│                                          ▼                        │
+│                        ┌────────────────────────────────┐        │
+│                        │  ZeptoMail API (EU)              │       │
+│                        │  from: orders@theatelier…        │       │
+│                        │  reply-to: contacts@…            │       │
+│                        └────────────────────────────────┘        │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -171,14 +174,16 @@ When transitioning to "shipped", the admin form expands to show:
 
 ## Design Decisions
 
-### 1. Fire-and-Forget (Never Blocks Orders)
+### 1. Durable Outbox (Never Blocks Orders, Never Loses Handoff)
 
-Email sending happens in `BackgroundTasks` — the HTTP response returns immediately. If the email service is down or the send fails:
-- Log the failure via structlog
-- The order still succeeds
-- No retry queue (at this scale, a manual re-send from admin dashboard is sufficient)
+Email dispatch is **off the checkout critical path** but **durable** — see design Decision 25 for the full rationale. At the moment of the order state change, a `queued` row is written to `order_emails` **in the same transaction as the order**. A per-worker asyncio sweeper (a clone of the existing `session_cleanup_loop`, `main.py:26`) drains the queue: render → send → mark `sent`, with bounded retry + backoff on transient failure and a terminal `failed_permanent` + admin alert for poison messages.
 
-Email is important but never critical-path.
+- The HTTP response still returns immediately (send is async — orders never block).
+- **No lost handoff:** the intent is durable before any send is attempted, so a crash/deploy/outage delays but never loses the email (at-least-once; a rare duplicate is preferred over a loss).
+- Bad addresses are not retried — they go to suppression (design Decision 15).
+- **No `BackgroundTasks`, no external queue:** the sweeper is the single delivery path; SQLite is the queue; the claim table (design Decision 11) coordinates the 2 prod workers' sweepers.
+
+Email is important but never critical-path — and now never silently dropped.
 
 ### 2. Bilingual Templates (EN/BG)
 
@@ -310,12 +315,13 @@ Tracking fields optional for other transitions, required when `status = "shipped
 
 | Failure | Impact | Handling |
 |---------|--------|----------|
-| ZeptoMail API down | Customer doesn't get email | Log warning, order succeeds |
-| Invalid customer email | Bounce | Log, no retry |
-| Template rendering error | No email sent | Log error with full context |
-| DNS not configured / two SPF records | All emails fail (SPF permerror) | Startup warning log; single merged SPF record (see Sending Identity) |
-| Sending quota / credit exhausted | Some emails delayed | Log, degrade gracefully |
-| Tracking URL invalid | Broken link in email | Admin's responsibility (validated at input) |
+| ZeptoMail API down (transient/outage) | Customer email delayed, not lost | Durable outbox: `queued` row persists; sweeper retries with backoff until accepted (design Decision 25). Order succeeds regardless. |
+| Invalid customer email (hard bounce) | Undeliverable | NOT retried — routed to suppression (design Decision 15). "No lost handoff" cannot beat a dead address. |
+| Template rendering error | No email sent | Log error with full context; row → `failed_permanent` (poison message, not retried forever). |
+| DNS not configured / two SPF records | All emails fail (SPF permerror) | Startup warning log; single merged SPF record (see Sending Identity). |
+| Auth/config error (401) or quota/credit exhausted | Every send fails until fixed | Bounded retry does not mask it — sweeper marks `failed_permanent` after MAX and alerts the admin (a human must fix the key/top up credit). |
+| Process crash between order and send | None — email survives | The `queued` row is committed in the order transaction; the sweeper picks it up after restart. |
+| Tracking URL invalid | Broken link in email | Admin's responsibility (validated at input). |
 
 ## Scope
 
@@ -338,7 +344,7 @@ Tracking fields optional for other transitions, required when `status = "shipped
 
 ### Out of Scope (Future)
 - HTML rich templates (luxury brand design)
-- Retry queue / dead letter
+- **External** queue infrastructure (Redis / Celery / a separate worker process) — durability is delivered in-DB via the transactional outbox + asyncio sweeper (design Decision 25), not by adding infra. A bounded retry loop and a `failed_permanent` terminal state (minimal dead-letter for poison messages) ARE in scope; a full dead-letter *subsystem* is not.
 - Email preference management (unsubscribe)
 - Marketing emails (abandoned cart, promotions) — MUST use a dedicated subdomain when added
 - Carrier auto-detection from tracking number format
@@ -371,6 +377,7 @@ Tracking fields optional for other transitions, required when `status = "shipped
 5. ZeptoMail provider (HTTP API)
 6. Template renderer + templates (EN/BG)
 7. Email service (orchestrates render → send)
-8. Wire into routes via BackgroundTasks
-9. Admin UI: shipping form expansion
-10. Frontend: show tracking info on order detail page
+8. Write `queued` order_emails row in the checkout/status-change transaction (durable intent); add `attempts` / `next_attempt_at` / `failed_permanent` to the schema
+9. Sweeper loop (clone `session_cleanup_loop`, `main.py:26`): drain queue, acquire claim, send, retry w/ backoff, terminal `failed_permanent` + admin alert
+10. Admin UI: shipping form expansion
+11. Frontend: show tracking info on order detail page

@@ -57,6 +57,8 @@ Currently there is no email infrastructure — no transactional emails, no admin
 
 ### 3. FastAPI BackgroundTasks for Async Dispatch (over task queue / inline)
 
+> ⚠️ **Superseded by Decision 25 (durable outbox).** `BackgroundTasks` is **dropped** as the delivery mechanism — an in-memory queue cannot meet the "no lost handoff" guarantee. What survives from this decision is only the *principle* that email is off the checkout critical path and needs no external queue infra. The reasoning below is kept for the record; read it as "why not inline / why not Celery," not as the current dispatch design.
+
 **Choice:** `BackgroundTasks.add_task()` — fire-and-forget after response
 
 **Rationale:**
@@ -175,25 +177,25 @@ CREATE TABLE IF NOT EXISTS order_email_send_claims (
 ```
 
 **Rationale:**
-- **Idempotency (defense in depth, not toggle-driven):** NOTE — the earlier "shipped→confirmed→shipped toggle" justification was wrong: the state machine is strictly forward (`order_service.py:24-28`; `shipped:{delivered}`, no back-edges) and same-state re-entry returns 422, so no customer event can fire twice through the API. The real duplicate risk is **concurrent/retried sends** (admin double-click, client retry, or multiple uvicorn workers) racing the check-then-send. The claim table makes the DB the concurrency arbiter: a task must acquire an `in_flight` claim before calling ZeptoMail, and competing tasks skip as `skipped_in_flight` (or `skipped_duplicate` once a successful send is recorded). The append-only `order_emails` row with status `sent` is inserted only after the provider succeeds; failed provider calls write `failed` and leave the claim retryable. The partial UNIQUE index on `order_emails(order_id, event) WHERE status = 'sent'` remains the audit invariant that at most one successful send is recorded. **This is now the *sole* idempotency guard:** ZeptoMail does not document a send-level idempotency key (unlike Resend's `Idempotency-Key`), so there is no provider-level dedup to lean on — the DB claim/index carries it entirely (see Decision 14).
+- **Idempotency (defense in depth, not toggle-driven):** NOTE — the earlier "shipped→confirmed→shipped toggle" justification was wrong: the state machine is strictly forward (`order_service.py:24-28`; `shipped:{delivered}`, no back-edges) and same-state re-entry returns 422, so no customer event can fire twice through the API. The real duplicate risk is **concurrent sends racing the check-then-send**, and the dominant source is now structural, not a fluke: with the durable outbox (Decision 25), prod's **2 uvicorn workers** each run their own sweeper loop (`ARCHITECTURE.md:371,384`; `--workers 2`), so two pollers routinely pick up the same `queued` row at the same tick — on top of admin double-click / client retry. The claim table makes the DB the concurrency arbiter: a sweeper must acquire an `in_flight` claim before calling ZeptoMail, and competing sweepers skip as `skipped_in_flight` (or `skipped_duplicate` once a successful send is recorded). SQLite's single-writer property makes the claim acquisition atomic with no extra locking — the losing writer's transaction sees `in_flight` and backs off. **This machinery is load-bearing precisely because of the 2-worker sweeper topology; it is not defensive over-engineering.** The append-only `order_emails` row with status `sent` is inserted only after the provider succeeds; failed provider calls write `failed` and leave the claim retryable. The partial UNIQUE index on `order_emails(order_id, event) WHERE status = 'sent'` remains the audit invariant that at most one successful send is recorded. **This is now the *sole* idempotency guard:** ZeptoMail does not document a send-level idempotency key (unlike Resend's `Idempotency-Key`), so there is no provider-level dedup to lean on — the DB claim/index carries it entirely (see Decision 14).
 - **Audit:** when a customer says "I never got it," there's a queryable record, not just scattered structlog lines. Distinct skip reasons (`skipped_duplicate` vs `skipped_suppressed`) keep the trail legible.
 - **Re-send foundation:** the deferred admin re-send button has a table to read from and write to.
 - **In-flight loss:** a deploy/crash between response and task means the task never runs and no row is written — the audit table then can't distinguish "never attempted" from "sent but unlogged." If a worker crashes after acquiring a claim but before provider success, the lease expires and a retry can attempt the send instead of suppressing it forever. If a worker crashes after ZeptoMail accepts the message but before the `sent` row is committed, a retry can send a duplicate because ZeptoMail has no idempotency key; that is the unavoidable residual risk of using a provider without send-level dedup.
 
-Still fire-and-forget: writing the log row happens inside the background task alongside the send; a logging failure is caught and never propagates.
+Still non-blocking: updating the log row happens inside the sweeper's send path alongside the send (Decision 25); a logging failure is caught and never propagates.
 
 ## Risks / Trade-offs
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
 | ZeptoMail credit/quota exhausted | Some emails not sent | Log the error response, alert admin. ~4 emails/order (placed+shipped+delivered/cancelled+admin); free 10k credit then pay-as-you-go (~€2.50/10k, no daily cap) covers this scale comfortably. |
-| ZeptoMail service outage | Emails delayed/lost | Fire-and-forget logging. Manual re-send from admin. No customer-facing error. |
+| ZeptoMail service outage | Emails delayed | Durable outbox (Decision 25): the `queued` row survives the outage; the sweeper retries with backoff until ZeptoMail accepts. No loss, only delay. No customer-facing error. |
 | Template rendering bug | One email type broken | Per-template try/catch. Other email types unaffected. Structured log with full context. |
 | Domain not registered | Cannot send from branded address | Console provider works for dev/test. Production blocked until domain ready — but code is ready. |
 | Tracking URL patterns change | Broken links in shipped emails | Admin can override with custom URL. Patterns are static code in `app/constants.py` (NOT pydantic Settings), editable in one place. |
 | Email contains stale order data | Customer confusion | Email context built from a fresh DB read at send time, on the task's own connection (see Decision 3), not from the request. |
-| Task lost on shutdown/crash | Email never sent, no log row | Accepted at this scale (no retry). Optional future: write a `queued` row before dispatch so the audit table distinguishes "never attempted" from "unlogged." |
-| No retry = lost emails | Customer never gets notification | Acceptable at this scale. Admin can manually trigger re-send. Future: add simple retry (1 attempt after 60s). |
+| Task lost on shutdown/crash | (Was: email never sent, no log row) | **Resolved by Decision 25:** the `queued` row is written in the order transaction, so it survives any crash; the sweeper picks it up on restart. Only the crash-after-ZeptoMail-accept window remains, and it yields a duplicate, not a loss. |
+| No retry = lost emails | (Was: customer never gets notification) | **Superseded by Decision 25:** bounded retry with backoff via the sweeper, up to MAX attempts, then `failed_permanent` + admin alert. |
 
 ## Migration Plan
 
@@ -314,7 +316,7 @@ The 422 with `code: "TRACKING_REQUIRED"` (order-tracking spec) cannot come from 
 **Choice:** Send via the ZeptoMail **HTTP API** (EU host), not SMTP.
 
 **Rationale:**
-- **Async fit:** a single stateless HTTPS POST via `httpx` (already a dependency) — no threadpool hop, no SMTP connection/TLS/handshake state. `smtplib` is blocking and would run in a worker thread under BackgroundTasks.
+- **Async fit:** a single stateless HTTPS POST via `httpx` (already a dependency) — no threadpool hop, no SMTP connection/TLS/handshake state. `smtplib` is blocking; under the async sweeper loop (Decision 25) a blocking send would stall the single loop or force a threadpool hop, so `httpx` is the cleaner fit.
 - **Structured errors:** the API returns an HTTP status + JSON error body, which maps cleanly onto the `order_emails.reason` audit column. SMTP reply codes are clumsier to parse.
 - **Egress:** outbound 443 is always open; SMTP submission ports (587/465) are usually fine but not guaranteed on every host (Oracle Cloud hard-blocks port 25; confirm 587 egress if SMTP is ever used).
 - **Least churn:** mirrors the original HTTP-based provider shape, so the provider abstraction/tasks/tests are unchanged by the vendor swap.
@@ -324,6 +326,42 @@ The 422 with `code: "TRACKING_REQUIRED"` (order-tracking spec) cannot come from 
 
 **Decision (reaffirmed after weighing provider-portability):** start with the **API**. SMTP's one real advantage is portability — switching sending providers (e.g. to another transactional vendor, or Gmail/Workspace SMTP) becomes a config-only change because every provider speaks SMTP, whereas each API is bespoke. We accept that trade for now because the API gives richer errors + a message ID (which the deferred bounce/suppression follow-up benefits from) and a cleaner async path, and because the `EmailProvider` Protocol makes **switching to an `SmtpProvider` a single-file change with no data migration** if portability later outweighs those. Note: swapping the *sender* still requires re-doing DNS auth (DKIM/SPF/return-path) for the new provider regardless of transport — SMTP only saves the code change, not the DNS work. Google Workspace, if adopted, is an **inbox** replacement (Zoho → Workspace = MX/DKIM change only) and is independent of this transport choice; it is not a transactional sender.
 
+### 25. Provider-down handling: durable outbox, not fire-and-forget
+
+**Choice:** Guarantee **no lost handoff** via a transactional outbox — the intent to send is persisted in the same transaction as the order, and a durable asyncio sweeper drives each queued email to a terminal state (`sent` / `failed_permanent`) with bounded retry. This **replaces** fire-and-forget `BackgroundTasks` as the delivery mechanism (Decision 3 stands only for the "email is off the checkout critical path" principle; the dispatch machinery changes here).
+
+**The guarantee (stated precisely):** no lost **handoff**. Every email the system owes is durably recorded and retried until ZeptoMail *accepts* it. This is **at-least-once** delivery. It explicitly does NOT promise *delivery* — a bad/dead address cannot be delivered to and is not the retry path's job; hard bounces/complaints go to **suppression** (Decision 15), a different verb. "Provider down" (transient 5xx/timeout, and — via alert — auth/quota) is covered; "recipient rejected" is not.
+
+**Why fire-and-forget cannot meet this:** `BackgroundTasks` lives only in worker memory. Any process restart (deploy, `systemd` restart, OOM, crash) between the HTTP response and the task running destroys the email **with no trace** — not even a `failed` row (design-gaps.md #18). No amount of in-task retry fixes an in-memory queue; durability must precede the send attempt.
+
+**Mechanism (transactional outbox):**
+
+```
+ORDER TRANSACTION (one BEGIN/COMMIT in SQLite):
+    INSERT/UPDATE orders ...
+    INSERT INTO order_emails (order_id, event, status='queued', recipient, ...)   ← same txn
+    COMMIT                          -- if the order survives, the intent survives
+
+SWEEPER LOOP (asyncio, per worker; clone of session_cleanup_loop @ main.py:26):
+    every ~15s: SELECT rows WHERE status IN ('queued','failed')
+                             AND next_attempt_at <= now AND attempts < MAX
+      for each row: acquire claim (Decision 11) → send
+         success        → status='sent'
+         transient fail → attempts++, exponential backoff (set next_attempt_at), stays 'queued'
+         permanent 4xx  → status='failed_permanent' + admin alert (do NOT retry)
+         attempts==MAX  → status='failed_permanent' + admin alert
+```
+
+New `order_emails` fields required by this decision (extend Decision 11's DDL): `attempts INTEGER NOT NULL DEFAULT 0`, `next_attempt_at TEXT`, and a `failed_permanent` value in the `status` set. `failed_permanent` is a **minimal dead-letter** — it is the terminal bucket for poison messages (permanent 400, template bug, MAX exceeded) so nothing retries forever. (This is why the "no dead-letter" non-goal cannot fully hold; see proposal Non-Goals.)
+
+**Single delivery path — `BackgroundTasks` is dropped.** Once a durable sweeper exists, `BackgroundTasks` is only a latency optimization (~1s vs. one poll interval) and its cost is real: it adds a third contender to every claim race and duplicates the send logic the sweeper must already own. For transactional order mail a ~15s delay is invisible, so we collapse to **one** delivery path — the sweeper — which is also the path that must be correct. Poll interval ~15s (tunable; not 60s, so customer "shipped" mail still feels prompt).
+
+**At-least-once leans the right way.** The residual crash-after-accept window (Decision 11) now yields an occasional **duplicate**, never a loss. For a candle shop a duplicate "your order shipped" is mildly annoying; a missing one costs a sale. The trade is accepted deliberately.
+
+**Admin alert is decoupled from email.** The order is a durable DB row the instant checkout commits and appears in the admin dashboard immediately — that is the shop's **always-available** alert, independent of the provider. The `admin_new_order` email rides the same outbox (durable, retried) as a *push* on top, but is never the sole alerting channel: email's failure mode is email not arriving, so it cannot be the guarantee. A truly provider-independent push (SMS/Telegram/webhook) is separate scope, not smuggled in here.
+
+**Multi-worker note (load-bearing, not defensive):** prod runs **2 uvicorn workers** (`ARCHITECTURE.md:371,384`; `IMPLEMENTATION_PLAN.md:180`, `--workers 2`). Each worker's `lifespan` starts its own sweeper, so two pollers contend for the same `queued` rows — this is exactly what Decision 11's claim/lease coordinates (see the rewritten Decision 11 rationale). SQLite's single-writer property makes claim acquisition atomic for free (the losing writer sees `in_flight` and backs off). If prod ever drops to `--workers 1`, cross-process contention disappears and the claim could shrink to an in-process lock — but 2 is the documented plan and the claim table serves both, so it stays.
+
 ## Resolved / Open Questions
 
 1. **Currency display in emails** — RESOLVED: "€" for EN, "лв" for BG (per email-templates spec).
@@ -331,3 +369,4 @@ The 422 with `code: "TRACKING_REQUIRED"` (order-tracking spec) cannot come from 
 3. **Customer-initiated cancellation** — RESOLVED: admin-only; manual refund out of band; cancelled email mentions the refund (Decision 10).
 4. **Customer locale for admin-triggered emails** — RESOLVED: snapshot `orders.locale` at checkout (Decision 8).
 5. **Admin re-send** — deferred, but built on the `order_emails` log table (Decision 11).
+6. **Provider-down / lost emails** — RESOLVED: durable transactional outbox + asyncio sweeper guarantees no lost *handoff* (at-least-once); bad addresses → suppression, not retry; poison messages → `failed_permanent` + admin alert (Decision 25). Replaces fire-and-forget dispatch.
