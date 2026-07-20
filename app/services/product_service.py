@@ -458,13 +458,13 @@ def search_products(
 def get_low_stock_products(threshold: int = 5) -> list[dict]:
     """Return active products whose stock is at or below the threshold.
 
-      Intended for admin low-stock reports. Returns [] if nothing matches.
+    Intended for admin low-stock reports. Returns [] if nothing matches.
     """
     if threshold < 0:
         raise ValueError("Threshold must be non-negative")
     with get_db() as conn:
-          rows = conn.execute(
-              "SELECT * FROM products WHERE stock <= ? AND is_active = 1",
-              (threshold,),
-          ).fetchall()
+        rows = conn.execute(
+            "SELECT * FROM products WHERE stock <= ? AND is_active = 1",
+            (threshold,),
+        ).fetchall()
     return [_row_to_dict(r) for r in rows]

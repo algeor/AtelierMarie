@@ -52,6 +52,9 @@ function maskEmail(email: string): string {
 export default function AdminOrdersPage() {
   const t = useTranslations("admin");
   const tStatus = useTranslations("orders.status");
+  const tMethod = useTranslations("checkout.delivery.method");
+  const tCourier = useTranslations("checkout.delivery.courier");
+  const tDisplay = useTranslations("checkout.delivery.display");
   const locale = useLocale();
   const getLocalizedError = useLocalizedError();
   const [orders, setOrders] = useState<OrderResponse[]>([]);
@@ -165,6 +168,7 @@ export default function AdminOrdersPage() {
             <tr className="border-b border-champagne-beige bg-champagne-beige/30">
               <th className="px-4 py-3 font-medium text-charcoal">{t("orderId")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("customer")}</th>
+              <th className="px-4 py-3 font-medium text-charcoal">{tDisplay("sectionTitle")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("total")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("status")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("date")}</th>
@@ -177,6 +181,7 @@ export default function AdminOrdersPage() {
                 <tr key={i} className="border-b border-champagne-beige/50">
                   <td className="px-4 py-3"><Skeleton className="h-4 w-20" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-4 w-32" /></td>
+                  <td className="px-4 py-3"><Skeleton className="h-4 w-28" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-4 w-16" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-5 w-20" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-4 w-24" /></td>
@@ -185,7 +190,7 @@ export default function AdminOrdersPage() {
               ))
             ) : orders.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-soft-brown">
+                <td colSpan={7} className="px-4 py-8 text-center text-soft-brown">
                   {t("noOrders")}
                 </td>
               </tr>
@@ -202,6 +207,31 @@ export default function AdminOrdersPage() {
                     <span title={order.customer_email}>
                       {maskEmail(order.customer_email)}
                     </span>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-soft-brown">
+                    {order.delivery_method ? (
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-charcoal">
+                          {tMethod(order.delivery_method)}
+                          {order.delivery_courier && (
+                            <span className="text-soft-brown"> · {tCourier(order.delivery_courier)}</span>
+                          )}
+                        </span>
+                        {order.delivery_details && "office_name" in order.delivery_details && (
+                          <span className="truncate max-w-[16rem]" title={order.delivery_details.office_name}>
+                            {order.delivery_details.office_type === "apt" ? "🔐 " : "📦 "}
+                            {order.delivery_details.office_name}
+                          </span>
+                        )}
+                        {order.delivery_details && "city" in order.delivery_details && (
+                          <span className="truncate max-w-[16rem]" title={`${order.delivery_details.street}, ${order.delivery_details.city}`}>
+                            {order.delivery_details.street}, {order.delivery_details.city}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-soft-brown/50">{tDisplay("none")}</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-soft-brown">
                     {formatPrice(order.total_cents)}

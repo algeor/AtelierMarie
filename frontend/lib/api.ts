@@ -14,9 +14,12 @@ import type {
   CommentListResponse,
   CommentResponse,
   CommentSort,
+  Courier,
   CreateOrderRequest,
   CreateProductRequest,
   ImageUploadResponse,
+  OfficeResponse,
+  OfficeType,
   OrderListResponse,
   OrderResponse,
   OrderStatus,
@@ -114,6 +117,29 @@ export async function createOrder(
 ): Promise<OrderResponse> {
   if (USE_MOCK) return (await getMock()).createOrder(data);
   return apiClient.post<OrderResponse>("/v1/orders", data);
+}
+
+// --- Delivery ---
+
+export async function getDeliveryOffices(
+  courier: Courier,
+  city: string,
+  type?: OfficeType
+): Promise<OfficeResponse[]> {
+  if (USE_MOCK) return (await getMock()).getDeliveryOffices(courier, city, type);
+  const params = new URLSearchParams({ courier, city });
+  if (type) params.set("type", type);
+  return apiClient.get<OfficeResponse[]>(`/v1/delivery/offices?${params}`);
+}
+
+export async function getDeliveryCities(
+  courier: Courier,
+  query?: string
+): Promise<string[]> {
+  if (USE_MOCK) return (await getMock()).getDeliveryCities(courier, query);
+  const params = new URLSearchParams({ courier });
+  if (query) params.set("q", query);
+  return apiClient.get<string[]>(`/v1/delivery/cities?${params}`);
 }
 
 export async function getOrders(

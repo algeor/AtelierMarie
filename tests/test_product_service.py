@@ -303,8 +303,10 @@ class TestProductConstraints:
         )
         assert product["stock"] == 0
 
+
 class TestGetLowStockProducts:
     """Tests for get_low_stock_products."""
+
     def test_returns_products_at_threshold(self, _seeded_db):
         result = product_service.get_low_stock_products(threshold=5)
         ids = {p["id"] for p in result}
@@ -330,6 +332,6 @@ class TestGetLowStockProducts:
             product_service.get_low_stock_products(threshold=-1)
 
     def test_high_threshold_returns_all_products(self, _seeded_db):
-          """Threshold above all stocks: all three products returned."""
-          result = product_service.get_low_stock_products(threshold=100)
-          assert len(result) == 3
+        """Threshold above all stocks: all three products returned."""
+        result = product_service.get_low_stock_products(threshold=100)
+        assert len(result) == 3

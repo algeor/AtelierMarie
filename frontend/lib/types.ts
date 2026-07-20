@@ -74,10 +74,14 @@ export interface OrderItemResponse {
 export interface OrderResponse {
   id: string;
   status: OrderStatus;
+  items_total_cents: number;
+  shipping_cents: number;
   total_cents: number;
   customer_email: string;
   customer_name: string | null;
-  shipping_address: string | null;
+  delivery_method: "office" | "door" | null;
+  delivery_courier: "speedy" | "econt" | null;
+  delivery_details: DeliveryOffice | DeliveryDoor | null;
   notes: string | null;
   items: OrderItemResponse[];
   created_at: string;
@@ -91,10 +95,49 @@ export interface OrderListResponse {
   limit: number;
 }
 
+// --- Delivery ---
+
+export type DeliveryMethod = "office" | "door";
+export type Courier = "speedy" | "econt";
+export type OfficeType = "office" | "apt";
+
+export interface DeliveryOffice {
+  courier: Courier;
+  office_id: string;
+  office_name: string;
+  office_type: OfficeType;
+  phone: string;
+}
+
+export interface DeliveryDoor {
+  courier: Courier;
+  city: string;
+  postal_code: string;
+  street: string;
+  building?: string | null;
+  apartment?: string | null;
+  phone: string;
+}
+
+export interface DeliveryInfo {
+  method: DeliveryMethod;
+  office?: DeliveryOffice | null;
+  door?: DeliveryDoor | null;
+}
+
+export interface OfficeResponse {
+  id: string;
+  name: string;
+  type: OfficeType;
+  city: string;
+  address: string;
+  working_hours: string;
+}
+
 export interface CreateOrderRequest {
   customer_email: string;
   customer_name?: string | null;
-  shipping_address?: string | null;
+  delivery: DeliveryInfo;
   notes?: string | null;
 }
 

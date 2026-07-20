@@ -11,6 +11,7 @@ import { useLocalizedError } from "@/lib/useLocalizedError";
 import { formatPrice } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { DeliveryDetails } from "@/components/checkout/DeliveryDetails";
 import type { OrderResponse } from "@/lib/types";
 
 export default function OrderConfirmationPage() {
@@ -151,6 +152,9 @@ export default function OrderConfirmationPage() {
         <p className="mb-8 text-sm text-soft-brown">
           {t("confirmationFor", { email: order.customer_email })}
         </p>
+
+        {/* Delivery details */}
+        <DeliveryDetails order={order} />
 
         {/* Continue shopping */}
         <Link href="/products">

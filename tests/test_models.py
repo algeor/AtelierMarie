@@ -160,12 +160,37 @@ class TestCartModels:
 
 class TestOrderModels:
     def test_create_order_valid(self):
-        req = CreateOrderRequest(customer_email="test@example.com")
+        req = CreateOrderRequest(
+            customer_email="test@example.com",
+            delivery={
+                "method": "office",
+                "office": {
+                    "courier": "econt",
+                    "office_id": "1",
+                    "office_name": "Sofia",
+                    "office_type": "office",
+                    "phone": "+359888123456",
+                },
+            },
+        )
         assert req.customer_name is None
+        assert req.delivery.method == "office"
 
     def test_create_order_invalid_email(self):
         with pytest.raises(ValidationError):
-            CreateOrderRequest(customer_email="not-an-email")
+            CreateOrderRequest(
+                customer_email="not-an-email",
+                delivery={
+                    "method": "office",
+                    "office": {
+                        "courier": "econt",
+                        "office_id": "1",
+                        "office_name": "Sofia",
+                        "office_type": "office",
+                        "phone": "+359888123456",
+                    },
+                },
+            )
 
     def test_update_order_status_valid(self):
         req = UpdateOrderStatusRequest(status="confirmed")
@@ -265,18 +290,21 @@ class TestBoundaryConstraints:
         with pytest.raises(ValidationError):
             CreateProductRequest(id="test-candle", name_en="x" * 201, price_cents=1000, stock=5)
 
-    def test_create_order_shipping_address_too_long(self):
-        with pytest.raises(ValidationError):
-            CreateOrderRequest(
-                customer_email="test@example.com",
-                shipping_address="x" * 1001,
-            )
-
     def test_create_order_notes_too_long(self):
         with pytest.raises(ValidationError):
             CreateOrderRequest(
                 customer_email="test@example.com",
                 notes="x" * 2001,
+                delivery={
+                    "method": "office",
+                    "office": {
+                        "courier": "econt",
+                        "office_id": "1",
+                        "office_name": "Sofia",
+                        "office_type": "office",
+                        "phone": "+359888123456",
+                    },
+                },
             )
 
 
@@ -429,12 +457,15 @@ class TestCalculateOffset:
 
     def test_page_one_returns_zero(self):
         from app.models.common import calculate_offset
+
         assert calculate_offset(1, 20) == 0
 
     def test_page_two_limit_twenty_returns_twenty(self):
         from app.models.common import calculate_offset
+
         assert calculate_offset(2, 20) == 20
 
     def test_page_three_limit_ten(self):
         from app.models.common import calculate_offset
+
         assert calculate_offset(3, 10) == 20

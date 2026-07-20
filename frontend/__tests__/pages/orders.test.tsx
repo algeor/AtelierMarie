@@ -45,10 +45,14 @@ const ordersResponse: OrderListResponse = {
     {
       id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
       status: "pending",
+      items_total_cents: 7700,
+      shipping_cents: 0,
       total_cents: 7700,
       customer_email: "alice@example.com",
       customer_name: "Alice",
-      shipping_address: null,
+      delivery_method: null,
+      delivery_courier: null,
+      delivery_details: null,
       notes: null,
       items: [
         { product_id: "p1", product_name: "Lavender Dreams", price_cents: 3200, quantity: 1 },

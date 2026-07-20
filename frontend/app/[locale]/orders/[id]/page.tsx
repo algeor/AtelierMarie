@@ -7,6 +7,7 @@ import { Link } from "@/i18n/navigation";
 import { getOrder } from "@/lib/api";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
 import { StatusTimeline } from "@/components/orders/StatusTimeline";
+import { DeliveryDetails } from "@/components/checkout/DeliveryDetails";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { formatPrice } from "@/lib/utils";
 import type { OrderResponse } from "@/lib/types";
@@ -167,6 +168,9 @@ export default function OrderDetailPage() {
           </h2>
           <p className="text-sm text-soft-brown">{order.customer_email}</p>
         </div>
+
+        {/* Delivery details */}
+        <DeliveryDetails order={order} />
       </div>
     </div>
   );

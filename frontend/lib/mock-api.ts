@@ -14,9 +14,12 @@ import type {
   CommentListResponse,
   CommentResponse,
   CommentSort,
+  Courier,
   CreateOrderRequest,
   CreateProductRequest,
   ImageUploadResponse,
+  OfficeResponse,
+  OfficeType,
   OrderListResponse,
   OrderResponse,
   OrderStatus,
@@ -265,6 +268,47 @@ export async function removeFromCart(
   return buildCartResponse();
 }
 
+// --- Mock Delivery Data ---
+
+const MOCK_OFFICES: Record<Courier, OfficeResponse[]> = {
+  speedy: [
+    { id: "speedy-sf-001", name: "Speedy офис София Център - бул. Витоша 50", type: "office", city: "София", address: "бул. Витоша 50", working_hours: "Mon-Fri 09:00-18:00, Sat 09:00-14:00" },
+    { id: "speedy-sf-002", name: "Speedy офис София Младост", type: "office", city: "София", address: "бул. Александър Малинов 12", working_hours: "Mon-Fri 09:00-18:00" },
+    { id: "speedy-apt-sf-01", name: "Speedy Автомат Витоша Мол", type: "apt", city: "София", address: "Витоша Мол, паркинг", working_hours: "24/7" },
+    { id: "speedy-plovdiv-001", name: "Speedy офис Пловдив Централ", type: "office", city: "Пловдив", address: "бул. Мария Луиза 5", working_hours: "Mon-Fri 09:00-18:00" },
+    { id: "speedy-varna-001", name: "Speedy офис Варна Център", type: "office", city: "Варна", address: "бул. Сливница 10", working_hours: "Mon-Fri 09:00-18:00" },
+  ],
+  econt: [
+    { id: "econt-sf-001", name: "Econt София Център", type: "office", city: "София", address: "ул. Раковски 100", working_hours: "Mon-Fri 09:00-19:00, Sat 09:00-15:00" },
+    { id: "econt-apt-sf-01", name: "Econt Автомат Люлин", type: "apt", city: "София", address: "ж.к. Люлин, до Билла", working_hours: "24/7" },
+    { id: "econt-plovdiv-001", name: "Econt Пловдив Централ", type: "office", city: "Пловдив", address: "бул. Шести септември 20", working_hours: "Mon-Fri 09:00-19:00" },
+    { id: "econt-burgas-001", name: "Econt Бургас Център", type: "office", city: "Бургас", address: "ул. Александровска 45", working_hours: "Mon-Fri 09:00-18:00" },
+  ],
+};
+
+export async function getDeliveryOffices(
+  courier: Courier,
+  city: string,
+  type?: OfficeType
+): Promise<OfficeResponse[]> {
+  await delay();
+  const cityLc = city.toLowerCase();
+  return MOCK_OFFICES[courier].filter(
+    (o) => o.city.toLowerCase() === cityLc && (!type || o.type === type)
+  );
+}
+
+export async function getDeliveryCities(
+  courier: Courier,
+  query?: string
+): Promise<string[]> {
+  await delay();
+  const cities = Array.from(new Set(MOCK_OFFICES[courier].map((o) => o.city))).sort();
+  if (!query) return cities;
+  const q = query.toLowerCase();
+  return cities.filter((c) => c.toLowerCase().startsWith(q));
+}
+
 export async function createOrder(
   data: CreateOrderRequest
 ): Promise<OrderResponse> {
@@ -279,10 +323,20 @@ export async function createOrder(
   const order: OrderResponse = {
     id: generateOrderId(),
     status: "pending",
+    items_total_cents: cart.total_cents,
+    shipping_cents: 0,
     total_cents: cart.total_cents,
     customer_email: data.customer_email,
     customer_name: data.customer_name ?? null,
-    shipping_address: data.shipping_address ?? null,
+    delivery_method: data.delivery.method,
+    delivery_courier:
+      data.delivery.method === "office"
+        ? data.delivery.office?.courier ?? null
+        : data.delivery.door?.courier ?? null,
+    delivery_details:
+      data.delivery.method === "office"
+        ? data.delivery.office ?? null
+        : data.delivery.door ?? null,
     notes: data.notes ?? null,
     items: cart.items.map((item) => ({
       product_id: item.product_id,
@@ -357,10 +411,20 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
   {
     id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
     status: "pending",
+    items_total_cents: 7700,
+    shipping_cents: 0,
     total_cents: 7700,
     customer_email: "alice@example.com",
     customer_name: "Alice Johnson",
-    shipping_address: "123 Main St, Paris, FR",
+    delivery_method: "office",
+    delivery_courier: "speedy",
+    delivery_details: {
+      courier: "speedy",
+      office_id: "speedy-sf-001",
+      office_name: "Speedy офис София Център",
+      office_type: "office",
+      phone: "+359888123456",
+    },
     notes: null,
     items: [
       { product_id: "lavender-dreams-300ml", product_name: "Lavender Dreams", price_cents: 3200, quantity: 1 },
@@ -372,10 +436,22 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
   {
     id: "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
     status: "confirmed",
+    items_total_cents: 5600,
+    shipping_cents: 0,
     total_cents: 5600,
     customer_email: "bob@example.com",
     customer_name: "Bob Smith",
-    shipping_address: "456 Oak Ave, Lyon, FR",
+    delivery_method: "door",
+    delivery_courier: "econt",
+    delivery_details: {
+      courier: "econt",
+      city: "София",
+      postal_code: "1000",
+      street: "ул. Оборище 5",
+      building: "А",
+      apartment: "12",
+      phone: "+359888654321",
+    },
     notes: "Gift wrapping please",
     items: [
       { product_id: "citrus-garden-200ml", product_name: "Citrus Garden", price_cents: 2800, quantity: 2 },
@@ -386,10 +462,20 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
   {
     id: "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f",
     status: "shipped",
+    items_total_cents: 3200,
+    shipping_cents: 0,
     total_cents: 3200,
     customer_email: "carol@example.com",
     customer_name: "Carol Davis",
-    shipping_address: "789 Pine Rd, Marseille, FR",
+    delivery_method: "office",
+    delivery_courier: "econt",
+    delivery_details: {
+      courier: "econt",
+      office_id: "econt-plovdiv-001",
+      office_name: "Econt Пловдив Централ",
+      office_type: "office",
+      phone: "+359877111222",
+    },
     notes: null,
     items: [
       { product_id: "lavender-dreams-300ml", product_name: "Lavender Dreams", price_cents: 3200, quantity: 1 },
@@ -400,10 +486,20 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
   {
     id: "d4e5f6a7-b8c9-4d0e-1f2a-3b4c5d6e7f8a",
     status: "delivered",
+    items_total_cents: 9000,
+    shipping_cents: 0,
     total_cents: 9000,
     customer_email: "dave@example.com",
     customer_name: "Dave Wilson",
-    shipping_address: "321 Elm St, Nice, FR",
+    delivery_method: "office",
+    delivery_courier: "speedy",
+    delivery_details: {
+      courier: "speedy",
+      office_id: "speedy-apt-sf-01",
+      office_name: "Speedy Автомат Витоша Мол",
+      office_type: "apt",
+      phone: "+359899555000",
+    },
     notes: null,
     items: [
       { product_id: "midnight-amber-300ml", product_name: "Midnight Amber", price_cents: 4500, quantity: 2 },
