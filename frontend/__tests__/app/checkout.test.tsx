@@ -127,6 +127,8 @@ describe("Checkout Page", () => {
     mockedCreateOrder.mockResolvedValue({
       id: "order-abc",
       status: "pending",
+      items_total_cents: 2500,
+      shipping_cents: 0,
       total_cents: 2500,
       customer_email: "test@example.com",
       customer_name: null,

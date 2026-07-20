@@ -438,12 +438,15 @@ class TestCalculateOffset:
 
     def test_page_one_returns_zero(self):
         from app.models.common import calculate_offset
+
         assert calculate_offset(1, 20) == 0
 
     def test_page_two_limit_twenty_returns_twenty(self):
         from app.models.common import calculate_offset
+
         assert calculate_offset(2, 20) == 20
 
     def test_page_three_limit_ten(self):
         from app.models.common import calculate_offset
+
         assert calculate_offset(3, 10) == 20

@@ -105,7 +105,7 @@ async def admin_list_products(
     response_model=LowStockProductsResponse,
     summary="List products with low stock (admin)",
     description="Return active products whose stock is at or below the given threshold.",
-  )
+)
 async def admin_list_low_stock_products(
     threshold: int = Query(default=5, ge=0, description="Stock threshold (inclusive)"),
 ) -> LowStockProductsResponse:

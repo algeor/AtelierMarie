@@ -17,7 +17,7 @@ from app.exceptions import register_exception_handlers
 from app.logging_config import configure_logging
 from app.middleware.request_id import RequestIdMiddleware
 from app.middleware.session import SessionMiddleware
-from app.routes import admin, auth, cart, comments, locale, orders, products, reactions, delivery
+from app.routes import admin, auth, cart, comments, delivery, locale, orders, products, reactions
 
 logger = structlog.get_logger(__name__)
 SESSION_CLEANUP_INTERVAL_SECONDS = 3600

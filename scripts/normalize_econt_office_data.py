@@ -13,9 +13,13 @@ Called from scripts/fetch_courier_offices.py (M2 task 2.2) once implemented.
 
 import json
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 BG_TZ = ZoneInfo("Europe/Sofia")
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DATA_DIR = REPO_ROOT / "data"
 
 
 def _hm(ms: int | None) -> str | None:
@@ -83,24 +87,33 @@ def normalize_econt(raw: dict) -> list[dict]:
         city = city_obj.get("name")
         if not city or not o.get("name"):
             continue  # skip malformed
-        out.append({
-            "id": f"econt-{o['id']}",
-            "name": o["name"],
-            "name_en": o.get("nameEn"),
-            "type": "apt" if (o.get("isAPS") or o.get("isMPS")) else "office",
-            "city": city,
-            "city_en": city_obj.get("nameEn"),
-            "address": _address(addr),
-            "working_hours": _working_hours(o),
-            "working_hours_en": _working_hours_en(o),
-        })
+        out.append(
+            {
+                "id": f"econt-{o['id']}",
+                "name": o["name"],
+                "name_en": o.get("nameEn"),
+                "type": "apt" if (o.get("isAPS") or o.get("isMPS")) else "office",
+                "city": city,
+                "city_en": city_obj.get("nameEn"),
+                "address": _address(addr),
+                "working_hours": _working_hours(o),
+                "working_hours_en": _working_hours_en(o),
+            }
+        )
     return out
 
 
 if __name__ == "__main__":
-    with open("/Users/i748006/Desktop/Learning/Aleks/AtelierMarie/data/econt_offices_raw.json", encoding="utf-8") as f:
+    with open(
+        DATA_DIR / "econt_offices_raw.json",
+        encoding="utf-8",
+    ) as f:
         raw = json.load(f)
     normalized = normalize_econt(raw)
-    with open("/Users/i748006/Desktop/Learning/Aleks/AtelierMarie/data/econt_offices.json", "w", encoding="utf-8") as f:
+    with open(
+        DATA_DIR / "econt_offices.json",
+        "w",
+        encoding="utf-8",
+    ) as f:
         json.dump(normalized, f, ensure_ascii=False, indent=2)
     print(f"wrote {len(normalized)} offices")

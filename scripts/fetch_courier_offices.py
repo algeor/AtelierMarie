@@ -31,15 +31,22 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
-from scripts.normalize_econt_office_data import normalize_econt
+# Support both `python -m scripts.fetch_courier_offices` and direct execution
+# (`python scripts/fetch_courier_offices.py`). Under direct execution, sys.path[0]
+# is the scripts/ directory, so `from scripts...` fails without this.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from scripts.normalize_econt_office_data import normalize_econt  # noqa: E402
 
 logger = logging.getLogger("fetch_courier_offices")
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = _REPO_ROOT
 DATA_DIR = REPO_ROOT / "data"
 
 SPEEDY_URL = "https://api.speedy.bg/v1/location/office"
@@ -96,18 +103,20 @@ def _normalize_speedy(raw: dict) -> list[dict]:
             continue
         # Speedy exposes `type`: 1 = office, 2 = APS (locker). Fall back to office.
         office_type = "apt" if o.get("type") == 2 else "office"
-        out.append({
-            "id": f"speedy-{o.get('id')}",
-            "name": name,
-            "name_en": o.get("nameEn"),
-            "type": office_type,
-            "city": city,
-            "city_en": site.get("nameEn"),
-            "address": (o.get("address") or {}).get("localAddressString")
-            or o.get("addressString", ""),
-            "working_hours": o.get("workingTime", "N/A"),
-            "working_hours_en": o.get("workingTimeEn"),
-        })
+        out.append(
+            {
+                "id": f"speedy-{o.get('id')}",
+                "name": name,
+                "name_en": o.get("nameEn"),
+                "type": office_type,
+                "city": city,
+                "city_en": site.get("nameEn"),
+                "address": (o.get("address") or {}).get("localAddressString")
+                or o.get("addressString", ""),
+                "working_hours": o.get("workingTime", "N/A"),
+                "working_hours_en": o.get("workingTimeEn"),
+            }
+        )
     return out
 
 

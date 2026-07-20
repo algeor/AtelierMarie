@@ -192,9 +192,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     # --- Order service exception handlers ---
 
     @app.exception_handler(OrderNotFoundError)
-    async def order_not_found_handler(
-        request: Request, exc: OrderNotFoundError
-    ) -> JSONResponse:
+    async def order_not_found_handler(request: Request, exc: OrderNotFoundError) -> JSONResponse:
         return JSONResponse(
             status_code=404,
             content={

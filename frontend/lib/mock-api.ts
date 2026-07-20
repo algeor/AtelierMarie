@@ -323,6 +323,8 @@ export async function createOrder(
   const order: OrderResponse = {
     id: generateOrderId(),
     status: "pending",
+    items_total_cents: cart.total_cents,
+    shipping_cents: 0,
     total_cents: cart.total_cents,
     customer_email: data.customer_email,
     customer_name: data.customer_name ?? null,
@@ -409,6 +411,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
   {
     id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
     status: "pending",
+    items_total_cents: 7700,
+    shipping_cents: 0,
     total_cents: 7700,
     customer_email: "alice@example.com",
     customer_name: "Alice Johnson",
@@ -432,6 +436,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
   {
     id: "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
     status: "confirmed",
+    items_total_cents: 5600,
+    shipping_cents: 0,
     total_cents: 5600,
     customer_email: "bob@example.com",
     customer_name: "Bob Smith",
@@ -456,6 +462,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
   {
     id: "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f",
     status: "shipped",
+    items_total_cents: 3200,
+    shipping_cents: 0,
     total_cents: 3200,
     customer_email: "carol@example.com",
     customer_name: "Carol Davis",
@@ -478,6 +486,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
   {
     id: "d4e5f6a7-b8c9-4d0e-1f2a-3b4c5d6e7f8a",
     status: "delivered",
+    items_total_cents: 9000,
+    shipping_cents: 0,
     total_cents: 9000,
     customer_email: "dave@example.com",
     customer_name: "Dave Wilson",

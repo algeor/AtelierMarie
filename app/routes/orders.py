@@ -154,9 +154,7 @@ def get_order_detail(
 ) -> OrderResponse:
     """Get a specific order by ID (with ownership check)."""
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT user_id FROM sessions WHERE id = ?", (session_id,)
-        ).fetchone()
+        row = conn.execute("SELECT user_id FROM sessions WHERE id = ?", (session_id,)).fetchone()
         user_id = row["user_id"] if row else None
 
         order_data = get_order(

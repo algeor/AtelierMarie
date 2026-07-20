@@ -44,6 +44,8 @@ const MOCK_ORDERS: OrderResponse[] = [
   {
     id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
     status: "pending",
+    items_total_cents: 7700,
+    shipping_cents: 0,
     total_cents: 7700,
     customer_email: "alice@example.com",
     customer_name: "Alice Johnson",
@@ -68,6 +70,8 @@ const MOCK_ORDERS: OrderResponse[] = [
   {
     id: "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
     status: "confirmed",
+    items_total_cents: 5600,
+    shipping_cents: 0,
     total_cents: 5600,
     customer_email: "bob@example.com",
     customer_name: "Bob Smith",
