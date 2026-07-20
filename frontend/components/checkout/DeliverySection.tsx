@@ -418,7 +418,15 @@ function DoorAddressForm({ value, onChange, errors }: DoorAddressFormProps) {
           value={(value[fieldKey] as string | null | undefined) ?? ""}
           onChange={(e) => onChange({ [fieldKey]: e.target.value })}
           placeholder={t(`${key}Placeholder`)}
-          maxLength={fieldKey === "street" ? 200 : fieldKey === "postal_code" ? 10 : 100}
+          maxLength={
+            fieldKey === "street"
+              ? 200
+              : fieldKey === "postal_code"
+                ? 10
+                : fieldKey === "building" || fieldKey === "apartment"
+                  ? 50
+                  : 100
+          }
           aria-invalid={err ? "true" : undefined}
           className={cn(
             "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
