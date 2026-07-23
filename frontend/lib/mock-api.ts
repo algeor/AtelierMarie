@@ -24,6 +24,7 @@ import type {
   OrderResponse,
   OrderStatus,
   ProductListResponse,
+  ProductImage,
   ProductResponse,
   ReactionCountsResponse,
   ReactionToggleRequest,
@@ -55,6 +56,24 @@ function generateOrderId(): string {
 
 // --- Mock Data ---
 
+function mockProductImage(productId: string, sortOrder = 0, isPrimary = true): ProductImage {
+  return {
+    id: `${productId}-${sortOrder}`,
+    image_url: `/static/products/${productId}.webp`,
+    thumbnail_url: `/static/products/${productId}_thumb.webp`,
+    sort_order: sortOrder,
+    is_primary: isPrimary,
+  };
+}
+
+function primaryImageUrl(images: ProductImage[]): string | null {
+  return images.find((image) => image.is_primary)?.image_url ?? null;
+}
+
+function primaryThumbnailUrl(images: ProductImage[]): string | null {
+  return images.find((image) => image.is_primary)?.thumbnail_url ?? null;
+}
+
 const MOCK_PRODUCTS: ProductResponse[] = [
   {
     id: "lavender-dreams-300ml",
@@ -64,7 +83,9 @@ const MOCK_PRODUCTS: ProductResponse[] = [
     days_to_craft: 3,
     price_cents: 3200,
     category: "Floral",
-    image_url: "/static/products/lavender-dreams-300ml.webp",
+    images: [mockProductImage("lavender-dreams-300ml")],
+    primary_image_url: "/static/products/lavender-dreams-300ml.webp",
+    primary_thumbnail_url: "/static/products/lavender-dreams-300ml_thumb.webp",
     stock: 24,
     is_active: true,
     is_featured: true,
@@ -79,7 +100,9 @@ const MOCK_PRODUCTS: ProductResponse[] = [
     days_to_craft: 5,
     price_cents: 4500,
     category: "Woody",
-    image_url: "/static/products/midnight-amber-300ml.webp",
+    images: [mockProductImage("midnight-amber-300ml")],
+    primary_image_url: "/static/products/midnight-amber-300ml.webp",
+    primary_thumbnail_url: "/static/products/midnight-amber-300ml_thumb.webp",
     stock: 12,
     is_active: true,
     is_featured: true,
@@ -94,7 +117,9 @@ const MOCK_PRODUCTS: ProductResponse[] = [
     days_to_craft: 2,
     price_cents: 2800,
     category: "Fresh",
-    image_url: null,
+    images: [],
+    primary_image_url: null,
+    primary_thumbnail_url: null,
     stock: 36,
     is_active: true,
     is_featured: false,
@@ -109,7 +134,9 @@ const MOCK_PRODUCTS: ProductResponse[] = [
     days_to_craft: null,
     price_cents: 3800,
     category: "Gourmand",
-    image_url: "/static/products/vanilla-bourbon-300ml.webp",
+    images: [mockProductImage("vanilla-bourbon-300ml")],
+    primary_image_url: "/static/products/vanilla-bourbon-300ml.webp",
+    primary_thumbnail_url: "/static/products/vanilla-bourbon-300ml_thumb.webp",
     stock: 0,
     is_active: false,
     is_featured: false,
@@ -324,6 +351,8 @@ export async function createOrder(
   const order: OrderResponse = {
     id: generateOrderId(),
     status: "pending",
+    items_total_cents: cart.total_cents,
+    shipping_cents: 0,
     total_cents: cart.total_cents,
     customer_email: data.customer_email,
     customer_name: data.customer_name ?? null,
@@ -413,6 +442,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
   {
     id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
     status: "pending",
+    items_total_cents: 7700,
+    shipping_cents: 0,
     total_cents: 7700,
     customer_email: "alice@example.com",
     customer_name: "Alice Johnson",
@@ -439,6 +470,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
   {
     id: "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
     status: "confirmed",
+    items_total_cents: 5600,
+    shipping_cents: 0,
     total_cents: 5600,
     customer_email: "bob@example.com",
     customer_name: "Bob Smith",
@@ -466,6 +499,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
   {
     id: "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f",
     status: "shipped",
+    items_total_cents: 3200,
+    shipping_cents: 0,
     total_cents: 3200,
     customer_email: "carol@example.com",
     customer_name: "Carol Davis",
@@ -491,6 +526,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
   {
     id: "d4e5f6a7-b8c9-4d0e-1f2a-3b4c5d6e7f8a",
     status: "delivered",
+    items_total_cents: 9000,
+    shipping_cents: 0,
     total_cents: 9000,
     customer_email: "dave@example.com",
     customer_name: "Dave Wilson",
@@ -546,7 +583,9 @@ function toAdminProduct(product: ProductResponse): AdminProductResponse {
     days_to_craft: product.days_to_craft,
     price_cents: product.price_cents,
     category: product.category,
-    image_url: product.image_url,
+    images: product.images,
+    primary_image_url: product.primary_image_url,
+    primary_thumbnail_url: product.primary_thumbnail_url,
     stock: product.stock,
     is_active: product.is_active,
     is_featured: product.is_featured,
@@ -592,7 +631,9 @@ export async function createProduct(data: CreateProductRequest): Promise<AdminPr
     days_to_craft: data.days_to_craft ?? null,
     price_cents: data.price_cents,
     category: data.category,
-    image_url: data.image_url ?? null,
+    images: [],
+    primary_image_url: null,
+    primary_thumbnail_url: null,
     stock: data.stock,
     is_active: true,
     is_featured: data.is_featured ?? false,
@@ -617,7 +658,6 @@ export async function updateProduct(
   if (data.days_to_craft !== undefined) product.days_to_craft = data.days_to_craft;
   if (data.price_cents !== undefined) product.price_cents = data.price_cents;
   if (data.category !== undefined) product.category = data.category;
-  if (data.image_url !== undefined) product.image_url = data.image_url;
   if (data.stock !== undefined) product.stock = data.stock;
   if (data.is_active !== undefined) product.is_active = data.is_active;
   if (data.is_featured !== undefined) product.is_featured = data.is_featured;
@@ -635,13 +675,75 @@ export async function uploadProductImage(
   if (!/^image\/(jpeg|png)$/.test(file.type)) {
     mockError("invalid_image_type", "Only JPEG and PNG images are accepted");
   }
-  const imageUrl = `/static/products/${productId}.webp`;
-  product.image_url = imageUrl;
-  product.updated_at = new Date().toISOString();
-  return {
+  if (product.images.length >= 6) {
+    mockError("max_product_images", "Product already has the maximum number of images");
+  }
+  const imageId = `${productId}-${Date.now()}`;
+  const imageUrl = `/static/products/${productId}_${imageId}.webp`;
+  const image: ProductImage = {
+    id: imageId,
     image_url: imageUrl,
-    thumbnail_url: `/static/products/${productId}_thumb.webp`,
+    thumbnail_url: `/static/products/${productId}_${imageId}_thumb.webp`,
+    sort_order: product.images.length,
+    is_primary: product.images.length === 0,
   };
+  product.images.push(image);
+  product.primary_image_url = primaryImageUrl(product.images);
+  product.primary_thumbnail_url = primaryThumbnailUrl(product.images);
+  product.updated_at = new Date().toISOString();
+  return image;
+}
+
+export async function deleteProductImage(productId: string, imageId: string): Promise<void> {
+  await delay();
+  const product = MOCK_PRODUCTS.find((p) => p.id === productId);
+  if (!product) mockError("product_not_found", `Product ${productId} not found`);
+  const image = product.images.find((item) => item.id === imageId);
+  if (!image) mockError("image_not_found", `Image ${imageId} not found`);
+  product.images = product.images.filter((item) => item.id !== imageId);
+  if (image.is_primary && product.images.length > 0) {
+    product.images = product.images.map((item, index) => ({ ...item, is_primary: index === 0 }));
+  }
+  product.images = product.images.map((item, index) => ({ ...item, sort_order: index }));
+  product.primary_image_url = primaryImageUrl(product.images);
+  product.primary_thumbnail_url = primaryThumbnailUrl(product.images);
+}
+
+export async function reorderProductImages(
+  productId: string,
+  orderedIds: string[]
+): Promise<ProductImage[]> {
+  await delay();
+  const product = MOCK_PRODUCTS.find((p) => p.id === productId);
+  if (!product) mockError("product_not_found", `Product ${productId} not found`);
+  if (new Set(orderedIds).size !== product.images.length) {
+    mockError("invalid_image_order", "ordered_ids must match all images for the product");
+  }
+  product.images = orderedIds.map((id, index) => {
+    const image = product.images.find((item) => item.id === id);
+    if (!image) mockError("invalid_image_order", "ordered_ids must match all images for the product");
+    return { ...image, sort_order: index };
+  });
+  return product.images;
+}
+
+export async function setPrimaryProductImage(
+  productId: string,
+  imageId: string
+): Promise<ProductImage> {
+  await delay();
+  const product = MOCK_PRODUCTS.find((p) => p.id === productId);
+  if (!product) mockError("product_not_found", `Product ${productId} not found`);
+  let primary: ProductImage | undefined;
+  product.images = product.images.map((image) => {
+    const next = { ...image, is_primary: image.id === imageId };
+    if (next.is_primary) primary = next;
+    return next;
+  });
+  if (!primary) mockError("image_not_found", `Image ${imageId} not found`);
+  product.primary_image_url = primaryImageUrl(product.images);
+  product.primary_thumbnail_url = primaryThumbnailUrl(product.images);
+  return primary;
 }
 
 export async function getAdminOrders(

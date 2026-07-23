@@ -297,9 +297,13 @@
     "category": "Category",
     "selectCategory": "Select category...",
     "imageUrl": "Image URL",
-    "productImage": "Product image",
+    "productImage": "Product images",
     "currentImage": "Current image: {url}",
     "selectedFile": "Selected: {name}",
+    "selectedFiles": "{count} file(s) selected",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "setPrimary": "Primary",
     "materials": "Materials",
     "materialsPlaceholder": "e.g., Soy wax, lavender oil",
     "daysToCraft": "Days to Craft",
@@ -313,7 +317,8 @@
       "categoryRequired": "Category is required",
       "stockNonNegative": "Stock cannot be negative",
       "imageType": "Image must be a JPEG or PNG file",
-      "imageSize": "Image must be 5MB or smaller"
+      "imageSize": "Image must be 5MB or smaller",
+      "maxImages": "A product can have up to 6 images"
     },
     "errors": {
       "saveProduct": "Failed to save product",

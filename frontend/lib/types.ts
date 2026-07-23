@@ -17,6 +17,14 @@ export interface ErrorResponse {
 
 // --- Products ---
 
+export interface ProductImage {
+  id: string;
+  image_url: string;
+  thumbnail_url: string;
+  sort_order: number;
+  is_primary: boolean;
+}
+
 export interface ProductResponse {
   id: string;
   name: string;
@@ -25,7 +33,9 @@ export interface ProductResponse {
   days_to_craft: number | null;
   price_cents: number;
   category: string | null;
-  image_url: string | null;
+  images: ProductImage[];
+  primary_image_url: string | null;
+  primary_thumbnail_url: string | null;
   stock: number;
   is_active: boolean;
   is_featured: boolean;
@@ -187,7 +197,9 @@ export interface AdminProductResponse {
   days_to_craft: number | null;
   price_cents: number;
   category: string | null;
-  image_url: string | null;
+  images: ProductImage[];
+  primary_image_url: string | null;
+  primary_thumbnail_url: string | null;
   stock: number;
   is_active: boolean;
   is_featured: boolean;
@@ -214,7 +226,6 @@ export interface CreateProductRequest {
   days_to_craft?: number | null;
   price_cents: number;
   category: string;
-  image_url?: string | null;
   stock: number;
   is_featured?: boolean;
 }
@@ -228,16 +239,12 @@ export interface UpdateProductRequest {
   days_to_craft?: number | null;
   price_cents?: number;
   category?: string;
-  image_url?: string | null;
   stock?: number;
   is_active?: boolean;
   is_featured?: boolean;
 }
 
-export interface ImageUploadResponse {
-  image_url: string;
-  thumbnail_url: string;
-}
+export type ImageUploadResponse = ProductImage;
 
 // --- Reactions ---
 

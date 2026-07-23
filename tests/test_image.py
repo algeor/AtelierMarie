@@ -201,7 +201,7 @@ class TestImageUploadRoute:
 
     @pytest.mark.asyncio
     async def test_upload_happy_path(self, admin_client: AsyncClient, _product, tmp_path, app):
-        """Admin + valid image → 200 with URLs."""
+        """Admin + valid image -> 201 with gallery image."""
         img_data = _make_jpeg(800, 600)
 
         # Patch static path to use tmp_path
@@ -212,24 +212,26 @@ class TestImageUploadRoute:
         settings.static_file_path = str(tmp_path)
         try:
             response = await admin_client.post(
-                "/v1/admin/products/test-candle-img/image",
+                "/v1/admin/products/test-candle-img/images",
                 files={"file": ("image.jpg", img_data, "image/jpeg")},
             )
         finally:
             settings.static_file_path = original
 
-        assert response.status_code == 200
+        assert response.status_code == 201
         body = response.json()
+        assert "id" in body
         assert "image_url" in body
         assert "thumbnail_url" in body
-        assert body["image_url"] == "/static/products/test-candle-img.webp"
+        assert body["image_url"].startswith("/static/products/test-candle-img_")
+        assert body["is_primary"] is True
 
     @pytest.mark.asyncio
     async def test_upload_non_admin_rejected(self, client: AsyncClient, _product):
         """Non-admin → 401."""
         img_data = _make_jpeg()
         response = await client.post(
-            "/v1/admin/products/test-candle-img/image",
+            "/v1/admin/products/test-candle-img/images",
             files={"file": ("image.jpg", img_data, "image/jpeg")},
         )
         assert response.status_code == 401
@@ -239,7 +241,7 @@ class TestImageUploadRoute:
         """Product doesn't exist → 404."""
         img_data = _make_jpeg()
         response = await admin_client.post(
-            "/v1/admin/products/nonexistent-product/image",
+            "/v1/admin/products/nonexistent-product/images",
             files={"file": ("image.jpg", img_data, "image/jpeg")},
         )
         assert response.status_code == 404
@@ -248,7 +250,7 @@ class TestImageUploadRoute:
     async def test_upload_invalid_file_type(self, admin_client: AsyncClient, _product):
         """Non-image file → 422."""
         response = await admin_client.post(
-            "/v1/admin/products/test-candle-img/image",
+            "/v1/admin/products/test-candle-img/images",
             files={"file": ("file.txt", b"not an image", "text/plain")},
         )
         assert response.status_code == 422
@@ -259,17 +261,17 @@ class TestImageUploadRoute:
         """6MB file → 422."""
         oversized = b"\xff\xd8\xff" + b"\x00" * (6 * 1024 * 1024)
         response = await admin_client.post(
-            "/v1/admin/products/test-candle-img/image",
+            "/v1/admin/products/test-candle-img/images",
             files={"file": ("big.jpg", oversized, "image/jpeg")},
         )
         assert response.status_code == 422
         assert response.json()["error"]["code"] == "file_too_large"
 
     @pytest.mark.asyncio
-    async def test_upload_updates_db_image_url(
+    async def test_upload_inserts_product_image_row(
         self, admin_client: AsyncClient, _product, db_path, tmp_path, app
     ):
-        """After upload, product.image_url is updated in DB."""
+        """After upload, a product_images row is inserted."""
         img_data = _make_jpeg(800, 600)
 
         from app.config import get_settings
@@ -279,7 +281,7 @@ class TestImageUploadRoute:
         settings.static_file_path = str(tmp_path)
         try:
             await admin_client.post(
-                "/v1/admin/products/test-candle-img/image",
+                "/v1/admin/products/test-candle-img/images",
                 files={"file": ("image.jpg", img_data, "image/jpeg")},
             )
         finally:
@@ -288,10 +290,13 @@ class TestImageUploadRoute:
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT image_url FROM products WHERE id = ?", ("test-candle-img",)
+            "SELECT image_url, thumbnail_url, is_primary FROM product_images WHERE product_id = ?",
+            ("test-candle-img",),
         ).fetchone()
         conn.close()
-        assert row["image_url"] == "/static/products/test-candle-img.webp"
+        assert row["image_url"].startswith("/static/products/test-candle-img_")
+        assert row["thumbnail_url"].startswith("/static/products/test-candle-img_")
+        assert row["is_primary"] == 1
 
 
 # --- Test overwrite ---
@@ -316,6 +321,20 @@ class TestImageOverwrite:
         with Image.open(main_path) as img:
             assert img.width == 200
             assert img.height == 200
+
+    def test_image_id_creates_distinct_files(self, tmp_path):
+        """Supplying image_id appends instead of overwriting."""
+        img1 = _make_jpeg(100, 100)
+        img2 = _make_png(200, 200)
+        id1 = "a" * 32
+        id2 = "b" * 32
+
+        result1 = process_image(img1, "gallery-test", str(tmp_path), image_id=id1)
+        result2 = process_image(img2, "gallery-test", str(tmp_path), image_id=id2)
+
+        assert result1["image_url"] != result2["image_url"]
+        assert (tmp_path / "products" / f"gallery-test_{id1}.webp").exists()
+        assert (tmp_path / "products" / f"gallery-test_{id2}.webp").exists()
 
 
 # --- Test directory auto-creation ---

@@ -28,6 +28,7 @@ import type {
   ReactionCountsResponse,
   ReactionToggleRequest,
   ReactionToggleResponse,
+  ProductImage,
   UpdateProductRequest,
   UserResponse,
 } from "./types";
@@ -229,8 +230,40 @@ export async function uploadProductImage(
   const formData = new FormData();
   formData.append("file", file);
   return apiClient.postForm<ImageUploadResponse>(
-    `/v1/admin/products/${encodeURIComponent(productId)}/image`,
+    `/v1/admin/products/${encodeURIComponent(productId)}/images`,
     formData
+  );
+}
+
+export async function deleteProductImage(
+  productId: string,
+  imageId: string
+): Promise<void> {
+  if (USE_MOCK) return (await getMock()).deleteProductImage(productId, imageId);
+  return apiClient.del<void>(
+    `/v1/admin/products/${encodeURIComponent(productId)}/images/${encodeURIComponent(imageId)}`
+  );
+}
+
+export async function reorderProductImages(
+  productId: string,
+  orderedIds: string[]
+): Promise<ProductImage[]> {
+  if (USE_MOCK) return (await getMock()).reorderProductImages(productId, orderedIds);
+  return apiClient.patch<ProductImage[]>(
+    `/v1/admin/products/${encodeURIComponent(productId)}/images/reorder`,
+    { ordered_ids: orderedIds }
+  );
+}
+
+export async function setPrimaryProductImage(
+  productId: string,
+  imageId: string
+): Promise<ProductImage> {
+  if (USE_MOCK) return (await getMock()).setPrimaryProductImage(productId, imageId);
+  return apiClient.patch<ProductImage>(
+    `/v1/admin/products/${encodeURIComponent(productId)}/images/${encodeURIComponent(imageId)}/primary`,
+    {}
   );
 }
 

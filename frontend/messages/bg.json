@@ -297,9 +297,13 @@
     "category": "Категория",
     "selectCategory": "Изберете категория...",
     "imageUrl": "URL на изображение",
-    "productImage": "Изображение на продукт",
+    "productImage": "Изображения на продукт",
     "currentImage": "Текущо изображение: {url}",
     "selectedFile": "Избран файл: {name}",
+    "selectedFiles": "Избрани файлове: {count}",
+    "moveUp": "Нагоре",
+    "moveDown": "Надолу",
+    "setPrimary": "Основно",
     "materials": "Материали",
     "materialsPlaceholder": "напр. соев восък, лавандулово масло",
     "daysToCraft": "Дни за изработка",
@@ -313,7 +317,8 @@
       "categoryRequired": "Категорията е задължителна",
       "stockNonNegative": "Наличността не може да бъде отрицателна",
       "imageType": "Изображението трябва да е JPEG или PNG файл",
-      "imageSize": "Изображението трябва да е 5MB или по-малко"
+      "imageSize": "Изображението трябва да е 5MB или по-малко",
+      "maxImages": "Продуктът може да има до 6 изображения"
     },
     "errors": {
       "saveProduct": "Неуспешно запазване на продукта",

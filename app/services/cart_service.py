@@ -11,6 +11,7 @@ from typing import Literal, TypedDict
 import structlog
 
 from app.config import get_settings
+from app.services.product_image_service import images_for_products, with_image_fields
 
 logger = structlog.get_logger(__name__)
 
@@ -90,7 +91,9 @@ class ProductDict(TypedDict):
     days_to_craft: int | None
     price_cents: int
     category: str | None
-    image_url: str | None
+    images: list[dict]
+    primary_image_url: str | None
+    primary_thumbnail_url: str | None
     stock: int
     is_active: bool
     is_featured: bool
@@ -146,7 +149,7 @@ def get_cart(conn: sqlite3.Connection, session_id: str, locale: Locale = "en") -
         SELECT ci.product_id, ci.quantity, ci.added_at,
                p.id AS p_id, {name_expr}, {description_expr}, p.materials,
                p.days_to_craft, p.price_cents, p.category,
-               p.image_url, p.stock, p.is_active, p.is_featured,
+               p.stock, p.is_active, p.is_featured,
                p.created_at, p.updated_at
         FROM cart_items ci
         LEFT JOIN products p ON ci.product_id = p.id
@@ -160,6 +163,9 @@ def get_cart(conn: sqlite3.Connection, session_id: str, locale: Locale = "en") -
     unavailable_items: list[UnavailableItem] = []
     total_cents = 0
     item_count = 0
+
+    active_product_ids = [row["p_id"] for row in rows if row["p_id"] is not None]
+    image_map = images_for_products(conn, active_product_ids)
 
     for row in rows:
         if row["p_id"] is None:
@@ -180,7 +186,7 @@ def get_cart(conn: sqlite3.Connection, session_id: str, locale: Locale = "en") -
                 )
             )
         else:
-            product: ProductDict = {
+            product_data = {
                 "id": row["p_id"],
                 "name": row["name"],
                 "description": row["description"],
@@ -188,13 +194,16 @@ def get_cart(conn: sqlite3.Connection, session_id: str, locale: Locale = "en") -
                 "days_to_craft": row["days_to_craft"],
                 "price_cents": row["price_cents"],
                 "category": row["category"],
-                "image_url": row["image_url"],
                 "stock": row["stock"],
                 "is_active": bool(row["is_active"]),
                 "is_featured": bool(row["is_featured"]),
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
             }
+            product: ProductDict = with_image_fields(
+                product_data,
+                image_map.get(row["p_id"], []),
+            )
             items.append(
                 CartItem(
                     product_id=row["product_id"],

@@ -34,7 +34,7 @@ export function LanguageToggle() {
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   const current =
-    LOCALES.find((l) => l.code === currentLocale) ?? LOCALES[0];
+    LOCALES.find((l) => l.code === currentLocale) ?? LOCALES[0]!;
 
   // Close on click outside
   useEffect(() => {

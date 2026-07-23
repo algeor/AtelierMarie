@@ -2,6 +2,7 @@
 
 import os
 import sqlite3
+import uuid
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -17,7 +18,6 @@ CREATE TABLE IF NOT EXISTS products (
     days_to_craft INTEGER,
     price_cents INTEGER NOT NULL CHECK (price_cents > 0),
     category    TEXT,
-    image_url   TEXT,
     stock       INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
     is_active   INTEGER NOT NULL DEFAULT 1,
     is_featured INTEGER NOT NULL DEFAULT 0,
@@ -26,6 +26,21 @@ CREATE TABLE IF NOT EXISTS products (
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS product_images (
+    id            TEXT PRIMARY KEY,
+    product_id    TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    image_url     TEXT NOT NULL,
+    thumbnail_url TEXT NOT NULL,
+    sort_order    INTEGER NOT NULL DEFAULT 0,
+    is_primary    INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_images_product
+    ON product_images(product_id, sort_order);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_product_images_one_primary
+    ON product_images(product_id) WHERE is_primary = 1;
 
 CREATE TABLE IF NOT EXISTS users (
     id          TEXT PRIMARY KEY,
@@ -269,7 +284,6 @@ CREATE TABLE products_new (
     days_to_craft INTEGER,
     price_cents INTEGER NOT NULL CHECK (price_cents > 0),
     category    TEXT,
-    image_url   TEXT,
     stock       INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
     is_active   INTEGER NOT NULL DEFAULT 1,
     is_featured INTEGER NOT NULL DEFAULT 0,
@@ -278,6 +292,23 @@ CREATE TABLE products_new (
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
+"""
+
+_PRODUCT_IMAGES_TABLE_SQL = """\
+CREATE TABLE IF NOT EXISTS product_images (
+    id            TEXT PRIMARY KEY,
+    product_id    TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    image_url     TEXT NOT NULL,
+    thumbnail_url TEXT NOT NULL,
+    sort_order    INTEGER NOT NULL DEFAULT 0,
+    is_primary    INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_images_product
+    ON product_images(product_id, sort_order);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_product_images_one_primary
+    ON product_images(product_id) WHERE is_primary = 1;
 """
 
 _PRODUCT_COLUMNS = (
@@ -290,7 +321,6 @@ _PRODUCT_COLUMNS = (
     "days_to_craft",
     "price_cents",
     "category",
-    "image_url",
     "stock",
     "is_active",
     "is_featured",
@@ -328,6 +358,7 @@ def init_db(path: str) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
 
     conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
     try:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
@@ -371,12 +402,61 @@ def _add_column_if_missing(
         columns.add(column)
 
 
+def _legacy_product_image_id(product_id: str) -> str:
+    """Return a stable UUID hex for a migrated legacy product image."""
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"atelier-marie/product-image/{product_id}").hex
+
+
+def _legacy_thumbnail_url(image_url: str) -> str:
+    """Derive the old thumbnail URL convention from a legacy image URL."""
+    path = Path(image_url)
+    if path.suffix:
+        return str(path.with_name(f"{path.stem}_thumb{path.suffix}"))
+    return f"{image_url.rstrip('/')}_thumb.webp"
+
+
+def _legacy_product_images_from_products(conn: sqlite3.Connection) -> list[tuple[str, str]]:
+    """Read legacy products.image_url values before the products table is rebuilt."""
+    product_columns = _table_columns(conn, "products")
+    if "image_url" not in product_columns:
+        return []
+
+    rows = conn.execute(
+        """
+        SELECT id, image_url
+        FROM products
+        WHERE image_url IS NOT NULL AND TRIM(image_url) != ''
+        """
+    ).fetchall()
+    return [(row["id"], row["image_url"]) for row in rows]
+
+
+def _seed_product_images_from_legacy_rows(
+    conn: sqlite3.Connection,
+    legacy_images: list[tuple[str, str]],
+) -> None:
+    """Insert legacy image URLs into product_images exactly once."""
+    for product_id, image_url in legacy_images:
+        image_id = _legacy_product_image_id(product_id)
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO product_images (
+                id, product_id, image_url, thumbnail_url, sort_order, is_primary, created_at
+            ) VALUES (?, ?, ?, ?, 0, 1, datetime('now'))
+            """,
+            (image_id, product_id, image_url, _legacy_thumbnail_url(image_url)),
+        )
+
+
 def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
     """Bring pre-bilingual SQLite files up to the current schema."""
     conn.executescript(_PRODUCT_FTS_RESET_SQL)
 
     if _table_exists(conn, "products"):
+        legacy_images = _legacy_product_images_from_products(conn)
         _migrate_products_table(conn)
+        conn.executescript(_PRODUCT_IMAGES_TABLE_SQL)
+        _seed_product_images_from_legacy_rows(conn, legacy_images)
 
     if _table_exists(conn, "sessions"):
         session_columns = _table_columns(conn, "sessions")
@@ -446,7 +526,6 @@ def _migrate_products_table(conn: sqlite3.Connection) -> None:
         _column_expr(columns, "days_to_craft"),
         price_expr,
         _column_expr(columns, "category"),
-        _column_expr(columns, "image_url"),
         _column_expr(columns, "stock", "0"),
         _column_expr(columns, "is_active", "1"),
         _column_expr(columns, "is_featured", "0"),

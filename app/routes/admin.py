@@ -26,9 +26,11 @@ from app.models.products import (
     CSVImportResponse,
     ProductAdminListResponse,
     ProductAdminResponse,
+    ProductImage,
+    ReorderProductImagesRequest,
     UpdateProductRequest,
 )
-from app.services import admin_service, product_service
+from app.services import admin_service, product_image_service, product_service
 from app.services.auth_service import get_oauth_circuit_breaker
 from app.services.comment_service import CommentNotFoundError, list_all_comments
 from app.services.comment_service import delete_comment as delete_comment_service
@@ -39,7 +41,6 @@ from app.services.image_service import (
     ImageProcessingError,
     InvalidImageTypeError,
     InvalidProductIdError,
-    process_image,
     validate_image_file,
 )
 from app.services.order_service import (
@@ -142,6 +143,17 @@ async def admin_get_product(product_id: str) -> ProductAdminResponse | JSONRespo
 
 
 @router.put(
+    "/products/{product_id}",
+    response_model=ProductAdminResponse,
+    summary="Update product",
+    description="Partially update a product. Only provided fields are modified; "
+    "omitted fields remain unchanged.",
+    responses={
+        404: {"description": "Product not found"},
+        422: {"description": "Validation error"},
+    },
+)
+@router.patch(
     "/products/{product_id}",
     response_model=ProductAdminResponse,
     summary="Update product",
@@ -342,8 +354,9 @@ async def admin_import_products(
             data["category"] = row["category"].strip()
         if stock is not None:
             data["stock"] = stock
+        imported_image_url = ""
         if "image_url" in headers and row.get("image_url"):
-            data["image_url"] = row["image_url"].strip()
+            imported_image_url = row["image_url"].strip()
 
         # Check if product exists to track created vs updated
         try:
@@ -354,6 +367,8 @@ async def admin_import_products(
 
         try:
             product_service.upsert_product(product_id, data)
+            if imported_image_url:
+                product_image_service.add_existing_image_url(product_id, imported_image_url)
             if is_existing:
                 updated += 1
             else:
@@ -588,25 +603,28 @@ async def _read_upload_with_limit(file: UploadFile) -> bytes:
 
 
 @router.post(
-    "/products/{product_id}/image",
-    summary="Upload product image",
-    description="Upload a JPEG or PNG image for a product. Image is resized, "
-    "stripped of EXIF metadata, and converted to WebP. Overwrites any existing image.",
+    "/products/{product_id}/images",
+    response_model=ProductImage,
+    status_code=201,
+    summary="Append product image",
+    description="Upload a JPEG or PNG image for a product gallery. Image is resized, "
+    "stripped of EXIF metadata, converted to WebP, and appended without overwriting.",
     responses={
-        200: {"description": "Image uploaded successfully"},
+        201: {"description": "Image uploaded successfully"},
         400: {"description": "Invalid product ID"},
         404: {"description": "Product not found"},
+        409: {"description": "Product already has the maximum number of images"},
         422: {"description": "Invalid image type, file too large, or processing failed"},
     },
 )
-async def admin_upload_product_image(
+async def admin_append_product_image(
     product_id: str,
     file: UploadFile = File(..., description="JPEG or PNG image file"),
-) -> JSONResponse:
-    """Upload and process a product image.
+) -> ProductImage | JSONResponse:
+    """Upload and append a processed image to a product gallery.
 
     Validates the file (type, size, slug), processes it (resize, strip EXIF,
-    convert to WebP), saves main + thumbnail, and updates the product's image_url.
+    convert to WebP), saves main + thumbnail, and stores a product_images row.
     """
     # Read file bytes with an application-level limit. Nginx should reject
     # larger production uploads first; this is defense-in-depth for app access.
@@ -657,18 +675,23 @@ async def admin_upload_product_image(
             },
         )
 
-    # Verify product exists
     try:
-        product_service.get_product_admin(product_id)
-    except NotFoundError:
+        image = product_image_service.add_image(product_id, file_bytes)
+    except product_image_service.ProductNotFoundError:
         return JSONResponse(
             status_code=404,
             content={"error": {"code": "product_not_found", "message": "Product not found"}},
         )
-
-    # Process image (resize, strip EXIF, save as WebP)
-    try:
-        result = process_image(file_bytes, product_id)
+    except product_image_service.ProductImageLimitError:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": {
+                    "code": "max_product_images",
+                    "message": "Product already has the maximum number of images",
+                }
+            },
+        )
     except ImageProcessingError as e:
         error_message = str(e)
         if error_message == "image_dimensions_too_large":
@@ -690,15 +713,78 @@ async def admin_upload_product_image(
                 }
             },
         )
+    return ProductImage(**image)
 
-    # Update product's image_url in database
-    with get_db() as conn:
-        conn.execute(
-            "UPDATE products SET image_url = ? WHERE id = ?",
-            (result["image_url"], product_id),
+
+@router.delete(
+    "/products/{product_id}/images/{image_id}",
+    status_code=204,
+    response_class=Response,
+    summary="Delete product image",
+    responses={404: {"description": "Product image not found"}},
+)
+async def admin_delete_product_image(product_id: str, image_id: str) -> Response:
+    """Delete one product image and promote another primary when needed."""
+    try:
+        product_image_service.delete_image(product_id, image_id)
+    except product_image_service.ProductImageNotFoundError:
+        return JSONResponse(
+            status_code=404,
+            content={"error": {"code": "image_not_found", "message": "Product image not found"}},
         )
+    return Response(status_code=204)
 
-    return JSONResponse(
-        status_code=200,
-        content=result,
-    )
+
+@router.patch(
+    "/products/{product_id}/images/reorder",
+    response_model=list[ProductImage],
+    summary="Reorder product images",
+    responses={
+        404: {"description": "Product not found"},
+        422: {"description": "ordered_ids does not match the product image set"},
+    },
+)
+async def admin_reorder_product_images(
+    product_id: str,
+    body: ReorderProductImagesRequest,
+) -> list[ProductImage] | JSONResponse:
+    """Replace the gallery display order without changing the primary image."""
+    try:
+        images = product_image_service.reorder_images(product_id, body.ordered_ids)
+    except product_image_service.ProductNotFoundError:
+        return JSONResponse(
+            status_code=404,
+            content={"error": {"code": "product_not_found", "message": "Product not found"}},
+        )
+    except product_image_service.ProductImageOrderError:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "invalid_image_order",
+                    "message": "ordered_ids must match all images for the product",
+                }
+            },
+        )
+    return [ProductImage(**image) for image in images]
+
+
+@router.patch(
+    "/products/{product_id}/images/{image_id}/primary",
+    response_model=ProductImage,
+    summary="Set primary product image",
+    responses={404: {"description": "Product image not found"}},
+)
+async def admin_set_primary_product_image(
+    product_id: str,
+    image_id: str,
+) -> ProductImage | JSONResponse:
+    """Set one product image as the sole primary image."""
+    try:
+        image = product_image_service.set_primary(product_id, image_id)
+    except product_image_service.ProductImageNotFoundError:
+        return JSONResponse(
+            status_code=404,
+            content={"error": {"code": "image_not_found", "message": "Product image not found"}},
+        )
+    return ProductImage(**image)

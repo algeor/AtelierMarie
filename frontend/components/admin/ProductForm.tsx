@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { ApiError } from "@/lib/api-client";
-import type { AdminProductResponse } from "@/lib/types";
+import { ApiError, BASE_URL } from "@/lib/api-client";
+import type { AdminProductResponse, ProductImage } from "@/lib/types";
 import { useLocalizedError } from "@/lib/useLocalizedError";
 
 const CATEGORIES = ["Floral", "Woody", "Fresh", "Gourmand", "Spicy", "Citrus"];
@@ -27,8 +28,10 @@ export interface ProductFormData {
   days_to_craft: number | null;
   price_cents: number;
   category: string;
-  image_url: string;
-  image_file: File | null;
+  image_files: File[];
+  ordered_image_ids: string[];
+  deleted_image_ids: string[];
+  primary_image_id: string | null;
   stock: number;
   is_featured: boolean;
 }
@@ -55,6 +58,8 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [images, setImages] = useState<ProductImage[]>(product?.images ?? []);
+  const [deletedImageIds, setDeletedImageIds] = useState<string[]>([]);
 
   // Local string state for price input to avoid cursor jumping
   const [priceDisplay, setPriceDisplay] = useState(
@@ -71,8 +76,10 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
     days_to_craft: product?.days_to_craft ?? null,
     price_cents: product?.price_cents ?? 0,
     category: product?.category ?? "",
-    image_url: product?.image_url ?? "",
-    image_file: null,
+    image_files: [],
+    ordered_image_ids: (product?.images ?? []).map((image) => image.id),
+    deleted_image_ids: [],
+    primary_image_id: product?.images.find((image) => image.is_primary)?.id ?? null,
     stock: product?.stock ?? 0,
     is_featured: product?.is_featured ?? false,
   });
@@ -90,11 +97,14 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
     if (formData.price_cents <= 0) newErrors.price_cents = t("validation.pricePositive");
     if (!formData.category) newErrors.category = t("validation.categoryRequired");
     if (formData.stock < 0) newErrors.stock = t("validation.stockNonNegative");
-    if (formData.image_file) {
-      const validType = ["image/jpeg", "image/png"].includes(formData.image_file.type);
-      if (!validType) newErrors.image_file = t("validation.imageType");
-      if (formData.image_file.size > MAX_IMAGE_SIZE) {
-        newErrors.image_file = t("validation.imageSize");
+    if (images.length + formData.image_files.length > 6) {
+      newErrors.image_files = t("validation.maxImages");
+    }
+    for (const file of formData.image_files) {
+      const validType = ["image/jpeg", "image/png"].includes(file.type);
+      if (!validType) newErrors.image_files = t("validation.imageType");
+      if (file.size > MAX_IMAGE_SIZE) {
+        newErrors.image_files = t("validation.imageSize");
       }
     }
     setErrors(newErrors);
@@ -130,6 +140,50 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
         return next;
       });
     }
+  }
+
+  function syncImages(nextImages: ProductImage[], nextDeleted = deletedImageIds) {
+    const normalizedImages = nextImages.some((image) => image.is_primary)
+      ? nextImages
+      : nextImages.map((image, index) => ({ ...image, is_primary: index === 0 }));
+    setImages(normalizedImages);
+    setFormData((prev) => ({
+      ...prev,
+      ordered_image_ids: normalizedImages.map((image) => image.id),
+      deleted_image_ids: nextDeleted,
+      primary_image_id:
+        normalizedImages.find((image) => image.is_primary)?.id ?? normalizedImages[0]?.id ?? null,
+    }));
+  }
+
+  function previewUrl(url: string): string {
+    return url.startsWith("/static/") ? `${BASE_URL}${url}` : url;
+  }
+
+  function moveImage(index: number, direction: -1 | 1) {
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= images.length) return;
+    const nextImages = [...images];
+    const [image] = nextImages.splice(index, 1);
+    if (!image) return;
+    nextImages.splice(nextIndex, 0, image);
+    syncImages(nextImages.map((item, sort_order) => ({ ...item, sort_order })));
+  }
+
+  function removeImage(imageId: string) {
+    const nextDeleted = [...deletedImageIds, imageId];
+    setDeletedImageIds(nextDeleted);
+    syncImages(images.filter((image) => image.id !== imageId), nextDeleted);
+  }
+
+  function setPrimaryImage(imageId: string) {
+    syncImages(images.map((image) => ({ ...image, is_primary: image.id === imageId })));
+  }
+
+  function addFiles(files: FileList | null) {
+    if (!files) return;
+    const nextFiles = [...formData.image_files, ...Array.from(files)].slice(0, 6 - images.length);
+    updateField("image_files", nextFiles);
   }
 
   return (
@@ -269,28 +323,56 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
           onChange={(e) => updateField("stock", Math.max(0, Math.floor(Number(e.target.value) || 0)))}
           error={errors.stock}
         />
-        <div className="sm:col-span-2">
+        <div className="sm:col-span-2 space-y-3">
           <label htmlFor="image_file" className="mb-1.5 block text-sm font-medium text-soft-brown">
             {t("productImage")}
           </label>
+          {images.length > 0 && (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {images.map((image, index) => (
+                <div key={image.id} className="rounded-brand border border-champagne-beige bg-warm-ivory p-2">
+                  <div className="relative aspect-[4/5] w-full overflow-hidden rounded-brand">
+                    <Image
+                      src={previewUrl(image.thumbnail_url)}
+                      alt=""
+                      fill
+                      sizes="160px"
+                      className="object-cover"
+                    />
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <Button type="button" variant="secondary" onClick={() => moveImage(index, -1)} disabled={index === 0}>
+                      {t("moveUp")}
+                    </Button>
+                    <Button type="button" variant="secondary" onClick={() => moveImage(index, 1)} disabled={index === images.length - 1}>
+                      {t("moveDown")}
+                    </Button>
+                    <Button type="button" variant={image.is_primary ? "primary" : "secondary"} onClick={() => setPrimaryImage(image.id)}>
+                      {t("setPrimary")}
+                    </Button>
+                    <Button type="button" variant="ghost" onClick={() => removeImage(image.id)}>
+                      {tCommon("delete")}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           <input
             id="image_file"
             type="file"
             accept="image/jpeg,image/png"
-            onChange={(e) => updateField("image_file", e.target.files?.[0] ?? null)}
+            multiple
+            disabled={images.length + formData.image_files.length >= 6}
+            onChange={(e) => addFiles(e.target.files)}
             className="block w-full rounded-brand border border-champagne-beige bg-cream px-3 py-2 text-sm text-soft-brown file:mr-4 file:rounded-brand file:border-0 file:bg-charcoal file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-warm-ivory hover:file:bg-soft-brown focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
           />
-          {errors.image_file && (
-            <p className="mt-1.5 text-sm text-red-700">{errors.image_file}</p>
+          {errors.image_files && (
+            <p className="mt-1.5 text-sm text-red-700">{errors.image_files}</p>
           )}
-          {formData.image_url && !formData.image_file && (
+          {formData.image_files.length > 0 && (
             <p className="mt-1.5 text-xs text-soft-brown/70">
-              {t("currentImage", { url: formData.image_url })}
-            </p>
-          )}
-          {formData.image_file && (
-            <p className="mt-1.5 text-xs text-soft-brown/70">
-              {t("selectedFile", { name: formData.image_file.name })}
+              {t("selectedFiles", { count: formData.image_files.length })}
             </p>
           )}
         </div>

@@ -21,7 +21,7 @@ const mockCartState = {
   items: [
     {
       product_id: "lavender-dream",
-      product: { id: "lavender-dream", name: "Lavender Dream", price_cents: 2500, image_url: "/img.jpg", stock: 5 },
+      product: { id: "lavender-dream", name: "Lavender Dream", price_cents: 2500, images: [], primary_image_url: "/img.jpg", primary_thumbnail_url: "/img.jpg", stock: 5 },
       quantity: 1,
       added_at: "2026-01-01T00:00:00Z",
     },
@@ -89,7 +89,7 @@ describe("Checkout Page", () => {
     mockCartState.items = [
       {
         product_id: "lavender-dream",
-        product: { id: "lavender-dream", name: "Lavender Dream", price_cents: 2500, image_url: "/img.jpg", stock: 5 },
+        product: { id: "lavender-dream", name: "Lavender Dream", price_cents: 2500, images: [], primary_image_url: "/img.jpg", primary_thumbnail_url: "/img.jpg", stock: 5 },
         quantity: 1,
         added_at: "2026-01-01T00:00:00Z",
       },
