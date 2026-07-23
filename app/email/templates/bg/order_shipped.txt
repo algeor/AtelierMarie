@@ -1,0 +1,16 @@
+Поръчката Ви №{{ order_id_short }} е изпратена
+
+Здравейте{% if customer_name %}, {{ customer_name }}{% endif %},
+
+Чудесна новина — поръчката Ви е на път!
+
+Куриер: {{ tracking_carrier }}
+Товарителница: {{ tracking_number }}
+{% if tracking_url %}
+Проследете пратката: {{ tracking_url }}
+{% endif %}
+
+Благодарим Ви, че пазарувахте при нас.
+
+С обич,
+Atelier Marie

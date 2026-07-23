@@ -217,7 +217,10 @@
       "shipped": "Shipped",
       "delivered": "Delivered",
       "cancelled": "Cancelled"
-    }
+    },
+    "carrier": "Carrier",
+    "trackingNumber": "Tracking number",
+    "trackPackage": "Track your package"
   },
   "admin": {
     "title": "Admin",
@@ -320,6 +323,18 @@
       "loadProducts": "Failed to load products",
       "updateProduct": "Failed to update product",
       "loadProduct": "Failed to load product"
+    },
+    "ship": {
+      "title": "Ship order",
+      "trackingNumber": "Tracking number",
+      "carrier": "Carrier",
+      "trackingUrl": "Tracking URL",
+      "urlAuto": "Auto-generated from carrier + number",
+      "urlPreview": "Link preview",
+      "customUrlPlaceholder": "https://…",
+      "cancel": "Cancel",
+      "confirm": "Mark as shipped",
+      "trackingRequired": "Tracking number is required"
     }
   },
   "locale": {

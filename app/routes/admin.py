@@ -13,6 +13,8 @@ from app.dependencies.auth import require_admin
 from app.models.admin import DashboardResponse, LowStockProductsResponse
 from app.models.comments import AdminCommentListResponse, AdminCommentResponse
 from app.models.orders import (
+    OrderEmailAudit,
+    OrderEmailAuditResponse,
     OrderListResponse,
     OrderResponse,
     OrderStatus,
@@ -30,6 +32,7 @@ from app.services import admin_service, product_service
 from app.services.auth_service import get_oauth_circuit_breaker
 from app.services.comment_service import CommentNotFoundError, list_all_comments
 from app.services.comment_service import delete_comment as delete_comment_service
+from app.services.email_service import event_for_status, queue_order_email
 from app.services.image_service import (
     MAX_FILE_SIZE,
     FileTooLargeError,
@@ -105,7 +108,7 @@ async def admin_list_products(
     response_model=LowStockProductsResponse,
     summary="List products with low stock (admin)",
     description="Return active products whose stock is at or below the given threshold.",
-  )
+)
 async def admin_list_low_stock_products(
     threshold: int = Query(default=5, ge=0, description="Stock threshold (inclusive)"),
 ) -> LowStockProductsResponse:
@@ -417,6 +420,40 @@ def admin_get_order_detail(order_id: str) -> OrderResponse:
     return OrderResponse.model_validate(order_data)
 
 
+@router.get(
+    "/orders/{order_id}/emails",
+    response_model=OrderEmailAuditResponse,
+    summary="Order email audit trail (admin)",
+    description="Read the order_emails send-attempt log for an order — status, "
+    "attempts, and skip/error reason per event. Backs the deferred re-send UI.",
+)
+def admin_get_order_emails(order_id: str) -> OrderEmailAuditResponse:
+    """Return the email audit trail for an order (admin-only)."""
+    with get_db() as conn:
+        # Confirm the order exists (404 via OrderNotFoundError otherwise).
+        get_order_admin(conn=conn, order_id=order_id)
+        rows = conn.execute(
+            "SELECT event, recipient, status, reason, attempts, sent_at "
+            "FROM order_emails WHERE order_id = ? ORDER BY id",
+            (order_id,),
+        ).fetchall()
+
+    return OrderEmailAuditResponse(
+        order_id=order_id,
+        emails=[
+            OrderEmailAudit(
+                event=r["event"],
+                recipient=r["recipient"],
+                status=r["status"],
+                reason=r["reason"],
+                attempts=r["attempts"],
+                sent_at=r["sent_at"],
+            )
+            for r in rows
+        ],
+    )
+
+
 @router.patch(
     "/orders/{order_id}/status",
     response_model=OrderResponse,
@@ -434,7 +471,20 @@ def admin_update_order_status(
 ) -> OrderResponse:
     """Update order status (admin-only, state machine enforced)."""
     with get_db() as conn:
-        order_data = update_status(conn=conn, order_id=order_id, new_status=body.status)
+        order_data = update_status(
+            conn=conn,
+            order_id=order_id,
+            new_status=body.status,
+            tracking_number=body.tracking_number,
+            tracking_carrier=body.tracking_carrier,
+            tracking_url=body.tracking_url,
+        )
+        # Durable outbox: queue the customer email for this transition in the
+        # SAME connection/commit as the status UPDATE (email-notifications 8.3).
+        # The map returns None for 'confirmed' (internal step — no email).
+        event = event_for_status(body.status)
+        if event is not None:
+            queue_order_email(conn, order_id, event, order_data["customer_email"])
 
     return OrderResponse.model_validate(order_data)
 

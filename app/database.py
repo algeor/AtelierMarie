@@ -73,6 +73,13 @@ CREATE TABLE IF NOT EXISTS orders (
     delivery_method TEXT CHECK (delivery_method IN ('office', 'door')),
     delivery_courier TEXT CHECK (delivery_courier IN ('speedy', 'econt')),
     delivery_details TEXT,  -- JSON blob (DeliveryOffice or DeliveryDoor)
+    -- Shipment tracking (populated on the 'shipped' transition; NULL otherwise).
+    tracking_number  TEXT,
+    tracking_carrier TEXT,
+    tracking_url     TEXT,
+    -- Customer locale snapshotted at checkout (email language is a fact of the
+    -- order, not a session lookup — see email-notifications design Decision 8).
+    locale      TEXT NOT NULL DEFAULT 'en',
     notes       TEXT,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
@@ -81,6 +88,46 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE INDEX IF NOT EXISTS idx_orders_session_id ON orders(session_id);
 CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+
+-- Transactional email outbox + audit trail (email-notifications Decisions 11, 25).
+-- A 'queued' row is written in the same transaction as the order state change
+-- (durable intent); the sweeper drives it to a terminal state.
+CREATE TABLE IF NOT EXISTS order_emails (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id        TEXT NOT NULL REFERENCES orders(id),
+    event           TEXT NOT NULL,  -- placed | shipped | delivered | cancelled | admin_new_order
+    recipient       TEXT NOT NULL,
+    -- queued | sent | failed | failed_permanent
+    --   | skipped_duplicate | skipped_in_flight | skipped_suppressed
+    status          TEXT NOT NULL,
+    reason          TEXT,           -- provider error (failed) or skip detail
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TEXT,           -- backoff gate; NULL = eligible immediately
+    sent_at         TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_emails_order_id ON order_emails(order_id);
+-- DB-level idempotency arbiter: at most one successful send per (order_id, event).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_order_emails_sent_unique
+    ON order_emails(order_id, event) WHERE status = 'sent';
+
+-- One active sender per (order_id, event): the claim the 2 prod workers' sweepers
+-- race on. SQLite's single-writer property makes acquisition atomic for free.
+CREATE TABLE IF NOT EXISTS order_email_send_claims (
+    order_id         TEXT NOT NULL REFERENCES orders(id),
+    event            TEXT NOT NULL,
+    status           TEXT NOT NULL,  -- in_flight | sent | failed
+    lease_expires_at TEXT,
+    updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (order_id, event)
+);
+
+-- Suppressed recipients: hard bounces / complaints (email-deliverability Decision 15).
+CREATE TABLE IF NOT EXISTS suppressed_emails (
+    email        TEXT PRIMARY KEY,
+    reason       TEXT NOT NULL,  -- hard_bounce | soft_bounce | fbl_complaint
+    suppressed_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 -- Order items: snapshot at purchase time.
 -- product_id is intentionally NOT a foreign key — these are immutable records
@@ -354,6 +401,17 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
         )
         _add_column_if_missing(
             conn, "orders", order_columns, "delivery_details", "delivery_details TEXT"
+        )
+        # Shipment tracking + locale snapshot (email-notifications).
+        _add_column_if_missing(
+            conn, "orders", order_columns, "tracking_number", "tracking_number TEXT"
+        )
+        _add_column_if_missing(
+            conn, "orders", order_columns, "tracking_carrier", "tracking_carrier TEXT"
+        )
+        _add_column_if_missing(conn, "orders", order_columns, "tracking_url", "tracking_url TEXT")
+        _add_column_if_missing(
+            conn, "orders", order_columns, "locale", "locale TEXT NOT NULL DEFAULT 'en'"
         )
 
 

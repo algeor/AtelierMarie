@@ -84,6 +84,9 @@ export interface OrderResponse {
   delivery_details: DeliveryOffice | DeliveryDoor | null;
   notes: string | null;
   items: OrderItemResponse[];
+  tracking_number: string | null;
+  tracking_carrier: string | null;
+  tracking_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -143,6 +146,9 @@ export interface CreateOrderRequest {
 
 export interface UpdateOrderStatusRequest {
   status: OrderStatus;
+  tracking_number?: string;
+  tracking_carrier?: string;
+  tracking_url?: string;
 }
 
 // --- Users ---

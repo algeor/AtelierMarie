@@ -20,6 +20,7 @@ from app.services.cart_service import (
 from app.services.order_service import (
     InvalidStateTransitionError,
     OrderNotFoundError,
+    TrackingRequiredError,
 )
 
 logger = structlog.get_logger(__name__)
@@ -192,9 +193,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     # --- Order service exception handlers ---
 
     @app.exception_handler(OrderNotFoundError)
-    async def order_not_found_handler(
-        request: Request, exc: OrderNotFoundError
-    ) -> JSONResponse:
+    async def order_not_found_handler(request: Request, exc: OrderNotFoundError) -> JSONResponse:
         return JSONResponse(
             status_code=404,
             content={
@@ -221,6 +220,21 @@ def register_exception_handlers(app: FastAPI) -> None:
                         "current_status": exc.current_status,
                         "requested_status": exc.requested_status,
                     },
+                }
+            },
+        )
+
+    @app.exception_handler(TrackingRequiredError)
+    async def tracking_required_handler(
+        request: Request, exc: TrackingRequiredError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "TRACKING_REQUIRED",
+                    "message": str(exc),
+                    "details": {"missing": exc.missing},
                 }
             },
         )

@@ -1,0 +1,16 @@
+Вашата поръчка №{{ order_id_short }} от Atelier Marie
+
+Здравейте{% if customer_name %}, {{ customer_name }}{% endif %},
+
+Благодарим Ви за поръчката! Ето какво поръчахте:
+
+{% for item in items %}
+- {{ item.product_name }} × {{ item.quantity }} — {{ item.line_total_display }}
+{% endfor %}
+
+Общо: {{ total_display }}
+
+Ще Ви изпратим имейл веднага щом поръчката бъде изпратена.
+
+С обич,
+Atelier Marie

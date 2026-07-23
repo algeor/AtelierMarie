@@ -1,0 +1,16 @@
+New order #{{ order_id_short }} — {{ total_display }}
+
+A new order has been placed.
+
+Order: #{{ order_id_short }}
+Total: {{ total_display }}
+Customer: {{ customer_name | default("(no name)") }}
+Email: {{ customer_email }}
+
+Items:
+{% for item in items %}
+- {{ item.product_name }} × {{ item.quantity }} — {{ item.line_total_display }}
+{% endfor %}
+
+View in the admin dashboard:
+{{ admin_order_url }}

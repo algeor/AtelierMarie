@@ -32,6 +32,7 @@ import type {
   UserResponse,
 } from "./types";
 import { ApiError } from "./api-client";
+import { buildTrackingUrl } from "./tracking";
 
 // --- Helpers ---
 
@@ -342,6 +343,9 @@ export async function createOrder(
       price_cents: item.product.price_cents,
       quantity: item.quantity,
     })),
+    tracking_number: null,
+    tracking_carrier: null,
+    tracking_url: null,
     created_at: now,
     updated_at: now,
   };
@@ -426,6 +430,9 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
       { product_id: "lavender-dreams-300ml", product_name: "Lavender Dreams", price_cents: 3200, quantity: 1 },
       { product_id: "midnight-amber-300ml", product_name: "Midnight Amber", price_cents: 4500, quantity: 1 },
     ],
+    tracking_number: null,
+    tracking_carrier: null,
+    tracking_url: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -450,6 +457,9 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     items: [
       { product_id: "citrus-garden-200ml", product_name: "Citrus Garden", price_cents: 2800, quantity: 2 },
     ],
+    tracking_number: null,
+    tracking_carrier: null,
+    tracking_url: null,
     created_at: new Date(Date.now() - 86400000).toISOString(),
     updated_at: new Date(Date.now() - 43200000).toISOString(),
   },
@@ -472,6 +482,9 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     items: [
       { product_id: "lavender-dreams-300ml", product_name: "Lavender Dreams", price_cents: 3200, quantity: 1 },
     ],
+    tracking_number: "1234567890",
+    tracking_carrier: "speedy",
+    tracking_url: "https://www.speedy.bg/en/track-shipment?shipmentNumber=1234567890",
     created_at: new Date(Date.now() - 172800000).toISOString(),
     updated_at: new Date(Date.now() - 86400000).toISOString(),
   },
@@ -494,6 +507,9 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     items: [
       { product_id: "midnight-amber-300ml", product_name: "Midnight Amber", price_cents: 4500, quantity: 2 },
     ],
+    tracking_number: "JD014600003922222222",
+    tracking_carrier: "dhl",
+    tracking_url: "https://www.dhl.com/en/express/tracking.html?AWB=JD014600003922222222",
     created_at: new Date(Date.now() - 604800000).toISOString(),
     updated_at: new Date(Date.now() - 259200000).toISOString(),
   },
@@ -650,7 +666,12 @@ export async function getAdminOrders(
 
 export async function updateOrderStatus(
   orderId: string,
-  status: OrderStatus
+  status: OrderStatus,
+  tracking?: {
+    tracking_number?: string;
+    tracking_carrier?: string;
+    tracking_url?: string;
+  }
 ): Promise<OrderResponse> {
   await delay();
   const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders];
@@ -667,6 +688,20 @@ export async function updateOrderStatus(
 
   if (!validTransitions[order.status].includes(status)) {
     mockError("VALIDATION_ERROR", `Cannot transition from ${order.status} to ${status}`);
+  }
+
+  if (status === "shipped") {
+    if (!tracking?.tracking_number || !tracking?.tracking_carrier) {
+      mockError(
+        "TRACKING_REQUIRED",
+        "tracking_number and tracking_carrier are required when shipping"
+      );
+    }
+    order.tracking_number = tracking.tracking_number;
+    order.tracking_carrier = tracking.tracking_carrier;
+    order.tracking_url =
+      tracking.tracking_url ??
+      buildTrackingUrl(tracking.tracking_carrier, tracking.tracking_number);
   }
 
   order.status = status;

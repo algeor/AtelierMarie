@@ -217,7 +217,10 @@
       "shipped": "Изпратена",
       "delivered": "Доставена",
       "cancelled": "Отказана"
-    }
+    },
+    "carrier": "Куриер",
+    "trackingNumber": "Товарителница",
+    "trackPackage": "Проследете пратката"
   },
   "admin": {
     "title": "Администрация",
@@ -320,6 +323,18 @@
       "loadProducts": "Неуспешно зареждане на продуктите",
       "updateProduct": "Неуспешно обновяване на продукта",
       "loadProduct": "Неуспешно зареждане на продукта"
+    },
+    "ship": {
+      "title": "Изпращане на поръчка",
+      "trackingNumber": "Товарителница",
+      "carrier": "Куриер",
+      "trackingUrl": "Линк за проследяване",
+      "urlAuto": "Генерира се автоматично от куриер + номер",
+      "urlPreview": "Преглед на линка",
+      "customUrlPlaceholder": "https://…",
+      "cancel": "Отказ",
+      "confirm": "Маркирай като изпратена",
+      "trackingRequired": "Товарителницата е задължителна"
     }
   },
   "locale": {

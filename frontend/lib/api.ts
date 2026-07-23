@@ -247,12 +247,17 @@ export async function getAdminOrders(
 
 export async function updateOrderStatus(
   orderId: string,
-  status: OrderStatus
+  status: OrderStatus,
+  tracking?: {
+    tracking_number?: string;
+    tracking_carrier?: string;
+    tracking_url?: string;
+  }
 ): Promise<OrderResponse> {
-  if (USE_MOCK) return (await getMock()).updateOrderStatus(orderId, status);
+  if (USE_MOCK) return (await getMock()).updateOrderStatus(orderId, status, tracking);
   return apiClient.patch<OrderResponse>(
     `/v1/admin/orders/${encodeURIComponent(orderId)}/status`,
-    { status }
+    { status, ...tracking }
   );
 }
 

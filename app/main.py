@@ -17,10 +17,25 @@ from app.exceptions import register_exception_handlers
 from app.logging_config import configure_logging
 from app.middleware.request_id import RequestIdMiddleware
 from app.middleware.session import SessionMiddleware
-from app.routes import admin, auth, cart, comments, locale, orders, products, reactions, delivery
+from app.routes import (
+    admin,
+    auth,
+    cart,
+    comments,
+    delivery,
+    locale,
+    orders,
+    products,
+    reactions,
+    webhooks,
+)
+from app.services.email_service import drain_email_outbox
 
 logger = structlog.get_logger(__name__)
 SESSION_CLEANUP_INTERVAL_SECONDS = 3600
+# Poll interval for the email outbox sweeper. ~15s keeps "shipped" mail prompt
+# without hammering the DB (design Decision 25); not 60s.
+EMAIL_OUTBOX_INTERVAL_SECONDS = 15
 
 
 async def session_cleanup_loop(
@@ -43,6 +58,31 @@ async def session_cleanup_loop(
             logger.exception("Session cleanup failed")
 
 
+async def email_outbox_loop(
+    *,
+    interval_seconds: float = EMAIL_OUTBOX_INTERVAL_SECONDS,
+    sleep: Callable[[float], Awaitable[object]] | None = None,
+    drain: Callable[[], int] | None = None,
+) -> None:
+    """Drain the durable email outbox on a fixed tick (design Decision 25).
+
+    One instance runs per uvicorn worker. The drain does blocking network I/O
+    (ZeptoMail HTTP), so it runs in a threadpool to avoid stalling the event
+    loop. All exceptions are swallowed/logged so the loop never dies.
+    """
+    sleep_fn = sleep or asyncio.sleep
+    drain_fn = drain or drain_email_outbox
+
+    while True:
+        await sleep_fn(interval_seconds)
+        try:
+            count = await asyncio.to_thread(drain_fn)
+            if count:
+                logger.info("Drained email outbox", count=count)
+        except Exception:
+            logger.exception("Email outbox drain failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: initialize database on startup, run background tasks."""
@@ -57,12 +97,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Background task: clean expired sessions every hour
     task = asyncio.create_task(session_cleanup_loop())
+    # Background task: drain the durable email outbox (~15s tick, per worker)
+    email_task = asyncio.create_task(email_outbox_loop())
     yield
-    task.cancel()
-    try:
-        await asyncio.wait_for(task, timeout=5.0)
-    except (TimeoutError, asyncio.CancelledError):
-        pass
+    for background_task in (task, email_task):
+        background_task.cancel()
+        try:
+            await asyncio.wait_for(background_task, timeout=5.0)
+        except (TimeoutError, asyncio.CancelledError):
+            pass
 
 
 def create_app() -> FastAPI:
@@ -163,6 +206,7 @@ def create_app() -> FastAPI:
     application.include_router(comments.router, prefix="/v1/products", tags=["comments"])
     application.include_router(locale.router, prefix="/v1/locale", tags=["locale"])
     application.include_router(delivery.router, prefix="/v1/delivery", tags=["delivery"])
+    application.include_router(webhooks.router, prefix="/v1/webhooks", tags=["webhooks"])
 
     # Global exception handlers for consistent error format
     register_exception_handlers(application)

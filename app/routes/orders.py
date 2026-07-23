@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
+from app.config import get_settings
 from app.database import get_db
 from app.dependencies.session import require_session
 from app.models.orders import (
@@ -71,6 +72,7 @@ def create_order(
                 notes=body.notes,
                 user_id=user_id,
                 locale=locale,
+                admin_notification_email=get_settings().admin_notification_email,
             )
     except EmptyCartError:
         return JSONResponse(
@@ -154,9 +156,7 @@ def get_order_detail(
 ) -> OrderResponse:
     """Get a specific order by ID (with ownership check)."""
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT user_id FROM sessions WHERE id = ?", (session_id,)
-        ).fetchone()
+        row = conn.execute("SELECT user_id FROM sessions WHERE id = ?", (session_id,)).fetchone()
         user_id = row["user_id"] if row else None
 
         order_data = get_order(
