@@ -31,9 +31,12 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
-from typing import Callable
+
+from pydantic_settings import BaseSettings
 
 from scripts.normalize_econt_office_data import normalize_econt
 
@@ -46,6 +49,27 @@ SPEEDY_URL = "https://api.speedy.bg/v1/location/office"
 ECONT_URL = "https://ee.econt.com/services/Nomenclatures/NomenclaturesService.getOffices.json"
 
 _HTTP_TIMEOUT_S = 30
+
+
+class CourierFetchSettings(BaseSettings):
+    """Credentials for one-off courier office fetches."""
+
+    speedy_username: str = ""
+    speedy_password: str = ""
+    econt_username: str = ""
+    econt_password: str = ""
+
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore",
+    }
+
+
+@lru_cache
+def get_courier_fetch_settings() -> CourierFetchSettings:
+    """Return cached courier fetch settings loaded from environment/.env."""
+    return CourierFetchSettings()
 
 
 def _post_json(url: str, payload: dict) -> dict:
@@ -63,8 +87,9 @@ def _post_json(url: str, payload: dict) -> dict:
 
 def _fetch_speedy() -> dict:
     """Fetch full Speedy office list. Credentials from env."""
-    username = os.environ.get("SPEEDY_USERNAME")
-    password = os.environ.get("SPEEDY_PASSWORD")
+    settings = get_courier_fetch_settings()
+    username = settings.speedy_username
+    password = settings.speedy_password
     if not username or not password:
         raise RuntimeError(
             "SPEEDY_USERNAME and SPEEDY_PASSWORD env vars are required for Speedy fetch"
@@ -96,18 +121,20 @@ def _normalize_speedy(raw: dict) -> list[dict]:
             continue
         # Speedy exposes `type`: 1 = office, 2 = APS (locker). Fall back to office.
         office_type = "apt" if o.get("type") == 2 else "office"
-        out.append({
-            "id": f"speedy-{o.get('id')}",
-            "name": name,
-            "name_en": o.get("nameEn"),
-            "type": office_type,
-            "city": city,
-            "city_en": site.get("nameEn"),
-            "address": (o.get("address") or {}).get("localAddressString")
-            or o.get("addressString", ""),
-            "working_hours": o.get("workingTime", "N/A"),
-            "working_hours_en": o.get("workingTimeEn"),
-        })
+        out.append(
+            {
+                "id": f"speedy-{o.get('id')}",
+                "name": name,
+                "name_en": o.get("nameEn"),
+                "type": office_type,
+                "city": city,
+                "city_en": site.get("nameEn"),
+                "address": (o.get("address") or {}).get("localAddressString")
+                or o.get("addressString", ""),
+                "working_hours": o.get("workingTime", "N/A"),
+                "working_hours_en": o.get("workingTimeEn"),
+            }
+        )
     return out
 
 
@@ -115,8 +142,9 @@ def _fetch_econt() -> dict:
     """Fetch full Econt office list. Credentials optional (public endpoint)."""
     # Econt's Nomenclatures endpoint is public but rate-limits anonymous callers.
     # Basic auth is accepted if credentials are set.
-    username = os.environ.get("ECONT_USERNAME")
-    password = os.environ.get("ECONT_PASSWORD")
+    settings = get_courier_fetch_settings()
+    username = settings.econt_username
+    password = settings.econt_password
     req = urllib.request.Request(  # noqa: S310 — HTTPS to trusted host
         ECONT_URL,
         data=b"{}",
