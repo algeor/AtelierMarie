@@ -40,6 +40,8 @@ export default function EditProductPage() {
       category: data.category,
       image_url: data.image_url || null,
       stock: data.stock,
+      weight_grams: data.weight_grams,
+      is_active: data.is_active,
       is_featured: data.is_featured,
     });
     if (data.image_file) {

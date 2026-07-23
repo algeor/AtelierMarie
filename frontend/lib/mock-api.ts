@@ -54,7 +54,11 @@ function generateOrderId(): string {
 
 // --- Mock Data ---
 
-const MOCK_PRODUCTS: ProductResponse[] = [
+// The mock store carries weight_grams internally even though the public
+// ProductResponse omits it — the admin surface needs it round-tripped.
+type MockProduct = ProductResponse & { weight_grams: number };
+
+const MOCK_PRODUCTS: MockProduct[] = [
   {
     id: "lavender-dreams-300ml",
     name: "Lavender Dreams",
@@ -65,6 +69,7 @@ const MOCK_PRODUCTS: ProductResponse[] = [
     category: "Floral",
     image_url: "/static/products/lavender-dreams-300ml.webp",
     stock: 24,
+    weight_grams: 300,
     is_active: true,
     is_featured: true,
     created_at: "2024-06-01T10:00:00Z",
@@ -80,6 +85,7 @@ const MOCK_PRODUCTS: ProductResponse[] = [
     category: "Woody",
     image_url: "/static/products/midnight-amber-300ml.webp",
     stock: 12,
+    weight_grams: 450,
     is_active: true,
     is_featured: true,
     created_at: "2024-06-02T11:00:00Z",
@@ -95,6 +101,7 @@ const MOCK_PRODUCTS: ProductResponse[] = [
     category: "Fresh",
     image_url: null,
     stock: 36,
+    weight_grams: 250,
     is_active: true,
     is_featured: false,
     created_at: "2024-06-03T09:00:00Z",
@@ -110,6 +117,7 @@ const MOCK_PRODUCTS: ProductResponse[] = [
     category: "Gourmand",
     image_url: "/static/products/vanilla-bourbon-300ml.webp",
     stock: 0,
+    weight_grams: 500,
     is_active: false,
     is_featured: false,
     created_at: "2024-06-04T14:00:00Z",
@@ -529,7 +537,7 @@ export async function getAdminStats(): Promise<AdminStats> {
 }
 
 /** Convert a public ProductResponse to an AdminProductResponse for mock admin endpoints. */
-function toAdminProduct(product: ProductResponse): AdminProductResponse {
+function toAdminProduct(product: MockProduct): AdminProductResponse {
   return {
     id: product.id,
     name_en: product.name,
@@ -542,6 +550,7 @@ function toAdminProduct(product: ProductResponse): AdminProductResponse {
     category: product.category,
     image_url: product.image_url,
     stock: product.stock,
+    weight_grams: product.weight_grams,
     is_active: product.is_active,
     is_featured: product.is_featured,
     translation_stale_bg: false,
@@ -578,7 +587,7 @@ export async function createProduct(data: CreateProductRequest): Promise<AdminPr
   const existing = MOCK_PRODUCTS.find((p) => p.id === data.id);
   if (existing) mockError("CONFLICT", `Product ${data.id} already exists`);
   const now = new Date().toISOString();
-  const product: ProductResponse = {
+  const product: MockProduct = {
     id: data.id,
     name: data.name_en,
     description: data.description_en ?? null,
@@ -588,7 +597,8 @@ export async function createProduct(data: CreateProductRequest): Promise<AdminPr
     category: data.category,
     image_url: data.image_url ?? null,
     stock: data.stock,
-    is_active: true,
+    weight_grams: data.weight_grams ?? 300,
+    is_active: data.is_active ?? true,
     is_featured: data.is_featured ?? false,
     created_at: now,
     updated_at: now,
@@ -613,6 +623,7 @@ export async function updateProduct(
   if (data.category !== undefined) product.category = data.category;
   if (data.image_url !== undefined) product.image_url = data.image_url;
   if (data.stock !== undefined) product.stock = data.stock;
+  if (data.weight_grams !== undefined) product.weight_grams = data.weight_grams;
   if (data.is_active !== undefined) product.is_active = data.is_active;
   if (data.is_featured !== undefined) product.is_featured = data.is_featured;
   product.updated_at = new Date().toISOString();

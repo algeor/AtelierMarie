@@ -9,6 +9,10 @@ from app.models.common import PRODUCT_ID_PATTERN
 # Maximum stock value — prevents absurd inventory numbers
 MAX_STOCK = 99999
 
+# Maximum shipping weight in grams — 100 kg, generous headroom over the ~800g
+# max real candle. Local to this module, mirroring MAX_STOCK above.
+MAX_WEIGHT_GRAMS = 100_000
+
 # Supported locales
 Locale = Literal["en", "bg"]
 
@@ -45,6 +49,7 @@ class ProductAdminResponse(BaseModel):
     category: str | None = None
     image_url: str | None = None
     stock: int
+    weight_grams: int
     is_active: bool
     is_featured: bool
     translation_stale_bg: bool = False
@@ -85,6 +90,7 @@ class CreateProductRequest(BaseModel):
     category: str | None = Field(default=None, max_length=100)
     image_url: str | None = Field(default=None, max_length=500)
     stock: int = Field(..., ge=0, le=MAX_STOCK)
+    weight_grams: int = Field(default=300, ge=1, le=MAX_WEIGHT_GRAMS)
     is_active: bool = True
     is_featured: bool = False
 
@@ -144,6 +150,7 @@ class UpdateProductRequest(BaseModel):
     category: str | None = Field(default=None, max_length=100)
     image_url: str | None = Field(default=None, max_length=500)
     stock: int | None = Field(default=None, ge=0, le=MAX_STOCK)
+    weight_grams: int | None = Field(default=None, ge=1, le=MAX_WEIGHT_GRAMS)
     is_active: bool | None = None
     is_featured: bool | None = None
 

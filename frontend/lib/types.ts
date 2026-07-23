@@ -183,6 +183,7 @@ export interface AdminProductResponse {
   category: string | null;
   image_url: string | null;
   stock: number;
+  weight_grams: number;
   is_active: boolean;
   is_featured: boolean;
   translation_stale_bg: boolean;
@@ -210,6 +211,8 @@ export interface CreateProductRequest {
   category: string;
   image_url?: string | null;
   stock: number;
+  weight_grams?: number;
+  is_active?: boolean;
   is_featured?: boolean;
 }
 
@@ -224,6 +227,7 @@ export interface UpdateProductRequest {
   category?: string;
   image_url?: string | null;
   stock?: number;
+  weight_grams?: number;
   is_active?: boolean;
   is_featured?: boolean;
 }

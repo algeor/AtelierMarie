@@ -19,6 +19,7 @@ from app.models.orders import (
     UpdateOrderStatusRequest,
 )
 from app.models.products import (
+    MAX_WEIGHT_GRAMS,
     CreateProductRequest,
     CSVImportError,
     CSVImportResponse,
@@ -198,7 +199,31 @@ _OPTIONAL_CSV_HEADERS = {
     "category",
     "stock",
     "image_url",
+    "weight_grams",
+    "is_active",
+    "is_featured",
+    "materials",
+    "days_to_craft",
 }
+
+# Accepted case-insensitive boolean literals for CSV boolean columns.
+_CSV_BOOL_TRUE = {"true", "1", "yes"}
+_CSV_BOOL_FALSE = {"false", "0", "no"}
+
+
+def _parse_csv_bool(value: str) -> bool:
+    """Parse a CSV boolean cell. Raises ValueError on anything unrecognized.
+
+    Accepts (case-insensitive): true/false, 1/0, yes/no. Rejecting unknown
+    values means a typo can't silently deactivate a product.
+    """
+    normalized = value.strip().lower()
+    if normalized in _CSV_BOOL_TRUE:
+        return True
+    if normalized in _CSV_BOOL_FALSE:
+        return False
+    msg = "must be one of true/false/1/0/yes/no"
+    raise ValueError(msg)
 
 
 @router.post(
@@ -211,7 +236,9 @@ _OPTIONAL_CSV_HEADERS = {
         "new ones are created. Rows with validation errors are skipped; "
         "results report created/updated counts and per-row errors. "
         "Supports bilingual columns: name_en, name_bg, description_en, description_bg. "
-        "Legacy columns (name, description) are treated as English equivalents."
+        "Legacy columns (name, description) are treated as English equivalents. "
+        "Optional columns: weight_grams, is_active, is_featured (true/false/1/0/yes/no), "
+        "materials, days_to_craft."
     ),
 )
 async def admin_import_products(
@@ -221,7 +248,13 @@ async def admin_import_products(
 
     Required columns: id, name_en (or legacy 'name'), price_cents
     Optional columns: name_bg, description_en (or legacy 'description'),
-                      description_bg, category, stock, image_url
+                      description_bg, category, stock, image_url,
+                      weight_grams, is_active, is_featured, materials,
+                      days_to_craft
+
+    weight_grams defaults to 300 for newly-created products when the column
+    is absent; existing products keep their current weight. Boolean columns
+    (is_active, is_featured) accept true/false/1/0/yes/no (case-insensitive).
 
     Rows with validation errors are skipped; valid rows are upserted.
     """
@@ -311,6 +344,47 @@ async def admin_import_products(
             except ValueError:
                 row_errors.append("stock must be an integer")
 
+        # Validate weight_grams if provided (int, 1..MAX_WEIGHT_GRAMS)
+        weight_grams: int | None = None
+        weight_str = (row.get("weight_grams") or "").strip()
+        if weight_str:
+            try:
+                weight_grams = int(weight_str)
+                if weight_grams < 1:
+                    row_errors.append("weight_grams must be at least 1")
+                elif weight_grams > MAX_WEIGHT_GRAMS:
+                    row_errors.append(f"weight_grams exceeds maximum ({MAX_WEIGHT_GRAMS})")
+            except ValueError:
+                row_errors.append("weight_grams must be an integer")
+
+        # Validate days_to_craft if provided (int, non-negative)
+        days_to_craft: int | None = None
+        days_str = (row.get("days_to_craft") or "").strip()
+        if days_str:
+            try:
+                days_to_craft = int(days_str)
+                if days_to_craft < 0:
+                    row_errors.append("days_to_craft must be non-negative")
+            except ValueError:
+                row_errors.append("days_to_craft must be an integer")
+
+        # Validate boolean columns if provided
+        is_active: bool | None = None
+        is_active_str = (row.get("is_active") or "").strip()
+        if is_active_str:
+            try:
+                is_active = _parse_csv_bool(is_active_str)
+            except ValueError as e:
+                row_errors.append(f"is_active {e}")
+
+        is_featured: bool | None = None
+        is_featured_str = (row.get("is_featured") or "").strip()
+        if is_featured_str:
+            try:
+                is_featured = _parse_csv_bool(is_featured_str)
+            except ValueError as e:
+                row_errors.append(f"is_featured {e}")
+
         if row_errors:
             errors.append(CSVImportError(row=row_num, message="; ".join(row_errors)))
             continue
@@ -341,6 +415,16 @@ async def admin_import_products(
             data["stock"] = stock
         if "image_url" in headers and row.get("image_url"):
             data["image_url"] = row["image_url"].strip()
+        if weight_grams is not None:
+            data["weight_grams"] = weight_grams
+        if days_to_craft is not None:
+            data["days_to_craft"] = days_to_craft
+        if is_active is not None:
+            data["is_active"] = is_active
+        if is_featured is not None:
+            data["is_featured"] = is_featured
+        if "materials" in headers and row.get("materials"):
+            data["materials"] = row["materials"].strip()
 
         # Check if product exists to track created vs updated
         try:

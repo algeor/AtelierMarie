@@ -203,6 +203,7 @@ def create_product(data: dict) -> dict:
         "category",
         "image_url",
         "stock",
+        "weight_grams",
         "is_active",
         "is_featured",
         "translation_stale_bg",
@@ -223,6 +224,7 @@ def create_product(data: dict) -> dict:
         data.get("category"),
         data.get("image_url"),
         data.get("stock", 0),
+        data.get("weight_grams", 300),
         1 if data.get("is_active", True) else 0,
         1 if data.get("is_featured", False) else 0,
         0,  # translation_stale_bg
@@ -269,6 +271,7 @@ def upsert_product(product_id: str, data: dict) -> dict:
         "category": data.get("category"),
         "image_url": data.get("image_url"),
         "stock": data.get("stock"),
+        "weight_grams": data.get("weight_grams"),
         "is_active": (None if data.get("is_active") is None else (1 if data["is_active"] else 0)),
         "is_featured": (
             None if data.get("is_featured") is None else (1 if data["is_featured"] else 0)
@@ -328,6 +331,7 @@ def update_product(product_id: str, data: dict) -> dict:
         "category": data.get("category"),
         "image_url": data.get("image_url"),
         "stock": data.get("stock"),
+        "weight_grams": data.get("weight_grams"),
         "is_active": (None if data.get("is_active") is None else (1 if data["is_active"] else 0)),
         "is_featured": (
             None if data.get("is_featured") is None else (1 if data["is_featured"] else 0)

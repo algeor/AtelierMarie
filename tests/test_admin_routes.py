@@ -96,6 +96,35 @@ class TestAdminCreateProduct:
         assert body["price_cents"] == 2000
 
     @pytest.mark.asyncio
+    async def test_create_defaults_weight_to_300(self, admin_client):
+        response = await admin_client.post(
+            "/v1/admin/products",
+            json={
+                "id": "no-weight-candle",
+                "name_en": "No Weight",
+                "price_cents": 2000,
+                "stock": 5,
+            },
+        )
+        assert response.status_code == 201
+        assert response.json()["weight_grams"] == 300
+
+    @pytest.mark.asyncio
+    async def test_create_persists_explicit_weight(self, admin_client):
+        response = await admin_client.post(
+            "/v1/admin/products",
+            json={
+                "id": "heavy-candle",
+                "name_en": "Heavy",
+                "price_cents": 2000,
+                "stock": 5,
+                "weight_grams": 550,
+            },
+        )
+        assert response.status_code == 201
+        assert response.json()["weight_grams"] == 550
+
+    @pytest.mark.asyncio
     async def test_returns_409_for_duplicate(self, admin_client, _products):
         response = await admin_client.post(
             "/v1/admin/products",
@@ -178,6 +207,15 @@ class TestAdminUpdateProduct:
         body = response.json()
         assert body["name_en"] == "Lavender Dream XL"
         assert body["price_cents"] == 3200  # Unchanged
+
+    @pytest.mark.asyncio
+    async def test_update_weight(self, admin_client, _products):
+        response = await admin_client.put(
+            "/v1/admin/products/lavender-dream-300ml",
+            json={"weight_grams": 420},
+        )
+        assert response.status_code == 200
+        assert response.json()["weight_grams"] == 420
 
     @pytest.mark.asyncio
     async def test_returns_404_for_missing(self, admin_client, _products):
@@ -285,6 +323,82 @@ class TestAdminCSVImport:
         assert body["created"] == 0
         assert body["updated"] == 0
         assert body["errors"] == []
+
+    @pytest.mark.asyncio
+    async def test_imports_extended_optional_columns(self, admin_client):
+        csv_content = (
+            "id,name_en,price_cents,stock,weight_grams,is_active,is_featured,"
+            "materials,days_to_craft\n"
+            "ext-candle,Extended Candle,2000,10,550,false,yes,Soy wax,4\n"
+        )
+        response = await admin_client.post(
+            "/v1/admin/products/import",
+            files={"file": ("products.csv", csv_content, "text/csv")},
+        )
+        assert response.status_code == 200
+        assert response.json()["created"] == 1
+        # Verify the values were applied
+        detail = await admin_client.get("/v1/admin/products/ext-candle")
+        body = detail.json()
+        assert body["weight_grams"] == 550
+        assert body["is_active"] is False
+        assert body["is_featured"] is True
+        assert body["materials"] == "Soy wax"
+        assert body["days_to_craft"] == 4
+
+    @pytest.mark.asyncio
+    async def test_import_without_weight_defaults_new_to_300(self, admin_client):
+        csv_content = "id,name_en,price_cents,stock\nplain-candle,Plain,2000,5\n"
+        response = await admin_client.post(
+            "/v1/admin/products/import",
+            files={"file": ("products.csv", csv_content, "text/csv")},
+        )
+        assert response.json()["created"] == 1
+        detail = await admin_client.get("/v1/admin/products/plain-candle")
+        assert detail.json()["weight_grams"] == 300
+
+    @pytest.mark.asyncio
+    async def test_import_without_weight_preserves_existing(self, admin_client):
+        # Create with an explicit non-default weight
+        await admin_client.post(
+            "/v1/admin/products",
+            json={
+                "id": "keep-weight",
+                "name_en": "Keep Weight",
+                "price_cents": 2000,
+                "stock": 5,
+                "weight_grams": 700,
+            },
+        )
+        # Upsert via CSV without a weight_grams column
+        csv_content = "id,name_en,price_cents,stock\nkeep-weight,Keep Weight,2500,8\n"
+        response = await admin_client.post(
+            "/v1/admin/products/import",
+            files={"file": ("products.csv", csv_content, "text/csv")},
+        )
+        assert response.json()["updated"] == 1
+        detail = await admin_client.get("/v1/admin/products/keep-weight")
+        assert detail.json()["weight_grams"] == 700  # unchanged
+
+    @pytest.mark.asyncio
+    async def test_import_invalid_weight_and_bool_skip_rows(self, admin_client):
+        csv_content = (
+            "id,name_en,price_cents,stock,weight_grams,is_active\n"
+            "bad-weight,Bad Weight,2000,10,abc,true\n"
+            "bad-bool,Bad Bool,2000,10,300,maybe\n"
+            "zero-weight,Zero Weight,2000,10,0,true\n"
+            "good-row,Good Row,2000,10,300,true\n"
+        )
+        response = await admin_client.post(
+            "/v1/admin/products/import",
+            files={"file": ("products.csv", csv_content, "text/csv")},
+        )
+        body = response.json()
+        assert body["created"] == 1
+        error_rows = [e["row"] for e in body["errors"]]
+        assert 2 in error_rows  # abc weight
+        assert 3 in error_rows  # maybe bool
+        assert 4 in error_rows  # zero weight (< 1)
 
 
 class TestAdminLowStockProducts:

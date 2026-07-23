@@ -276,7 +276,7 @@
     "csvColumnDescriptionBg": "Bulgarian description",
     "editProductSubtitle": "Update {name}",
     "csvImport": "CSV Import",
-    "csvImportHelp": "Upload a CSV with columns: id, name_en, name_bg, description_en, description_bg, price_cents, stock, category, image_url",
+    "csvImportHelp": "Upload a CSV with columns: id, name_en, name_bg, description_en, description_bg, price_cents, stock, category, image_url, weight_grams, is_active",
     "nameEn": "Name (English)",
     "nameBg": "Name (Bulgarian)",
     "descriptionEn": "Description (English)",
@@ -301,6 +301,9 @@
     "materialsPlaceholder": "e.g., Soy wax, lavender oil",
     "daysToCraft": "Days to Craft",
     "optional": "Optional",
+    "weightGrams": "Weight (grams)",
+    "weightGramsHelp": "Shipping weight including container. Defaults to 300 g.",
+    "activeProduct": "Active (visible in the store)",
     "featuredProduct": "Featured product (shown on homepage)",
     "validation": {
       "nameEnRequired": "English name is required",

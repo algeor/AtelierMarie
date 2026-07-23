@@ -30,6 +30,8 @@ export interface ProductFormData {
   image_url: string;
   image_file: File | null;
   stock: number;
+  weight_grams: number;
+  is_active: boolean;
   is_featured: boolean;
 }
 
@@ -74,6 +76,8 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
     image_url: product?.image_url ?? "",
     image_file: null,
     stock: product?.stock ?? 0,
+    weight_grams: product?.weight_grams ?? 300,
+    is_active: product?.is_active ?? true,
     is_featured: product?.is_featured ?? false,
   });
 
@@ -269,6 +273,20 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
           onChange={(e) => updateField("stock", Math.max(0, Math.floor(Number(e.target.value) || 0)))}
           error={errors.stock}
         />
+        <div className="w-full">
+          <Input
+            label={t("weightGrams")}
+            type="number"
+            min="1"
+            step="1"
+            value={String(formData.weight_grams)}
+            onChange={(e) =>
+              updateField("weight_grams", Math.max(1, Math.floor(Number(e.target.value) || 1)))
+            }
+            error={errors.weight_grams}
+          />
+          <p className="mt-1.5 text-xs text-soft-brown/70">{t("weightGramsHelp")}</p>
+        </div>
         <div className="sm:col-span-2">
           <label htmlFor="image_file" className="mb-1.5 block text-sm font-medium text-soft-brown">
             {t("productImage")}
@@ -323,6 +341,19 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
         />
         <label htmlFor="is_featured" className="text-sm text-soft-brown">
           {t("featuredProduct")}
+        </label>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          id="is_active"
+          checked={formData.is_active}
+          onChange={(e) => updateField("is_active", e.target.checked)}
+          className="h-4 w-4 rounded border-champagne-beige text-muted-gold focus:ring-muted-gold"
+        />
+        <label htmlFor="is_active" className="text-sm text-soft-brown">
+          {t("activeProduct")}
         </label>
       </div>
 

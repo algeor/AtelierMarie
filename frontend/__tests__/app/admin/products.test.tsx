@@ -64,6 +64,7 @@ const MOCK_PRODUCT: AdminProductResponse = {
   category: "Floral",
   image_url: null,
   stock: 24,
+  weight_grams: 300,
   is_active: true,
   is_featured: true,
   translation_stale_bg: false,
@@ -447,5 +448,76 @@ describe("Admin Product Form Validation", () => {
       expect(screen.getByDisplayValue("Lavender Dreams")).toBeInTheDocument();
       expect(screen.getByDisplayValue("32.00")).toBeInTheDocument();
     });
+  });
+
+  it("renders weight input and is_active toggle, defaulting weight to 300 on create", async () => {
+    const { AdminProvider } = await import("@/contexts/AdminContext");
+    const { AdminGuard } = await import("@/components/admin/AdminGuard");
+    const CreateProductPage = (await import("@/app/[locale]/admin/products/new/page")).default;
+
+    renderWithIntl(
+      <AdminProvider>
+        <AdminGuard>
+          <CreateProductPage />
+        </AdminGuard>
+      </AdminProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Create Product", { selector: "h1" })).toBeInTheDocument();
+    });
+
+    // Weight input pre-populated with default 300
+    expect(screen.getByDisplayValue("300")).toBeInTheDocument();
+    // is_active toggle is present and checked by default
+    const activeToggle = screen.getByLabelText("Active (visible in the store)") as HTMLInputElement;
+    expect(activeToggle).toBeInTheDocument();
+    expect(activeToggle.checked).toBe(true);
+  });
+
+  it("submits weight_grams and is_active from the create form", async () => {
+    mockedCreateProduct.mockResolvedValue(MOCK_PRODUCT);
+
+    const { AdminProvider } = await import("@/contexts/AdminContext");
+    const { AdminGuard } = await import("@/components/admin/AdminGuard");
+    const CreateProductPage = (await import("@/app/[locale]/admin/products/new/page")).default;
+
+    renderWithIntl(
+      <AdminProvider>
+        <AdminGuard>
+          <CreateProductPage />
+        </AdminGuard>
+      </AdminProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Create Product", { selector: "h1" })).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Product ID (slug)"), {
+      target: { value: "weighted-product" },
+    });
+    fireEvent.change(screen.getByLabelText("Name (English)"), {
+      target: { value: "Weighted Product" },
+    });
+    fireEvent.change(screen.getByLabelText("Category"), {
+      target: { value: "Floral" },
+    });
+    const priceInput = screen.getByLabelText("Price (EUR)");
+    fireEvent.change(priceInput, { target: { value: "25.00" } });
+    fireEvent.blur(priceInput);
+    fireEvent.change(screen.getByLabelText("Weight (grams)"), {
+      target: { value: "620" },
+    });
+    fireEvent.click(screen.getByLabelText("Active (visible in the store)"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Create Product" }));
+
+    await waitFor(() => {
+      expect(mockedCreateProduct).toHaveBeenCalled();
+    });
+    const payload = mockedCreateProduct.mock.calls[0][0];
+    expect(payload.weight_grams).toBe(620);
+    expect(payload.is_active).toBe(false);
   });
 });
