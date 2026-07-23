@@ -29,6 +29,16 @@ import type {
 
 const PHONE_REGEX = /^\+?[0-9]{8,15}$/;
 
+/**
+ * Normalize phone input to match backend validation (app/models/delivery.py).
+ * Strip everything except digits and a leading '+' before regex-testing,
+ * so conventionally-formatted numbers (e.g. "+359 888 123 456", "(0888) 123 456")
+ * pass client-side just like they do server-side.
+ */
+function normalizePhone(value: string): string {
+  return value.replace(/[^\d+]/g, "");
+}
+
 export interface DeliveryValidationErrors {
   method?: string;
   courier?: string;
@@ -408,7 +418,15 @@ function DoorAddressForm({ value, onChange, errors }: DoorAddressFormProps) {
           value={(value[fieldKey] as string | null | undefined) ?? ""}
           onChange={(e) => onChange({ [fieldKey]: e.target.value })}
           placeholder={t(`${key}Placeholder`)}
-          maxLength={fieldKey === "street" ? 200 : fieldKey === "postal_code" ? 10 : 100}
+          maxLength={
+            fieldKey === "street"
+              ? 200
+              : fieldKey === "postal_code"
+                ? 10
+                : fieldKey === "building" || fieldKey === "apartment"
+                  ? 50
+                  : 100
+          }
           aria-invalid={err ? "true" : undefined}
           className={cn(
             "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
@@ -482,9 +500,15 @@ export function DeliverySection({ value, onChange, errors = {} }: DeliverySectio
   // Courier lives inside office/door — track it at the section level for progressive disclosure
   const currentCourier: Courier | undefined = office?.courier ?? door?.courier;
 
+  // Remember the full OfficeResponse (city/address/working_hours) for the selected office.
+  // The checkout payload only stores the id/name/type/courier/phone the backend needs,
+  // so we cache display fields here to keep the "selected" card populated after selection.
+  const [selectedOfficeFull, setSelectedOfficeFull] = useState<OfficeResponse | null>(null);
+
   const setMethod = (m: DeliveryMethod) => {
     if (m === value.method) return;
     // Reset sub-state on method change
+    setSelectedOfficeFull(null);
     onChange({ method: m, office: null, door: null });
   };
 
@@ -499,6 +523,7 @@ export function DeliverySection({ value, onChange, errors = {} }: DeliverySectio
         office?.courier === c
           ? { ...office, courier: c }
           : { courier: c, phone: preservedPhone };
+      if (office?.courier !== c) setSelectedOfficeFull(null);
       onChange({ ...value, office: next as DeliveryOffice, door: null });
     } else if (method === "door") {
       onChange({ ...value, door: { ...(door ?? {}), courier: c } as DeliveryDoor, office: null });
@@ -508,12 +533,14 @@ export function DeliverySection({ value, onChange, errors = {} }: DeliverySectio
   const selectOffice = (o: OfficeResponse) => {
     // "Change" button signals a clear by passing an office with empty id
     if (!o.id) {
+      setSelectedOfficeFull(null);
       onChange({
         ...value,
         office: { courier: currentCourier ?? "speedy", office_id: "", office_name: "", office_type: "office", phone: office?.phone ?? "" },
       });
       return;
     }
+    setSelectedOfficeFull(o);
     onChange({
       ...value,
       office: {
@@ -542,16 +569,21 @@ export function DeliverySection({ value, onChange, errors = {} }: DeliverySectio
   };
 
   const phone = method === "office" ? office?.phone ?? "" : door?.phone ?? "";
+  // Prefer the cached full record if its id still matches the payload; otherwise
+  // fall back to a payload-only reconstruction so a page reload doesn't lose
+  // the selected state (address/city/hours will simply be blank until re-picked).
   const selectedOffice: OfficeResponse | null =
     method === "office" && office?.office_id
-      ? {
-          id: office.office_id,
-          name: office.office_name,
-          type: office.office_type,
-          city: "",
-          address: "",
-          working_hours: "",
-        }
+      ? selectedOfficeFull && selectedOfficeFull.id === office.office_id
+        ? selectedOfficeFull
+        : {
+            id: office.office_id,
+            name: office.office_name,
+            type: office.office_type,
+            city: "",
+            address: "",
+            working_hours: "",
+          }
       : null;
 
   return (
@@ -605,16 +637,21 @@ export function validateDelivery(
     if (!o?.office_id) {
       errors.office = t("checkout.delivery.office.required");
     }
+    const normalizedOfficePhone = o?.phone ? normalizePhone(o.phone) : "";
     if (!o?.phone) {
       errors.phone = t("checkout.delivery.phoneRequired");
-    } else if (!PHONE_REGEX.test(o.phone)) {
+    } else if (!PHONE_REGEX.test(normalizedOfficePhone)) {
       errors.phone = t("checkout.delivery.phoneInvalid");
     }
     if (Object.keys(errors).length > 0) return { valid: false, errors };
     return {
       valid: true,
       errors: {},
-      normalized: { method: "office", office: o as DeliveryOffice, door: null },
+      normalized: {
+        method: "office",
+        office: { ...(o as DeliveryOffice), phone: normalizedOfficePhone },
+        door: null,
+      },
     };
   }
 
@@ -626,9 +663,10 @@ export function validateDelivery(
   if (!d?.city) errors.city = t("checkout.delivery.door.cityRequired");
   if (!d?.postal_code) errors.postalCode = t("checkout.delivery.door.postalCodeRequired");
   if (!d?.street) errors.street = t("checkout.delivery.door.streetRequired");
+  const normalizedDoorPhone = d?.phone ? normalizePhone(d.phone) : "";
   if (!d?.phone) {
     errors.phone = t("checkout.delivery.phoneRequired");
-  } else if (!PHONE_REGEX.test(d.phone)) {
+  } else if (!PHONE_REGEX.test(normalizedDoorPhone)) {
     errors.phone = t("checkout.delivery.phoneInvalid");
   }
   if (Object.keys(errors).length > 0) return { valid: false, errors };
@@ -644,7 +682,7 @@ export function validateDelivery(
         street: d!.street!,
         building: d!.building || null,
         apartment: d!.apartment || null,
-        phone: d!.phone!,
+        phone: normalizedDoorPhone,
       },
       office: null,
     },

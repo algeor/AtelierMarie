@@ -17,7 +17,9 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 BG_TZ = ZoneInfo("Europe/Sofia")
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
+DATA_DIR = REPO_ROOT / "data"
 
 
 def _hm(ms: int | None) -> str | None:
@@ -102,12 +104,16 @@ def normalize_econt(raw: dict) -> list[dict]:
 
 
 if __name__ == "__main__":
-    raw_path = REPO_ROOT / "data" / "econt_offices_raw.json"
-    output_path = REPO_ROOT / "data" / "econt_offices.json"
-
-    with raw_path.open(encoding="utf-8") as f:
+    with open(
+        DATA_DIR / "econt_offices_raw.json",
+        encoding="utf-8",
+    ) as f:
         raw = json.load(f)
     normalized = normalize_econt(raw)
-    with output_path.open("w", encoding="utf-8") as f:
+    with open(
+        DATA_DIR / "econt_offices.json",
+        "w",
+        encoding="utf-8",
+    ) as f:
         json.dump(normalized, f, ensure_ascii=False, indent=2)
     print(f"wrote {len(normalized)} offices")

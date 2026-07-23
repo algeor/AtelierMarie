@@ -286,8 +286,10 @@ class TestAdminCSVImport:
         assert body["updated"] == 0
         assert body["errors"] == []
 
+
 class TestAdminLowStockProducts:
     """Tests for GET /v1/admin/products/low-stock."""
+
     @pytest.mark.asyncio
     async def test_rejects_no_token(self, app):
         from httpx import ASGITransport, AsyncClient

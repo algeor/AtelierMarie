@@ -60,9 +60,7 @@ class TestListOffices:
 
     @pytest.mark.asyncio
     async def test_unknown_city_returns_empty(self, client):
-        resp = await client.get(
-            "/v1/delivery/offices?courier=speedy&city=НесъществуващоСело"
-        )
+        resp = await client.get("/v1/delivery/offices?courier=speedy&city=НесъществуващоСело")
         assert resp.status_code == 200
         assert resp.json() == []
 
@@ -73,9 +71,7 @@ class TestListOffices:
 
     @pytest.mark.asyncio
     async def test_invalid_office_type_rejected(self, client):
-        resp = await client.get(
-            "/v1/delivery/offices?courier=speedy&city=София&type=warehouse"
-        )
+        resp = await client.get("/v1/delivery/offices?courier=speedy&city=София&type=warehouse")
         assert resp.status_code == 422
 
     @pytest.mark.asyncio
@@ -90,9 +86,7 @@ class TestListOffices:
 
     @pytest.mark.asyncio
     async def test_locale_en_returns_english_names(self, client):
-        resp = await client.get(
-            "/v1/delivery/offices?courier=speedy&city=Sofia&locale=en"
-        )
+        resp = await client.get("/v1/delivery/offices?courier=speedy&city=Sofia&locale=en")
         assert resp.status_code == 200
         data = resp.json()
         assert len(data) > 0

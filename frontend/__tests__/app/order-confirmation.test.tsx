@@ -53,6 +53,8 @@ describe("Order Confirmation Page", () => {
     mockedGetOrder.mockResolvedValue({
       id: "test-order-123",
       status: "pending",
+      items_total_cents: 5000,
+      shipping_cents: 0,
       total_cents: 5000,
       customer_email: "buyer@example.com",
       customer_name: "Test Buyer",
@@ -98,6 +100,8 @@ describe("Order Confirmation Page", () => {
     mockedGetOrder.mockResolvedValue({
       id: "test-order-123",
       status: "pending",
+      items_total_cents: 5000,
+      shipping_cents: 0,
       total_cents: 5000,
       customer_email: "buyer@example.com",
       customer_name: null,
