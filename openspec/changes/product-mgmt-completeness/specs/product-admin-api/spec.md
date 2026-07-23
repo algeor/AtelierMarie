@@ -37,6 +37,10 @@ The `POST /v1/admin/products/import` endpoint SHALL accept CSV files with column
 - **WHEN** admin uploads a CSV that includes `weight_grams`, `is_featured`, `materials`, `days_to_craft`, and `is_active` columns
 - **THEN** those values are applied to the upserted products
 
-#### Scenario: Import CSV omitting weight applies default
-- **WHEN** admin uploads a CSV without a `weight_grams` column
-- **THEN** upserted products receive `weight_grams` = 300
+#### Scenario: Import CSV omitting weight applies default to new products
+- **WHEN** admin uploads a CSV without a `weight_grams` column that creates new products
+- **THEN** the newly-created products receive `weight_grams` = 300 (DB default)
+
+#### Scenario: Import CSV omitting weight preserves existing product weight
+- **WHEN** admin uploads a CSV without a `weight_grams` column that upserts an existing product
+- **THEN** that product's current `weight_grams` is left unchanged (not reset to 300)

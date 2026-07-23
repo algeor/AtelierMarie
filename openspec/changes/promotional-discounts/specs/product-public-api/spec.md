@@ -1,7 +1,9 @@
 ## MODIFIED Requirements
 
 ### Requirement: List products endpoint
-The system SHALL expose `GET /v1/products` returning a paginated list of active products. The endpoint SHALL accept query parameters: `category` (string filter), `q` (search query), `sort` (one of: price_asc, price_desc, name, newest), `in_stock` (boolean, filter to stock > 0), `page` (integer, default 1), `limit` (integer, default 20, max 100), `locale` (one of: `en`, `bg`, default `en`). The response SHALL match the ProductListResponse schema with product name and description in the requested locale (falling back to the other language if the requested locale's content is NULL). Each product SHALL include `price_cents` (original list price), `effective_price_cents` (discounted price, equal to `price_cents` when no discount is active), `discount_percent` (integer or null), and `discount_active` (boolean).
+The system SHALL expose `GET /v1/products` returning a paginated list of active products. The endpoint SHALL accept query parameters: `category` (string filter), `q` (search query), `sort` (one of: price_asc, price_desc, name, newest), `in_stock` (boolean, filter to stock > 0), `page` (integer, default 1), `limit` (integer, default 20, max 100), `locale` (one of: `en`, `bg`, default `en`). The response SHALL match the ProductListResponse schema with product name and description in the requested locale (falling back to the other language if the requested locale's content is NULL). The list operation SHALL capture `now` once and use it for all effective-price calculations and price sorting in the response. Each product SHALL include `price_cents` (original list price), `effective_price_cents` (discounted price, equal to `price_cents` when no discount is active), `discount_percent` (active display percent or null), and `discount_active` (boolean). Public product responses SHALL NOT expose `discount_starts_at` or `discount_ends_at`.
+
+For `sort=price_asc` and `sort=price_desc`, products SHALL be ordered by `effective_price_cents` at request time before pagination. Search results without an explicit sort keep relevance order; search results with an explicit price sort use the same effective-price ordering.
 
 #### Scenario: List all products with defaults
 - **WHEN** `GET /v1/products` is called with no parameters
@@ -23,8 +25,16 @@ The system SHALL expose `GET /v1/products` returning a paginated list of active 
 - **WHEN** a listed product has an active 20% discount and `price_cents` = 3250
 - **THEN** its entry includes `price_cents` = 3250, `effective_price_cents` = 2600, `discount_percent` = 20, `discount_active` = true
 
+#### Scenario: Future scheduled discount is hidden publicly
+- **WHEN** a listed product has `discount_percent` = 20 but its start time is in the future
+- **THEN** its entry includes `effective_price_cents` equal to `price_cents`, `discount_percent` = null, and `discount_active` = false
+
+#### Scenario: Price sort uses effective price
+- **WHEN** product A has `price_cents` = 4000 with an active 50% discount and product B has `price_cents` = 3000 with no discount
+- **THEN** `GET /v1/products?sort=price_asc` returns product A before product B because 2000 < 3000
+
 ### Requirement: Get product detail endpoint
-The system SHALL expose `GET /v1/products/{product_id}` returning a single active product. The endpoint SHALL accept an optional `locale` query parameter (one of: `en`, `bg`, default `en`). The response SHALL return product name and description in the requested locale with fallback to the other language. The response SHALL include `price_cents`, `effective_price_cents`, `discount_percent`, and `discount_active`. The endpoint SHALL return 404 if the product does not exist or is inactive.
+The system SHALL expose `GET /v1/products/{product_id}` returning a single active product. The endpoint SHALL accept an optional `locale` query parameter (one of: `en`, `bg`, default `en`). The response SHALL return product name and description in the requested locale with fallback to the other language. The response SHALL include `price_cents`, `effective_price_cents`, public `discount_percent` (active display percent or null), and `discount_active`; it SHALL NOT expose discount window timestamps. The endpoint SHALL return 404 if the product does not exist or is inactive.
 
 #### Scenario: Get product in Bulgarian
 - **WHEN** `GET /v1/products/lavender-dream-300ml?locale=bg` is called and the product has Bulgarian content
