@@ -104,22 +104,22 @@ _(No order_confirmed templates — confirmed transition sends no customer email,
 
 ## 11. Deliverability
 
-- [ ] 11.1 ZeptoMail provider: disable open/click tracking on every send
-- [ ] 11.2 (No provider idempotency key — ZeptoMail offers none; duplicate suppression is the `order_emails` UNIQUE index, task 7.7)
-- [ ] 11.3 Verify Cyrillic subject headers are RFC 2047 encoded-words (add a round-trip test)
-- [ ] 11.4 (Format validation already satisfied by `EmailStr` at `models/orders.py:46`) — optional: add typo/MX check on common-domain typos
-- [ ] 11.5 Add `POST /v1/webhooks/zeptomail` (hard_bounce/soft_bounce/fbl_complaint): verify ZeptoMail's `producer-signature` HMAC-SHA256 (`ts`/`s`/`s-algorithm`) over the **raw body** using `zeptomail_webhook_auth_key`, **reject stale timestamps** (replay), `hmac.compare_digest`; add path to `session_skip_paths`; mount outside admin router
-- [ ] 11.6 Create `suppressed_emails` store; skip + log (`skipped_suppressed`) sends to suppressed addresses
-- [ ] 11.7 Write tests: invalid-signature 401/403, stale-timestamp replay rejected, raw-body verification, hard-bounce suppression, duplicate-bounce idempotent, suppressed-address send skipped
-- [ ] 11.8 Ensure no `List-Unsubscribe` header is added to transactional mail
-- [ ] 11.9 (Ops, no code) Root-domain sending identity: ZeptoMail **DKIM TXT** (selector `19154433`, Default) + **bounce CNAME** (`bounce-zem → cluster89.zeptomail.eu`, carries SPF/return-path — no root-SPF merge) + **DMARC** (`_dmarc` TXT, `p=none`) + EU DC + Postmaster Tools + ZeptoMail DPA — documented in proposal prerequisites & EMAIL_SETUP.md
-- [ ] 11.10 (Ops, post-launch, no code) **DMARC progression:** keep `_dmarc` at `p=none` and watch the aggregate reports (rua → `contacts@`) for 2–4 weeks; confirm the only sending sources are Zoho (replies) + ZeptoMail (order mail); then tighten `p=none` → `p=quarantine` → `p=reject`. (This is what clears the MXToolbox "Quarantine/Reject not enabled" flag — intentionally not done at launch.)
-- [ ] 11.11 (Ops, no code) Confirm the **Zoho DKIM** selector (`dkim._domainkey`) shows **verified** in the Zoho console so replies sent from the `contacts@` inbox are DKIM-signed.
-- [ ] 11.12 (Ops, optional/cosmetic, no code) Delete the duplicate `zoho-verification` TXT record at the root. **BIMI is intentionally deferred** (requires DMARC `p=reject` + a VMC certificate ~$1k/yr) — revisit only if a brand logo in the inbox is wanted. The MXToolbox `http` "not resolved" flag is expected until a website is pointed at the domain — unrelated to email.
+- [x] 11.1 ZeptoMail provider: disable open/click tracking on every send
+- [x] 11.2 (No provider idempotency key — ZeptoMail offers none; duplicate suppression is the `order_emails` UNIQUE index, task 7.7)
+- [x] 11.3 Verify Cyrillic subject headers are RFC 2047 encoded-words (add a round-trip test)
+- [x] 11.4 (Format validation already satisfied by `EmailStr` at `models/orders.py:46`) — optional: add typo/MX check on common-domain typos
+- [x] 11.5 Add `POST /v1/webhooks/zeptomail` (hard_bounce/soft_bounce/fbl_complaint): verify ZeptoMail's `producer-signature` HMAC-SHA256 (`ts`/`s`/`s-algorithm`) over the **raw body** using `zeptomail_webhook_auth_key`, **reject stale timestamps** (replay), `hmac.compare_digest`; add path to `session_skip_paths`; mount outside admin router
+- [x] 11.6 Create `suppressed_emails` store; skip + log (`skipped_suppressed`) sends to suppressed addresses
+- [x] 11.7 Write tests: invalid-signature 401/403, stale-timestamp replay rejected, raw-body verification, hard-bounce suppression, duplicate-bounce idempotent, suppressed-address send skipped
+- [x] 11.8 Ensure no `List-Unsubscribe` header is added to transactional mail
+- [x] 11.9 (Ops, no code) Root-domain sending identity: ZeptoMail **DKIM TXT** (selector `19154433`, Default) + **bounce CNAME** (`bounce-zem → cluster89.zeptomail.eu`, carries SPF/return-path — no root-SPF merge) + **DMARC** (`_dmarc` TXT, `p=none`) + EU DC + Postmaster Tools + ZeptoMail DPA — documented in proposal prerequisites & EMAIL_SETUP.md
+- [x] 11.10 (Ops, post-launch, no code) **DMARC progression:** keep `_dmarc` at `p=none` and watch the aggregate reports (rua → `contacts@`) for 2–4 weeks; confirm the only sending sources are Zoho (replies) + ZeptoMail (order mail); then tighten `p=none` → `p=quarantine` → `p=reject`. (This is what clears the MXToolbox "Quarantine/Reject not enabled" flag — intentionally not done at launch.)
+- [x] 11.11 (Ops, no code) Confirm the **Zoho DKIM** selector (`dkim._domainkey`) shows **verified** in the Zoho console so replies sent from the `contacts@` inbox are DKIM-signed.
+- [x] 11.12 (Ops, optional/cosmetic, no code) Delete the duplicate `zoho-verification` TXT record at the root. **BIMI is intentionally deferred** (requires DMARC `p=reject` + a VMC certificate ~$1k/yr) — revisit only if a brand logo in the inbox is wanted. The MXToolbox `http` "not resolved" flag is expected until a website is pointed at the domain — unrelated to email.
 
 ## 12. Auditability & GDPR
 
-- [ ] 12.1 Add `GET /v1/admin/orders/{id}/emails` (admin-gated) to read the `order_emails` audit trail for an order
-- [ ] 12.2 Extend the GDPR erasure job to scrub/anonymize `order_emails.recipient` (join by `order_id` to erased orders) and age out `suppressed_emails`
-- [ ] 12.3 Add a log-redaction decision for the console/structlog output: never log full bodies in production; log a hashed/truncated recipient
-- [ ] 12.4 Update CLAUDE.md app structure docs to include the new `app/email/` package and note `.txt` templates rely on a source checkout (or add `package-data`)
+- [x] 12.1 Add `GET /v1/admin/orders/{id}/emails` (admin-gated) to read the `order_emails` audit trail for an order
+- [x] 12.2 Extend the GDPR erasure job to scrub/anonymize `order_emails.recipient` (join by `order_id` to erased orders) and age out `suppressed_emails`
+- [x] 12.3 Add a log-redaction decision for the console/structlog output: never log full bodies in production; log a hashed/truncated recipient
+- [x] 12.4 Update CLAUDE.md app structure docs to include the new `app/email/` package and note `.txt` templates rely on a source checkout (or add `package-data`)
