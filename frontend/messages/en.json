@@ -217,7 +217,10 @@
       "shipped": "Shipped",
       "delivered": "Delivered",
       "cancelled": "Cancelled"
-    }
+    },
+    "carrier": "Carrier",
+    "trackingNumber": "Tracking number",
+    "trackPackage": "Track your package"
   },
   "admin": {
     "title": "Admin",
@@ -294,9 +297,13 @@
     "category": "Category",
     "selectCategory": "Select category...",
     "imageUrl": "Image URL",
-    "productImage": "Product image",
+    "productImage": "Product images",
     "currentImage": "Current image: {url}",
     "selectedFile": "Selected: {name}",
+    "selectedFiles": "{count} file(s) selected",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "setPrimary": "Primary",
     "materials": "Materials",
     "materialsPlaceholder": "e.g., Soy wax, lavender oil",
     "daysToCraft": "Days to Craft",
@@ -310,7 +317,8 @@
       "categoryRequired": "Category is required",
       "stockNonNegative": "Stock cannot be negative",
       "imageType": "Image must be a JPEG or PNG file",
-      "imageSize": "Image must be 5MB or smaller"
+      "imageSize": "Image must be 5MB or smaller",
+      "maxImages": "A product can have up to 6 images"
     },
     "errors": {
       "saveProduct": "Failed to save product",
@@ -320,6 +328,18 @@
       "loadProducts": "Failed to load products",
       "updateProduct": "Failed to update product",
       "loadProduct": "Failed to load product"
+    },
+    "ship": {
+      "title": "Ship order",
+      "trackingNumber": "Tracking number",
+      "carrier": "Carrier",
+      "trackingUrl": "Tracking URL",
+      "urlAuto": "Auto-generated from carrier + number",
+      "urlPreview": "Link preview",
+      "customUrlPlaceholder": "https://…",
+      "cancel": "Cancel",
+      "confirm": "Mark as shipped",
+      "trackingRequired": "Tracking number is required"
     }
   },
   "locale": {

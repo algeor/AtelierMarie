@@ -256,7 +256,7 @@ def _clean_tables(db_path, app):
     fake_session_id = getattr(app, "_test_session_id", None)
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA foreign_keys=ON")
-    for table in ("order_items", "orders", "cart_items"):
+    for table in ("order_items", "orders", "cart_items", "product_images"):
         conn.execute(f"DELETE FROM {table}")  # noqa: S608
     # Delete sessions except the fake middleware session
     if fake_session_id:

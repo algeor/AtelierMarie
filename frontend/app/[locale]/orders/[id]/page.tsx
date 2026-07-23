@@ -125,7 +125,12 @@ export default function OrderDetailPage() {
           <h2 className="text-sm font-medium text-charcoal mb-4">
             {t("progress")}
           </h2>
-          <StatusTimeline currentStatus={order.status} />
+          <StatusTimeline
+            currentStatus={order.status}
+            trackingNumber={order.tracking_number}
+            trackingCarrier={order.tracking_carrier}
+            trackingUrl={order.tracking_url}
+          />
         </div>
 
         {/* Items Table */}

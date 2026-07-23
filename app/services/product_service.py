@@ -7,6 +7,7 @@ from typing import Literal
 from app.constants import MAX_LIMIT, MAX_PAGE
 from app.database import get_db
 from app.models.common import calculate_offset
+from app.services import product_image_service
 
 Locale = Literal["en", "bg"]
 
@@ -132,6 +133,7 @@ def list_products(
         ).fetchall()
 
     products = [_resolve_locale_fields(_row_to_dict(r), locale) for r in rows]
+    products = product_image_service.attach_image_fields(products)
     return products, total
 
 
@@ -149,7 +151,9 @@ def get_product(product_id: str, *, locale: Locale = "en") -> dict:
     if row is None:
         raise NotFoundError(f"Product not found: {product_id}")
 
-    return _resolve_locale_fields(_row_to_dict(row), locale)
+    return product_image_service.attach_image_fields_one(
+        _resolve_locale_fields(_row_to_dict(row), locale)
+    )
 
 
 def get_product_admin(product_id: str) -> dict:
@@ -163,7 +167,7 @@ def get_product_admin(product_id: str) -> dict:
     if row is None:
         raise NotFoundError(f"Product not found: {product_id}")
 
-    return _row_to_dict(row)
+    return product_image_service.attach_image_fields_one(_row_to_dict(row))
 
 
 def list_products_admin(
@@ -183,7 +187,7 @@ def list_products_admin(
             (limit, offset),
         ).fetchall()
 
-    return [_row_to_dict(r) for r in rows], total
+    return product_image_service.attach_image_fields([_row_to_dict(r) for r in rows]), total
 
 
 def create_product(data: dict) -> dict:
@@ -201,7 +205,6 @@ def create_product(data: dict) -> dict:
         "days_to_craft",
         "price_cents",
         "category",
-        "image_url",
         "stock",
         "is_active",
         "is_featured",
@@ -221,7 +224,6 @@ def create_product(data: dict) -> dict:
         data.get("days_to_craft"),
         data["price_cents"],
         data.get("category"),
-        data.get("image_url"),
         data.get("stock", 0),
         1 if data.get("is_active", True) else 0,
         1 if data.get("is_featured", False) else 0,
@@ -247,7 +249,7 @@ def create_product(data: dict) -> dict:
 
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
 
-    return _row_to_dict(row)
+    return product_image_service.attach_image_fields_one(_row_to_dict(row))
 
 
 def upsert_product(product_id: str, data: dict) -> dict:
@@ -267,7 +269,6 @@ def upsert_product(product_id: str, data: dict) -> dict:
         "days_to_craft": data.get("days_to_craft"),
         "price_cents": data.get("price_cents"),
         "category": data.get("category"),
-        "image_url": data.get("image_url"),
         "stock": data.get("stock"),
         "is_active": (None if data.get("is_active") is None else (1 if data["is_active"] else 0)),
         "is_featured": (
@@ -303,7 +304,7 @@ def upsert_product(product_id: str, data: dict) -> dict:
         conn.execute(sql, insert_vals)
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
 
-    return _row_to_dict(row)
+    return product_image_service.attach_image_fields_one(_row_to_dict(row))
 
 
 def update_product(product_id: str, data: dict) -> dict:
@@ -326,7 +327,6 @@ def update_product(product_id: str, data: dict) -> dict:
         "days_to_craft": data.get("days_to_craft"),
         "price_cents": data.get("price_cents"),
         "category": data.get("category"),
-        "image_url": data.get("image_url"),
         "stock": data.get("stock"),
         "is_active": (None if data.get("is_active") is None else (1 if data["is_active"] else 0)),
         "is_featured": (
@@ -375,7 +375,7 @@ def update_product(product_id: str, data: dict) -> dict:
 
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
 
-    return _row_to_dict(row)
+    return product_image_service.attach_image_fields_one(_row_to_dict(row))
 
 
 def deactivate_product(product_id: str) -> dict:
@@ -396,7 +396,7 @@ def deactivate_product(product_id: str) -> dict:
 
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
 
-    return _row_to_dict(row)
+    return product_image_service.attach_image_fields_one(_row_to_dict(row))
 
 
 def search_products(
@@ -452,7 +452,8 @@ def search_products(
             params,
         ).fetchall()
 
-    return [_resolve_locale_fields(_row_to_dict(r), locale) for r in rows]
+    products = [_resolve_locale_fields(_row_to_dict(r), locale) for r in rows]
+    return product_image_service.attach_image_fields(products)
 
 
 def get_low_stock_products(threshold: int = 5) -> list[dict]:
@@ -467,4 +468,4 @@ def get_low_stock_products(threshold: int = 5) -> list[dict]:
             "SELECT * FROM products WHERE stock <= ? AND is_active = 1",
             (threshold,),
         ).fetchall()
-    return [_row_to_dict(r) for r in rows]
+    return product_image_service.attach_image_fields([_row_to_dict(r) for r in rows])

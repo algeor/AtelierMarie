@@ -4,7 +4,7 @@ from functools import lru_cache
 from typing import Literal
 
 import structlog
-from pydantic import model_validator
+from pydantic import EmailStr, SecretStr, model_validator
 from pydantic_settings import BaseSettings
 
 from app.constants import (
@@ -40,11 +40,13 @@ class Settings(BaseSettings):
 
     # Email notifications
     email_provider: Literal["console", "zeptomail"] = "console"
-    email_api_key: str = ""
-    email_from_address: str = "orders@example.invalid"
+    email_api_key: SecretStr = SecretStr("")  # ZeptoMail Send Mail token
+    email_from_address: EmailStr = "orders@theateliermarie.com"  # root-domain alias
     email_from_name: str = "Atelier Marie"
-    email_reply_to: str = ""
-    admin_notification_email: str = ""
+    email_reply_to: EmailStr = "contacts@theateliermarie.com"  # Zoho human mailbox
+    admin_notification_email: str = ""  # empty = admin notifications disabled
+    # ZeptoMail webhook signing key (bounce/complaint endpoint — follow-up)
+    zeptomail_webhook_auth_key: SecretStr = SecretStr("")
 
     # CORS
     cors_origins: list[str] = ["http://localhost:3000"]
@@ -67,6 +69,7 @@ class Settings(BaseSettings):
         "/v1/docs",
         "/v1/redoc",
         "/v1/openapi.json",
+        "/v1/webhooks/zeptomail",
     ]
 
     # Cart limits
@@ -103,7 +106,7 @@ class Settings(BaseSettings):
                 "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET not set in production. "
                 "Google OAuth will be unavailable."
             )
-        if self.email_provider == "zeptomail" and not self.email_api_key:
+        if self.email_provider == "zeptomail" and not self.email_api_key.get_secret_value():
             _logger.warning(
                 "EMAIL_PROVIDER is set to zeptomail but EMAIL_API_KEY is empty. "
                 "Email sending will be unavailable."

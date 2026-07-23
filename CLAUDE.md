@@ -108,12 +108,24 @@ app/
 │   ├── auth_service.py
 │   ├── admin_service.py
 │   ├── comment_service.py
-│   └── reaction_service.py
+│   ├── reaction_service.py
+│   ├── email_service.py     # Durable-outbox send path + sweeper drain
+│   ├── webhook_service.py   # ZeptoMail bounce/complaint signature verify + suppression
+│   └── gdpr_service.py      # Scrub order_emails PII, age out suppressed_emails
+├── email/               # Email subsystem (Layer 1 — transactional notifications)
+│   ├── providers/       # EmailProvider protocol + console/zeptomail impls + factory
+│   ├── templates/       # Plain-text .txt templates, per-locale (en/, bg/)
+│   ├── renderer.py      # Jinja2 render (autoescape OFF for .txt), locale fallback
+│   └── redaction.py     # Hashed/truncated recipient for logs (GDPR Decision 23)
 └── utils/               # Shared utilities
     ├── blocklist.py     # Session/token blocklist
     ├── circuit_breaker.py
     ├── row_access.py    # Dict-like access for sqlite3.Row
     └── sanitize.py      # Input sanitization (HTML/XSS)
+
+# NOTE: app/email/templates/*.txt are loaded from the source tree at runtime
+# (FileSystemLoader). Deploy from a source checkout; if the app is ever packaged
+# as a wheel, add the templates to setuptools package-data so they ship.
 
 frontend/                # Next.js 14 app
 ├── app/                 # App Router pages
