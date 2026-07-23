@@ -2,16 +2,18 @@
 
 import csv
 import io
+import re
 from typing import get_args
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.responses import JSONResponse, Response
 
-from app.constants import MAX_PRICE_CENTS, MAX_STOCK
+from app.constants import MAX_CSV_ROWS, MAX_CSV_UPLOAD_BYTES, MAX_PRICE_CENTS, MAX_STOCK
 from app.database import get_db
 from app.dependencies.auth import require_admin
 from app.models.admin import DashboardResponse, LowStockProductsResponse
 from app.models.comments import AdminCommentListResponse, AdminCommentResponse
+from app.models.common import PRODUCT_ID_PATTERN
 from app.models.orders import (
     OrderListResponse,
     OrderResponse,
@@ -19,6 +21,12 @@ from app.models.orders import (
     UpdateOrderStatusRequest,
 )
 from app.models.products import (
+    MAX_CATEGORY_LENGTH,
+    MAX_DAYS_TO_CRAFT,
+    MAX_DESCRIPTION_LENGTH,
+    MAX_IMAGE_URL_LENGTH,
+    MAX_MATERIALS_LENGTH,
+    MAX_NAME_LENGTH,
     MAX_WEIGHT_GRAMS,
     CreateProductRequest,
     CSVImportError,
@@ -188,24 +196,6 @@ async def admin_delete_product(product_id: str) -> ProductAdminResponse | JSONRe
     return ProductAdminResponse(**product)
 
 
-# Required CSV headers — accept both legacy (name/description) and new (name_en/description_en)
-_REQUIRED_CSV_HEADERS_NEW = {"id", "name_en", "price_cents"}
-_REQUIRED_CSV_HEADERS_LEGACY = {"id", "name", "price_cents"}
-_OPTIONAL_CSV_HEADERS = {
-    "description",
-    "description_en",
-    "description_bg",
-    "name_bg",
-    "category",
-    "stock",
-    "image_url",
-    "weight_grams",
-    "is_active",
-    "is_featured",
-    "materials",
-    "days_to_craft",
-}
-
 # Accepted case-insensitive boolean literals for CSV boolean columns.
 _CSV_BOOL_TRUE = {"true", "1", "yes"}
 _CSV_BOOL_FALSE = {"false", "0", "no"}
@@ -258,8 +248,18 @@ async def admin_import_products(
 
     Rows with validation errors are skipped; valid rows are upserted.
     """
-    # Read file content
+    # Read file content (bounded — avoid buffering an unbounded request body)
     content = await file.read()
+    if len(content) > MAX_CSV_UPLOAD_BYTES:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": {
+                    "code": "INVALID_CSV",
+                    "message": f"CSV file exceeds maximum size ({MAX_CSV_UPLOAD_BYTES} bytes)",
+                }
+            },
+        )
     text = content.decode("utf-8-sig")  # Handle BOM
 
     reader = csv.DictReader(io.StringIO(text))
@@ -304,6 +304,16 @@ async def admin_import_products(
     errors: list[CSVImportError] = []
 
     for row_num, row in enumerate(reader, start=2):  # Row 1 is headers
+        # Cap the number of data rows to bound DB round-trips per upload.
+        if row_num - 1 > MAX_CSV_ROWS:
+            errors.append(
+                CSVImportError(
+                    row=row_num,
+                    message=f"row limit exceeded (max {MAX_CSV_ROWS}); remaining rows skipped",
+                )
+            )
+            break
+
         # Validate required fields have values
         row_errors: list[str] = []
 
@@ -315,8 +325,12 @@ async def admin_import_products(
 
         if not product_id:
             row_errors.append("id is required")
+        elif not re.match(PRODUCT_ID_PATTERN, product_id):
+            row_errors.append("id must be a lowercase slug (letters, digits, hyphens)")
         if not name_en:
             row_errors.append("name_en is required")
+        elif len(name_en) > MAX_NAME_LENGTH:
+            row_errors.append(f"name_en exceeds maximum length ({MAX_NAME_LENGTH})")
 
         price_cents: int | None = None
         if not price_str:
@@ -357,7 +371,7 @@ async def admin_import_products(
             except ValueError:
                 row_errors.append("weight_grams must be an integer")
 
-        # Validate days_to_craft if provided (int, non-negative)
+        # Validate days_to_craft if provided (int, 0..MAX_DAYS_TO_CRAFT)
         days_to_craft: int | None = None
         days_str = (row.get("days_to_craft") or "").strip()
         if days_str:
@@ -365,6 +379,8 @@ async def admin_import_products(
                 days_to_craft = int(days_str)
                 if days_to_craft < 0:
                     row_errors.append("days_to_craft must be non-negative")
+                elif days_to_craft > MAX_DAYS_TO_CRAFT:
+                    row_errors.append(f"days_to_craft exceeds maximum ({MAX_DAYS_TO_CRAFT})")
             except ValueError:
                 row_errors.append("days_to_craft must be an integer")
 
@@ -384,6 +400,20 @@ async def admin_import_products(
                 is_featured = _parse_csv_bool(is_featured_str)
             except ValueError as e:
                 row_errors.append(f"is_featured {e}")
+
+        # Validate optional string-field lengths (the CSV path bypasses Pydantic,
+        # so mirror the model max_length bounds here).
+        for column, max_length in (
+            ("name_bg", MAX_NAME_LENGTH),
+            ("description_en", MAX_DESCRIPTION_LENGTH),
+            ("description", MAX_DESCRIPTION_LENGTH),
+            ("description_bg", MAX_DESCRIPTION_LENGTH),
+            ("materials", MAX_MATERIALS_LENGTH),
+            ("category", MAX_CATEGORY_LENGTH),
+            ("image_url", MAX_IMAGE_URL_LENGTH),
+        ):
+            if len((row.get(column) or "").strip()) > max_length:
+                row_errors.append(f"{column} exceeds maximum length ({max_length})")
 
         if row_errors:
             errors.append(CSVImportError(row=row_num, message="; ".join(row_errors)))

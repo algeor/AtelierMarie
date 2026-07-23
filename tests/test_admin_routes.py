@@ -400,6 +400,106 @@ class TestAdminCSVImport:
         assert 3 in error_rows  # maybe bool
         assert 4 in error_rows  # zero weight (< 1)
 
+    @pytest.mark.asyncio
+    async def test_import_days_to_craft_over_max_rejected(self, admin_client):
+        """CSV days_to_craft bypasses Pydantic but must still honor le=365."""
+        csv_content = (
+            "id,name_en,price_cents,stock,days_to_craft\n"
+            "too-slow,Too Slow,2000,5,99999\n"
+            "negative-days,Negative,2000,5,-1\n"
+            "not-int,Not Int,2000,5,abc\n"
+            "ok-days,OK Days,2000,5,30\n"
+        )
+        response = await admin_client.post(
+            "/v1/admin/products/import",
+            files={"file": ("products.csv", csv_content, "text/csv")},
+        )
+        body = response.json()
+        assert body["created"] == 1
+        error_rows = [e["row"] for e in body["errors"]]
+        assert 2 in error_rows  # > 365
+        assert 3 in error_rows  # negative
+        assert 4 in error_rows  # non-int
+
+    @pytest.mark.asyncio
+    async def test_import_materials_too_long_rejected(self, admin_client):
+        """CSV materials must honor the model's max_length=1000."""
+        long_materials = "x" * 1001
+        csv_content = (
+            f"id,name_en,price_cents,materials\nlong-mat,Long Materials,2000,{long_materials}\n"
+        )
+        response = await admin_client.post(
+            "/v1/admin/products/import",
+            files={"file": ("products.csv", csv_content, "text/csv")},
+        )
+        body = response.json()
+        assert body["created"] == 0
+        assert len(body["errors"]) == 1
+        assert "materials" in body["errors"][0]["message"]
+
+    @pytest.mark.asyncio
+    async def test_import_invalid_id_slug_rejected(self, admin_client):
+        """CSV product id must match the slug pattern the API enforces."""
+        csv_content = "id,name_en,price_cents\nBad ID!,Bad Slug,2000\ngood-slug-1,Good Slug,2000\n"
+        response = await admin_client.post(
+            "/v1/admin/products/import",
+            files={"file": ("products.csv", csv_content, "text/csv")},
+        )
+        body = response.json()
+        assert body["created"] == 1  # only the good slug
+        assert 2 in [e["row"] for e in body["errors"]]
+
+    @pytest.mark.asyncio
+    async def test_import_weight_overwrites_existing(self, admin_client):
+        """A CSV weight_grams column overwrites an existing product's weight."""
+        await admin_client.post(
+            "/v1/admin/products",
+            json={
+                "id": "overwrite-weight",
+                "name_en": "Overwrite",
+                "price_cents": 2000,
+                "stock": 5,
+                "weight_grams": 700,
+            },
+        )
+        csv_content = "id,name_en,price_cents,weight_grams\noverwrite-weight,Overwrite,2000,250\n"
+        response = await admin_client.post(
+            "/v1/admin/products/import",
+            files={"file": ("products.csv", csv_content, "text/csv")},
+        )
+        assert response.json()["updated"] == 1
+        detail = await admin_client.get("/v1/admin/products/overwrite-weight")
+        assert detail.json()["weight_grams"] == 250
+
+    @pytest.mark.asyncio
+    async def test_import_bool_case_insensitive_variants(self, admin_client):
+        """is_active/is_featured accept true/false/1/0/yes/no case-insensitively."""
+        csv_content = (
+            "id,name_en,price_cents,is_active,is_featured\n"
+            "b-upper,Upper,2000,TRUE,NO\n"
+            "b-numeric,Numeric,2000,0,1\n"
+        )
+        response = await admin_client.post(
+            "/v1/admin/products/import",
+            files={"file": ("products.csv", csv_content, "text/csv")},
+        )
+        assert response.json()["created"] == 2
+        upper = (await admin_client.get("/v1/admin/products/b-upper")).json()
+        assert upper["is_active"] is True and upper["is_featured"] is False
+        numeric = (await admin_client.get("/v1/admin/products/b-numeric")).json()
+        assert numeric["is_active"] is False and numeric["is_featured"] is True
+
+    @pytest.mark.asyncio
+    async def test_import_csv_created_inactive_hidden_from_public(self, client, admin_client):
+        """A CSV-created inactive product is not visible via the public endpoint."""
+        csv_content = "id,name_en,price_cents,is_active\nhidden-candle,Hidden,2000,false\n"
+        await admin_client.post(
+            "/v1/admin/products/import",
+            files={"file": ("products.csv", csv_content, "text/csv")},
+        )
+        public = await client.get("/v1/products/hidden-candle")
+        assert public.status_code == 404
+
 
 class TestAdminLowStockProducts:
     """Tests for GET /v1/admin/products/low-stock."""

@@ -89,6 +89,18 @@ class TestProductModels:
         req = UpdateProductRequest(stock=3)
         assert req.weight_grams is None
 
+    def test_create_product_weight_boundary_min(self):
+        req = CreateProductRequest(
+            id="min-weight", name_en="Min", price_cents=1000, stock=1, weight_grams=1
+        )
+        assert req.weight_grams == 1
+
+    def test_create_product_weight_boundary_max(self):
+        req = CreateProductRequest(
+            id="max-weight", name_en="Max", price_cents=1000, stock=1, weight_grams=100_000
+        )
+        assert req.weight_grams == 100_000
+
     def test_create_product_invalid_price_zero(self):
         with pytest.raises(ValidationError):
             CreateProductRequest(id="bad-candle", name_en="Bad", price_cents=0, stock=5)

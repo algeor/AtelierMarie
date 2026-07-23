@@ -506,9 +506,9 @@ describe("Admin Product Form Validation", () => {
     const priceInput = screen.getByLabelText("Price (EUR)");
     fireEvent.change(priceInput, { target: { value: "25.00" } });
     fireEvent.blur(priceInput);
-    fireEvent.change(screen.getByLabelText("Weight (grams)"), {
-      target: { value: "620" },
-    });
+    const weightInput = screen.getByLabelText("Weight (grams)");
+    fireEvent.change(weightInput, { target: { value: "620" } });
+    fireEvent.blur(weightInput);
     fireEvent.click(screen.getByLabelText("Active (visible in the store)"));
 
     fireEvent.click(screen.getByRole("button", { name: "Create Product" }));
@@ -516,8 +516,105 @@ describe("Admin Product Form Validation", () => {
     await waitFor(() => {
       expect(mockedCreateProduct).toHaveBeenCalled();
     });
-    const payload = mockedCreateProduct.mock.calls[0][0];
-    expect(payload.weight_grams).toBe(620);
-    expect(payload.is_active).toBe(false);
+    const payload = mockedCreateProduct.mock.calls.at(0)?.[0];
+    expect(payload?.weight_grams).toBe(620);
+    expect(payload?.is_active).toBe(false);
+  });
+
+  it("clamps weight to the [1, 100000] range on blur", async () => {
+    const { AdminProvider } = await import("@/contexts/AdminContext");
+    const { AdminGuard } = await import("@/components/admin/AdminGuard");
+    const CreateProductPage = (await import("@/app/[locale]/admin/products/new/page")).default;
+
+    renderWithIntl(
+      <AdminProvider>
+        <AdminGuard>
+          <CreateProductPage />
+        </AdminGuard>
+      </AdminProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Create Product", { selector: "h1" })).toBeInTheDocument();
+    });
+
+    const weightInput = screen.getByLabelText("Weight (grams)") as HTMLInputElement;
+    // Over the max → clamps down to 100000
+    fireEvent.change(weightInput, { target: { value: "9999999" } });
+    fireEvent.blur(weightInput);
+    expect(weightInput.value).toBe("100000");
+    // Decimal → floored; below min handled by falling back, so use a valid decimal
+    fireEvent.change(weightInput, { target: { value: "2.9" } });
+    fireEvent.blur(weightInput);
+    expect(weightInput.value).toBe("2");
+  });
+
+  it("submits default is_active=true when the toggle is left untouched", async () => {
+    mockedCreateProduct.mockResolvedValue(MOCK_PRODUCT);
+
+    const { AdminProvider } = await import("@/contexts/AdminContext");
+    const { AdminGuard } = await import("@/components/admin/AdminGuard");
+    const CreateProductPage = (await import("@/app/[locale]/admin/products/new/page")).default;
+
+    renderWithIntl(
+      <AdminProvider>
+        <AdminGuard>
+          <CreateProductPage />
+        </AdminGuard>
+      </AdminProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Create Product", { selector: "h1" })).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Product ID (slug)"), {
+      target: { value: "default-active" },
+    });
+    fireEvent.change(screen.getByLabelText("Name (English)"), {
+      target: { value: "Default Active" },
+    });
+    fireEvent.change(screen.getByLabelText("Category"), { target: { value: "Floral" } });
+    const priceInput = screen.getByLabelText("Price (EUR)");
+    fireEvent.change(priceInput, { target: { value: "25.00" } });
+    fireEvent.blur(priceInput);
+
+    fireEvent.click(screen.getByRole("button", { name: "Create Product" }));
+
+    await waitFor(() => {
+      expect(mockedCreateProduct).toHaveBeenCalled();
+    });
+    const payload = mockedCreateProduct.mock.calls.at(0)?.[0];
+    expect(payload?.is_active).toBe(true);
+    expect(payload?.weight_grams).toBe(300);
+  });
+
+  it("pre-fills weight and active state when editing", async () => {
+    mockedGetAdminProduct.mockResolvedValue({
+      ...MOCK_PRODUCT,
+      weight_grams: 480,
+      is_active: false,
+    });
+
+    const { AdminProvider } = await import("@/contexts/AdminContext");
+    const { AdminGuard } = await import("@/components/admin/AdminGuard");
+    const EditProductPage = (await import("@/app/[locale]/admin/products/[id]/edit/page")).default;
+
+    renderWithIntl(
+      <AdminProvider>
+        <AdminGuard>
+          <EditProductPage />
+        </AdminGuard>
+      </AdminProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("Lavender Dreams")).toBeInTheDocument();
+    });
+
+    expect((screen.getByLabelText("Weight (grams)") as HTMLInputElement).value).toBe("480");
+    expect(
+      (screen.getByLabelText("Active (visible in the store)") as HTMLInputElement).checked
+    ).toBe(false);
   });
 });

@@ -21,3 +21,7 @@ MAX_PRICE_CENTS = 99_999_99  # $99,999.99
 # Note: Spec (input-validation) allows up to 1,000,000. We keep the stricter
 # cap since real inventories for luxury candles never approach 1M units.
 MAX_STOCK = 999_999
+
+# CSV bulk-import limits — bound memory and DB round-trips per upload.
+MAX_CSV_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
+MAX_CSV_ROWS = 10_000

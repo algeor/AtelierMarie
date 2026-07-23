@@ -13,6 +13,15 @@ MAX_STOCK = 99999
 # max real candle. Local to this module, mirroring MAX_STOCK above.
 MAX_WEIGHT_GRAMS = 100_000
 
+# Field bounds shared between the Pydantic models and the CSV import parser
+# (which bypasses Pydantic and must re-apply the same limits manually).
+MAX_NAME_LENGTH = 200
+MAX_MATERIALS_LENGTH = 1000
+MAX_DAYS_TO_CRAFT = 365
+MAX_DESCRIPTION_LENGTH = 5000
+MAX_CATEGORY_LENGTH = 100
+MAX_IMAGE_URL_LENGTH = 500
+
 # Supported locales
 Locale = Literal["en", "bg"]
 
@@ -80,15 +89,15 @@ class CreateProductRequest(BaseModel):
     """Input for creating a new product."""
 
     id: str = Field(..., min_length=1, max_length=100, pattern=PRODUCT_ID_PATTERN)
-    name_en: str = Field(..., min_length=1, max_length=200)
-    name_bg: str | None = Field(default=None, max_length=200)
-    description_en: str | None = Field(default=None, max_length=5000)
-    description_bg: str | None = Field(default=None, max_length=5000)
-    materials: str | None = Field(default=None, max_length=1000)
-    days_to_craft: int | None = Field(default=None, ge=0, le=365)
+    name_en: str = Field(..., min_length=1, max_length=MAX_NAME_LENGTH)
+    name_bg: str | None = Field(default=None, max_length=MAX_NAME_LENGTH)
+    description_en: str | None = Field(default=None, max_length=MAX_DESCRIPTION_LENGTH)
+    description_bg: str | None = Field(default=None, max_length=MAX_DESCRIPTION_LENGTH)
+    materials: str | None = Field(default=None, max_length=MAX_MATERIALS_LENGTH)
+    days_to_craft: int | None = Field(default=None, ge=0, le=MAX_DAYS_TO_CRAFT)
     price_cents: int = Field(..., gt=0, le=99_999_99)
-    category: str | None = Field(default=None, max_length=100)
-    image_url: str | None = Field(default=None, max_length=500)
+    category: str | None = Field(default=None, max_length=MAX_CATEGORY_LENGTH)
+    image_url: str | None = Field(default=None, max_length=MAX_IMAGE_URL_LENGTH)
     stock: int = Field(..., ge=0, le=MAX_STOCK)
     weight_grams: int = Field(default=300, ge=1, le=MAX_WEIGHT_GRAMS)
     is_active: bool = True
@@ -140,15 +149,15 @@ class UpdateProductRequest(BaseModel):
     'client sent null' from 'client did not send this field'.
     """
 
-    name_en: str | None = Field(default=None, min_length=1, max_length=200)
-    name_bg: str | None = Field(default=None, max_length=200)
-    description_en: str | None = Field(default=None, max_length=5000)
-    description_bg: str | None = Field(default=None, max_length=5000)
-    materials: str | None = Field(default=None, max_length=1000)
-    days_to_craft: int | None = Field(default=None, ge=0, le=365)
+    name_en: str | None = Field(default=None, min_length=1, max_length=MAX_NAME_LENGTH)
+    name_bg: str | None = Field(default=None, max_length=MAX_NAME_LENGTH)
+    description_en: str | None = Field(default=None, max_length=MAX_DESCRIPTION_LENGTH)
+    description_bg: str | None = Field(default=None, max_length=MAX_DESCRIPTION_LENGTH)
+    materials: str | None = Field(default=None, max_length=MAX_MATERIALS_LENGTH)
+    days_to_craft: int | None = Field(default=None, ge=0, le=MAX_DAYS_TO_CRAFT)
     price_cents: int | None = Field(default=None, gt=0, le=99_999_99)
-    category: str | None = Field(default=None, max_length=100)
-    image_url: str | None = Field(default=None, max_length=500)
+    category: str | None = Field(default=None, max_length=MAX_CATEGORY_LENGTH)
+    image_url: str | None = Field(default=None, max_length=MAX_IMAGE_URL_LENGTH)
     stock: int | None = Field(default=None, ge=0, le=MAX_STOCK)
     weight_grams: int | None = Field(default=None, ge=1, le=MAX_WEIGHT_GRAMS)
     is_active: bool | None = None

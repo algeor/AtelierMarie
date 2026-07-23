@@ -58,6 +58,12 @@ function generateOrderId(): string {
 // ProductResponse omits it — the admin surface needs it round-tripped.
 type MockProduct = ProductResponse & { weight_grams: number };
 
+/** Strip the internal-only weight_grams so public responses match the real API. */
+function toPublicProduct(product: MockProduct): ProductResponse {
+  const { weight_grams: _weight_grams, ...pub } = product;
+  return pub;
+}
+
 const MOCK_PRODUCTS: MockProduct[] = [
   {
     id: "lavender-dreams-300ml",
@@ -191,7 +197,7 @@ export async function getProducts(
   const start = (page - 1) * limit;
   const slice = active.slice(start, start + limit);
   return {
-    products: slice,
+    products: slice.map(toPublicProduct),
     total: active.length,
     page,
     limit,
@@ -205,7 +211,7 @@ export async function getProduct(
   await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId && p.is_active);
   if (!product) mockError("NOT_FOUND", `Product ${productId} not found`);
-  return product;
+  return toPublicProduct(product);
 }
 
 export async function getCart(): Promise<CartResponse> {

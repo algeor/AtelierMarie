@@ -37,6 +37,9 @@ export interface ProductFormData {
 
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 
+// Mirrors the backend MAX_WEIGHT_GRAMS bound (app/models/products.py).
+const MAX_WEIGHT_GRAMS = 100_000;
+
 /** Convert a EUR string (e.g., "32.50") to cents without floating-point errors. */
 function eurToCents(value: string): number {
   const trimmed = value.trim();
@@ -61,6 +64,12 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
   // Local string state for price input to avoid cursor jumping
   const [priceDisplay, setPriceDisplay] = useState(
     product?.price_cents ? (product.price_cents / 100).toFixed(2) : ""
+  );
+
+  // Local string state for weight so the field can be cleared / edited freely;
+  // normalized and clamped on blur.
+  const [weightDisplay, setWeightDisplay] = useState(
+    String(product?.weight_grams ?? 300)
   );
 
   const [formData, setFormData] = useState<ProductFormData>({
@@ -94,6 +103,9 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
     if (formData.price_cents <= 0) newErrors.price_cents = t("validation.pricePositive");
     if (!formData.category) newErrors.category = t("validation.categoryRequired");
     if (formData.stock < 0) newErrors.stock = t("validation.stockNonNegative");
+    if (formData.weight_grams < 1 || formData.weight_grams > MAX_WEIGHT_GRAMS) {
+      newErrors.weight_grams = t("validation.weightRange");
+    }
     if (formData.image_file) {
       const validType = ["image/jpeg", "image/png"].includes(formData.image_file.type);
       if (!validType) newErrors.image_file = t("validation.imageType");
@@ -278,11 +290,19 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
             label={t("weightGrams")}
             type="number"
             min="1"
+            max={String(MAX_WEIGHT_GRAMS)}
             step="1"
-            value={String(formData.weight_grams)}
-            onChange={(e) =>
-              updateField("weight_grams", Math.max(1, Math.floor(Number(e.target.value) || 1)))
-            }
+            value={weightDisplay}
+            onChange={(e) => setWeightDisplay(e.target.value)}
+            onBlur={(e) => {
+              const parsed = Math.floor(Number(e.target.value));
+              const clamped =
+                Number.isFinite(parsed) && parsed >= 1
+                  ? Math.min(MAX_WEIGHT_GRAMS, parsed)
+                  : formData.weight_grams;
+              updateField("weight_grams", clamped);
+              setWeightDisplay(String(clamped));
+            }}
             error={errors.weight_grams}
           />
           <p className="mt-1.5 text-xs text-soft-brown/70">{t("weightGramsHelp")}</p>

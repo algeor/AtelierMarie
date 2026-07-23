@@ -276,7 +276,7 @@
     "csvColumnDescriptionBg": "Описание на български",
     "editProductSubtitle": "Обновяване на {name}",
     "csvImport": "CSV импорт",
-    "csvImportHelp": "Качете CSV с колони: id, name_en, name_bg, description_en, description_bg, price_cents, stock, category, image_url, weight_grams, is_active",
+    "csvImportHelp": "Качете CSV с колони: id, name_en, name_bg, description_en, description_bg, price_cents, stock, category, image_url, weight_grams, is_active, is_featured, materials, days_to_craft",
     "nameEn": "Име (английски)",
     "nameBg": "Име (български)",
     "descriptionEn": "Описание (английски)",
@@ -312,6 +312,7 @@
       "pricePositive": "Цената трябва да е по-голяма от 0",
       "categoryRequired": "Категорията е задължителна",
       "stockNonNegative": "Наличността не може да бъде отрицателна",
+      "weightRange": "Теглото трябва да е между 1 и 100000 грама",
       "imageType": "Изображението трябва да е JPEG или PNG файл",
       "imageSize": "Изображението трябва да е 5MB или по-малко"
     },
