@@ -450,6 +450,28 @@ class TestAdminCSVImport:
         assert 2 in [e["row"] for e in body["errors"]]
 
     @pytest.mark.asyncio
+    async def test_import_invalid_image_url_skips_without_creating_product(self, admin_client):
+        """CSV image_url validation must happen before the product upsert."""
+        csv_content = (
+            "id,name_en,price_cents,stock,image_url\n"
+            "bad-csv-url,Bad URL,2000,5,ftp://evil.com/image.jpg\n"
+        )
+        response = await admin_client.post(
+            "/v1/admin/products/import",
+            files={"file": ("products.csv", csv_content, "text/csv")},
+        )
+
+        body = response.json()
+        assert body["created"] == 0
+        assert body["updated"] == 0
+        assert len(body["errors"]) == 1
+        assert body["errors"][0]["row"] == 2
+        assert "image_url" in body["errors"][0]["message"]
+
+        detail = await admin_client.get("/v1/admin/products/bad-csv-url")
+        assert detail.status_code == 404
+
+    @pytest.mark.asyncio
     async def test_import_weight_overwrites_existing(self, admin_client):
         """A CSV weight_grams column overwrites an existing product's weight."""
         await admin_client.post(
