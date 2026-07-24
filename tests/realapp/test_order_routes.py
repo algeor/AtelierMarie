@@ -305,6 +305,38 @@ class TestAdminUpdateStatus:
         assert resp.status_code == 422
         assert resp.json()["error"]["code"] == "INVALID_TRANSITION"
 
+    async def test_ship_without_tracking_returns_422(self, admin_order_client):
+        resp = await admin_order_client.post(
+            "/v1/orders", json={"customer_email": "t@t.com", "delivery": DELIVERY_OFFICE_ECONT}
+        )
+        order_id = resp.json()["id"]
+        await admin_order_client.patch(
+            f"/v1/admin/orders/{order_id}/status", json={"status": "confirmed"}
+        )
+        resp = await admin_order_client.patch(
+            f"/v1/admin/orders/{order_id}/status", json={"status": "shipped"}
+        )
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "TRACKING_REQUIRED"
+
+    async def test_ship_with_tracking_autogenerates_url(self, admin_order_client):
+        resp = await admin_order_client.post(
+            "/v1/orders", json={"customer_email": "t@t.com", "delivery": DELIVERY_OFFICE_ECONT}
+        )
+        order_id = resp.json()["id"]
+        await admin_order_client.patch(
+            f"/v1/admin/orders/{order_id}/status", json={"status": "confirmed"}
+        )
+        resp = await admin_order_client.patch(
+            f"/v1/admin/orders/{order_id}/status",
+            json={"status": "shipped", "tracking_number": "77", "tracking_carrier": "econt"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["tracking_number"] == "77"
+        assert data["tracking_carrier"] == "econt"
+        assert data["tracking_url"] == "https://www.econt.com/services/track-shipment/77"
+
 
 # ===========================================================================
 # 7.8: Admin routes return 401/403 for non-admin sessions
@@ -458,3 +490,146 @@ class TestCsrfProtection:
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
         assert resp.status_code == 422
+
+
+# ===========================================================================
+# 8.6: durable outbox — queued rows written in the order transaction; the
+# sweeper's send path reads the DB on its own connection and reaches 'sent'.
+# ===========================================================================
+
+
+class _RecordingProvider:
+    """In-memory provider double for the integration test (no network)."""
+
+    def __init__(self) -> None:
+        self.sent: list[dict] = []
+
+    def send(self, *, to, subject, body, reply_to=None, tags=None) -> str | None:
+        self.sent.append({"to": to, "subject": subject, "tags": tags})
+        return "msg-1"
+
+
+class TestDurableOutboxIntegration:
+    """Checkout + ship queue rows in the order txn; one sweep delivers them."""
+
+    async def test_checkout_queues_placed_and_admin_rows(self, admin_order_client, db_path):
+        resp = await admin_order_client.post(
+            "/v1/orders",
+            json={"customer_email": "buyer@example.com", "delivery": DELIVERY_OFFICE_ECONT},
+        )
+        assert resp.status_code == 201
+        order_id = resp.json()["id"]
+
+        conn = sqlite3.connect(db_path)
+        rows = conn.execute(
+            "SELECT event, status FROM order_emails WHERE order_id = ? ORDER BY event",
+            (order_id,),
+        ).fetchall()
+        conn.close()
+        events = {r[0]: r[1] for r in rows}
+        # Both queued in the same commit as the order (Decision 25).
+        assert events["placed"] == "queued"
+        assert events["admin_new_order"] == "queued"
+
+    async def test_sweeper_delivers_queued_emails(self, admin_order_client, db_path):
+        from app.config import get_settings
+        from app.services.email_service import drain_email_outbox
+
+        resp = await admin_order_client.post(
+            "/v1/orders",
+            json={"customer_email": "buyer@example.com", "delivery": DELIVERY_OFFICE_ECONT},
+        )
+        order_id = resp.json()["id"]
+
+        provider = _RecordingProvider()
+        # Drive one sweeper tick directly (the send path opens its own connection).
+        drain_email_outbox(provider=provider, settings=get_settings())
+
+        # The customer 'placed' email was delivered (admin skipped — no address).
+        assert any(m["to"] == "buyer@example.com" for m in provider.sent)
+        conn = sqlite3.connect(db_path)
+        placed = conn.execute(
+            "SELECT status FROM order_emails WHERE order_id = ? AND event = 'placed'",
+            (order_id,),
+        ).fetchone()[0]
+        conn.close()
+        assert placed == "sent"
+
+    async def test_ship_queues_and_sends_shipped_email(self, admin_order_client, db_path):
+        from app.config import get_settings
+        from app.services.email_service import drain_email_outbox
+
+        resp = await admin_order_client.post(
+            "/v1/orders",
+            json={"customer_email": "buyer@example.com", "delivery": DELIVERY_OFFICE_ECONT},
+        )
+        order_id = resp.json()["id"]
+        await admin_order_client.patch(
+            f"/v1/admin/orders/{order_id}/status", json={"status": "confirmed"}
+        )
+        await admin_order_client.patch(
+            f"/v1/admin/orders/{order_id}/status",
+            json={"status": "shipped", "tracking_number": "77", "tracking_carrier": "econt"},
+        )
+
+        conn = sqlite3.connect(db_path)
+        shipped_status = conn.execute(
+            "SELECT status FROM order_emails WHERE order_id = ? AND event = 'shipped'",
+            (order_id,),
+        ).fetchone()[0]
+        conn.close()
+        assert shipped_status == "queued"
+
+        provider = _RecordingProvider()
+        drain_email_outbox(provider=provider, settings=get_settings())
+        shipped_email = next(m for m in provider.sent if "shipped" in (m["tags"] or []))
+        assert shipped_email["to"] == "buyer@example.com"
+
+    async def test_confirmed_transition_queues_no_email(self, admin_order_client, db_path):
+        resp = await admin_order_client.post(
+            "/v1/orders",
+            json={"customer_email": "buyer@example.com", "delivery": DELIVERY_OFFICE_ECONT},
+        )
+        order_id = resp.json()["id"]
+        await admin_order_client.patch(
+            f"/v1/admin/orders/{order_id}/status", json={"status": "confirmed"}
+        )
+        conn = sqlite3.connect(db_path)
+        count = conn.execute(
+            "SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND event = 'confirmed'",
+            (order_id,),
+        ).fetchone()[0]
+        conn.close()
+        assert count == 0
+
+
+# ===========================================================================
+# 12.1: GET /v1/admin/orders/{id}/emails — audit trail (admin-gated)
+# ===========================================================================
+
+
+class TestOrderEmailAudit:
+    """Admin can read the order_emails send-attempt log for an order."""
+
+    async def test_audit_lists_queued_rows(self, admin_order_client):
+        resp = await admin_order_client.post(
+            "/v1/orders",
+            json={"customer_email": "buyer@example.com", "delivery": DELIVERY_OFFICE_ECONT},
+        )
+        order_id = resp.json()["id"]
+
+        resp = await admin_order_client.get(f"/v1/admin/orders/{order_id}/emails")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["order_id"] == order_id
+        events = {e["event"]: e["status"] for e in data["emails"]}
+        assert events.get("placed") == "queued"
+        assert events.get("admin_new_order") == "queued"
+
+    async def test_audit_requires_admin(self, order_client):
+        resp = await order_client.get("/v1/admin/orders/some-id/emails")
+        assert resp.status_code == 401
+
+    async def test_audit_unknown_order_404(self, admin_order_client):
+        resp = await admin_order_client.get("/v1/admin/orders/does-not-exist/emails")
+        assert resp.status_code == 404

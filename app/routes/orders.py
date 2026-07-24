@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
+from app.config import get_settings
 from app.database import get_db
 from app.dependencies.session import require_session
 from app.models.orders import (
@@ -71,6 +72,7 @@ def create_order(
                 notes=body.notes,
                 user_id=user_id,
                 locale=locale,
+                admin_notification_email=get_settings().admin_notification_email,
             )
     except EmptyCartError:
         return JSONResponse(

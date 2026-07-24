@@ -4,29 +4,33 @@
 The system SHALL display Instagram and TikTok icon links in the footer that open the Atelier Marie social profiles in new browser tabs.
 
 #### Scenario: Social icons render in footer
-- **WHEN** any page loads
-- **THEN** the footer contains Instagram and TikTok icons (SVG) wrapped in anchor links
+- **WHEN** any localized storefront page loads
+- **THEN** the footer contains Instagram and TikTok icon links
 
-#### Scenario: Instagram link opens in new tab
-- **WHEN** a visitor clicks the Instagram icon
-- **THEN** a new browser tab opens navigating to the configured Instagram URL (`NEXT_PUBLIC_INSTAGRAM_URL`)
+#### Scenario: Instagram link uses confirmed Atelier Marie profile
+- **WHEN** the Instagram icon link renders without an overriding environment value
+- **THEN** its `href` is `https://www.instagram.com/atelier_marie25?igsh=MWQ1YzA4aHF2a3Q4MA==`
 
-#### Scenario: TikTok link opens in new tab
-- **WHEN** a visitor clicks the TikTok icon
-- **THEN** a new browser tab opens navigating to the configured TikTok URL (`NEXT_PUBLIC_TIKTOK_URL`)
+#### Scenario: TikTok link uses confirmed Atelier Marie profile
+- **WHEN** the TikTok icon link renders without an overriding environment value
+- **THEN** its `href` is `https://www.tiktok.com/@ateliermarie25?_r=1&_t=ZN-98H9buODbdu`
 
-#### Scenario: Social links have security attributes
+#### Scenario: Social URLs are configurable
+- **WHEN** `NEXT_PUBLIC_INSTAGRAM_URL` or `NEXT_PUBLIC_TIKTOK_URL` is set
+- **THEN** the corresponding footer link uses the configured public URL instead of the default
+
+#### Scenario: Social links open safely in new tabs
 - **WHEN** the Instagram and TikTok links render
-- **THEN** each anchor element includes `target="_blank"` and `rel="noopener noreferrer"`
+- **THEN** each anchor includes `target="_blank"` and `rel="noopener noreferrer"`
 
 #### Scenario: Social links are accessible
 - **WHEN** a screen reader encounters the Instagram or TikTok icon link
-- **THEN** each link has a descriptive accessible label via `aria-label` ("Follow us on Instagram", "Follow us on TikTok")
+- **THEN** each link has a descriptive accessible label naming the destination
 
-#### Scenario: Social URLs are configurable
-- **WHEN** `NEXT_PUBLIC_INSTAGRAM_URL` and `NEXT_PUBLIC_TIKTOK_URL` are set
-- **THEN** the Instagram and TikTok links use those values as their `href` values
+#### Scenario: Social links support touch and keyboard use
+- **WHEN** a user navigates the footer by touch or keyboard
+- **THEN** each social icon link has at least a 44x44px target and a visible focus state
 
-#### Scenario: Social icons match design system
+#### Scenario: Social icons match the existing footer design
 - **WHEN** the footer renders the social icons
-- **THEN** each icon uses the `text-warm-gray-400` color, transitions to `text-gold-400` on hover, and has a minimum touch target of 44x44px
+- **THEN** the icons use the existing footer color/focus/hover conventions rather than introducing a new visual style

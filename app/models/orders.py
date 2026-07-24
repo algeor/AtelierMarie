@@ -37,6 +37,9 @@ class OrderResponse(BaseModel):
     delivery_method: Literal["office", "door"] | None = None
     delivery_courier: Literal["speedy", "econt"] | None = None
     delivery_details: dict | None = None
+    tracking_number: str | None = None
+    tracking_carrier: str | None = None
+    tracking_url: str | None = None
     notes: str | None = None
     items: list[OrderItemResponse]
     created_at: str
@@ -80,6 +83,33 @@ class CreateOrderRequest(BaseModel):
 
 
 class UpdateOrderStatusRequest(BaseModel):
-    """Input for changing order status."""
+    """Input for changing order status.
+
+    Tracking fields are optional at the schema level and required only when
+    `status == "shipped"` — that conditional check lives in the service layer
+    (see order_service.TrackingRequiredError) so it can use the standard error
+    envelope, not Pydantic's RequestValidationError shape.
+    """
 
     status: OrderStatus = Field(..., description="New order status")
+    tracking_number: str | None = Field(default=None, max_length=100)
+    tracking_carrier: str | None = Field(default=None, max_length=50)
+    tracking_url: str | None = Field(default=None, max_length=500)
+
+
+class OrderEmailAudit(BaseModel):
+    """One row of the order_emails send-attempt audit trail."""
+
+    event: str
+    recipient: str
+    status: str
+    reason: str | None = None
+    attempts: int
+    sent_at: str
+
+
+class OrderEmailAuditResponse(BaseModel):
+    """Audit trail for an order's email send attempts (admin-only)."""
+
+    order_id: str
+    emails: list[OrderEmailAudit]

@@ -2,6 +2,7 @@
 
 import os
 import sqlite3
+import uuid
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -17,7 +18,6 @@ CREATE TABLE IF NOT EXISTS products (
     days_to_craft INTEGER,
     price_cents INTEGER NOT NULL CHECK (price_cents > 0),
     category    TEXT,
-    image_url   TEXT,
     stock       INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
     is_active   INTEGER NOT NULL DEFAULT 1,
     is_featured INTEGER NOT NULL DEFAULT 0,
@@ -26,6 +26,21 @@ CREATE TABLE IF NOT EXISTS products (
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS product_images (
+    id            TEXT PRIMARY KEY,
+    product_id    TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    image_url     TEXT NOT NULL,
+    thumbnail_url TEXT NOT NULL,
+    sort_order    INTEGER NOT NULL DEFAULT 0,
+    is_primary    INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_images_product
+    ON product_images(product_id, sort_order);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_product_images_one_primary
+    ON product_images(product_id) WHERE is_primary = 1;
 
 CREATE TABLE IF NOT EXISTS users (
     id          TEXT PRIMARY KEY,
@@ -73,6 +88,13 @@ CREATE TABLE IF NOT EXISTS orders (
     delivery_method TEXT CHECK (delivery_method IN ('office', 'door')),
     delivery_courier TEXT CHECK (delivery_courier IN ('speedy', 'econt')),
     delivery_details TEXT,  -- JSON blob (DeliveryOffice or DeliveryDoor)
+    -- Shipment tracking (populated on the 'shipped' transition; NULL otherwise).
+    tracking_number  TEXT,
+    tracking_carrier TEXT,
+    tracking_url     TEXT,
+    -- Customer locale snapshotted at checkout (email language is a fact of the
+    -- order, not a session lookup — see email-notifications design Decision 8).
+    locale      TEXT NOT NULL DEFAULT 'en',
     notes       TEXT,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
@@ -81,6 +103,46 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE INDEX IF NOT EXISTS idx_orders_session_id ON orders(session_id);
 CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+
+-- Transactional email outbox + audit trail (email-notifications Decisions 11, 25).
+-- A 'queued' row is written in the same transaction as the order state change
+-- (durable intent); the sweeper drives it to a terminal state.
+CREATE TABLE IF NOT EXISTS order_emails (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id        TEXT NOT NULL REFERENCES orders(id),
+    event           TEXT NOT NULL,  -- placed | shipped | delivered | cancelled | admin_new_order
+    recipient       TEXT NOT NULL,
+    -- queued | sent | failed | failed_permanent
+    --   | skipped_duplicate | skipped_in_flight | skipped_suppressed
+    status          TEXT NOT NULL,
+    reason          TEXT,           -- provider error (failed) or skip detail
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TEXT,           -- backoff gate; NULL = eligible immediately
+    sent_at         TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_emails_order_id ON order_emails(order_id);
+-- DB-level idempotency arbiter: at most one successful send per (order_id, event).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_order_emails_sent_unique
+    ON order_emails(order_id, event) WHERE status = 'sent';
+
+-- One active sender per (order_id, event): the claim the 2 prod workers' sweepers
+-- race on. SQLite's single-writer property makes acquisition atomic for free.
+CREATE TABLE IF NOT EXISTS order_email_send_claims (
+    order_id         TEXT NOT NULL REFERENCES orders(id),
+    event            TEXT NOT NULL,
+    status           TEXT NOT NULL,  -- in_flight | sent | failed
+    lease_expires_at TEXT,
+    updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (order_id, event)
+);
+
+-- Suppressed recipients: hard bounces / complaints (email-deliverability Decision 15).
+CREATE TABLE IF NOT EXISTS suppressed_emails (
+    email        TEXT PRIMARY KEY,
+    reason       TEXT NOT NULL,  -- hard_bounce | soft_bounce | fbl_complaint
+    suppressed_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 -- Order items: snapshot at purchase time.
 -- product_id is intentionally NOT a foreign key — these are immutable records
@@ -222,7 +284,6 @@ CREATE TABLE products_new (
     days_to_craft INTEGER,
     price_cents INTEGER NOT NULL CHECK (price_cents > 0),
     category    TEXT,
-    image_url   TEXT,
     stock       INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
     is_active   INTEGER NOT NULL DEFAULT 1,
     is_featured INTEGER NOT NULL DEFAULT 0,
@@ -231,6 +292,23 @@ CREATE TABLE products_new (
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
+"""
+
+_PRODUCT_IMAGES_TABLE_SQL = """\
+CREATE TABLE IF NOT EXISTS product_images (
+    id            TEXT PRIMARY KEY,
+    product_id    TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    image_url     TEXT NOT NULL,
+    thumbnail_url TEXT NOT NULL,
+    sort_order    INTEGER NOT NULL DEFAULT 0,
+    is_primary    INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_images_product
+    ON product_images(product_id, sort_order);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_product_images_one_primary
+    ON product_images(product_id) WHERE is_primary = 1;
 """
 
 _PRODUCT_COLUMNS = (
@@ -243,7 +321,6 @@ _PRODUCT_COLUMNS = (
     "days_to_craft",
     "price_cents",
     "category",
-    "image_url",
     "stock",
     "is_active",
     "is_featured",
@@ -281,6 +358,7 @@ def init_db(path: str) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
 
     conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
     try:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
@@ -324,12 +402,61 @@ def _add_column_if_missing(
         columns.add(column)
 
 
+def _legacy_product_image_id(product_id: str) -> str:
+    """Return a stable UUID hex for a migrated legacy product image."""
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"atelier-marie/product-image/{product_id}").hex
+
+
+def _legacy_thumbnail_url(image_url: str) -> str:
+    """Derive the old thumbnail URL convention from a legacy image URL."""
+    path = Path(image_url)
+    if path.suffix:
+        return str(path.with_name(f"{path.stem}_thumb{path.suffix}"))
+    return f"{image_url.rstrip('/')}_thumb.webp"
+
+
+def _legacy_product_images_from_products(conn: sqlite3.Connection) -> list[tuple[str, str]]:
+    """Read legacy products.image_url values before the products table is rebuilt."""
+    product_columns = _table_columns(conn, "products")
+    if "image_url" not in product_columns:
+        return []
+
+    rows = conn.execute(
+        """
+        SELECT id, image_url
+        FROM products
+        WHERE image_url IS NOT NULL AND TRIM(image_url) != ''
+        """
+    ).fetchall()
+    return [(row["id"], row["image_url"]) for row in rows]
+
+
+def _seed_product_images_from_legacy_rows(
+    conn: sqlite3.Connection,
+    legacy_images: list[tuple[str, str]],
+) -> None:
+    """Insert legacy image URLs into product_images exactly once."""
+    for product_id, image_url in legacy_images:
+        image_id = _legacy_product_image_id(product_id)
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO product_images (
+                id, product_id, image_url, thumbnail_url, sort_order, is_primary, created_at
+            ) VALUES (?, ?, ?, ?, 0, 1, datetime('now'))
+            """,
+            (image_id, product_id, image_url, _legacy_thumbnail_url(image_url)),
+        )
+
+
 def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
     """Bring pre-bilingual SQLite files up to the current schema."""
     conn.executescript(_PRODUCT_FTS_RESET_SQL)
 
     if _table_exists(conn, "products"):
+        legacy_images = _legacy_product_images_from_products(conn)
         _migrate_products_table(conn)
+        conn.executescript(_PRODUCT_IMAGES_TABLE_SQL)
+        _seed_product_images_from_legacy_rows(conn, legacy_images)
 
     if _table_exists(conn, "sessions"):
         session_columns = _table_columns(conn, "sessions")
@@ -354,6 +481,17 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
         )
         _add_column_if_missing(
             conn, "orders", order_columns, "delivery_details", "delivery_details TEXT"
+        )
+        # Shipment tracking + locale snapshot (email-notifications).
+        _add_column_if_missing(
+            conn, "orders", order_columns, "tracking_number", "tracking_number TEXT"
+        )
+        _add_column_if_missing(
+            conn, "orders", order_columns, "tracking_carrier", "tracking_carrier TEXT"
+        )
+        _add_column_if_missing(conn, "orders", order_columns, "tracking_url", "tracking_url TEXT")
+        _add_column_if_missing(
+            conn, "orders", order_columns, "locale", "locale TEXT NOT NULL DEFAULT 'en'"
         )
 
 
@@ -388,7 +526,6 @@ def _migrate_products_table(conn: sqlite3.Connection) -> None:
         _column_expr(columns, "days_to_craft"),
         price_expr,
         _column_expr(columns, "category"),
-        _column_expr(columns, "image_url"),
         _column_expr(columns, "stock", "0"),
         _column_expr(columns, "is_active", "1"),
         _column_expr(columns, "is_featured", "0"),

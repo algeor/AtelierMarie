@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import { carrierLabel } from "@/lib/tracking";
 import type { OrderStatus } from "@/lib/types";
 
 const STEPS: OrderStatus[] = [
@@ -20,10 +21,19 @@ const STATUS_INDEX: Record<OrderStatus, number> = {
 
 interface StatusTimelineProps {
   currentStatus: OrderStatus;
+  trackingNumber?: string | null;
+  trackingCarrier?: string | null;
+  trackingUrl?: string | null;
 }
 
-export function StatusTimeline({ currentStatus }: StatusTimelineProps) {
+export function StatusTimeline({
+  currentStatus,
+  trackingNumber,
+  trackingCarrier,
+  trackingUrl,
+}: StatusTimelineProps) {
   const t = useTranslations("orders.status");
+  const tTracking = useTranslations("orders");
 
   // For cancelled orders, show simplified timeline
   if (currentStatus === "cancelled") {
@@ -36,16 +46,46 @@ export function StatusTimeline({ currentStatus }: StatusTimelineProps) {
   }
 
   const currentIndex = STATUS_INDEX[currentStatus];
+  const hasTracking = Boolean(trackingNumber);
 
   return (
     <div className="space-y-4">
       {STEPS.map((status, index) => (
-        <TimelineStep
-          key={status}
-          label={t(status)}
-          isCompleted={index <= currentIndex}
-          isCurrent={index === currentIndex}
-        />
+        <div key={status}>
+          <TimelineStep
+            label={t(status)}
+            isCompleted={index <= currentIndex}
+            isCurrent={index === currentIndex}
+          />
+          {status === "shipped" && index <= currentIndex && hasTracking && (
+            <div className="ml-6 mt-2 space-y-1 text-sm text-soft-brown">
+              {trackingCarrier && (
+                <p>
+                  <span className="font-medium text-charcoal">
+                    {tTracking("carrier")}:
+                  </span>{" "}
+                  {carrierLabel(trackingCarrier)}
+                </p>
+              )}
+              <p>
+                <span className="font-medium text-charcoal">
+                  {tTracking("trackingNumber")}:
+                </span>{" "}
+                <span className="font-mono">{trackingNumber}</span>
+              </p>
+              {trackingUrl && (
+                <a
+                  href={trackingUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block text-muted-gold underline underline-offset-2 hover:text-charcoal transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown"
+                >
+                  {tTracking("trackPackage")}
+                </a>
+              )}
+            </div>
+          )}
+        </div>
       ))}
     </div>
   );
