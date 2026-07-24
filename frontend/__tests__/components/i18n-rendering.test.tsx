@@ -106,6 +106,14 @@ describe("Footer translation rendering", () => {
     expect(screen.getByText("Shop")).toBeInTheDocument();
     expect(screen.getByText("About")).toBeInTheDocument();
     expect(screen.getByText("Contact")).toBeInTheDocument();
+    expect(screen.getByLabelText("Follow Atelier Marie on Instagram")).toHaveAttribute(
+      "href",
+      "https://www.instagram.com/atelier_marie25?igsh=MWQ1YzA4aHF2a3Q4MA=="
+    );
+    expect(screen.getByLabelText("Follow Atelier Marie on TikTok")).toHaveAttribute(
+      "href",
+      "https://www.tiktok.com/@ateliermarie25?_r=1&_t=ZN-98H9buODbdu"
+    );
   });
 
   it("renders Bulgarian footer text", () => {

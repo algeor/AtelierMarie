@@ -14,6 +14,8 @@ import type {
   CommentListResponse,
   CommentResponse,
   CommentSort,
+  ContactRequest,
+  ContactResponse,
   Courier,
   CreateOrderRequest,
   CreateProductRequest,
@@ -183,6 +185,15 @@ export async function logout(): Promise<void> {
     return;
   }
   await apiClient.post<void>("/v1/auth/logout");
+}
+
+// --- Contact ---
+
+export async function submitContact(
+  data: ContactRequest
+): Promise<ContactResponse> {
+  if (USE_MOCK) return (await getMock()).submitContact(data);
+  return apiClient.post<ContactResponse>("/v1/contact", data);
 }
 
 // --- Admin ---

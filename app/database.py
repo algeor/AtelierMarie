@@ -144,6 +144,30 @@ CREATE TABLE IF NOT EXISTS suppressed_emails (
     suppressed_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Contact form messages: persisted inquiry + durable owner-notification state.
+CREATE TABLE IF NOT EXISTS contact_messages (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    name                  TEXT NOT NULL,
+    email                 TEXT NOT NULL,
+    message               TEXT NOT NULL,
+    locale                TEXT NOT NULL DEFAULT 'en',
+    ip_address            TEXT,
+    email_status          TEXT NOT NULL DEFAULT 'queued',
+    email_attempts        INTEGER NOT NULL DEFAULT 0,
+    email_next_attempt_at TEXT,
+    email_claimed_until   TEXT,
+    email_sent_at         TEXT,
+    email_error           TEXT,
+    created_at            TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_messages_created_at
+    ON contact_messages(created_at);
+CREATE INDEX IF NOT EXISTS idx_contact_messages_email_status
+    ON contact_messages(email_status, email_next_attempt_at);
+CREATE INDEX IF NOT EXISTS idx_contact_messages_ip_created
+    ON contact_messages(ip_address, created_at);
+
 -- Order items: snapshot at purchase time.
 -- product_id is intentionally NOT a foreign key — these are immutable records
 -- that must survive even if the original product is removed.

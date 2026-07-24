@@ -15,6 +15,21 @@ export interface ErrorResponse {
   error: ErrorDetail;
 }
 
+// --- Contact ---
+
+export interface ContactRequest {
+  name: string;
+  email: string;
+  message: string;
+  locale: "en" | "bg";
+  website?: string;
+}
+
+export interface ContactResponse {
+  status: "received";
+  message_id: number | null;
+}
+
 // --- Products ---
 
 export interface ProductImage {

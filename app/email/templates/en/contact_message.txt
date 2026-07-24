@@ -1,0 +1,13 @@
+New contact message from {{ submitter_name }}
+
+A visitor sent a message through the Atelier Marie contact form.
+
+Name: {{ submitter_name }}
+Email: {{ submitter_email }}
+Submitted: {{ created_at }}
+Message ID: {{ message_id }}
+
+Message:
+{{ message }}
+
+Reply directly to this email to reach {{ submitter_name }}.
