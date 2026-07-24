@@ -216,6 +216,17 @@ _OPTIONAL_CSV_HEADERS = {
 }
 
 
+def _parse_csv_image_url(value: str) -> str | None:
+    """Validate a CSV image URL before any product write happens."""
+    stripped = value.strip()
+    if not stripped:
+        return None
+    if not stripped.startswith(("http://", "https://", "/")):
+        msg = "image_url must be http(s) or an absolute relative path"
+        raise ValueError(msg)
+    return stripped
+
+
 @router.post(
     "/products/import",
     response_model=CSVImportResponse,
@@ -326,6 +337,13 @@ async def admin_import_products(
             except ValueError:
                 row_errors.append("stock must be an integer")
 
+        imported_image_url: str | None = None
+        if "image_url" in headers and row.get("image_url"):
+            try:
+                imported_image_url = _parse_csv_image_url(row["image_url"])
+            except ValueError as e:
+                row_errors.append(str(e))
+
         if row_errors:
             errors.append(CSVImportError(row=row_num, message="; ".join(row_errors)))
             continue
@@ -354,9 +372,6 @@ async def admin_import_products(
             data["category"] = row["category"].strip()
         if stock is not None:
             data["stock"] = stock
-        imported_image_url = ""
-        if "image_url" in headers and row.get("image_url"):
-            imported_image_url = row["image_url"].strip()
 
         # Check if product exists to track created vs updated
         try:

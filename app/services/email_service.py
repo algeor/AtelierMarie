@@ -335,9 +335,11 @@ def _process_outbox_row(
 
         if not _try_acquire_claim(conn, order_id, event):
             claim = _claim_status(conn, order_id, event)
-            skip = "skipped_duplicate" if claim == "sent" else "skipped_in_flight"
-            _update_row(conn, row_id, skip, reason=f"claim held: {claim}")
-            log.info("email_skipped_claim", claim_status=claim)
+            if claim == "sent":
+                _update_row(conn, row_id, "skipped_duplicate", reason="already sent")
+                log.info("email_skipped_duplicate")
+            else:
+                log.info("email_claim_in_flight", claim_status=claim)
             return
 
         locale = order["locale"]

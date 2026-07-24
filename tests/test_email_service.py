@@ -192,6 +192,32 @@ class TestIdempotency:
             ).fetchone()[0]
         assert sent == 1
 
+    def test_live_claim_leaves_outbox_row_retryable(self, db):
+        with get_db() as conn:
+            order_id = _make_order(conn)
+            queue_order_email(conn, order_id, "placed", "buyer@example.com")
+            conn.execute(
+                """
+                INSERT INTO order_email_send_claims (
+                    order_id, event, status, lease_expires_at, updated_at
+                ) VALUES (?, 'placed', 'in_flight', datetime('now', '+5 minutes'), datetime('now'))
+                """,
+                (order_id,),
+            )
+
+        provider = RecordingProvider()
+        processed = drain_email_outbox(provider=provider, settings=_settings())
+
+        assert processed == 1
+        assert provider.call_count == 0
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT status, reason FROM order_emails WHERE order_id = ? AND event = 'placed'",
+                (order_id,),
+            ).fetchone()
+        assert row["status"] == "queued"
+        assert row["reason"] is None
+
     def test_distinct_events_each_send(self, db):
         with get_db() as conn:
             order_id = _make_order(conn, tracking_carrier="speedy", tracking_number="77")
