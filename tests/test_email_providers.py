@@ -51,11 +51,19 @@ class TestConsoleProvider:
     def test_redacts_in_production(self):
         provider = ConsoleProvider(_settings(environment="production"))
         with structlog.testing.capture_logs() as logs:
-            provider.send(to="buyer@example.com", subject="Hi", body="secret body")
+            provider.send(
+                to="buyer@example.com",
+                subject="Hi",
+                body="secret body",
+                reply_to="visitor@example.com",
+            )
         entry = next(e for e in logs if e["event"] == "email_console_send")
         assert entry["to"] != "buyer@example.com"
         assert "buyer" not in entry["to"]
         assert "example.com" in entry["to"]  # domain kept
+        assert entry["reply_to"] != "visitor@example.com"
+        assert "visitor" not in entry["reply_to"]
+        assert "example.com" in entry["reply_to"]
         assert "body" not in entry  # body omitted in production
 
 

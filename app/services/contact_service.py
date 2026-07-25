@@ -27,6 +27,7 @@ CONTACT_EMAIL_EVENT = "contact_message"
 CONTACT_RATE_LIMIT_PER_HOUR = 5
 MAX_CONTACT_EMAIL_ATTEMPTS = 5
 CONTACT_CLAIM_LEASE_SECONDS = 300
+CONTACT_MESSAGE_RETENTION_DAYS = 365
 _BACKOFF_BASE_SECONDS = 30
 _SWEEP_BATCH_LIMIT = 50
 
@@ -68,17 +69,25 @@ def is_contact_rate_limited(
     limit: int = CONTACT_RATE_LIMIT_PER_HOUR,
 ) -> bool:
     """Return whether this IP has reached the rolling one-hour contact limit."""
-    if not ip_address:
-        return False
-    row = conn.execute(
-        """
-        SELECT COUNT(*) AS count
-        FROM contact_messages
-        WHERE ip_address = ?
-          AND created_at >= datetime('now', '-1 hour')
-        """,
-        (ip_address,),
-    ).fetchone()
+    if ip_address:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM contact_messages
+            WHERE ip_address = ?
+              AND created_at >= datetime('now', '-1 hour')
+            """,
+            (ip_address,),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM contact_messages
+            WHERE ip_address IS NULL
+              AND created_at >= datetime('now', '-1 hour')
+            """
+        ).fetchone()
     return int(row["count"] if row else 0) >= limit
 
 
@@ -95,17 +104,37 @@ def create_contact_message(
     """
     if body.website:
         return None
-    if is_contact_rate_limited(conn, ip_address):
-        raise ContactRateLimitExceededError("Too many requests. Please try again later.")
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if is_contact_rate_limited(conn, ip_address):
+            raise ContactRateLimitExceededError("Too many requests. Please try again later.")
 
-    cursor = conn.execute(
-        """
-        INSERT INTO contact_messages (name, email, message, locale, ip_address, email_status)
-        VALUES (?, ?, ?, ?, ?, 'queued')
-        """,
-        (body.name, str(body.email), body.message, body.locale, ip_address),
-    )
-    return int(cursor.lastrowid)
+        cursor = conn.execute(
+            """
+            INSERT INTO contact_messages (name, email, message, locale, ip_address, email_status)
+            VALUES (?, ?, ?, ?, ?, 'queued')
+            """,
+            (body.name, str(body.email).lower(), body.message, body.locale, ip_address),
+        )
+        message_id = int(cursor.lastrowid)
+        conn.execute("COMMIT")
+        return message_id
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+
+def cleanup_old_contact_messages(retention_days: int = CONTACT_MESSAGE_RETENTION_DAYS) -> int:
+    """Delete contact inquiries older than the configured retention window."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            """
+            DELETE FROM contact_messages
+            WHERE created_at < datetime('now', ?)
+            """,
+            (f"-{retention_days} days",),
+        )
+        return cursor.rowcount
 
 
 def _build_contact_context(row: ContactMessageRow) -> dict:

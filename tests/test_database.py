@@ -135,6 +135,34 @@ class TestDatabaseConstraints:
         rows = db_conn.execute("SELECT COUNT(*) FROM orders").fetchone()
         assert rows[0] == 5
 
+    def test_contact_message_invalid_status_rejected(self, db_conn: sqlite3.Connection):
+        with pytest.raises(sqlite3.IntegrityError):
+            db_conn.execute(
+                """
+                INSERT INTO contact_messages (name, email, message, locale, email_status)
+                VALUES ('Mira', 'mira@example.com', 'Hello', 'en', 'unknown')
+                """
+            )
+
+    def test_contact_message_oversized_name_rejected(self, db_conn: sqlite3.Connection):
+        with pytest.raises(sqlite3.IntegrityError):
+            db_conn.execute(
+                """
+                INSERT INTO contact_messages (name, email, message, locale)
+                VALUES (?, 'mira@example.com', 'Hello', 'en')
+                """,
+                ("x" * 101,),
+            )
+
+    def test_contact_message_invalid_locale_rejected(self, db_conn: sqlite3.Connection):
+        with pytest.raises(sqlite3.IntegrityError):
+            db_conn.execute(
+                """
+                INSERT INTO contact_messages (name, email, message, locale)
+                VALUES ('Mira', 'mira@example.com', 'Hello', 'fr')
+                """
+            )
+
     def test_cart_items_cascade_on_session_delete(self, db_conn: sqlite3.Connection):
         """Deleting a session cascades to its cart items."""
         # Insert a session and a product

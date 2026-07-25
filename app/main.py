@@ -30,7 +30,7 @@ from app.routes import (
     reactions,
     webhooks,
 )
-from app.services.contact_service import drain_contact_message_emails
+from app.services.contact_service import cleanup_old_contact_messages, drain_contact_message_emails
 from app.services.email_service import drain_email_outbox
 
 logger = structlog.get_logger(__name__)
@@ -45,6 +45,14 @@ def drain_all_email_outboxes() -> int:
     return drain_email_outbox() + drain_contact_message_emails()
 
 
+def cleanup_runtime_records() -> int:
+    """Remove expired sessions and aged-out contact inquiries."""
+    settings = get_settings()
+    return cleanup_expired_sessions() + cleanup_old_contact_messages(
+        settings.contact_message_retention_days
+    )
+
+
 async def session_cleanup_loop(
     *,
     interval_seconds: float = SESSION_CLEANUP_INTERVAL_SECONDS,
@@ -53,7 +61,7 @@ async def session_cleanup_loop(
 ) -> None:
     """Periodically remove expired sessions until cancelled."""
     sleep_fn = sleep or asyncio.sleep
-    cleanup_fn = cleanup or cleanup_expired_sessions
+    cleanup_fn = cleanup or cleanup_runtime_records
 
     while True:
         await sleep_fn(interval_seconds)

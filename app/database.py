@@ -147,13 +147,17 @@ CREATE TABLE IF NOT EXISTS suppressed_emails (
 -- Contact form messages: persisted inquiry + durable owner-notification state.
 CREATE TABLE IF NOT EXISTS contact_messages (
     id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-    name                  TEXT NOT NULL,
-    email                 TEXT NOT NULL,
-    message               TEXT NOT NULL,
-    locale                TEXT NOT NULL DEFAULT 'en',
+    name                  TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 100),
+    email                 TEXT NOT NULL CHECK (length(email) BETWEEN 3 AND 254),
+    message               TEXT NOT NULL CHECK (length(message) BETWEEN 1 AND 2000),
+    locale                TEXT NOT NULL DEFAULT 'en' CHECK (locale IN ('en', 'bg')),
     ip_address            TEXT,
-    email_status          TEXT NOT NULL DEFAULT 'queued',
-    email_attempts        INTEGER NOT NULL DEFAULT 0,
+    email_status          TEXT NOT NULL DEFAULT 'queued'
+                          CHECK (email_status IN (
+                              'queued', 'in_flight', 'sent', 'failed',
+                              'failed_permanent', 'skipped_suppressed'
+                          )),
+    email_attempts        INTEGER NOT NULL DEFAULT 0 CHECK (email_attempts >= 0),
     email_next_attempt_at TEXT,
     email_claimed_until   TEXT,
     email_sent_at         TEXT,
