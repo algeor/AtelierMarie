@@ -17,7 +17,9 @@ export default function CreateProductPage() {
       materials: data.materials || null,
       days_to_craft: data.days_to_craft,
       price_cents: data.price_cents,
-      category: data.category,
+      product_type: data.product_type,
+      category: data.category || null,
+      labels: data.labels,
       stock: data.stock,
       is_featured: data.is_featured,
     });

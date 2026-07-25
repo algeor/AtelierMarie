@@ -7,6 +7,8 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
+from app.utils.slugify import slugify, unique_slug
+
 _SCHEMA_SQL = """\
 CREATE TABLE IF NOT EXISTS products (
     id          TEXT PRIMARY KEY,
@@ -17,7 +19,12 @@ CREATE TABLE IF NOT EXISTS products (
     materials   TEXT,
     days_to_craft INTEGER,
     price_cents INTEGER NOT NULL CHECK (price_cents > 0),
+    -- Legacy free-text category. Superseded by managed taxonomy (product_type_slug,
+    -- category_slug, product_label_assignments). Kept for migration compatibility.
     category    TEXT,
+    -- Managed taxonomy references (dynamic-categories). Slugs, not display names.
+    product_type_slug TEXT NOT NULL DEFAULT 'candles',
+    category_slug     TEXT,
     stock       INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
     is_active   INTEGER NOT NULL DEFAULT 1,
     is_featured INTEGER NOT NULL DEFAULT 0,
@@ -25,6 +32,66 @@ CREATE TABLE IF NOT EXISTS products (
     translation_stale_en INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Managed product taxonomy (dynamic-categories). Three independent facets:
+-- product type (candles/boxes), category/tier (small/medium/premium), and
+-- multi-select labels (winter/gift/floral/...). Slugs are immutable keys;
+-- name_en/name_bg are display data. is_active hides a term from new-assignment
+-- controls and public filters without deleting referencing products.
+CREATE TABLE IF NOT EXISTS product_types (
+    slug        TEXT PRIMARY KEY,
+    name_en     TEXT NOT NULL,
+    name_bg     TEXT,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    is_active   INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS product_categories (
+    slug        TEXT PRIMARY KEY,
+    name_en     TEXT NOT NULL,
+    name_bg     TEXT,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    is_active   INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS product_labels (
+    slug        TEXT PRIMARY KEY,
+    name_en     TEXT NOT NULL,
+    name_bg     TEXT,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    is_active   INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS product_label_assignments (
+    product_id  TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    label_slug  TEXT NOT NULL,
+    PRIMARY KEY (product_id, label_slug)
+);
+
+CREATE INDEX IF NOT EXISTS idx_label_assignments_label
+    ON product_label_assignments(label_slug);
+CREATE INDEX IF NOT EXISTS idx_products_type_slug ON products(product_type_slug);
+CREATE INDEX IF NOT EXISTS idx_products_category_slug ON products(category_slug);
+
+-- Lightweight migration marker table (dynamic-categories). A row per applied
+-- one-shot data migration makes marker-guarded backfills idempotent.
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    name        TEXT PRIMARY KEY,
+    applied_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Records how each distinct legacy products.category value maps to a label slug,
+-- so the exact original-value-to-label assignment is auditable and repeatable.
+CREATE TABLE IF NOT EXISTS taxonomy_category_migration (
+    original_value TEXT PRIMARY KEY,
+    label_slug     TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS product_images (
@@ -312,6 +379,8 @@ CREATE TABLE products_new (
     days_to_craft INTEGER,
     price_cents INTEGER NOT NULL CHECK (price_cents > 0),
     category    TEXT,
+    product_type_slug TEXT NOT NULL DEFAULT 'candles',
+    category_slug     TEXT,
     stock       INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
     is_active   INTEGER NOT NULL DEFAULT 1,
     is_featured INTEGER NOT NULL DEFAULT 0,
@@ -349,6 +418,8 @@ _PRODUCT_COLUMNS = (
     "days_to_craft",
     "price_cents",
     "category",
+    "product_type_slug",
+    "category_slug",
     "stock",
     "is_active",
     "is_featured",
@@ -392,6 +463,7 @@ def init_db(path: str) -> None:
         conn.execute("PRAGMA foreign_keys=ON")
         _migrate_existing_schema(conn)
         conn.executescript(_SCHEMA_SQL)
+        _migrate_taxonomy(conn)
         _rebuild_product_fts(conn)
         conn.commit()
     finally:
@@ -554,6 +626,8 @@ def _migrate_products_table(conn: sqlite3.Connection) -> None:
         _column_expr(columns, "days_to_craft"),
         price_expr,
         _column_expr(columns, "category"),
+        _column_expr(columns, "product_type_slug", "'candles'"),
+        _column_expr(columns, "category_slug"),
         _column_expr(columns, "stock", "0"),
         _column_expr(columns, "is_active", "1"),
         _column_expr(columns, "is_featured", "0"),
@@ -583,6 +657,132 @@ def _rebuild_product_fts(conn: sqlite3.Connection) -> None:
         return
     conn.execute("INSERT INTO products_fts_en(products_fts_en) VALUES ('rebuild')")
     conn.execute("INSERT INTO products_fts_bg(products_fts_bg) VALUES ('rebuild')")
+
+
+# ---------------------------------------------------------------------------
+# Managed product taxonomy migration (dynamic-categories)
+# ---------------------------------------------------------------------------
+
+# Starter taxonomy so a fresh shop is usable. These are startup seed data only —
+# they do NOT replace admin management and must not be duplicated as frontend
+# constants. Each entry: (slug, name_en, name_bg, sort_order).
+_SEED_PRODUCT_TYPES = [
+    ("candles", "Candles", "Свещи", 0),
+    ("boxes", "Boxes", "Кутии", 1),
+]
+_SEED_CATEGORIES = [
+    ("small", "Small", "Малка", 0),
+    ("medium", "Medium", "Средна", 1),
+    ("premium", "Premium", "Премиум", 2),
+]
+_SEED_LABELS = [
+    ("floral", "Floral", "Флорални", 0),
+    ("woody", "Woody", "Дървесни", 1),
+    ("fresh", "Fresh", "Свежи", 2),
+    ("gourmand", "Gourmand", "Гурме", 3),
+    ("spicy", "Spicy", "Пикантни", 4),
+    ("citrus", "Citrus", "Цитрусови", 5),
+    ("winter", "Winter", "Зима", 6),
+    ("gift", "Gift", "Подарък", 7),
+    ("christmas", "Christmas", "Коледа", 8),
+]
+
+_TAXONOMY_MIGRATION_MARKER = "product_taxonomy_v1"
+
+
+def _seed_taxonomy_table(
+    conn: sqlite3.Connection,
+    table: str,
+    rows: list[tuple[str, str, str | None, int]],
+) -> None:
+    """Insert seed terms if absent. Idempotent (INSERT OR IGNORE by slug)."""
+    conn.executemany(
+        f"INSERT OR IGNORE INTO {table} "  # noqa: S608 — table is a module constant
+        "(slug, name_en, name_bg, sort_order) VALUES (?, ?, ?, ?)",
+        rows,
+    )
+
+
+def _migration_applied(conn: sqlite3.Connection, name: str) -> bool:
+    row = conn.execute("SELECT 1 FROM schema_migrations WHERE name = ?", (name,)).fetchone()
+    return row is not None
+
+
+def _backfill_legacy_categories(conn: sqlite3.Connection) -> None:
+    """Convert distinct legacy products.category values into managed labels.
+
+    Reads each distinct non-null value BEFORE any rewrite, creates or reuses a
+    label slug, records the exact original-value-to-slug mapping, and assigns
+    the label to products holding that exact original value. Distinct values
+    that slugify to the same base get deterministic suffixes.
+    """
+    rows = conn.execute(
+        "SELECT DISTINCT category FROM products "
+        "WHERE category IS NOT NULL AND TRIM(category) != '' "
+        "ORDER BY category"
+    ).fetchall()
+    if not rows:
+        return
+
+    # Existing label slugs — includes seeds inserted earlier this run.
+    existing = {r["slug"] for r in conn.execute("SELECT slug FROM product_labels")}
+    # Slugs claimed by a distinct original value during this backfill; used to
+    # force suffixing when two distinct originals collide on the same base.
+    claimed: set[str] = set()
+    next_sort = 100  # place migrated labels after seed labels
+
+    for row in rows:
+        original = row["category"]
+        base = slugify(original)
+
+        if base in existing and base not in claimed:
+            # Reuse an existing label (seed or prior) for this base.
+            slug = base
+        else:
+            slug = unique_slug(base, existing | claimed)
+            conn.execute(
+                "INSERT INTO product_labels (slug, name_en, name_bg, sort_order) "
+                "VALUES (?, ?, ?, ?)",
+                (slug, original.strip(), None, next_sort),
+            )
+            existing.add(slug)
+            next_sort += 1
+
+        claimed.add(slug)
+        conn.execute(
+            "INSERT OR IGNORE INTO taxonomy_category_migration "
+            "(original_value, label_slug) VALUES (?, ?)",
+            (original, slug),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO product_label_assignments (product_id, label_slug) "
+            "SELECT id, ? FROM products WHERE category = ?",
+            (slug, original),
+        )
+
+
+def _migrate_taxonomy(conn: sqlite3.Connection) -> None:
+    """Seed starter taxonomy and (once) backfill labels from legacy categories."""
+    # Ensure seed terms exist every startup (idempotent).
+    _seed_taxonomy_table(conn, "product_types", _SEED_PRODUCT_TYPES)
+    _seed_taxonomy_table(conn, "product_categories", _SEED_CATEGORIES)
+    _seed_taxonomy_table(conn, "product_labels", _SEED_LABELS)
+
+    # Marker guards the one-shot backfill so re-runs are a no-op even when seed
+    # taxonomy already exists (the marker, not "seeds present", is the gate).
+    if _migration_applied(conn, _TAXONOMY_MIGRATION_MARKER):
+        return
+
+    _backfill_legacy_categories(conn)
+    # Default any product missing a product type to candles; leave category NULL.
+    conn.execute(
+        "UPDATE products SET product_type_slug = 'candles' "
+        "WHERE product_type_slug IS NULL OR product_type_slug = ''"
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)",
+        (_TAXONOMY_MIGRATION_MARKER,),
+    )
 
 
 @contextmanager

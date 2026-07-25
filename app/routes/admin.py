@@ -49,6 +49,7 @@ from app.services.order_service import (
     update_status,
 )
 from app.services.product_service import DuplicateError, NotFoundError
+from app.services.taxonomy_service import TaxonomyValidationError
 
 router = APIRouter(dependencies=[Depends(require_admin)])
 
@@ -77,6 +78,11 @@ async def admin_create_product(body: CreateProductRequest) -> ProductAdminRespon
                     "message": "Product with this ID already exists",
                 }
             },
+        )
+    except TaxonomyValidationError as e:
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "INVALID_TAXONOMY", "message": str(e)}},
         )
 
     return ProductAdminResponse(**product)
@@ -177,6 +183,11 @@ async def admin_update_product(
             status_code=404,
             content={"error": {"code": "NOT_FOUND", "message": "Product not found"}},
         )
+    except TaxonomyValidationError as e:
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "INVALID_TAXONOMY", "message": str(e)}},
+        )
 
     return ProductAdminResponse(**product)
 
@@ -211,6 +222,8 @@ _OPTIONAL_CSV_HEADERS = {
     "description_bg",
     "name_bg",
     "category",
+    "product_type",
+    "labels",
     "stock",
     "image_url",
 }
@@ -370,6 +383,12 @@ async def admin_import_products(
 
         if "category" in headers and row.get("category"):
             data["category"] = row["category"].strip()
+        # Managed taxonomy columns (slugs). Validated against active terms in the
+        # service; unknown/inactive slugs surface as row-level errors below.
+        if "product_type" in headers and row.get("product_type"):
+            data["product_type"] = row["product_type"].strip()
+        if "labels" in headers and row.get("labels"):
+            data["labels"] = [s.strip() for s in row["labels"].split(",") if s.strip()]
         if stock is not None:
             data["stock"] = stock
 

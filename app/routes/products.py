@@ -20,7 +20,11 @@ router = APIRouter()
     "sort order, and pagination. Search uses SQLite FTS5 for relevance-ranked results.",
 )
 async def list_products(
-    category: str | None = Query(default=None, description="Filter by category"),
+    product_type: str | None = Query(default=None, description="Filter by product type slug"),
+    category: str | None = Query(default=None, description="Filter by category/tier slug"),
+    labels: str | None = Query(
+        default=None, description="Comma-separated label slugs (AND semantics)"
+    ),
     q: str | None = Query(default=None, description="Search query (FTS5)"),
     sort: Literal["price_asc", "price_desc", "name", "newest"] | None = Query(
         default=None, description="Sort order"
@@ -30,16 +34,21 @@ async def list_products(
     limit: int = Query(default=20, ge=1, le=100, description="Items per page (max 100)"),
     locale: Locale = Query(default="en", description="Content locale (en or bg)"),
 ) -> ProductListResponse | JSONResponse:
-    """List active products with optional filters, search, sort, and pagination."""
+    """List active products with optional taxonomy filters, search, sort, pagination."""
     # Cap limit at 100 (also enforced by Query constraint but explicit for clarity)
     limit = min(limit, 100)
+
+    # Parse comma-separated label slugs into a list.
+    label_list = [s.strip() for s in labels.split(",") if s.strip()] if labels else None
 
     # If search query is provided, use FTS5 search with SQL-level filtering (B.6)
     if q:
         offset = (page - 1) * limit
         products = product_service.search_products(
             q,
+            product_type=product_type,
             category=category,
+            labels=label_list,
             in_stock=in_stock,
             limit=limit,
             offset=offset,
@@ -69,7 +78,9 @@ async def list_products(
 
     # Standard listing (no search query)
     products, total = product_service.list_products(
+        product_type=product_type,
         category=category,
+        labels=label_list,
         sort=sort,
         in_stock=in_stock,
         page=page,

@@ -64,11 +64,18 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
             <p className="mt-3 text-2xl font-medium text-soft-brown">
               {formatPrice(product.price_cents)}
             </p>
-            {product.category && (
-              <div className="mt-3">
-                <Badge>{product.category}</Badge>
-              </div>
-            )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              {product.product_type_name && <Badge>{product.product_type_name}</Badge>}
+              {product.category_name && <Badge>{product.category_name}</Badge>}
+              {product.labels.map((label) => (
+                <span
+                  key={label.slug}
+                  className="rounded-pill bg-champagne-beige/60 px-3 py-1 text-sm text-soft-brown"
+                >
+                  {label.name}
+                </span>
+              ))}
+            </div>
           </div>
 
           {product.description && (

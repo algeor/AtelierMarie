@@ -13,6 +13,13 @@ MAX_STOCK = 99999
 Locale = Literal["en", "bg"]
 
 
+class ProductLabelRef(BaseModel):
+    """A label assigned to a product: slug for filtering, localized name for display."""
+
+    slug: str
+    name: str
+
+
 class ProductResponse(BaseModel):
     """Public product representation (locale-resolved name/description)."""
 
@@ -22,7 +29,12 @@ class ProductResponse(BaseModel):
     materials: str | None = None
     days_to_craft: int | None = None
     price_cents: int
+    # `category` now carries the managed category/tier slug (was legacy free text).
     category: str | None = None
+    category_name: str | None = None
+    product_type: str = "candles"
+    product_type_name: str = ""
+    labels: list[ProductLabelRef] = Field(default_factory=list)
     images: list["ProductImage"] = Field(default_factory=list)
     primary_image_url: str | None = None
     primary_thumbnail_url: str | None = None
@@ -44,7 +56,10 @@ class ProductAdminResponse(BaseModel):
     materials: str | None = None
     days_to_craft: int | None = None
     price_cents: int
+    # Managed taxonomy slugs for prefilling admin form controls.
     category: str | None = None
+    product_type: str = "candles"
+    labels: list[str] = Field(default_factory=list)
     images: list["ProductImage"] = Field(default_factory=list)
     primary_image_url: str | None = None
     primary_thumbnail_url: str | None = None
@@ -103,6 +118,8 @@ class CreateProductRequest(BaseModel):
     days_to_craft: int | None = Field(default=None, ge=0, le=365)
     price_cents: int = Field(..., gt=0, le=99_999_99)
     category: str | None = Field(default=None, max_length=100)
+    product_type: str = Field(default="candles", min_length=1, max_length=100)
+    labels: list[str] = Field(default_factory=list, max_length=50)
     stock: int = Field(..., ge=0, le=MAX_STOCK)
     is_active: bool = True
     is_featured: bool = False
@@ -147,6 +164,8 @@ class UpdateProductRequest(BaseModel):
     days_to_craft: int | None = Field(default=None, ge=0, le=365)
     price_cents: int | None = Field(default=None, gt=0, le=99_999_99)
     category: str | None = Field(default=None, max_length=100)
+    product_type: str | None = Field(default=None, min_length=1, max_length=100)
+    labels: list[str] | None = Field(default=None, max_length=50)
     stock: int | None = Field(default=None, ge=0, le=MAX_STOCK)
     is_active: bool | None = None
     is_featured: bool | None = None

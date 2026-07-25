@@ -103,7 +103,15 @@
     "craftingTimeDays": "Lovingly handcrafted over {count} {count, plural, one {day} other {days}}",
     "priceLowHigh": "Price: Low to High",
     "priceHighLow": "Price: High to Low",
-    "newest": "Newest"
+    "newest": "Newest",
+    "filters": "Filters",
+    "filterProductType": "Product Type",
+    "filterCategory": "Category",
+    "filterLabels": "Labels",
+    "inStockOnly": "In stock only",
+    "clearAll": "Clear all",
+    "resultsCount": "{count, plural, =0 {No products} one {# product} other {# products}}",
+    "noMatch": "No products match your filters."
   },
   "comments": {
     "title": "Comments",
@@ -346,7 +354,8 @@
       "stockNonNegative": "Stock cannot be negative",
       "imageType": "Image must be a JPEG or PNG file",
       "imageSize": "Image must be 5MB or smaller",
-      "maxImages": "A product can have up to 6 images"
+      "maxImages": "A product can have up to 6 images",
+      "productTypeRequired": "Product type is required"
     },
     "errors": {
       "saveProduct": "Failed to save product",
@@ -368,7 +377,43 @@
       "cancel": "Cancel",
       "confirm": "Mark as shipped",
       "trackingRequired": "Tracking number is required"
-    }
+    },
+    "taxonomy": {
+      "navLabel": "Taxonomy",
+      "title": "Taxonomy",
+      "subtitle": "Manage product types, categories, and labels used across the store.",
+      "productTypes": "Product types",
+      "categories": "Categories",
+      "labels": "Labels",
+      "nameEn": "Name (EN)",
+      "nameBg": "Name (BG)",
+      "add": "Add",
+      "empty": "No terms yet. Add one above.",
+      "loading": "Loading…",
+      "loadError": "Could not load taxonomy.",
+      "saveError": "Could not save changes.",
+      "colName": "Name",
+      "colSlug": "Slug",
+      "colCount": "In use",
+      "colStatus": "Status",
+      "colActions": "Actions",
+      "active": "Active",
+      "inactive": "Retired",
+      "activate": "Activate",
+      "deactivate": "Deactivate",
+      "rename": "Rename",
+      "delete": "Delete",
+      "renameEnPrompt": "New English name:",
+      "renameBgPrompt": "New Bulgarian name (leave blank for none):",
+      "deleteConfirm": "Delete \"{name}\"? This cannot be undone.",
+      "inUse": "\"{name}\" is still used by products. Reassign or deactivate it instead of deleting."
+    },
+    "productType": "Product type",
+    "selectProductType": "Select product type...",
+    "labelsField": "Labels",
+    "labelsHint": "Select all that apply.",
+    "noCategoryOption": "None",
+    "retiredSuffix": "(retired)"
   },
   "locale": {
     "changeLanguage": "Change language",
