@@ -195,7 +195,7 @@ describe("Admin Orders List", () => {
   it("updates order status via dropdown", async () => {
     mockedGetAdminOrders.mockResolvedValue(MOCK_ORDER_LIST);
     mockedUpdateOrderStatus.mockResolvedValue({
-      ...MOCK_ORDERS[0],
+      ...MOCK_ORDERS[0]!,
       status: "confirmed",
     });
 
@@ -217,7 +217,7 @@ describe("Admin Orders List", () => {
 
     // Find the status dropdown for the pending order
     const selects = screen.getAllByRole("combobox");
-    fireEvent.change(selects[0], { target: { value: "confirmed" } });
+    fireEvent.change(selects[0]!, { target: { value: "confirmed" } });
 
     await waitFor(() => {
       expect(mockedUpdateOrderStatus).toHaveBeenCalledWith(
@@ -248,7 +248,7 @@ describe("Admin Orders List", () => {
     });
 
     const selects = screen.getAllByRole("combobox");
-    fireEvent.change(selects[0], { target: { value: "confirmed" } });
+    fireEvent.change(selects[0]!, { target: { value: "confirmed" } });
 
     await waitFor(() => {
       expect(screen.getByText("Failed to update order status")).toBeInTheDocument();
@@ -280,12 +280,12 @@ describe("Admin Orders List", () => {
     const selects = screen.getAllByRole("combobox");
 
     // First select is for "pending" order → valid transitions: confirmed, cancelled
-    const pendingOptions = selects[0].querySelectorAll("option");
+    const pendingOptions = selects[0]!.querySelectorAll("option");
     const pendingValues = Array.from(pendingOptions).map((o) => o.value).filter(Boolean);
     expect(pendingValues).toEqual(["confirmed", "cancelled"]);
 
     // Second select is for "confirmed" order → valid transitions: shipped, cancelled
-    const confirmedOptions = selects[1].querySelectorAll("option");
+    const confirmedOptions = selects[1]!.querySelectorAll("option");
     const confirmedValues = Array.from(confirmedOptions).map((o) => o.value).filter(Boolean);
     expect(confirmedValues).toEqual(["shipped", "cancelled"]);
   });

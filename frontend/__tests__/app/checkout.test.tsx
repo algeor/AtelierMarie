@@ -117,7 +117,7 @@ describe("Checkout Page", () => {
   it("shows 'Email is required' on submit with empty email", async () => {
     renderWithIntl(<CheckoutPage />);
     const submitButtons = screen.getAllByRole("button", { name: /place order/i });
-    fireEvent.click(submitButtons[0]);
+    fireEvent.click(submitButtons[0]!);
     await waitFor(() => {
       expect(screen.getByText("Email is required")).toBeInTheDocument();
     });
@@ -146,7 +146,7 @@ describe("Checkout Page", () => {
     fireEvent.change(emailInput, { target: { value: "test@example.com" } });
 
     const submitButtons = screen.getAllByRole("button", { name: /place order/i });
-    fireEvent.click(submitButtons[0]);
+    fireEvent.click(submitButtons[0]!);
 
     await waitFor(() => {
       expect(mockedCreateOrder).toHaveBeenCalledWith(

@@ -145,12 +145,12 @@ describe("Message file completeness", () => {
 
   it("bg.json has all keys within each namespace", () => {
     for (const [ns, enSection] of Object.entries(enMessages)) {
-      const bgSection = (bgMessages as Record<string, Record<string, string>>)[
+      const bgSection = (bgMessages as unknown as Record<string, Record<string, unknown>>)[
         ns
       ];
       expect(bgSection).toBeDefined();
       for (const key of Object.keys(
-        enSection as Record<string, string>
+        enSection as Record<string, unknown>
       )) {
         expect(bgSection).toHaveProperty(
           key,
