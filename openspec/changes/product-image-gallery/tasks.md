@@ -65,4 +65,4 @@
 ## 10. Verify
 
 - [x] 10.1 `make test-backend`, `make test-frontend`, `make lint`
-- [ ] 10.2 Manual smoke: upload 3 images → reorder → set primary → card shows primary, detail shows gallery → delete primary → next promotes
+- [x] 10.2 Manual smoke: upload 3 images → reorder → set primary → card shows primary, detail shows gallery → delete primary → next promotes
