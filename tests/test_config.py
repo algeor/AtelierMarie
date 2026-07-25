@@ -31,3 +31,16 @@ def test_development_allows_short_admin_api_key():
     """Length check is production-only — dev environments can use any key."""
     settings = Settings(environment="development", admin_api_key="short")
     assert settings.admin_api_key == "short"
+
+
+def test_admin_notification_email_must_be_empty_or_valid_email():
+    Settings(admin_notification_email="")
+    Settings(admin_notification_email="owner@example.com")
+
+    with pytest.raises(ValueError):
+        Settings(admin_notification_email="not-an-email")
+
+
+def test_contact_message_retention_days_must_be_positive():
+    with pytest.raises(ValueError):
+        Settings(contact_message_retention_days=0)

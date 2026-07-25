@@ -22,6 +22,7 @@ from app.routes import (
     auth,
     cart,
     comments,
+    contact,
     delivery,
     locale,
     orders,
@@ -29,6 +30,7 @@ from app.routes import (
     reactions,
     webhooks,
 )
+from app.services.contact_service import cleanup_old_contact_messages, drain_contact_message_emails
 from app.services.email_service import drain_email_outbox
 
 logger = structlog.get_logger(__name__)
@@ -36,6 +38,19 @@ SESSION_CLEANUP_INTERVAL_SECONDS = 3600
 # Poll interval for the email outbox sweeper. ~15s keeps "shipped" mail prompt
 # without hammering the DB (design Decision 25); not 60s.
 EMAIL_OUTBOX_INTERVAL_SECONDS = 15
+
+
+def drain_all_email_outboxes() -> int:
+    """Drain every durable email queue owned by the app."""
+    return drain_email_outbox() + drain_contact_message_emails()
+
+
+def cleanup_runtime_records() -> int:
+    """Remove expired sessions and aged-out contact inquiries."""
+    settings = get_settings()
+    return cleanup_expired_sessions() + cleanup_old_contact_messages(
+        settings.contact_message_retention_days
+    )
 
 
 async def session_cleanup_loop(
@@ -46,7 +61,7 @@ async def session_cleanup_loop(
 ) -> None:
     """Periodically remove expired sessions until cancelled."""
     sleep_fn = sleep or asyncio.sleep
-    cleanup_fn = cleanup or cleanup_expired_sessions
+    cleanup_fn = cleanup or cleanup_runtime_records
 
     while True:
         await sleep_fn(interval_seconds)
@@ -71,7 +86,7 @@ async def email_outbox_loop(
     loop. All exceptions are swallowed/logged so the loop never dies.
     """
     sleep_fn = sleep or asyncio.sleep
-    drain_fn = drain or drain_email_outbox
+    drain_fn = drain or drain_all_email_outboxes
 
     while True:
         await sleep_fn(interval_seconds)
@@ -204,6 +219,7 @@ def create_app() -> FastAPI:
     application.include_router(admin.router, prefix="/v1/admin", tags=["admin"])
     application.include_router(reactions.router, prefix="/v1/products", tags=["reactions"])
     application.include_router(comments.router, prefix="/v1/products", tags=["comments"])
+    application.include_router(contact.router, prefix="/v1/contact", tags=["contact"])
     application.include_router(locale.router, prefix="/v1/locale", tags=["locale"])
     application.include_router(delivery.router, prefix="/v1/delivery", tags=["delivery"])
     application.include_router(webhooks.router, prefix="/v1/webhooks", tags=["webhooks"])

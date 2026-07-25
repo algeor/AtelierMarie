@@ -4,7 +4,7 @@ from functools import lru_cache
 from typing import Literal
 
 import structlog
-from pydantic import EmailStr, SecretStr, model_validator
+from pydantic import EmailStr, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings
 
 from app.constants import (
@@ -44,7 +44,8 @@ class Settings(BaseSettings):
     email_from_address: EmailStr = "orders@theateliermarie.com"  # root-domain alias
     email_from_name: str = "Atelier Marie"
     email_reply_to: EmailStr = "contacts@theateliermarie.com"  # Zoho human mailbox
-    admin_notification_email: str = ""  # empty = admin notifications disabled
+    admin_notification_email: EmailStr | Literal[""] = ""  # empty = admin notifications disabled
+    contact_message_retention_days: int = Field(default=365, ge=1)
     # ZeptoMail webhook signing key (bounce/complaint endpoint — follow-up)
     zeptomail_webhook_auth_key: SecretStr = SecretStr("")
 

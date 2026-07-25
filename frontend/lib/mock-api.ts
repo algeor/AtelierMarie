@@ -14,6 +14,8 @@ import type {
   CommentListResponse,
   CommentResponse,
   CommentSort,
+  ContactRequest,
+  ContactResponse,
   Courier,
   CreateOrderRequest,
   CreateProductRequest,
@@ -216,6 +218,17 @@ export async function getProducts(
     page,
     limit,
   };
+}
+
+export async function submitContact(
+  data: ContactRequest
+): Promise<ContactResponse> {
+  await delay();
+  if (data.website?.trim()) return { status: "received", message_id: null };
+  if (!data.name.trim() || !data.email.trim() || !data.message.trim()) {
+    mockError("VALIDATION_ERROR", "Please check your input and try again");
+  }
+  return { status: "received", message_id: Date.now() };
 }
 
 export async function getProduct(

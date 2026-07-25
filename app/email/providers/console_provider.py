@@ -41,7 +41,7 @@ class ConsoleProvider:
                 "email_console_send",
                 to=redact_recipient(to),
                 subject=subject,
-                reply_to=reply_to,
+                reply_to=redact_recipient(reply_to) if reply_to else None,
                 tags=tags,
             )
         else:
