@@ -73,6 +73,9 @@ describe("Order Confirmation Page", () => {
       items: [
         { product_id: "candle-1", product_name: "Rose Candle", price_cents: 2500, quantity: 2 },
       ],
+      tracking_number: null,
+      tracking_carrier: null,
+      tracking_url: null,
       created_at: "2026-07-01T00:00:00Z",
       updated_at: "2026-07-01T00:00:00Z",
     });
@@ -110,6 +113,9 @@ describe("Order Confirmation Page", () => {
       delivery_details: null,
       notes: null,
       items: [],
+      tracking_number: null,
+      tracking_carrier: null,
+      tracking_url: null,
       created_at: "2026-07-01T00:00:00Z",
       updated_at: "2026-07-01T00:00:00Z",
     });

@@ -234,13 +234,13 @@ export default function AdminProductsPage() {
             <li><code className="text-xs">name_bg</code> - {t("csvColumnNameBg")}</li>
             <li><code className="text-xs">description_en</code> - {t("csvColumnDescriptionEn")}</li>
             <li><code className="text-xs">description_bg</code> - {t("csvColumnDescriptionBg")}</li>
-            <li><code className="text-xs">materials</code>, <code className="text-xs">days_to_craft</code>, <code className="text-xs">image_url</code>, <code className="text-xs">is_featured</code></li>
+            <li><code className="text-xs">materials</code>, <code className="text-xs">days_to_craft</code>, <code className="text-xs">image_url</code>, <code className="text-xs">is_featured</code>, <code className="text-xs">is_active</code>, <code className="text-xs">weight_grams</code></li>
           </ul>
           <p className="mb-2 font-medium text-charcoal">{t("example")}</p>
           <pre className="overflow-x-auto rounded bg-charcoal/5 p-3 text-xs leading-relaxed">
-{`id,name_en,name_bg,description_en,description_bg,price_cents,category,stock
-lavender-dreams-300ml,Lavender Dreams,Лавандулов сън,Hand-poured soy candle,Ръчно излята соева свещ,3200,Floral,24
-midnight-amber-300ml,Midnight Amber,Полунощен кехлибар,Warm amber and sandalwood,Топъл кехлибар и сандалово дърво,4500,Woody,12`}
+{`id,name_en,name_bg,description_en,description_bg,price_cents,category,stock,weight_grams,is_active
+lavender-dreams-300ml,Lavender Dreams,Лавандулов сън,Hand-poured soy candle,Ръчно излята соева свещ,3200,Floral,24,300,true
+midnight-amber-300ml,Midnight Amber,Полунощен кехлибар,Warm amber and sandalwood,Топъл кехлибар и сандалово дърво,4500,Woody,12,450,true`}
           </pre>
           <p className="mt-3 text-xs text-soft-brown/70">
             {t("csvFallbackNote")}

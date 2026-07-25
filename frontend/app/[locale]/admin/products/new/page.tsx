@@ -19,6 +19,8 @@ export default function CreateProductPage() {
       price_cents: data.price_cents,
       category: data.category,
       stock: data.stock,
+      weight_grams: data.weight_grams,
+      is_active: data.is_active,
       is_featured: data.is_featured,
     });
     for (const file of data.image_files) {

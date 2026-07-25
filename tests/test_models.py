@@ -67,6 +67,50 @@ class TestProductModels:
         assert req.is_active is True
         assert req.is_featured is False
 
+    def test_create_product_weight_defaults_to_300(self):
+        req = CreateProductRequest(
+            id="new-candle-200ml", name_en="New Candle", price_cents=2500, stock=10
+        )
+        assert req.weight_grams == 300
+
+    def test_create_product_explicit_weight_persists(self):
+        req = CreateProductRequest(
+            id="heavy-candle", name_en="Heavy", price_cents=2500, stock=5, weight_grams=550
+        )
+        assert req.weight_grams == 550
+
+    def test_create_product_invalid_weight_zero(self):
+        with pytest.raises(ValidationError):
+            CreateProductRequest(
+                id="bad-candle", name_en="Bad", price_cents=1000, stock=5, weight_grams=0
+            )
+
+    def test_create_product_invalid_weight_exceeds_max(self):
+        with pytest.raises(ValidationError):
+            CreateProductRequest(
+                id="bad-candle", name_en="Bad", price_cents=1000, stock=5, weight_grams=100_001
+            )
+
+    def test_update_product_changes_weight(self):
+        req = UpdateProductRequest(weight_grams=420)
+        assert req.weight_grams == 420
+
+    def test_update_product_weight_omitted_is_none(self):
+        req = UpdateProductRequest(stock=3)
+        assert req.weight_grams is None
+
+    def test_create_product_weight_boundary_min(self):
+        req = CreateProductRequest(
+            id="min-weight", name_en="Min", price_cents=1000, stock=1, weight_grams=1
+        )
+        assert req.weight_grams == 1
+
+    def test_create_product_weight_boundary_max(self):
+        req = CreateProductRequest(
+            id="max-weight", name_en="Max", price_cents=1000, stock=1, weight_grams=100_000
+        )
+        assert req.weight_grams == 100_000
+
     def test_create_product_invalid_price_zero(self):
         with pytest.raises(ValidationError):
             CreateProductRequest(id="bad-candle", name_en="Bad", price_cents=0, stock=5)

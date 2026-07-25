@@ -58,6 +58,16 @@ function generateOrderId(): string {
 
 // --- Mock Data ---
 
+// The mock store carries weight_grams internally even though the public
+// ProductResponse omits it — the admin surface needs it round-tripped.
+type MockProduct = ProductResponse & { weight_grams: number };
+
+/** Strip the internal-only weight_grams so public responses match the real API. */
+function toPublicProduct(product: MockProduct): ProductResponse {
+  const { weight_grams: _weight_grams, ...pub } = product;
+  return pub;
+}
+
 function mockProductImage(productId: string, sortOrder = 0, isPrimary = true): ProductImage {
   return {
     id: `${productId}-${sortOrder}`,
@@ -76,7 +86,7 @@ function primaryThumbnailUrl(images: ProductImage[]): string | null {
   return images.find((image) => image.is_primary)?.thumbnail_url ?? null;
 }
 
-const MOCK_PRODUCTS: ProductResponse[] = [
+const MOCK_PRODUCTS: MockProduct[] = [
   {
     id: "lavender-dreams-300ml",
     name: "Lavender Dreams",
@@ -89,6 +99,7 @@ const MOCK_PRODUCTS: ProductResponse[] = [
     primary_image_url: "/static/products/lavender-dreams-300ml.webp",
     primary_thumbnail_url: "/static/products/lavender-dreams-300ml_thumb.webp",
     stock: 24,
+    weight_grams: 300,
     is_active: true,
     is_featured: true,
     created_at: "2024-06-01T10:00:00Z",
@@ -106,6 +117,7 @@ const MOCK_PRODUCTS: ProductResponse[] = [
     primary_image_url: "/static/products/midnight-amber-300ml.webp",
     primary_thumbnail_url: "/static/products/midnight-amber-300ml_thumb.webp",
     stock: 12,
+    weight_grams: 450,
     is_active: true,
     is_featured: true,
     created_at: "2024-06-02T11:00:00Z",
@@ -123,6 +135,7 @@ const MOCK_PRODUCTS: ProductResponse[] = [
     primary_image_url: null,
     primary_thumbnail_url: null,
     stock: 36,
+    weight_grams: 250,
     is_active: true,
     is_featured: false,
     created_at: "2024-06-03T09:00:00Z",
@@ -140,6 +153,7 @@ const MOCK_PRODUCTS: ProductResponse[] = [
     primary_image_url: "/static/products/vanilla-bourbon-300ml.webp",
     primary_thumbnail_url: "/static/products/vanilla-bourbon-300ml_thumb.webp",
     stock: 0,
+    weight_grams: 500,
     is_active: false,
     is_featured: false,
     created_at: "2024-06-04T14:00:00Z",
@@ -213,7 +227,7 @@ export async function getProducts(
   const start = (page - 1) * limit;
   const slice = active.slice(start, start + limit);
   return {
-    products: slice,
+    products: slice.map(toPublicProduct),
     total: active.length,
     page,
     limit,
@@ -238,7 +252,7 @@ export async function getProduct(
   await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId && p.is_active);
   if (!product) mockError("NOT_FOUND", `Product ${productId} not found`);
-  return product;
+  return toPublicProduct(product);
 }
 
 export async function getCart(): Promise<CartResponse> {
@@ -585,7 +599,7 @@ export async function getAdminStats(): Promise<AdminStats> {
 }
 
 /** Convert a public ProductResponse to an AdminProductResponse for mock admin endpoints. */
-function toAdminProduct(product: ProductResponse): AdminProductResponse {
+function toAdminProduct(product: MockProduct): AdminProductResponse {
   return {
     id: product.id,
     name_en: product.name,
@@ -600,6 +614,7 @@ function toAdminProduct(product: ProductResponse): AdminProductResponse {
     primary_image_url: product.primary_image_url,
     primary_thumbnail_url: product.primary_thumbnail_url,
     stock: product.stock,
+    weight_grams: product.weight_grams,
     is_active: product.is_active,
     is_featured: product.is_featured,
     translation_stale_bg: false,
@@ -636,7 +651,7 @@ export async function createProduct(data: CreateProductRequest): Promise<AdminPr
   const existing = MOCK_PRODUCTS.find((p) => p.id === data.id);
   if (existing) mockError("CONFLICT", `Product ${data.id} already exists`);
   const now = new Date().toISOString();
-  const product: ProductResponse = {
+  const product: MockProduct = {
     id: data.id,
     name: data.name_en,
     description: data.description_en ?? null,
@@ -648,7 +663,8 @@ export async function createProduct(data: CreateProductRequest): Promise<AdminPr
     primary_image_url: null,
     primary_thumbnail_url: null,
     stock: data.stock,
-    is_active: true,
+    weight_grams: data.weight_grams ?? 300,
+    is_active: data.is_active ?? true,
     is_featured: data.is_featured ?? false,
     created_at: now,
     updated_at: now,
@@ -672,6 +688,7 @@ export async function updateProduct(
   if (data.price_cents !== undefined) product.price_cents = data.price_cents;
   if (data.category !== undefined) product.category = data.category;
   if (data.stock !== undefined) product.stock = data.stock;
+  if (data.weight_grams !== undefined) product.weight_grams = data.weight_grams;
   if (data.is_active !== undefined) product.is_active = data.is_active;
   if (data.is_featured !== undefined) product.is_featured = data.is_featured;
   product.updated_at = new Date().toISOString();
@@ -777,6 +794,14 @@ export async function getAdminOrders(
     page,
     limit,
   };
+}
+
+export async function getAdminOrder(orderId: string): Promise<OrderResponse> {
+  await delay();
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders];
+  const order = allOrders.find((o) => o.id === orderId);
+  if (!order) mockError("NOT_FOUND", `Order ${orderId} not found`);
+  return order;
 }
 
 export async function updateOrderStatus(
