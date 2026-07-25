@@ -7,7 +7,7 @@ from typing import Literal
 from app.constants import MAX_LIMIT, MAX_PAGE
 from app.database import get_db
 from app.models.common import calculate_offset
-from app.services import product_image_service
+from app.services import pricing, product_image_service
 
 Locale = Literal["en", "bg"]
 
@@ -18,6 +18,38 @@ class NotFoundError(Exception):
 
 class DuplicateError(Exception):
     """Raised when attempting to create a product with an ID that already exists."""
+
+
+class DiscountValidationError(Exception):
+    """Raised when a merged discount update fails validation (route → 422).
+
+    Update discount validation lives here (not in the Pydantic model) because it
+    depends on merging the partial patch with the existing persisted row.
+    """
+
+
+def _validate_merged_discount(
+    percent: int | None, starts_at: str | None, ends_at: str | None
+) -> None:
+    """Validate the merged discount fields for an update (post-merge)."""
+    if percent is None:
+        # Percent cleared — any residual dates are cleared by the caller.
+        return
+    if not (1 <= percent <= 99):
+        raise DiscountValidationError("discount_percent must be between 1 and 99")
+    if starts_at is not None and ends_at is not None and starts_at >= ends_at:
+        raise DiscountValidationError("discount_starts_at must be earlier than discount_ends_at")
+
+
+def _annotate_admin_one(product: dict, now: str | None = None) -> dict:
+    """Add admin discount preview fields (raw config + effective price)."""
+    return pricing.annotate_product_pricing(product, now or pricing.now_utc(), public=False)
+
+
+def _annotate_admin(products: list[dict], now: str | None = None) -> list[dict]:
+    """Admin-annotate a list of products with a single shared `now`."""
+    now = now or pricing.now_utc()
+    return [pricing.annotate_product_pricing(p, now, public=False) for p in products]
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
@@ -106,15 +138,11 @@ def list_products(
 
     where_clause = " AND ".join(conditions)
 
-    # Sort mapping — use locale-appropriate name column for name sort
-    name_col = f"name_{locale}"
-    sort_map = {
-        "price_asc": "price_cents ASC",
-        "price_desc": "price_cents DESC",
-        "name": f"{name_col} ASC",
-        "newest": "created_at DESC",
-    }
-    order_by = sort_map.get(sort or "", "created_at DESC")
+    now = pricing.now_utc()
+    # Price sort must order by the computed effective price, which depends on
+    # `now` and the discount window — it cannot be expressed in SQL. For price
+    # sorts we fetch all matching rows, annotate, sort, then paginate in Python.
+    price_sort = sort in ("price_asc", "price_desc")
 
     offset = (page - 1) * limit
 
@@ -126,13 +154,39 @@ def list_products(
         ).fetchone()
         total = count_row["cnt"]
 
-        # Get page of results
-        rows = conn.execute(
-            f"SELECT * FROM products WHERE {where_clause} ORDER BY {order_by} LIMIT ? OFFSET ?",  # noqa: S608
-            [*params, limit, offset],
-        ).fetchall()
+        if price_sort:
+            rows = conn.execute(
+                f"SELECT * FROM products WHERE {where_clause}",  # noqa: S608
+                params,
+            ).fetchall()
+        else:
+            # Non-price sort — order and paginate in SQL as before.
+            name_col = f"name_{locale}"
+            sort_map = {
+                "name": f"{name_col} ASC",
+                "newest": "created_at DESC",
+            }
+            order_by = sort_map.get(sort or "", "created_at DESC")
+            rows = conn.execute(
+                f"SELECT * FROM products WHERE {where_clause} "  # noqa: S608
+                f"ORDER BY {order_by} LIMIT ? OFFSET ?",
+                [*params, limit, offset],
+            ).fetchall()
 
-    products = [_resolve_locale_fields(_row_to_dict(r), locale) for r in rows]
+    products = [
+        pricing.annotate_product_pricing(
+            _resolve_locale_fields(_row_to_dict(r), locale), now, public=True
+        )
+        for r in rows
+    ]
+
+    if price_sort:
+        products.sort(
+            key=lambda p: p["effective_price_cents"],
+            reverse=(sort == "price_desc"),
+        )
+        products = products[offset : offset + limit]
+
     products = product_image_service.attach_image_fields(products)
     return products, total
 
@@ -151,9 +205,10 @@ def get_product(product_id: str, *, locale: Locale = "en") -> dict:
     if row is None:
         raise NotFoundError(f"Product not found: {product_id}")
 
-    return product_image_service.attach_image_fields_one(
-        _resolve_locale_fields(_row_to_dict(row), locale)
+    product = pricing.annotate_product_pricing(
+        _resolve_locale_fields(_row_to_dict(row), locale), pricing.now_utc(), public=True
     )
+    return product_image_service.attach_image_fields_one(product)
 
 
 def get_product_admin(product_id: str) -> dict:
@@ -167,7 +222,7 @@ def get_product_admin(product_id: str) -> dict:
     if row is None:
         raise NotFoundError(f"Product not found: {product_id}")
 
-    return product_image_service.attach_image_fields_one(_row_to_dict(row))
+    return product_image_service.attach_image_fields_one(_annotate_admin_one(_row_to_dict(row)))
 
 
 def list_products_admin(
@@ -187,7 +242,8 @@ def list_products_admin(
             (limit, offset),
         ).fetchall()
 
-    return product_image_service.attach_image_fields([_row_to_dict(r) for r in rows]), total
+    products = _annotate_admin([_row_to_dict(r) for r in rows])
+    return product_image_service.attach_image_fields(products), total
 
 
 def create_product(data: dict) -> dict:
@@ -205,6 +261,9 @@ def create_product(data: dict) -> dict:
         "days_to_craft",
         "price_cents",
         "category",
+        "discount_percent",
+        "discount_starts_at",
+        "discount_ends_at",
         "stock",
         "is_active",
         "is_featured",
@@ -224,6 +283,9 @@ def create_product(data: dict) -> dict:
         data.get("days_to_craft"),
         data["price_cents"],
         data.get("category"),
+        data.get("discount_percent"),
+        data.get("discount_starts_at"),
+        data.get("discount_ends_at"),
         data.get("stock", 0),
         1 if data.get("is_active", True) else 0,
         1 if data.get("is_featured", False) else 0,
@@ -249,7 +311,7 @@ def create_product(data: dict) -> dict:
 
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
 
-    return product_image_service.attach_image_fields_one(_row_to_dict(row))
+    return product_image_service.attach_image_fields_one(_annotate_admin_one(_row_to_dict(row)))
 
 
 def upsert_product(product_id: str, data: dict) -> dict:
@@ -304,7 +366,7 @@ def upsert_product(product_id: str, data: dict) -> dict:
         conn.execute(sql, insert_vals)
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
 
-    return product_image_service.attach_image_fields_one(_row_to_dict(row))
+    return product_image_service.attach_image_fields_one(_annotate_admin_one(_row_to_dict(row)))
 
 
 def update_product(product_id: str, data: dict) -> dict:
@@ -335,6 +397,50 @@ def update_product(product_id: str, data: dict) -> dict:
     }
 
     updates = {k: v for k, v in field_map.items() if v is not None}
+
+    # Discount fields need explicit NULL writes (to clear a discount), so they
+    # can't go through the "non-None means update" field_map. Merge the patch
+    # with the existing persisted row, then validate the merged result.
+    discount_keys = {"discount_percent", "discount_starts_at", "discount_ends_at"}
+    if discount_keys & data.keys():
+        with get_db() as conn:
+            existing = conn.execute(
+                "SELECT discount_percent, discount_starts_at, discount_ends_at "
+                "FROM products WHERE id = ?",
+                (product_id,),
+            ).fetchone()
+        if existing is None:
+            raise NotFoundError(f"Product not found: {product_id}")
+
+        if "discount_percent" in data and data["discount_percent"] is None:
+            # Clearing the discount clears all three fields together.
+            merged_percent = merged_starts = merged_ends = None
+        else:
+            merged_percent = (
+                data["discount_percent"]
+                if "discount_percent" in data
+                else existing["discount_percent"]
+            )
+            merged_starts = (
+                data["discount_starts_at"]
+                if "discount_starts_at" in data
+                else existing["discount_starts_at"]
+            )
+            merged_ends = (
+                data["discount_ends_at"]
+                if "discount_ends_at" in data
+                else existing["discount_ends_at"]
+            )
+            # A date without a resulting percent is invalid.
+            if merged_percent is None and (merged_starts is not None or merged_ends is not None):
+                raise DiscountValidationError(
+                    "discount_percent is required when a discount date is set"
+                )
+
+        _validate_merged_discount(merged_percent, merged_starts, merged_ends)
+        updates["discount_percent"] = merged_percent
+        updates["discount_starts_at"] = merged_starts
+        updates["discount_ends_at"] = merged_ends
 
     if not updates:
         # Nothing to update, just return the existing product
@@ -373,9 +479,7 @@ def update_product(product_id: str, data: dict) -> dict:
         if cursor.rowcount == 0:
             raise NotFoundError(f"Product not found: {product_id}")
 
-        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
-
-    return product_image_service.attach_image_fields_one(_row_to_dict(row))
+    return get_product_admin(product_id)
 
 
 def deactivate_product(product_id: str) -> dict:
@@ -396,7 +500,7 @@ def deactivate_product(product_id: str) -> dict:
 
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
 
-    return product_image_service.attach_image_fields_one(_row_to_dict(row))
+    return product_image_service.attach_image_fields_one(_annotate_admin_one(_row_to_dict(row)))
 
 
 def search_products(
@@ -407,13 +511,18 @@ def search_products(
     limit: int = 20,
     offset: int = 0,
     locale: Locale = "en",
+    sort: str | None = None,
 ) -> list[dict]:
     """Full-text search on product name and description using FTS5.
 
     Searches the locale-appropriate FTS index (products_fts_en or products_fts_bg).
-    Returns active products ranked by relevance with locale-resolved content.
-    Filters (category, in_stock) and LIMIT/OFFSET are pushed into SQL
-    rather than applied in Python post-fetch.
+    Returns active products ranked by relevance with locale-resolved content and
+    public discount pricing fields. Filters (category, in_stock) and LIMIT/OFFSET
+    are pushed into SQL rather than applied in Python post-fetch.
+
+    When `sort` is an explicit price sort, results are ordered by
+    `effective_price_cents` across ALL matches (not just the current page) before
+    pagination; otherwise FTS5 relevance order is preserved.
     """
     if not query or not query.strip():
         return []
@@ -437,22 +546,50 @@ def search_products(
         conditions.append("p.stock > 0")
 
     where_clause = " AND ".join(conditions)
-    params.extend([limit, offset])
+
+    now = pricing.now_utc()
+    price_sort = sort in ("price_asc", "price_desc")
 
     with get_db() as conn:
-        rows = conn.execute(
-            f"""
-            SELECT p.*
-            FROM {fts_table} fts
-            JOIN products p ON p.rowid = fts.rowid
-            WHERE {where_clause}
-            ORDER BY rank
-            LIMIT ? OFFSET ?
-            """,  # noqa: S608
-            params,
-        ).fetchall()
+        if price_sort:
+            # Fetch all matches; effective-price sort + pagination happen below.
+            rows = conn.execute(
+                f"""
+                SELECT p.*
+                FROM {fts_table} fts
+                JOIN products p ON p.rowid = fts.rowid
+                WHERE {where_clause}
+                ORDER BY rank
+                """,  # noqa: S608
+                params,
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                f"""
+                SELECT p.*
+                FROM {fts_table} fts
+                JOIN products p ON p.rowid = fts.rowid
+                WHERE {where_clause}
+                ORDER BY rank
+                LIMIT ? OFFSET ?
+                """,  # noqa: S608
+                [*params, limit, offset],
+            ).fetchall()
 
-    products = [_resolve_locale_fields(_row_to_dict(r), locale) for r in rows]
+    products = [
+        pricing.annotate_product_pricing(
+            _resolve_locale_fields(_row_to_dict(r), locale), now, public=True
+        )
+        for r in rows
+    ]
+
+    if price_sort:
+        products.sort(
+            key=lambda p: p["effective_price_cents"],
+            reverse=(sort == "price_desc"),
+        )
+        products = products[offset : offset + limit]
+
     return product_image_service.attach_image_fields(products)
 
 
@@ -468,4 +605,5 @@ def get_low_stock_products(threshold: int = 5) -> list[dict]:
             "SELECT * FROM products WHERE stock <= ? AND is_active = 1",
             (threshold,),
         ).fetchall()
-    return product_image_service.attach_image_fields([_row_to_dict(r) for r in rows])
+    products = _annotate_admin([_row_to_dict(r) for r in rows])
+    return product_image_service.attach_image_fields(products)

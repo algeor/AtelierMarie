@@ -47,6 +47,9 @@ export default function EditProductPage() {
       category: data.category,
       stock: data.stock,
       is_featured: data.is_featured,
+      discount_percent: data.discount_percent,
+      discount_starts_at: data.discount_starts_at,
+      discount_ends_at: data.discount_ends_at,
     });
     for (const imageId of data.deleted_image_ids) {
       await deleteProductImage(productId, imageId);

@@ -11,6 +11,7 @@ from typing import Literal, TypedDict
 import structlog
 
 from app.config import get_settings
+from app.services import pricing
 from app.services.product_image_service import images_for_products, with_image_fields
 
 logger = structlog.get_logger(__name__)
@@ -90,6 +91,9 @@ class ProductDict(TypedDict):
     materials: str | None
     days_to_craft: int | None
     price_cents: int
+    effective_price_cents: int
+    discount_percent: int | None
+    discount_active: bool
     category: str | None
     images: list[dict]
     primary_image_url: str | None
@@ -142,13 +146,19 @@ class AddItemResult:
 
 
 def get_cart(conn: sqlite3.Connection, session_id: str, locale: Locale = "en") -> CartData:
-    """Retrieve the cart for a session, separating active and unavailable items."""
+    """Retrieve the cart for a session, separating active and unavailable items.
+
+    Line and total pricing use each product's effective (discounted) price. A
+    single `now` is captured for the whole read so every line and the total
+    agree on discount active-state.
+    """
     name_expr, description_expr = _localized_product_columns(locale)
     rows = conn.execute(
         f"""
         SELECT ci.product_id, ci.quantity, ci.added_at,
                p.id AS p_id, {name_expr}, {description_expr}, p.materials,
                p.days_to_craft, p.price_cents, p.category,
+               p.discount_percent, p.discount_starts_at, p.discount_ends_at,
                p.stock, p.is_active, p.is_featured,
                p.created_at, p.updated_at
         FROM cart_items ci
@@ -158,6 +168,8 @@ def get_cart(conn: sqlite3.Connection, session_id: str, locale: Locale = "en") -
         """,  # noqa: S608 - locale selects fixed SQL expressions above.
         (session_id,),
     ).fetchall()
+
+    now = pricing.now_utc()
 
     items: list[CartItem] = []
     unavailable_items: list[UnavailableItem] = []
@@ -193,6 +205,9 @@ def get_cart(conn: sqlite3.Connection, session_id: str, locale: Locale = "en") -
                 "materials": row["materials"],
                 "days_to_craft": row["days_to_craft"],
                 "price_cents": row["price_cents"],
+                "discount_percent": row["discount_percent"],
+                "discount_starts_at": row["discount_starts_at"],
+                "discount_ends_at": row["discount_ends_at"],
                 "category": row["category"],
                 "stock": row["stock"],
                 "is_active": bool(row["is_active"]),
@@ -200,6 +215,10 @@ def get_cart(conn: sqlite3.Connection, session_id: str, locale: Locale = "en") -
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
             }
+            # Public pricing: effective_price_cents + active display percent;
+            # window timestamps are stripped and never returned to the client.
+            product_data = pricing.annotate_product_pricing(product_data, now, public=True)
+            effective_price = product_data["effective_price_cents"]
             product: ProductDict = with_image_fields(
                 product_data,
                 image_map.get(row["p_id"], []),
@@ -212,7 +231,7 @@ def get_cart(conn: sqlite3.Connection, session_id: str, locale: Locale = "en") -
                     added_at=row["added_at"],
                 )
             )
-            total_cents += row["price_cents"] * row["quantity"]
+            total_cents += effective_price * row["quantity"]
             item_count += row["quantity"]
 
     return CartData(

@@ -47,6 +47,12 @@ export interface ProductResponse {
   materials: string | null;
   days_to_craft: number | null;
   price_cents: number;
+  // Discount display fields. effective_price_cents == price_cents when no
+  // discount is active; discount_percent is the active display percent or null.
+  // Window timestamps are never exposed publicly.
+  effective_price_cents: number;
+  discount_percent: number | null;
+  discount_active: boolean;
   category: string | null;
   images: ProductImage[];
   primary_image_url: string | null;
@@ -211,6 +217,12 @@ export interface AdminProductResponse {
   materials: string | null;
   days_to_craft: number | null;
   price_cents: number;
+  // Raw discount config + computed preview (effective_price_cents/discount_active).
+  discount_percent: number | null;
+  discount_starts_at: string | null;
+  discount_ends_at: string | null;
+  effective_price_cents: number;
+  discount_active: boolean;
   category: string | null;
   images: ProductImage[];
   primary_image_url: string | null;
@@ -243,6 +255,9 @@ export interface CreateProductRequest {
   category: string;
   stock: number;
   is_featured?: boolean;
+  discount_percent?: number | null;
+  discount_starts_at?: string | null;
+  discount_ends_at?: string | null;
 }
 
 export interface UpdateProductRequest {
@@ -257,6 +272,9 @@ export interface UpdateProductRequest {
   stock?: number;
   is_active?: boolean;
   is_featured?: boolean;
+  discount_percent?: number | null;
+  discount_starts_at?: string | null;
+  discount_ends_at?: string | null;
 }
 
 export type ImageUploadResponse = ProductImage;

@@ -1,4 +1,4 @@
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Product grid displays all active products
 The system SHALL display all active products in a responsive grid on the /products page. The page fetches `getProducts(1, 100)` explicitly (overriding the default limit of 20) to support client-side filtering. The API already returns only active products; the page does not re-filter by `is_active`.
@@ -124,3 +124,14 @@ The product listing card SHALL render the product's `primary_image_url` (falling
 #### Scenario: Card with no images
 - **WHEN** a product has no images (`primary_image_url` is null)
 - **THEN** the card renders the gradient placeholder with the product name
+
+### Requirement: Product card shows active discount
+When a product has an active discount, its card SHALL display the `effective_price_cents` as the primary price, the original `price_cents` struck through, and a `−X%` discount badge. When no discount is active the card SHALL display `price_cents` as before with no badge.
+
+#### Scenario: Card with active discount
+- **WHEN** a product card renders for a product with `price_cents` = 3250, `effective_price_cents` = 2600, `discount_active` = true, `discount_percent` = 20
+- **THEN** the card shows "€26.00" as the price, "€32.50" struck through, and a "−20%" badge
+
+#### Scenario: Card without discount unchanged
+- **WHEN** a product card renders for a product with `discount_active` = false
+- **THEN** the card shows only the regular price (`price_cents`) with no strikethrough or badge

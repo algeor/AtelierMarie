@@ -1,7 +1,7 @@
-## MODIFIED Requirements
+## Requirements
 
 ### Requirement: Checkout converts cart to order atomically
-The system SHALL expose `POST /v1/orders` accepting customer_email, customer_name (optional), delivery (required object), shipping_cents (required integer), and notes (optional). The `delivery` object SHALL contain: method ("office" or "door"), and either an `office` sub-object (courier, office_id, office_name, office_type, phone) or a `door` sub-object (courier, city, postal_code, street, building, apartment, phone). The endpoint SHALL atomically validate stock, validate delivery data, validate shipping_cents against server-side recalculation (tolerance ±50 cents for rounding), create an order with status "pending", snapshot product names and prices into order_items, store delivery details and shipping cost, decrement product stock, and clear the session's cart — all within a single database transaction. On success it SHALL return the created order with HTTP 201.
+The system SHALL expose `POST /v1/orders` accepting customer_email, customer_name (optional), delivery (required object), shipping_cents (required integer), and notes (optional). The `delivery` object SHALL contain: method ("office" or "door"), and either an `office` sub-object (courier, office_id, office_name, office_type, phone) or a `door` sub-object (courier, city, postal_code, street, building, apartment, phone). The endpoint SHALL use `BEGIN IMMEDIATE` to acquire a write lock at transaction start, then atomically validate stock, validate delivery data, validate shipping_cents against server-side recalculation (tolerance ±50 cents for rounding), create an order with status "pending", snapshot product names and **effective (discounted) prices** into order_items, store delivery details and shipping cost, decrement product stock, and clear the session's cart — all within that transaction. The checkout operation SHALL capture `now` once inside the transaction and use that timestamp for every effective-price computation in the order. The price snapshotted into `order_items.price_cents` SHALL be each product's effective price at checkout time (computed by the shared pricing helper); the customer is charged the discounted amount. On success it SHALL return the created order with HTTP 201.
 
 #### Scenario: Successful checkout with office delivery
 - **WHEN** a session with cart items sends `POST /v1/orders` with valid email, delivery `{method: "office", office: {courier: "speedy", office_id: "speedy-sf-001", office_name: "Speedy офис София Център", office_type: "office", phone: "+359888123456"}}`, and shipping_cents 630
@@ -14,6 +14,14 @@ The system SHALL expose `POST /v1/orders` accepting customer_email, customer_nam
 #### Scenario: Successful checkout with free shipping
 - **WHEN** a session with cart items totaling ≥ 5000 cents (€50) sends `POST /v1/orders` with valid delivery and shipping_cents 0
 - **THEN** an order is created with shipping_cents 0, total_cents = items_total_cents, and the response confirms free shipping
+
+#### Scenario: Checkout snapshots the discounted price
+- **WHEN** a product with `price_cents` = 3250 and an active 20% discount is checked out
+- **THEN** the resulting `order_items.price_cents` for that product is 2600, and the order total reflects the discounted amount
+
+#### Scenario: Discount expiry between cart view and checkout charges current price
+- **WHEN** a windowed discount expires after the customer views the cart but before checkout
+- **THEN** the checkout snapshots the post-expiry price (the discount is no longer active), consistent with live pricing
 
 #### Scenario: Checkout with empty cart fails
 - **WHEN** a session with no cart items sends `POST /v1/orders`

@@ -76,7 +76,33 @@ function primaryThumbnailUrl(images: ProductImage[]): string | null {
   return images.find((image) => image.is_primary)?.thumbnail_url ?? null;
 }
 
-const MOCK_PRODUCTS: ProductResponse[] = [
+/**
+ * Mock product store: a public ProductResponse plus the raw discount window
+ * (which the public API hides). `discount_percent` here is the raw configured
+ * percent; `applyMockPricing` recomputes `discount_active`/`effective_price_cents`.
+ */
+type MockProduct = ProductResponse & {
+  discount_starts_at: string | null;
+  discount_ends_at: string | null;
+};
+
+/** Recompute discount_active + effective_price_cents from the raw config (mirrors backend). */
+function applyMockPricing(product: MockProduct): MockProduct {
+  const percent = product.discount_percent;
+  const now = new Date();
+  const active =
+    percent != null &&
+    (!product.discount_starts_at || now >= new Date(product.discount_starts_at)) &&
+    (!product.discount_ends_at || now <= new Date(product.discount_ends_at));
+  product.discount_active = active;
+  product.effective_price_cents =
+    active && percent != null
+      ? Math.max(1, Math.floor((product.price_cents * (100 - percent) + 50) / 100))
+      : product.price_cents;
+  return product;
+}
+
+const MOCK_PRODUCTS: MockProduct[] = [
   {
     id: "lavender-dreams-300ml",
     name: "Lavender Dreams",
@@ -84,6 +110,11 @@ const MOCK_PRODUCTS: ProductResponse[] = [
     materials: "Soy wax, French lavender essential oil, cotton wick",
     days_to_craft: 3,
     price_cents: 3200,
+    effective_price_cents: 2560,
+    discount_percent: 20,
+    discount_active: true,
+    discount_starts_at: null,
+    discount_ends_at: null,
     category: "Floral",
     images: [mockProductImage("lavender-dreams-300ml")],
     primary_image_url: "/static/products/lavender-dreams-300ml.webp",
@@ -101,6 +132,11 @@ const MOCK_PRODUCTS: ProductResponse[] = [
     materials: "Coconut wax, amber resin, sandalwood oil",
     days_to_craft: 5,
     price_cents: 4500,
+    effective_price_cents: 4500,
+    discount_percent: null,
+    discount_active: false,
+    discount_starts_at: null,
+    discount_ends_at: null,
     category: "Woody",
     images: [mockProductImage("midnight-amber-300ml")],
     primary_image_url: "/static/products/midnight-amber-300ml.webp",
@@ -118,6 +154,11 @@ const MOCK_PRODUCTS: ProductResponse[] = [
     materials: null,
     days_to_craft: 2,
     price_cents: 2800,
+    effective_price_cents: 2800,
+    discount_percent: null,
+    discount_active: false,
+    discount_starts_at: null,
+    discount_ends_at: null,
     category: "Fresh",
     images: [],
     primary_image_url: null,
@@ -135,6 +176,11 @@ const MOCK_PRODUCTS: ProductResponse[] = [
     materials: null,
     days_to_craft: null,
     price_cents: 3800,
+    effective_price_cents: 3800,
+    discount_percent: null,
+    discount_active: false,
+    discount_starts_at: null,
+    discount_ends_at: null,
     category: "Gourmand",
     images: [mockProductImage("vanilla-bourbon-300ml")],
     primary_image_url: "/static/products/vanilla-bourbon-300ml.webp",
@@ -190,7 +236,7 @@ function buildCartResponse(): CartResponse {
     .filter((item): item is NonNullable<typeof item> => item !== null);
 
   const total_cents = items.reduce(
-    (sum, item) => sum + item.product.price_cents * item.quantity,
+    (sum, item) => sum + item.product.effective_price_cents * item.quantity,
     0
   );
   return {
@@ -382,7 +428,7 @@ export async function createOrder(
     items: cart.items.map((item) => ({
       product_id: item.product_id,
       product_name: item.product.name,
-      price_cents: item.product.price_cents,
+      price_cents: item.product.effective_price_cents,
       quantity: item.quantity,
     })),
     tracking_number: null,
@@ -584,8 +630,8 @@ export async function getAdminStats(): Promise<AdminStats> {
   };
 }
 
-/** Convert a public ProductResponse to an AdminProductResponse for mock admin endpoints. */
-function toAdminProduct(product: ProductResponse): AdminProductResponse {
+/** Convert a mock product to an AdminProductResponse for mock admin endpoints. */
+function toAdminProduct(product: MockProduct): AdminProductResponse {
   return {
     id: product.id,
     name_en: product.name,
@@ -595,6 +641,11 @@ function toAdminProduct(product: ProductResponse): AdminProductResponse {
     materials: product.materials,
     days_to_craft: product.days_to_craft,
     price_cents: product.price_cents,
+    discount_percent: product.discount_percent,
+    discount_starts_at: product.discount_starts_at,
+    discount_ends_at: product.discount_ends_at,
+    effective_price_cents: product.effective_price_cents,
+    discount_active: product.discount_active,
     category: product.category,
     images: product.images,
     primary_image_url: product.primary_image_url,
@@ -636,13 +687,18 @@ export async function createProduct(data: CreateProductRequest): Promise<AdminPr
   const existing = MOCK_PRODUCTS.find((p) => p.id === data.id);
   if (existing) mockError("CONFLICT", `Product ${data.id} already exists`);
   const now = new Date().toISOString();
-  const product: ProductResponse = {
+  const product: MockProduct = {
     id: data.id,
     name: data.name_en,
     description: data.description_en ?? null,
     materials: data.materials ?? null,
     days_to_craft: data.days_to_craft ?? null,
     price_cents: data.price_cents,
+    effective_price_cents: data.price_cents,
+    discount_percent: data.discount_percent ?? null,
+    discount_active: false,
+    discount_starts_at: data.discount_starts_at ?? null,
+    discount_ends_at: data.discount_ends_at ?? null,
     category: data.category,
     images: [],
     primary_image_url: null,
@@ -653,6 +709,7 @@ export async function createProduct(data: CreateProductRequest): Promise<AdminPr
     created_at: now,
     updated_at: now,
   };
+  applyMockPricing(product);
   MOCK_PRODUCTS.push(product);
   return toAdminProduct(product);
 }
@@ -674,6 +731,18 @@ export async function updateProduct(
   if (data.stock !== undefined) product.stock = data.stock;
   if (data.is_active !== undefined) product.is_active = data.is_active;
   if (data.is_featured !== undefined) product.is_featured = data.is_featured;
+  // Discount merge: percent = null clears all bounds together.
+  if (data.discount_percent === null) {
+    product.discount_percent = null;
+    product.discount_starts_at = null;
+    product.discount_ends_at = null;
+  } else {
+    if (data.discount_percent !== undefined) product.discount_percent = data.discount_percent;
+    if (data.discount_starts_at !== undefined)
+      product.discount_starts_at = data.discount_starts_at;
+    if (data.discount_ends_at !== undefined) product.discount_ends_at = data.discount_ends_at;
+  }
+  applyMockPricing(product);
   product.updated_at = new Date().toISOString();
   return toAdminProduct(product);
 }

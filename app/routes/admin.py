@@ -48,7 +48,7 @@ from app.services.order_service import (
     list_orders_admin,
     update_status,
 )
-from app.services.product_service import DuplicateError, NotFoundError
+from app.services.product_service import DiscountValidationError, DuplicateError, NotFoundError
 
 router = APIRouter(dependencies=[Depends(require_admin)])
 
@@ -176,6 +176,11 @@ async def admin_update_product(
         return JSONResponse(
             status_code=404,
             content={"error": {"code": "NOT_FOUND", "message": "Product not found"}},
+        )
+    except DiscountValidationError as e:
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "VALIDATION_ERROR", "message": str(e)}},
         )
 
     return ProductAdminResponse(**product)

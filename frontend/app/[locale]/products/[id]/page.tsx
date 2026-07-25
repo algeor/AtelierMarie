@@ -3,8 +3,8 @@ import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import { getProduct } from "@/lib/api";
 import { ProductGallery } from "@/components/products/ProductGallery";
+import { PriceDisplay } from "@/components/products/PriceDisplay";
 import { Badge } from "@/components/ui/Badge";
-import { formatPrice } from "@/lib/utils";
 import { AddToCartSection } from "@/components/products/AddToCartSection";
 import { ProductSocialSection } from "@/components/products/ProductSocialSection";
 import type { Locale } from "@/i18n/routing";
@@ -62,7 +62,10 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
               {product.name}
             </h1>
             <p className="mt-3 text-2xl font-medium text-soft-brown">
-              {formatPrice(product.price_cents)}
+              <PriceDisplay
+                product={product}
+                className="text-2xl font-medium text-soft-brown"
+              />
             </p>
             {product.category && (
               <div className="mt-3">

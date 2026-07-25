@@ -103,7 +103,10 @@
     "craftingTimeDays": "Lovingly handcrafted over {count} {count, plural, one {day} other {days}}",
     "priceLowHigh": "Price: Low to High",
     "priceHighLow": "Price: High to Low",
-    "newest": "Newest"
+    "newest": "Newest",
+    "discountBadge": "−{percent}%",
+    "salePrice": "Sale price",
+    "originalPrice": "Original price"
   },
   "comments": {
     "title": "Comments",
@@ -337,6 +340,14 @@
     "daysToCraft": "Days to Craft",
     "optional": "Optional",
     "featuredProduct": "Featured product (shown on homepage)",
+    "discount": {
+      "title": "Discount",
+      "help": "Optional percentage discount. Leave the window empty for an always-on discount, or set a start/end to schedule it. Times are in your local timezone.",
+      "percent": "Discount %",
+      "startsAt": "Starts at",
+      "endsAt": "Ends at",
+      "preview": "Sale price: {price}"
+    },
     "validation": {
       "nameEnRequired": "English name is required",
       "idRequired": "Product ID is required",
@@ -346,7 +357,10 @@
       "stockNonNegative": "Stock cannot be negative",
       "imageType": "Image must be a JPEG or PNG file",
       "imageSize": "Image must be 5MB or smaller",
-      "maxImages": "A product can have up to 6 images"
+      "maxImages": "A product can have up to 6 images",
+      "discountPercentRange": "Discount must be between 1 and 99",
+      "discountWindowOrder": "Discount start must be before the end",
+      "discountPercentRequired": "Enter a discount percent when setting a schedule"
     },
     "errors": {
       "saveProduct": "Failed to save product",

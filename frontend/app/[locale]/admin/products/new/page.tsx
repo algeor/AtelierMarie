@@ -20,6 +20,9 @@ export default function CreateProductPage() {
       category: data.category,
       stock: data.stock,
       is_featured: data.is_featured,
+      discount_percent: data.discount_percent,
+      discount_starts_at: data.discount_starts_at,
+      discount_ends_at: data.discount_ends_at,
     });
     for (const file of data.image_files) {
       await uploadProductImage(product.id, file);
