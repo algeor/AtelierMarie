@@ -1,17 +1,41 @@
 ## MODIFIED Requirements
 
-### Requirement: Product responses expose managed category display names
-Public product list and detail responses SHALL keep `category` as the stored category slug used for filtering, and SHALL include `category_name` as the localized display name resolved from managed categories for the requested locale. The category display lookup SHALL include inactive categories so retired categories still render correctly on products that reference them. If the category row is missing, `category_name` SHALL fall back to the raw slug for compatibility.
+### Requirement: Product responses expose managed taxonomy display metadata
+Public product list and detail responses SHALL expose taxonomy slugs used for filtering and localized display names resolved from managed taxonomy data. Responses SHALL include product type, optional category/tier, and labels. Display lookup SHALL include inactive referenced terms so retired taxonomy still renders correctly on products. If a taxonomy row is missing, display names SHALL fall back to the raw slug for compatibility.
 
-#### Scenario: List response includes localized category name
-- **WHEN** `GET /v1/products?locale=bg` returns a product with `category` = "floral"
-- **THEN** that product includes `category` = "floral"
-- **AND** `category_name` is the Bulgarian category name when present, otherwise the English category name
+#### Scenario: List response includes localized taxonomy names
+- **WHEN** `GET /v1/products?locale=bg` returns a product with `product_type` = "candles", `category` = "medium", and label "winter"
+- **THEN** that product includes those slugs
+- **AND** includes Bulgarian display names when present, otherwise English fallback names
 
-#### Scenario: Detail response includes inactive category name
-- **WHEN** `GET /v1/products/{id}?locale=en` returns a product assigned to an inactive category
-- **THEN** the product response still includes the inactive category's English `category_name`
+#### Scenario: Detail response includes inactive taxonomy names
+- **WHEN** `GET /v1/products/{id}?locale=en` returns a product assigned to an inactive label
+- **THEN** the product response still includes that label's English display name
 
-#### Scenario: Filtering remains slug-based
-- **WHEN** `GET /v1/products?category=floral&locale=bg` is called
-- **THEN** filtering matches products whose stored `category` slug is "floral", independent of the localized `category_name`
+#### Scenario: Uncategorized product allowed
+- **WHEN** a product has no category/tier assigned
+- **THEN** `category` and `category_name` are NULL
+- **AND** product type and labels still render normally
+
+### Requirement: Product listing endpoint supports faceted taxonomy filters
+The public `GET /v1/products` endpoint SHALL filter by managed taxonomy slugs in addition to existing search, stock, sort, pagination, and locale parameters. The endpoint SHALL accept `product_type`, `category`, and labels filters. Filtering SHALL use slugs, independent of localized display names.
+
+#### Scenario: Filter by product type
+- **WHEN** `GET /v1/products?product_type=candles` is called
+- **THEN** the response contains only products whose product type slug is "candles"
+
+#### Scenario: Filter by category tier
+- **WHEN** `GET /v1/products?category=premium` is called
+- **THEN** the response contains only products whose category/tier slug is "premium"
+
+#### Scenario: Filter by labels
+- **WHEN** `GET /v1/products?labels=winter,gift` is called
+- **THEN** the response contains only products assigned both "winter" and "gift" labels
+
+#### Scenario: Filters combine
+- **WHEN** `GET /v1/products?product_type=boxes&category=premium&labels=gift` is called
+- **THEN** the response contains only premium boxes assigned the "gift" label
+
+#### Scenario: Filtering remains slug-based across locales
+- **WHEN** `GET /v1/products?category=medium&locale=bg` is called
+- **THEN** filtering matches the stored "medium" slug, independent of the Bulgarian category display name

@@ -1,33 +1,38 @@
 ## Why
 
-Product categories are half-managed today: the storefront filter pills are already derived dynamically from product data, but the **admin form's category dropdown is a hardcoded list of six fragrance families** (`Floral, Woody, Fresh, Gourmand, Spicy, Citrus`) baked into the frontend. Adding or renaming a category requires a code change and redeploy. This change turns categories into managed data with an admin CRUD, so the shop owner can maintain them without a developer.
+The shop should be mainly organized around candles, but it also needs to support other handcrafted product families such as decorative boxes. Candles and boxes both need subgrouping such as small, medium, and premium, and products also need purpose or seasonal labels such as winter, gift, Christmas, relaxing, and similar values.
+
+A single flat `category` dropdown cannot represent this cleanly. It mixes product type, size or tier, scent family, purpose, and season into one value. It also prevents the storefront from offering the familiar sidebar filtering experience used by larger shops.
+
+This change replaces the flat dynamic category idea with managed product taxonomy: product types, category or tier groups, and multi-select labels. The admin must be able to create and manage all of these dynamically in dedicated admin views. The frontend must not hardcode taxonomy values.
 
 ## What Changes
 
-- **New `categories` table** as the source of truth: `slug` (stable key), bilingual `name_en` / `name_bg`, `sort_order`, `is_active`, timestamps.
-- **Products reference categories by slug.** The existing `products.category` column keeps storing a category identifier, now standardized to a category **slug**. A one-time mapping-based migration converts existing distinct values to deterministic unique slugs and seeds the table (including the current six defaults).
-- **Public endpoint `GET /v1/categories`** returns active categories (localized) for storefront filter/navigation uses. Admin forms use the admin category list so they can safely display an existing inactive category on edit.
-- **Admin category CRUD** (`/v1/admin/categories`): create, list, update (rename/reorder/activate), delete. Delete is blocked (409) while products still reference the category; a category can instead be deactivated to hide it from pickers without touching products.
-- **Product create/update validates category assignment against active category slugs.** Updating unrelated product fields or preserving the product's current inactive category remains allowed, so retired categories do not block product maintenance.
-- **Public product responses include localized category display metadata.** `category` remains the slug used for filtering; a new nullable `category_name` field resolves slug → localized name (en/bg) with fallback, including inactive categories that are still referenced by products.
-- **Storefront localization:** category names on filter pills and the product detail badge use product `category_name` metadata instead of showing a raw slug.
-- **Admin UI:** a categories management page, and the product form dropdown is populated from the API.
+- **Managed product taxonomy** becomes the source of truth: product types (`candles`, `boxes`), category or tier terms (`small`, `medium`, `premium`), and labels (`winter`, `gift`, scent families, occasions, etc.). All taxonomy terms have stable slugs, bilingual display names, sort order, active state, and timestamps.
+- **Dedicated admin management views** let admins create, rename, reorder, activate/deactivate, and delete unused product types, categories/tiers, and labels. Product forms and storefront filters consume these APIs only; there are no hardcoded product types, categories, or labels in the frontend.
+- **Products get separate taxonomy assignments.** Products reference one product type, optionally one category/tier, and zero or more labels. This avoids forcing candles, boxes, sizes, and purposes into one category string.
+- **Existing `products.category` values are migrated safely.** Existing fragrance-family values such as `Floral`, `Woody`, and `Fresh` are preserved as labels. Existing products default to product type `candles`, and the old category values are copied into the product-label relation.
+- **Public product APIs support faceted filtering.** `GET /v1/products` accepts filters for product type, category/tier, and labels. Product responses include localized display metadata for product type, category/tier, and labels while keeping slugs for filtering.
+- **Public taxonomy endpoint** returns active product types, category/tier terms, and labels for building storefront sidebars, localized by `locale`.
+- **Admin product forms** use managed taxonomy APIs instead of hardcoded category constants. Product type and category/tier are dropdowns; labels are multi-select checkboxes or token-style controls.
+- **Storefront product listing** uses a left-side faceted filter menu on desktop and a collapsible filter panel on mobile. Filters can combine product type, category/tier, labels, stock, search, and sort.
+- **Product detail** displays localized product type/category badges and purpose/season labels instead of raw slugs.
 
 ## Capabilities
 
 ### New Capabilities
-- `category-management`: the categories table, public list endpoint, admin CRUD, slug model, and delete/deactivate rules.
+- `product-taxonomy`: product type/category/label tables, public taxonomy endpoint, admin taxonomy CRUD, slug model, migration from legacy category text, and delete/deactivate rules.
 
 ### Modified Capabilities
-- `product-public-api`: list/detail product responses expose localized `category_name` while keeping `category` as the filtering slug.
-- `product-admin-api`: create/update validate `category` against managed category slugs.
-- `admin-products`: product form category dropdown is sourced from the categories API (not a hardcoded constant).
-- `product-listing`: filter pills display localized category names resolved from slugs.
-- `product-detail`: category badge displays the localized category name.
+- `product-public-api`: list/detail responses expose localized taxonomy metadata and filtering by product type, category/tier, and labels.
+- `product-admin-api`: create/update/import validate taxonomy assignments against managed active terms.
+- `admin-products`: product form taxonomy controls are sourced from the API and support multi-label assignment.
+- `product-listing`: storefront uses sidebar faceted filters instead of simple category pills.
+- `product-detail`: product detail displays localized taxonomy badges and labels.
 
 ## Impact
 
-- **Backend:** `app/database.py` (new `categories` table + mapping-based seed/migration of existing values; note FTS still indexes `products.category`), `app/models/` (new `categories.py` schemas + `category_name` on public product responses), new `app/services/category_service.py`, new `app/routes/categories.py` (+ admin routes), product create/update validation in `product_service`, category label joins in product list/detail, router registration in `main.py`.
-- **Frontend:** new admin categories page + management component + `AdminSidebar` nav entry, `ProductForm.tsx` dropdown fetches categories, `CategoryFilter`/`ProductListingClient` resolve localized names, product detail badge, `lib/types.ts`, `lib/api*.ts`, `lib/mock-api.ts`, i18n `en.json`/`bg.json`.
-- **Data migration:** existing `products.category` values are mapped deterministically to unique slugs and preserved in a migration mapping table for audit/rollback.
+- **Backend:** `app/database.py` (taxonomy tables, product columns/relation table, marker-guarded migration from legacy category text), `app/models/` (new taxonomy schemas plus taxonomy fields on product responses), new `app/services/taxonomy_service.py`, new `app/routes/taxonomy.py` with admin routes, product create/update/import validation in `product_service`, taxonomy joins/batched resolvers in product list/search/detail, router registration in `main.py`.
+- **Frontend:** new admin taxonomy management views, `AdminSidebar` nav entry, `ProductForm.tsx` product type/category/labels controls from API, storefront sidebar filter UI, product detail badges/labels, `lib/types.ts`, `lib/api*.ts`, `lib/mock-api.ts`, i18n `en.json`/`bg.json`.
+- **Data migration:** existing `products.category` display values are converted into managed labels and product-label assignments. Existing products default to product type `candles`. Category/tier starts nullable until the admin assigns small/medium/premium terms.
 - **Not affected:** cart, checkout, pricing, orders.
