@@ -34,6 +34,8 @@ const mockedGetOrder = vi.mocked(getOrder);
 const mockOrder: OrderResponse = {
   id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
   status: "confirmed",
+  payment_method: "cod",
+  payment_status: "cod_pending",
   items_total_cents: 7700,
   shipping_cents: 0,
   total_cents: 7700,

@@ -153,6 +153,12 @@
     "placingOrder": "Поръчката се обработва...",
     "unavailableItems": "Някои артикули вече не са налични. Моля, прегледайте кошницата.",
     "genericError": "Нещо се обърка. Моля, опитайте отново.",
+    "paymentMethod": {
+      "label": "Начин на плащане",
+      "cod": "Наложен платеж",
+      "card": "Карта (плащане онлайн)",
+      "bank_transfer": "Банков превод"
+    },
     "delivery": {
       "sectionTitle": "Доставка",
       "method": {
@@ -248,7 +254,30 @@
     },
     "carrier": "Куриер",
     "trackingNumber": "Товарителница",
-    "trackPackage": "Проследете пратката"
+    "trackPackage": "Проследете пратката",
+    "payment": {
+      "sectionTitle": "Плащане",
+      "method": {
+        "cod": "Наложен платеж",
+        "card": "Карта",
+        "bank_transfer": "Банков превод"
+      },
+      "status": {
+        "pending": "Изчаква плащане",
+        "paid": "Платено",
+        "cod_pending": "Плащане при доставка",
+        "failed": "Плащането е неуспешно",
+        "refunded": "Възстановено"
+      },
+      "retryPayment": "Повторен опит за плащане",
+      "bankInstructions": "Инструкции за банков превод",
+      "bankName": "Банка",
+      "bankIban": "IBAN",
+      "bankBic": "BIC",
+      "bankAmount": "Сума",
+      "bankReference": "Основание",
+      "bankNote": "Използвайте посоченото основание, за да свържем превода с поръчката Ви."
+    }
   },
   "admin": {
     "title": "Администрация",

@@ -20,6 +20,8 @@ _CTX = {
     "tracking_carrier": "speedy",
     "tracking_number": "77",
     "tracking_url": "https://www.speedy.bg/en/track-shipment?shipmentNumber=77",
+    "payment_method": "card",
+    "payment_status": "paid",
 }
 
 

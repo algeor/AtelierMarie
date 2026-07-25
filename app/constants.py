@@ -25,17 +25,29 @@ MAX_PRICE_CENTS = 99_999_99  # $99,999.99
 MAX_STOCK = 999_999
 
 # ---------------------------------------------------------------------------
+# Payment (payment-integration)
+# ---------------------------------------------------------------------------
+
+PaymentMethod = Literal["cod", "card", "bank_transfer"]
+PaymentStatus = Literal["pending", "paid", "cod_pending", "failed", "refunded"]
+
+# ---------------------------------------------------------------------------
 # Email notifications (design Decision 19 — single canonical event vocabulary)
 # ---------------------------------------------------------------------------
 
 # The "event" token is the spine of the email feature: it names the
 # order_emails.event column, the template filename (order_{event}.txt), and
 # the route logic. It must have exactly one canonical form.
-EmailEvent = Literal["placed", "shipped", "delivered", "cancelled", "admin_new_order"]
+#
+# Extension point: 'payment_pending' is NOT an order status — it's a
+# payment-lifecycle event queued at order creation for card/bank_transfer
+# orders instead of 'placed'. The sweeper treats it identically to other events.
+EmailEvent = Literal["placed", "shipped", "delivered", "cancelled", "admin_new_order", "payment_pending"]
 
 # OrderStatus → EmailEvent. None means "no customer email for this transition".
-# NOTE: status "pending" maps to event "placed"; "confirmed" sends no email
-# (Decision 9 — pending→confirmed is an internal admin step).
+# NOTE: status "pending" maps to event "placed" for COD orders; card/bank_transfer
+# orders queue "payment_pending" instead — handled in order_service.checkout().
+# "confirmed" sends no email (Decision 9 — pending→confirmed is an internal admin step).
 STATUS_TO_EMAIL_EVENT: dict[str, str | None] = {
     "pending": "placed",
     "confirmed": None,

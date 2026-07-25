@@ -15,9 +15,11 @@ import {
   validateDelivery,
   type DeliveryValidationErrors,
 } from "@/components/checkout/DeliverySection";
-import type { DeliveryInfo } from "@/lib/types";
+import type { DeliveryInfo, PaymentMethod } from "@/lib/types";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const STRIPE_ENABLED = process.env.NEXT_PUBLIC_STRIPE_ENABLED === "true";
+const BANK_TRANSFER_ENABLED = Boolean(process.env.NEXT_PUBLIC_BANK_IBAN);
 
 export default function CheckoutPage() {
   const t = useTranslations("checkout");

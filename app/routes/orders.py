@@ -16,10 +16,18 @@ from app.models.orders import (
 from app.services.order_service import (
     EmptyCartError,
     InsufficientStockError,
+    OrderNotFoundError,
     ProductUnavailableError,
     checkout,
     get_order,
     list_orders,
+)
+from app.services.payment_service import (
+    InvalidRetryStateError,
+    PaymentAlreadyPaidError,
+    StripeSessionError,
+    create_checkout_session,
+    create_retry_session,
 )
 
 router = APIRouter()
@@ -31,7 +39,8 @@ router = APIRouter()
     status_code=201,
     summary="Place an order",
     description="Convert the current session's cart into an order. "
-    "Validates stock, snapshots prices, decrements stock, and clears cart atomically.",
+    "Validates stock, snapshots prices, decrements stock, and clears cart atomically. "
+    "For card payments, returns stripe_checkout_url to redirect the customer.",
 )
 def create_order(
     request: Request,
@@ -39,8 +48,6 @@ def create_order(
     session_id: Annotated[str, Depends(require_session)],
 ) -> OrderResponse | JSONResponse:
     """Place a new order from the current cart."""
-    # Defense-in-depth: reject non-JSON requests
-    # Primary CSRF protection: SameSite=Lax session cookie
     content_type = request.headers.get("content-type", "").lower()
     if "application/json" not in content_type:
         return JSONResponse(
@@ -51,6 +58,21 @@ def create_order(
                     "message": "Content-Type must be application/json",
                 }
             },
+        )
+
+    settings = get_settings()
+
+    # Validate card payments: Stripe must be configured.
+    if body.payment_method == "card" and not settings.stripe_secret_key:
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "PAYMENT_METHOD_UNAVAILABLE", "message": "Card payments are not configured"}},
+        )
+    # Validate bank_transfer: IBAN must be configured.
+    if body.payment_method == "bank_transfer" and not settings.bank_iban:
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "PAYMENT_METHOD_UNAVAILABLE", "message": "Bank transfer is not configured"}},
         )
 
     try:
@@ -72,42 +94,104 @@ def create_order(
                 notes=body.notes,
                 user_id=user_id,
                 locale=locale,
-                admin_notification_email=get_settings().admin_notification_email,
+                admin_notification_email=settings.admin_notification_email,
+                payment_method=body.payment_method,
             )
+
+            stripe_checkout_url: str | None = None
+            if body.payment_method == "card":
+                try:
+                    stripe_checkout_url = create_checkout_session(
+                        conn=conn,
+                        order=order_data,
+                        success_url=settings.stripe_success_url,
+                        cancel_url=settings.stripe_cancel_url,
+                        stripe_secret_key=settings.stripe_secret_key,
+                    )
+                except StripeSessionError as exc:
+                    # Order was created; return it without a checkout URL so retry flow works.
+                    import structlog
+                    structlog.get_logger(__name__).error(
+                        "stripe_session_create_failed", order_id=order_data["id"], error=str(exc)
+                    )
+
     except EmptyCartError:
         return JSONResponse(
             status_code=400,
-            content={
-                "error": {
-                    "code": "EMPTY_CART",
-                    "message": "Cart is empty",
-                }
-            },
+            content={"error": {"code": "EMPTY_CART", "message": "Cart is empty"}},
         )
     except InsufficientStockError as e:
         return JSONResponse(
             status_code=409,
-            content={
-                "error": {
-                    "code": "INSUFFICIENT_STOCK",
-                    "message": str(e),
-                    "details": e.failures,
-                }
-            },
+            content={"error": {"code": "INSUFFICIENT_STOCK", "message": str(e), "details": e.failures}},
         )
     except ProductUnavailableError as e:
         return JSONResponse(
             status_code=409,
-            content={
-                "error": {
-                    "code": "PRODUCT_UNAVAILABLE",
-                    "message": str(e),
-                    "details": e.failures,
-                }
-            },
+            content={"error": {"code": "PRODUCT_UNAVAILABLE", "message": str(e), "details": e.failures}},
         )
 
-    return OrderResponse.model_validate(order_data)
+    response = OrderResponse.model_validate(order_data)
+    if stripe_checkout_url:
+        response = response.model_copy(update={"stripe_checkout_url": stripe_checkout_url})
+    return response
+
+
+@router.post(
+    "/{order_id}/stripe-session",
+    summary="Create a new Stripe Checkout Session (retry payment)",
+    description="Create a fresh Stripe session for a card order whose previous session expired. "
+    "Requires session ownership. Returns {stripe_checkout_url}.",
+)
+def create_stripe_retry_session(
+    order_id: str,
+    session_id: Annotated[str, Depends(require_session)],
+) -> JSONResponse:
+    """Retry payment: create a new Stripe Checkout Session for an existing card order."""
+    settings = get_settings()
+    if not settings.stripe_secret_key:
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "PAYMENT_METHOD_UNAVAILABLE", "message": "Card payments are not configured"}},
+        )
+
+    with get_db() as conn:
+        # Ownership check.
+        row = conn.execute("SELECT user_id FROM sessions WHERE id = ?", (session_id,)).fetchone()
+        user_id = row["user_id"] if row else None
+        try:
+            get_order(conn=conn, order_id=order_id, session_id=session_id, user_id=user_id)
+        except OrderNotFoundError:
+            return JSONResponse(
+                status_code=404,
+                content={"error": {"code": "NOT_FOUND", "message": "Order not found"}},
+            )
+
+        try:
+            url = create_retry_session(
+                conn=conn,
+                order_id=order_id,
+                success_url=settings.stripe_success_url,
+                cancel_url=settings.stripe_cancel_url,
+                stripe_secret_key=settings.stripe_secret_key,
+            )
+        except PaymentAlreadyPaidError:
+            return JSONResponse(
+                status_code=409,
+                content={"error": {"code": "ALREADY_PAID", "message": "Order is already paid"}},
+            )
+        except InvalidRetryStateError as e:
+            return JSONResponse(
+                status_code=409,
+                content={"error": {"code": "INVALID_PAYMENT_STATE", "message": str(e)}},
+            )
+        except StripeSessionError as e:
+            return JSONResponse(
+                status_code=502,
+                content={"error": {"code": "STRIPE_ERROR", "message": str(e)}},
+            )
+
+    return JSONResponse(status_code=200, content={"stripe_checkout_url": url})
 
 
 @router.get(
@@ -167,3 +251,4 @@ def get_order_detail(
         )
 
     return OrderResponse.model_validate(order_data)
+

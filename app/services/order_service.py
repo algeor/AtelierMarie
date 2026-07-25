@@ -49,6 +49,24 @@ class OrderServiceError(Exception):
     """Base class for all order service errors."""
 
 
+class PaymentAlreadyPaidError(OrderServiceError):
+    """Raised when attempting to mark an already-paid order as paid."""
+
+    def __init__(self, order_id: str) -> None:
+        self.order_id = order_id
+        super().__init__(f"Order {order_id} payment is already paid")
+
+
+class WrongPaymentMethodError(OrderServiceError):
+    """Raised when payment operation is invalid for the order's payment method."""
+
+    def __init__(self, order_id: str, expected: str, actual: str) -> None:
+        self.order_id = order_id
+        super().__init__(
+            f"Order {order_id} payment method is '{actual}', expected '{expected}'"
+        )
+
+
 class EmptyCartError(OrderServiceError):
     """Raised when cart has no items at checkout."""
 
@@ -138,6 +156,10 @@ class OrderData(TypedDict):
     tracking_url: str | None
     locale: str
     notes: str | None
+    payment_method: str
+    payment_status: str
+    stripe_checkout_session_id: str | None
+    stripe_payment_intent_id: str | None
     created_at: str
     updated_at: str
     items: list[OrderItemData]
@@ -165,6 +187,7 @@ def checkout(
     user_id: str | None = None,
     locale: Locale = "en",
     admin_notification_email: str = "",
+    payment_method: str = "cod",
 ) -> OrderData:
     """Convert cart to an order atomically.
 
@@ -241,13 +264,18 @@ def checkout(
         shipping_cents = 0
         total_cents = items_total_cents + shipping_cents
 
+        # Initial payment_status depends on payment method.
+        initial_payment_status = "cod_pending" if payment_method == "cod" else "pending"
+
         conn.execute(
             """
             INSERT INTO orders (id, session_id, user_id, status, total_cents,
                                customer_email, customer_name,
                                delivery_method, delivery_courier, delivery_details,
-                               locale, notes, created_at, updated_at)
-            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               locale, notes,
+                               payment_method, payment_status,
+                               created_at, updated_at)
+            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 order_id,
@@ -261,6 +289,8 @@ def checkout(
                 delivery_details_json,
                 locale,
                 notes,
+                payment_method,
+                initial_payment_status,
                 now,
                 now,
             ),
@@ -312,20 +342,20 @@ def checkout(
             [session_id, *product_ids],
         )
 
-        # 7. Durable outbox intent (email-notifications Decision 25): write the
-        # 'queued' rows in the SAME transaction as the order so the email
-        # handoff survives any crash. The sweeper delivers them; no send here.
-        # Customer "placed" email: status 'pending' maps to event 'placed'
-        # (Decision 19 — never event='pending').
-        placed_event = STATUS_TO_EMAIL_EVENT["pending"]
-        if placed_event is not None:
+        # 7. Durable outbox intent: queue customer email in the SAME transaction.
+        # COD → 'placed' immediately. Card/bank_transfer → 'payment_pending'
+        # (no thank-you language before payment confirmed — Decision 8).
+        if payment_method == "cod":
+            customer_event = STATUS_TO_EMAIL_EVENT["pending"]  # 'placed'
+        else:
+            customer_event = "payment_pending"
+        if customer_event is not None:
             conn.execute(
                 "INSERT INTO order_emails (order_id, event, recipient, status) "
                 "VALUES (?, ?, ?, 'queued')",
-                (order_id, placed_event, customer_email),
+                (order_id, customer_event, customer_email),
             )
-        # Admin new-order alert rides the same outbox. Empty recipient (no
-        # ADMIN_NOTIFICATION_EMAIL) is queued too; the send path skips it.
+        # Admin new-order alert rides the same outbox.
         conn.execute(
             "INSERT INTO order_emails (order_id, event, recipient, status) "
             "VALUES (?, 'admin_new_order', ?, 'queued')",
@@ -355,6 +385,10 @@ def checkout(
         tracking_url=None,
         locale=locale,
         notes=notes,
+        payment_method=payment_method,
+        payment_status=initial_payment_status,
+        stripe_checkout_session_id=None,
+        stripe_payment_intent_id=None,
         created_at=now,
         updated_at=now,
         items=items,
@@ -422,6 +456,10 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
         tracking_url=row["tracking_url"] if "tracking_url" in row_keys else None,
         locale=(row["locale"] if "locale" in row_keys and row["locale"] else "en"),
         notes=row["notes"],
+        payment_method=row["payment_method"] if "payment_method" in row_keys else "cod",
+        payment_status=row["payment_status"] if "payment_status" in row_keys else "cod_pending",
+        stripe_checkout_session_id=row["stripe_checkout_session_id"] if "stripe_checkout_session_id" in row_keys else None,
+        stripe_payment_intent_id=row["stripe_payment_intent_id"] if "stripe_payment_intent_id" in row_keys else None,
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         items=items,
@@ -508,10 +546,11 @@ def list_orders(
 def list_orders_admin(
     conn: sqlite3.Connection,
     status: OrderStatus | None = None,
+    payment_status: str | None = None,
     page: int = 1,
     limit: int = 20,
 ) -> OrderListData:
-    """List all orders with optional status filter (admin — no ownership check).
+    """List all orders with optional status/payment_status filter (admin — no ownership check).
 
     Pagination values are clamped to MAX_PAGE/MAX_LIMIT bounds.
     """
@@ -524,12 +563,16 @@ def list_orders_admin(
 
     offset = (page - 1) * limit
 
+    conditions = []
+    params: list = []
     if status is not None:
-        where_clause = "WHERE status = ?"
-        params: list = [status]
-    else:
-        where_clause = ""
-        params = []
+        conditions.append("status = ?")
+        params.append(status)
+    if payment_status is not None:
+        conditions.append("payment_status = ?")
+        params.append(payment_status)
+
+    where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
     total = conn.execute(f"SELECT COUNT(*) FROM orders {where_clause}", params).fetchone()[0]
 
@@ -562,12 +605,15 @@ def update_status(
     is auto-generated from a known carrier when not supplied, and persisted
     alongside the status. Restores stock on cancellation (from pending/confirmed).
     """
-    row = conn.execute("SELECT id, status FROM orders WHERE id = ?", (order_id,)).fetchone()
+    row = conn.execute(
+        "SELECT id, status, payment_method FROM orders WHERE id = ?", (order_id,)
+    ).fetchone()
 
     if not row:
         raise OrderNotFoundError(order_id)
 
     current_status = row["status"]
+    payment_method = row["payment_method"] if "payment_method" in row.keys() else "cod"
 
     # Validate transition
     if new_status not in VALID_TRANSITIONS.get(current_status, set()):
@@ -596,10 +642,17 @@ def update_status(
             (new_status, tracking_number, tracking_carrier, tracking_url, order_id),
         )
     else:
-        # Tracking fields are ignored for non-ship transitions (order-tracking spec).
         conn.execute(
             "UPDATE orders SET status = ? WHERE id = ?",
             (new_status, order_id),
+        )
+
+    # COD: auto-advance payment_status to 'paid' on delivery (Decision 2).
+    # Cash is collected at delivery by the courier — no manual step needed.
+    if new_status == "delivered" and payment_method == "cod":
+        conn.execute(
+            "UPDATE orders SET payment_status = 'paid' WHERE id = ?",
+            (order_id,),
         )
 
     # Restore stock on cancellation
@@ -629,6 +682,42 @@ def update_status(
     )
 
     # Return updated order
+    order = _fetch_order_with_items(conn, order_id)
+    if order is None:
+        raise OrderNotFoundError(order_id)
+    return order
+
+
+def mark_bank_transfer_paid(
+    conn: sqlite3.Connection,
+    order_id: str,
+) -> OrderData:
+    """Mark a bank_transfer order's payment_status as 'paid'.
+
+    Raises WrongPaymentMethodError if the order is not bank_transfer.
+    Raises PaymentAlreadyPaidError if already paid.
+    Raises OrderNotFoundError if not found.
+    """
+    row = conn.execute(
+        "SELECT id, payment_method, payment_status FROM orders WHERE id = ?",
+        (order_id,),
+    ).fetchone()
+    if not row:
+        raise OrderNotFoundError(order_id)
+    if row["payment_method"] != "bank_transfer":
+        raise WrongPaymentMethodError(order_id, "bank_transfer", row["payment_method"])
+    if row["payment_status"] == "paid":
+        raise PaymentAlreadyPaidError(order_id)
+
+    conn.execute(
+        "UPDATE orders SET payment_status = 'paid' WHERE id = ?",
+        (order_id,),
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO order_emails (order_id, event, recipient, status)"
+        " VALUES (?, 'placed', (SELECT customer_email FROM orders WHERE id = ?), 'queued')",
+        (order_id, order_id),
+    )
     order = _fetch_order_with_items(conn, order_id)
     if order is None:
         raise OrderNotFoundError(order_id)

@@ -11,7 +11,7 @@ import {
   ShipOrderModal,
   type ShipTrackingInput,
 } from "@/components/admin/ShipOrderModal";
-import type { OrderResponse, OrderStatus } from "@/lib/types";
+import type { OrderResponse, OrderStatus, PaymentStatus } from "@/lib/types";
 
 const STATUS_FILTERS: (OrderStatus | "")[] = [
   "",
@@ -38,6 +38,14 @@ const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   cancelled: [],
 };
 
+const PAYMENT_STATUS_COLORS: Record<PaymentStatus, string> = {
+  pending: "bg-amber-100 text-amber-800",
+  paid: "bg-green-100 text-green-800",
+  cod_pending: "bg-gray-100 text-gray-700",
+  failed: "bg-red-100 text-red-800",
+  refunded: "bg-blue-100 text-blue-800",
+};
+
 function formatDate(iso: string, locale: string): string {
   return new Date(iso).toLocaleDateString(locale === "bg" ? "bg-BG" : "en-US", {
     month: "short",
@@ -56,6 +64,7 @@ function maskEmail(email: string): string {
 export default function AdminOrdersPage() {
   const t = useTranslations("admin");
   const tStatus = useTranslations("orders.status");
+  const tPayment = useTranslations("orders.payment");
   const tMethod = useTranslations("checkout.delivery.method");
   const tCourier = useTranslations("checkout.delivery.courier");
   const tDisplay = useTranslations("checkout.delivery.display");
@@ -192,6 +201,7 @@ export default function AdminOrdersPage() {
               <th className="px-4 py-3 font-medium text-charcoal">{tDisplay("sectionTitle")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("total")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("status")}</th>
+              <th className="px-4 py-3 font-medium text-charcoal">{tPayment("sectionTitle")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("date")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("actions")}</th>
             </tr>
@@ -205,13 +215,14 @@ export default function AdminOrdersPage() {
                   <td className="px-4 py-3"><Skeleton className="h-4 w-28" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-4 w-16" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-5 w-20" /></td>
+                  <td className="px-4 py-3"><Skeleton className="h-5 w-20" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-4 w-24" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-8 w-28" /></td>
                 </tr>
               ))
             ) : orders.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-soft-brown">
+                <td colSpan={8} className="px-4 py-8 text-center text-soft-brown">
                   {t("noOrders")}
                 </td>
               </tr>
@@ -266,6 +277,21 @@ export default function AdminOrdersPage() {
                     >
                       {tStatus(order.status)}
                     </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs text-soft-brown">
+                        {tPayment(`method.${order.payment_method}` as Parameters<typeof tPayment>[0])}
+                      </span>
+                      {order.payment_status && (
+                        <span className={cn(
+                          "inline-flex items-center rounded-pill px-2 py-0.5 text-xs font-medium",
+                          PAYMENT_STATUS_COLORS[order.payment_status]
+                        )}>
+                          {tPayment(`status.${order.payment_status}` as Parameters<typeof tPayment>[0])}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-soft-brown">
                     {formatDate(order.created_at, locale)}

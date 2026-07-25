@@ -97,6 +97,13 @@ def _build_email_context(order_data: OrderData, locale: str, settings: Settings)
         "tracking_number": order_data["tracking_number"],
         "tracking_url": order_data["tracking_url"],
         "admin_order_url": f"{settings.frontend_url}/admin/orders/{order_id}",
+        # Payment fields (payment-integration) — safe defaults for legacy rows.
+        "payment_method": order_data.get("payment_method", "cod"),
+        "payment_status": order_data.get("payment_status", "cod_pending"),
+        # Bank transfer details from config — only populated when method is bank_transfer.
+        "bank_iban": settings.bank_iban,
+        "bank_bic": settings.bank_bic,
+        "bank_name": settings.bank_name,
     }
 
 
