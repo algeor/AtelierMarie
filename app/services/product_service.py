@@ -28,6 +28,16 @@ class DiscountValidationError(Exception):
     """
 
 
+class BulkTargetLimitError(Exception):
+    """Raised when a bulk discount target resolves to more than the allowed cap.
+
+    Routes translate this to a 422 with code `BULK_TARGET_LIMIT_EXCEEDED`.
+    """
+
+
+BULK_DISCOUNT_TARGET_LIMIT = 500
+
+
 def _validate_merged_discount(
     percent: int | None, starts_at: str | None, ends_at: str | None
 ) -> None:
@@ -39,6 +49,44 @@ def _validate_merged_discount(
         raise DiscountValidationError("discount_percent must be between 1 and 99")
     if starts_at is not None and ends_at is not None and starts_at >= ends_at:
         raise DiscountValidationError("discount_starts_at must be earlier than discount_ends_at")
+
+
+def merge_discount_update(existing: dict | sqlite3.Row, data: dict) -> dict:
+    """Merge a partial discount patch with the existing row and validate it.
+
+    Shared by the single-product update path and the bulk discount path so both
+    honor identical rules. Returns the merged, validated
+    `{discount_percent, discount_starts_at, discount_ends_at}`. Passing
+    `discount_percent=None` clears all three together. Raises
+    `DiscountValidationError` on an invalid merged result.
+    """
+    if "discount_percent" in data and data["discount_percent"] is None:
+        # Clearing the discount clears all three fields together.
+        merged_percent = merged_starts = merged_ends = None
+    else:
+        merged_percent = (
+            data["discount_percent"] if "discount_percent" in data else existing["discount_percent"]
+        )
+        merged_starts = (
+            data["discount_starts_at"]
+            if "discount_starts_at" in data
+            else existing["discount_starts_at"]
+        )
+        merged_ends = (
+            data["discount_ends_at"] if "discount_ends_at" in data else existing["discount_ends_at"]
+        )
+        # A date without a resulting percent is invalid.
+        if merged_percent is None and (merged_starts is not None or merged_ends is not None):
+            raise DiscountValidationError(
+                "discount_percent is required when a discount date is set"
+            )
+
+    _validate_merged_discount(merged_percent, merged_starts, merged_ends)
+    return {
+        "discount_percent": merged_percent,
+        "discount_starts_at": merged_starts,
+        "discount_ends_at": merged_ends,
+    }
 
 
 def _annotate_admin_one(product: dict, now: str | None = None) -> dict:
@@ -412,35 +460,10 @@ def update_product(product_id: str, data: dict) -> dict:
         if existing is None:
             raise NotFoundError(f"Product not found: {product_id}")
 
-        if "discount_percent" in data and data["discount_percent"] is None:
-            # Clearing the discount clears all three fields together.
-            merged_percent = merged_starts = merged_ends = None
-        else:
-            merged_percent = (
-                data["discount_percent"]
-                if "discount_percent" in data
-                else existing["discount_percent"]
-            )
-            merged_starts = (
-                data["discount_starts_at"]
-                if "discount_starts_at" in data
-                else existing["discount_starts_at"]
-            )
-            merged_ends = (
-                data["discount_ends_at"]
-                if "discount_ends_at" in data
-                else existing["discount_ends_at"]
-            )
-            # A date without a resulting percent is invalid.
-            if merged_percent is None and (merged_starts is not None or merged_ends is not None):
-                raise DiscountValidationError(
-                    "discount_percent is required when a discount date is set"
-                )
-
-        _validate_merged_discount(merged_percent, merged_starts, merged_ends)
-        updates["discount_percent"] = merged_percent
-        updates["discount_starts_at"] = merged_starts
-        updates["discount_ends_at"] = merged_ends
+        merged = merge_discount_update(existing, data)
+        updates["discount_percent"] = merged["discount_percent"]
+        updates["discount_starts_at"] = merged["discount_starts_at"]
+        updates["discount_ends_at"] = merged["discount_ends_at"]
 
     if not updates:
         # Nothing to update, just return the existing product
@@ -607,3 +630,197 @@ def get_low_stock_products(threshold: int = 5) -> list[dict]:
         ).fetchall()
     products = _annotate_admin([_row_to_dict(r) for r in rows])
     return product_image_service.attach_image_fields(products)
+
+
+def _resolve_filter_target_ids(conn: sqlite3.Connection, filt: dict) -> list[str]:
+    """Resolve an admin product-list filter descriptor to product IDs.
+
+    Admin scope: all products (active and inactive) unless `is_active` is set.
+    No pagination — every matching product is returned so a bulk/campaign apply
+    can act on the whole match set (the caller enforces the target cap).
+    """
+    conditions: list[str] = []
+    params: list = []
+
+    q = (filt.get("q") or "").strip()
+    if q:
+        conditions.append("(name_en LIKE ? OR name_bg LIKE ? OR id LIKE ?)")
+        like = f"%{q}%"
+        params.extend([like, like, like])
+    if filt.get("category"):
+        conditions.append("category = ?")
+        params.append(filt["category"])
+    if filt.get("is_active") is not None:
+        conditions.append("is_active = ?")
+        params.append(1 if filt["is_active"] else 0)
+    if filt.get("in_stock"):
+        conditions.append("stock > 0")
+
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    rows = conn.execute(
+        f"SELECT id FROM products {where} ORDER BY created_at DESC",  # noqa: S608
+        params,
+    ).fetchall()
+    return [r["id"] for r in rows]
+
+
+def resolve_bulk_target(
+    product_ids: list[str] | None = None,
+    filter: dict | None = None,  # noqa: A002 - matches request field name
+) -> list[str]:
+    """Resolve a bulk/campaign target to a concrete, capped list of product IDs.
+
+    Exactly one of `product_ids` or `filter` must be provided (the request model
+    enforces this; asserted here defensively). Raises `BulkTargetLimitError` if
+    the resolved set exceeds `BULK_DISCOUNT_TARGET_LIMIT` — before any write.
+    """
+    if (product_ids is None) == (filter is None):
+        raise ValueError("exactly one of product_ids or filter must be provided")
+
+    if product_ids is not None:
+        # Preserve order, drop duplicates.
+        resolved = list(dict.fromkeys(product_ids))
+    else:
+        with get_db() as conn:
+            resolved = _resolve_filter_target_ids(conn, filter)
+
+    if len(resolved) > BULK_DISCOUNT_TARGET_LIMIT:
+        raise BulkTargetLimitError(
+            f"target resolves to {len(resolved)} products; limit is {BULK_DISCOUNT_TARGET_LIMIT}"
+        )
+    return resolved
+
+
+def bulk_update_discount(
+    *,
+    operation: Literal["apply", "remove"],
+    product_ids: list[str],
+    discount_percent: int | None = None,
+    discount_starts_at: str | None = None,
+    discount_ends_at: str | None = None,
+) -> dict:
+    """Apply or clear the discount on a resolved list of products.
+
+    Runs on one connection with a per-product SAVEPOINT so a single product's
+    failure (e.g. missing product) rolls back only that product while the rest
+    commit. Reuses `merge_discount_update` for identical rules to the
+    single-product path. Returns
+    `{success_count, failure_count, results: [{id, status, error?}]}`.
+
+    Callers must resolve/cap the target first via `resolve_bulk_target`.
+    """
+    if operation == "apply":
+        # Pass all three keys so the campaign window fully replaces any prior one.
+        patch = {
+            "discount_percent": discount_percent,
+            "discount_starts_at": discount_starts_at,
+            "discount_ends_at": discount_ends_at,
+        }
+    else:  # remove — clearing percent clears all three together
+        patch = {"discount_percent": None}
+
+    results: list[dict] = []
+    success = 0
+
+    with get_db() as conn:
+        for pid in product_ids:
+            conn.execute("SAVEPOINT bulk_item")
+            try:
+                existing = conn.execute(
+                    "SELECT discount_percent, discount_starts_at, discount_ends_at "
+                    "FROM products WHERE id = ?",
+                    (pid,),
+                ).fetchone()
+                if existing is None:
+                    raise NotFoundError(f"Product not found: {pid}")
+
+                merged = merge_discount_update(existing, patch)
+                conn.execute(
+                    "UPDATE products SET discount_percent = ?, discount_starts_at = ?, "
+                    "discount_ends_at = ? WHERE id = ?",
+                    (
+                        merged["discount_percent"],
+                        merged["discount_starts_at"],
+                        merged["discount_ends_at"],
+                        pid,
+                    ),
+                )
+            except (NotFoundError, DiscountValidationError) as e:
+                conn.execute("ROLLBACK TO bulk_item")
+                conn.execute("RELEASE bulk_item")
+                results.append({"id": pid, "status": "failed", "error": str(e)})
+            else:
+                conn.execute("RELEASE bulk_item")
+                results.append({"id": pid, "status": "updated"})
+                success += 1
+
+    return {
+        "success_count": success,
+        "failure_count": len(results) - success,
+        "results": results,
+    }
+
+
+def conservative_clear_discount(targets: list[dict]) -> dict:
+    """Clear a discount only where a product's current fields still match.
+
+    Each target: `{product_id, applied_percent, applied_starts_at, applied_ends_at}`
+    — the values a campaign last wrote. A product is cleared only if its current
+    discount fields still equal those; otherwise it is skipped (it was edited
+    after apply) so a newer manual or campaign discount is never clobbered.
+    Runs with per-product savepoints. Returns the same result shape as
+    `bulk_update_discount`, with `status` in {updated, skipped, failed}.
+    """
+    results: list[dict] = []
+    success = 0
+
+    with get_db() as conn:
+        for t in targets:
+            pid = t["product_id"]
+            conn.execute("SAVEPOINT clear_item")
+            try:
+                row = conn.execute(
+                    "SELECT discount_percent, discount_starts_at, discount_ends_at "
+                    "FROM products WHERE id = ?",
+                    (pid,),
+                ).fetchone()
+                if row is None:
+                    conn.execute("ROLLBACK TO clear_item")
+                    conn.execute("RELEASE clear_item")
+                    results.append({"id": pid, "status": "failed", "error": "Product not found"})
+                    continue
+
+                matches = (
+                    row["discount_percent"] == t["applied_percent"]
+                    and row["discount_starts_at"] == t["applied_starts_at"]
+                    and row["discount_ends_at"] == t["applied_ends_at"]
+                )
+                if not matches:
+                    conn.execute("RELEASE clear_item")
+                    results.append(
+                        {
+                            "id": pid,
+                            "status": "skipped",
+                            "error": "discount changed after campaign apply; left unchanged",
+                        }
+                    )
+                    continue
+
+                conn.execute(
+                    "UPDATE products SET discount_percent = NULL, "
+                    "discount_starts_at = NULL, discount_ends_at = NULL WHERE id = ?",
+                    (pid,),
+                )
+                conn.execute("RELEASE clear_item")
+                results.append({"id": pid, "status": "updated"})
+                success += 1
+            except sqlite3.Error as e:
+                conn.execute("ROLLBACK TO clear_item")
+                conn.execute("RELEASE clear_item")
+                results.append({"id": pid, "status": "failed", "error": str(e)})
+
+    return {
+        "success_count": success,
+        "failure_count": len(results) - success,
+        "results": results,
+    }

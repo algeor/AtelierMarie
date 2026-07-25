@@ -1,26 +1,26 @@
 ## 1. Database schema (`app/database.py`)
 
-- [ ] 1.1 Add `promotion_campaigns` table for campaign metadata, discount fields, status/applied metadata, timestamps
-- [ ] 1.2 Add `promotion_campaign_products` table for campaign target product IDs and last applied discount values
-- [ ] 1.3 Add `site_banners` or equivalent singleton/versioned table for top banner settings
-- [ ] 1.4 Add migration/seed path for existing static announcement copy so the current banner behavior is preserved
+- [x] 1.1 Add `promotion_campaigns` table for campaign metadata, discount fields, status/applied metadata, timestamps
+- [x] 1.2 Add `promotion_campaign_products` table for campaign target product IDs and last applied discount values
+- [x] 1.3 Add `site_banners` or equivalent singleton/versioned table for top banner settings
+- [x] 1.4 Add migration/seed path for existing static announcement copy so the current banner behavior is preserved
 
 ## 2. Promotion models
 
-- [ ] 2.1 Add campaign create/update/list/detail request and response schemas
-- [ ] 2.2 Add campaign target schemas for explicit product IDs and admin product-list filters
-- [ ] 2.3 Add campaign apply/remove response schemas with per-product results
-- [ ] 2.4 Add banner admin request/response schemas
-- [ ] 2.5 Add public localized banner response schema
+- [x] 2.1 Add campaign create/update/list/detail request and response schemas
+- [x] 2.2 Add campaign target schemas for explicit product IDs and admin product-list filters
+- [x] 2.3 Add campaign apply/remove response schemas with per-product results
+- [x] 2.4 Add banner admin request/response schemas
+- [x] 2.5 Add public localized banner response schema
 
 ## 3. Product discount bulk helper (`app/services/product_service.py`)
 
-- [ ] 3.1 Extract reusable single-product discount update logic from `promotional-discounts`
-- [ ] 3.2 Add target resolution for explicit IDs and admin-list filters, excluding pagination
-- [ ] 3.3 Enforce request-level validation before writes: one target source, non-empty target set, max 500 targets, valid discount payload
-- [ ] 3.4 Process product updates in one transaction with per-product savepoints
-- [ ] 3.5 Return per-item `{id, status, error?}` results and aggregate success/failure counts
-- [ ] 3.6 Implement conservative campaign removal: clear only products whose current discount fields still match the campaign's last applied values
+- [x] 3.1 Extract reusable single-product discount update logic from `promotional-discounts`
+- [x] 3.2 Add target resolution for explicit IDs and admin-list filters, excluding pagination
+- [x] 3.3 Enforce request-level validation before writes: one target source, non-empty target set, max 500 targets, valid discount payload
+- [x] 3.4 Process product updates in one transaction with per-product savepoints
+- [x] 3.5 Return per-item `{id, status, error?}` results and aggregate success/failure counts
+- [x] 3.6 Implement conservative campaign removal: clear only products whose current discount fields still match the campaign's last applied values
 
 ## 4. Promotion services and routes
 
