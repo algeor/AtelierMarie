@@ -317,7 +317,6 @@ def _process_contact_row(
         row_id,
         "sent",
         attempts=row["email_attempts"] + 1,
-        error=message_id,
         sent_at=_now_s(),
     )
     log.info("contact_email_sent", recipient=redact_recipient(recipient), message_id=message_id)

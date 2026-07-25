@@ -4,7 +4,7 @@
  * Verifies that key components render correctly in both English and Bulgarian
  * by using the actual message files and next-intl's IntlProvider.
  */
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { NextIntlClientProvider } from "next-intl";
 import enMessages from "@/messages/en.json";
@@ -57,8 +57,13 @@ vi.mock("@/components/auth/UserMenu", () => ({
   UserMenu: () => <div>UserMenu</div>,
 }));
 
+vi.mock("@/lib/api", () => ({
+  submitContact: vi.fn(),
+}));
+
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
+import { ContactForm } from "@/components/contact/ContactForm";
 
 function renderWithLocale(
   ui: React.ReactElement,
@@ -178,5 +183,32 @@ describe("Message file completeness", () => {
   it("locale namespace has changeLanguage in both locales", () => {
     expect(enMessages.locale.changeLanguage).toBeDefined();
     expect(bgMessages.locale.changeLanguage).toBeDefined();
+  });
+});
+
+describe("ContactForm translation rendering", () => {
+  it("renders English field labels and submit button", () => {
+    renderWithLocale(<ContactForm />, "en", enMessages);
+    expect(screen.getByLabelText(/name/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/message/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /send message/i })).toBeInTheDocument();
+  });
+
+  it("renders Bulgarian field labels and submit button", () => {
+    renderWithLocale(<ContactForm />, "bg", bgMessages);
+    // Use exact label text (accessible name includes the trailing " *" from the required span)
+    expect(screen.getByLabelText("Име *")).toBeInTheDocument();
+    expect(screen.getByLabelText("Имейл *")).toBeInTheDocument();
+    expect(screen.getByLabelText("Съобщение *")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /изпрати съобщение/i })).toBeInTheDocument();
+  });
+
+  it("renders Bulgarian validation errors", async () => {
+    renderWithLocale(<ContactForm />, "bg", bgMessages);
+    fireEvent.click(screen.getByRole("button", { name: /изпрати съобщение/i }));
+    expect(await screen.findByText("Името е задължително")).toBeInTheDocument();
+    expect(screen.getByText("Имейлът е задължителен")).toBeInTheDocument();
+    expect(screen.getByText("Съобщението е задължително")).toBeInTheDocument();
   });
 });

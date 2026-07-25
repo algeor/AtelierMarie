@@ -122,11 +122,9 @@ async def test_invalid_locale_returns_422(client):
 
 @pytest.mark.anyio
 async def test_rate_limit_returns_429(client, db):
-    headers = {"x-forwarded-for": "198.51.100.22"}
     for index in range(5):
         response = await client.post(
             "/v1/contact",
-            headers=headers,
             json={
                 "name": f"Mira {index}",
                 "email": f"mira{index}@example.com",
@@ -138,7 +136,6 @@ async def test_rate_limit_returns_429(client, db):
 
     response = await client.post(
         "/v1/contact",
-        headers=headers,
         json={
             "name": "Mira last",
             "email": "mira-last@example.com",

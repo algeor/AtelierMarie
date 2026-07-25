@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { ContactForm } from "@/components/contact/ContactForm";
 import { renderWithIntl } from "@/__tests__/test-utils";
 import { ApiError } from "@/lib/api-client";
@@ -82,5 +82,28 @@ describe("ContactForm", () => {
     expect(screen.getByLabelText(/name/i)).toHaveValue("Mira");
     expect(screen.getByLabelText(/email/i)).toHaveValue("mira@example.com");
     expect(screen.getByLabelText(/message/i)).toHaveValue("Hello");
+  });
+
+  it("disables the submit button while a request is in flight", async () => {
+    let resolve: (value: unknown) => void;
+    submitContactMock.mockImplementation(
+      () => new Promise((res) => { resolve = res; })
+    );
+    renderWithIntl(<ContactForm />);
+
+    fireEvent.change(screen.getByLabelText(/name/i), { target: { value: "Mira" } });
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "mira@example.com" } });
+    fireEvent.change(screen.getByLabelText(/message/i), { target: { value: "Hello" } });
+    fireEvent.click(screen.getByRole("button", { name: /send message/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /sending/i })).toBeDisabled()
+    );
+    expect(submitContactMock).toHaveBeenCalledTimes(1);
+
+    resolve!({ status: "received", message_id: 1 });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /send message/i })).not.toBeDisabled()
+    );
   });
 });
