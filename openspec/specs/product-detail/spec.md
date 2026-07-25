@@ -40,15 +40,19 @@ The system SHALL render a product detail page at /products/[id] showing the prod
 - **THEN** it applies this logic in order: (1) if product not found or fetch throws → `notFound()`; (2) if `is_active === false` → `notFound()`; (3) if `stock === 0` → render page with disabled "Out of Stock" button, NO QuantitySelector; (4) if `stock > 0` → render full page with QuantitySelector + "Add to Cart"
 
 ### Requirement: Product image display with next/image
-The system SHALL render the product image using next/image with responsive sizing appropriate for the detail view.
+The system SHALL render a product image gallery on the detail page using next/image, showing the primary image prominently with the remaining images selectable, all in `sort_order`.
 
-#### Scenario: Large image with correct sizes
-- **WHEN** a product has a non-null `image_url`
-- **THEN** the image renders via next/image with `sizes="(max-width: 1024px) 100vw, 50vw"`, aspect ratio 4:5, and `priority` loading (the product image is always the primary visual content of the page)
+#### Scenario: Gallery with multiple images
+- **WHEN** a product has multiple images
+- **THEN** the primary image renders large (via next/image, `sizes="(max-width: 1024px) 100vw, 50vw"`, aspect ratio 4:5, `priority` loading) and the other images render as selectable thumbnails in `sort_order`; selecting one shows it in the main view
 
-#### Scenario: Gradient placeholder for missing image
-- **WHEN** a product has `image_url` as null OR the image fails to load (404/timeout)
-- **THEN** a large CSS gradient placeholder renders (warm-ivory → dusty-pink, 135deg) with the product name centered in Playfair Display. Uses `role="img"` and `aria-label={product.name}` for accessibility.
+#### Scenario: Single image
+- **WHEN** a product has exactly one image
+- **THEN** that image renders large with no additional thumbnails
+
+#### Scenario: Gradient placeholder for no images
+- **WHEN** a product has no images OR the primary image fails to load (404/timeout)
+- **THEN** a large CSS gradient placeholder renders (warm-ivory → dusty-pink, 135deg) with the product name centered in Playfair Display, using `role="img"` and `aria-label={product.name}`
 
 ### Requirement: Quantity selector
 The system SHALL provide a quantity selector allowing users to choose how many units to add to cart.
