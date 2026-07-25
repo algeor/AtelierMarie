@@ -299,6 +299,27 @@ class TestAdminCSVImport:
         assert 4 in error_rows
 
     @pytest.mark.asyncio
+    async def test_invalid_image_url_skips_row_without_creating_product(self, admin_client):
+        csv_content = (
+            "id,name,price_cents,stock,image_url\n"
+            "bad-image-url,Bad Image URL,2000,10,ftp://evil.com/image.jpg\n"
+        )
+        response = await admin_client.post(
+            "/v1/admin/products/import",
+            files={"file": ("products.csv", csv_content, "text/csv")},
+        )
+
+        body = response.json()
+        assert body["created"] == 0
+        assert body["updated"] == 0
+        assert len(body["errors"]) == 1
+        assert body["errors"][0]["row"] == 2
+        assert "image_url" in body["errors"][0]["message"]
+
+        detail = await admin_client.get("/v1/admin/products/bad-image-url")
+        assert detail.status_code == 404
+
+    @pytest.mark.asyncio
     async def test_missing_required_columns(self, admin_client):
         csv_content = "name,stock\nSome Product,10\n"
         response = await admin_client.post(

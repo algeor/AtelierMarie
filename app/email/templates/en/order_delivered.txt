@@ -1,0 +1,10 @@
+Your Atelier Marie order #{{ order_id_short }} has arrived
+
+Hi {{ customer_name | default("there", true) }},
+
+Your order has been delivered — we hope you love it. Enjoy!
+
+If anything isn't quite right, just reply to this email and we'll help.
+
+With love,
+Atelier Marie

@@ -1,0 +1,16 @@
+Your Atelier Marie order #{{ order_id_short }}
+
+Hi {{ customer_name | default("there", true) }},
+
+Thank you for your order! Here's what you ordered:
+
+{% for item in items %}
+- {{ item.product_name }} × {{ item.quantity }} — {{ item.line_total_display }}
+{% endfor %}
+
+Total: {{ total_display }}
+
+We'll send you another email as soon as your order ships.
+
+With love,
+Atelier Marie

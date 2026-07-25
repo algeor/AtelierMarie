@@ -50,6 +50,7 @@ export default function middleware(request: NextRequest) {
 export const config = {
   // Match all pathnames except:
   // - API routes (_next, api)
+  // - The design-system gallery (lives outside [locale], must not be locale-prefixed)
   // - Static files (images, favicon, etc.)
-  matcher: ["/((?!api|_next|.*\\..*).*)"],
+  matcher: ["/((?!api|_next|design-system|.*\\..*).*)"],
 };

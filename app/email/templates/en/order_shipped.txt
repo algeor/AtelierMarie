@@ -1,0 +1,16 @@
+Your Atelier Marie order #{{ order_id_short }} has shipped
+
+Hi {{ customer_name | default("there", true) }},
+
+Great news — your order is on its way!
+
+Carrier: {{ tracking_carrier }}
+Tracking number: {{ tracking_number }}
+{% if tracking_url %}
+Track your package: {{ tracking_url }}
+{% endif %}
+
+Thank you for shopping with us.
+
+With love,
+Atelier Marie

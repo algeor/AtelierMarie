@@ -20,7 +20,17 @@ class TestProductModels:
             days_to_craft=3,
             price_cents=3200,
             category="Floral",
-            image_url="/static/products/lavender-dream-300ml.webp",
+            images=[
+                {
+                    "id": "image-1",
+                    "image_url": "/static/products/lavender-dream-300ml.webp",
+                    "thumbnail_url": "/static/products/lavender-dream-300ml_thumb.webp",
+                    "sort_order": 0,
+                    "is_primary": True,
+                }
+            ],
+            primary_image_url="/static/products/lavender-dream-300ml.webp",
+            primary_thumbnail_url="/static/products/lavender-dream-300ml_thumb.webp",
             stock=24,
             is_active=True,
             is_featured=True,
@@ -39,7 +49,6 @@ class TestProductModels:
             days_to_craft=None,
             price_cents=1000,
             category=None,
-            image_url=None,
             stock=0,
             is_active=True,
             is_featured=False,
@@ -48,7 +57,8 @@ class TestProductModels:
         )
         assert p.description is None
         assert p.category is None
-        assert p.image_url is None
+        assert p.images == []
+        assert p.primary_image_url is None
 
     def test_create_product_valid(self):
         req = CreateProductRequest(

@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import { getProduct } from "@/lib/api";
-import { ProductImage } from "@/components/products/ProductImage";
+import { ProductGallery } from "@/components/products/ProductGallery";
 import { Badge } from "@/components/ui/Badge";
 import { formatPrice } from "@/lib/utils";
 import { AddToCartSection } from "@/components/products/AddToCartSection";
@@ -49,11 +49,10 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
         {/* Product Image */}
-        <ProductImage
+        <ProductGallery
           name={product.name}
-          imageUrl={product.image_url}
-          sizes="(max-width: 1024px) 100vw, 50vw"
-          priority
+          images={product.images}
+          primaryImageUrl={product.primary_image_url}
         />
 
         {/* Product Details */}

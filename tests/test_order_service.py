@@ -14,6 +14,7 @@ from app.services.order_service import (
     InvalidStateTransitionError,
     OrderNotFoundError,
     ProductUnavailableError,
+    TrackingRequiredError,
     checkout,
     get_order,
     list_orders,
@@ -655,7 +656,14 @@ class TestValidTransitions:
             "SELECT updated_at FROM orders WHERE id = ?", (order_id,)
         ).fetchone()[0]
 
-        result = update_status(conn=conn, order_id=order_id, new_status=to_status)
+        result = update_status(
+            conn=conn,
+            order_id=order_id,
+            new_status=to_status,
+            # Tracking is required on the ship transition (email-notifications).
+            tracking_number="1234567" if to_status == "shipped" else None,
+            tracking_carrier="speedy" if to_status == "shipped" else None,
+        )
         conn.commit()
 
         assert result["status"] == to_status
@@ -851,6 +859,113 @@ class TestUpdateStatusLog:
         assert log_entry["order_id"] == order_id
         assert log_entry["old_status"] == "pending"
         assert log_entry["new_status"] == "confirmed"
+
+
+class TestShippingTracking:
+    """3.6 / 2.3: tracking persistence, required-on-ship, and URL auto-generation."""
+
+    def _confirm(self, conn, session_id):
+        order_id = _create_order_with_status(conn, session_id, "confirmed")
+        return order_id
+
+    def test_ship_with_tracking_persists(self, conn, session_a, products):
+        order_id = self._confirm(conn, session_a)
+        result = update_status(
+            conn=conn,
+            order_id=order_id,
+            new_status="shipped",
+            tracking_number="1234567",
+            tracking_carrier="speedy",
+        )
+        conn.commit()
+        assert result["status"] == "shipped"
+        assert result["tracking_number"] == "1234567"
+        assert result["tracking_carrier"] == "speedy"
+        # URL auto-generated from the known carrier pattern.
+        assert result["tracking_url"] == (
+            "https://www.speedy.bg/en/track-shipment?shipmentNumber=1234567"
+        )
+
+    def test_ship_without_tracking_number_rejected(self, conn, session_a, products):
+        order_id = self._confirm(conn, session_a)
+        with pytest.raises(TrackingRequiredError) as exc:
+            update_status(
+                conn=conn, order_id=order_id, new_status="shipped", tracking_carrier="speedy"
+            )
+        assert "tracking_number" in exc.value.missing
+
+    def test_ship_without_carrier_rejected(self, conn, session_a, products):
+        order_id = self._confirm(conn, session_a)
+        with pytest.raises(TrackingRequiredError) as exc:
+            update_status(conn=conn, order_id=order_id, new_status="shipped", tracking_number="123")
+        assert "tracking_carrier" in exc.value.missing
+
+    def test_custom_url_not_overwritten(self, conn, session_a, products):
+        order_id = self._confirm(conn, session_a)
+        result = update_status(
+            conn=conn,
+            order_id=order_id,
+            new_status="shipped",
+            tracking_number="999",
+            tracking_carrier="other",
+            tracking_url="https://custom.example/track/999",
+        )
+        conn.commit()
+        assert result["tracking_url"] == "https://custom.example/track/999"
+
+    def test_unknown_carrier_no_autogen(self, conn, session_a, products):
+        order_id = self._confirm(conn, session_a)
+        result = update_status(
+            conn=conn,
+            order_id=order_id,
+            new_status="shipped",
+            tracking_number="999",
+            tracking_carrier="other",
+        )
+        conn.commit()
+        assert result["tracking_url"] is None
+
+    @pytest.mark.parametrize(
+        "carrier,number,expected",
+        [
+            ("speedy", "1234567", "https://www.speedy.bg/en/track-shipment?shipmentNumber=1234567"),
+            ("econt", "1234567", "https://www.econt.com/services/track-shipment/1234567"),
+            ("dhl", "1234567", "https://www.dhl.com/en/express/tracking.html?AWB=1234567"),
+            ("fedex", "1234567", "https://www.fedex.com/fedextrack/?trknbr=1234567"),
+            ("other", "1234567", None),
+            (None, "1234567", None),
+            ("speedy", None, None),
+        ],
+    )
+    def test_tracking_url_for(self, carrier, number, expected):
+        from app.constants import tracking_url_for
+
+        assert tracking_url_for(carrier, number) == expected
+
+
+class TestLocaleSnapshot:
+    """2.6: order created with locale 'bg' persists orders.locale = 'bg'."""
+
+    def test_checkout_snapshots_locale(self, conn, session_a, cart_with_items, delivery):
+        order = checkout(
+            conn=conn,
+            session_id=session_a,
+            customer_email="buyer@example.com",
+            delivery=delivery,
+            locale="bg",
+        )
+        assert order["locale"] == "bg"
+        row = conn.execute("SELECT locale FROM orders WHERE id = ?", (order["id"],)).fetchone()
+        assert row["locale"] == "bg"
+
+    def test_checkout_defaults_locale_en(self, conn, session_a, cart_with_items, delivery):
+        order = checkout(
+            conn=conn,
+            session_id=session_a,
+            customer_email="buyer@example.com",
+            delivery=delivery,
+        )
+        assert order["locale"] == "en"
 
 
 class TestBackfillUserId:

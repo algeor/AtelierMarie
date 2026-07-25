@@ -1,0 +1,11 @@
+Your Atelier Marie order #{{ order_id_short }} has been cancelled
+
+Hi {{ customer_name | default("there", true) }},
+
+Your order has been cancelled. A refund of {{ total_display }} is being
+processed and will be returned to your original payment method.
+
+If you have any questions, just reply to this email.
+
+With love,
+Atelier Marie

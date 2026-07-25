@@ -7,6 +7,10 @@ import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
 import { cn, formatPrice } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/Skeleton";
+import {
+  ShipOrderModal,
+  type ShipTrackingInput,
+} from "@/components/admin/ShipOrderModal";
 import type { OrderResponse, OrderStatus } from "@/lib/types";
 
 const STATUS_FILTERS: (OrderStatus | "")[] = [
@@ -63,6 +67,8 @@ export default function AdminOrdersPage() {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  // Order awaiting the shipping form (tracking is required before we ship).
+  const [shippingOrder, setShippingOrder] = useState<OrderResponse | null>(null);
   const isInitialLoad = useRef(true);
 
   useEffect(() => {
@@ -87,20 +93,25 @@ export default function AdminOrdersPage() {
     loadOrders();
   }, [statusFilter, getLocalizedError, t]);
 
-  async function handleStatusChange(order: OrderResponse, newStatus: OrderStatus) {
+  async function handleStatusChange(
+    order: OrderResponse,
+    newStatus: OrderStatus,
+    tracking?: ShipTrackingInput
+  ) {
     const previousStatus = order.status;
     setUpdatingId(order.id);
     setError(null);
 
-    // Optimistic update
+    // Optimistic update (include tracking so the row reflects it immediately)
     setOrders((prev) =>
       prev.map((o) =>
-        o.id === order.id ? { ...o, status: newStatus } : o
+        o.id === order.id ? { ...o, status: newStatus, ...(tracking ?? {}) } : o
       )
     );
 
     try {
-      await updateOrderStatus(order.id, newStatus);
+      await updateOrderStatus(order.id, newStatus, tracking);
+      setShippingOrder(null);
       // Remove order from view if it no longer matches the active filter
       if (statusFilter && newStatus !== statusFilter) {
         setOrders((prev) => prev.filter((o) => o.id !== order.id));
@@ -118,6 +129,16 @@ export default function AdminOrdersPage() {
     } finally {
       setUpdatingId(null);
     }
+  }
+
+  // "shipped" needs tracking data first — open the shipping form instead of
+  // transitioning immediately. Every other transition applies directly.
+  function handleTransitionSelected(order: OrderResponse, newStatus: OrderStatus) {
+    if (newStatus === "shipped") {
+      setShippingOrder(order);
+      return;
+    }
+    handleStatusChange(order, newStatus);
   }
 
   return (
@@ -257,7 +278,7 @@ export default function AdminOrdersPage() {
                         aria-label={t("updateStatusForOrder", { id: order.id.slice(0, 8) })}
                         onChange={(e) => {
                           if (e.target.value) {
-                            handleStatusChange(
+                            handleTransitionSelected(
                               order,
                               e.target.value as OrderStatus
                             );
@@ -284,6 +305,17 @@ export default function AdminOrdersPage() {
           </tbody>
         </table>
       </div>
+
+      {shippingOrder && (
+        <ShipOrderModal
+          orderId={shippingOrder.id}
+          isSubmitting={updatingId === shippingOrder.id}
+          onCancel={() => setShippingOrder(null)}
+          onConfirm={(tracking) =>
+            handleStatusChange(shippingOrder, "shipped", tracking)
+          }
+        />
+      )}
     </div>
   );
 }

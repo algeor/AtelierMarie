@@ -36,7 +36,9 @@ class ProductResponse(BaseModel):
     days_to_craft: int | None = None
     price_cents: int
     category: str | None = None
-    image_url: str | None = None
+    images: list["ProductImage"] = Field(default_factory=list)
+    primary_image_url: str | None = None
+    primary_thumbnail_url: str | None = None
     stock: int
     is_active: bool
     is_featured: bool
@@ -56,7 +58,9 @@ class ProductAdminResponse(BaseModel):
     days_to_craft: int | None = None
     price_cents: int
     category: str | None = None
-    image_url: str | None = None
+    images: list["ProductImage"] = Field(default_factory=list)
+    primary_image_url: str | None = None
+    primary_thumbnail_url: str | None = None
     stock: int
     weight_grams: int
     is_active: bool
@@ -83,6 +87,22 @@ class ProductAdminListResponse(BaseModel):
     total: int
     page: int
     limit: int
+
+
+class ProductImage(BaseModel):
+    """One image belonging to a product gallery."""
+
+    id: str
+    image_url: str
+    thumbnail_url: str
+    sort_order: int
+    is_primary: bool
+
+
+class ReorderProductImagesRequest(BaseModel):
+    """Input for replacing a product gallery's display order."""
+
+    ordered_ids: list[str] = Field(..., min_length=0, max_length=6)
 
 
 class CreateProductRequest(BaseModel):
@@ -126,20 +146,6 @@ class CreateProductRequest(BaseModel):
             msg = "must not be blank (whitespace-only)"
             raise ValueError(msg)
         return stripped if stripped else None
-
-    @field_validator("image_url", mode="before")
-    @classmethod
-    def validate_image_url(cls, v: str | None) -> str | None:
-        """Strip whitespace and validate URL format."""
-        if v is None:
-            return None
-        stripped = v.strip()
-        if not stripped:
-            return None
-        if not stripped.startswith(("http://", "https://", "/")):
-            msg = "must be a valid URL (http://, https://, or relative path)"
-            raise ValueError(msg)
-        return stripped
 
 
 class UpdateProductRequest(BaseModel):
@@ -195,20 +201,6 @@ class UpdateProductRequest(BaseModel):
             msg = "must not be blank (whitespace-only)"
             raise ValueError(msg)
         return stripped if stripped else None
-
-    @field_validator("image_url", mode="before")
-    @classmethod
-    def validate_image_url(cls, v: str | None) -> str | None:
-        """Strip whitespace and validate URL format."""
-        if v is None:
-            return None
-        stripped = v.strip()
-        if not stripped:
-            return None
-        if not stripped.startswith(("http://", "https://", "/")):
-            msg = "must be a valid URL (http://, https://, or relative path)"
-            raise ValueError(msg)
-        return stripped
 
 
 class ProductImportRequest(BaseModel):

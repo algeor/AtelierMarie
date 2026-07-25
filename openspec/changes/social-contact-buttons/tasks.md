@@ -1,48 +1,73 @@
-## 0. Dependency: Shared Email Architecture
+## 0. Dependency Alignment
 
-- [ ] 0.1 Confirm `email-notifications` shared email configuration, provider factory, template renderer, and `app/services/email_service.py` orchestration are implemented or implement the shared pieces first
+- [ ] 0.1 Confirm the `email-integration` / `email-notifications` email foundation is present before implementation: provider factory, console provider, ZeptoMail provider, Jinja2 renderer, and email outbox loop in app lifespan.
+- [ ] 0.2 Confirm the existing order-specific `order_emails` table is not reused for contact messages; contact delivery needs its own contact-shaped durable queue state.
 
-## 1. Backend: Contact Endpoint & Email
+## 1. Backend: Contact Persistence and Models
 
-- [ ] 1.1 Reuse shared email settings from `email-notifications` (`email_provider`, `email_api_key`, `email_from_address`, `email_from_name`, `email_reply_to`, `admin_notification_email`)
-- [ ] 1.2 Create `contact_messages` table in `app/database.py` schema (id, name, email, message, ip_address, created_at, email_sent)
-- [ ] 1.3 Create Pydantic models in `app/models/contact.py` (ContactRequest with honeypot field, ContactResponse)
-- [ ] 1.4 Create `app/services/contact_service.py` — persist message first, expose helper to mark `email_sent` after provider success
-- [ ] 1.5 Extend shared `app/services/email_service.py` with `send_contact_message(message_id)` using the shared provider factory and `contact_message` template
-- [ ] 1.6 Create `app/routes/contact.py` — `POST /v1/contact` with `BackgroundTasks`, rate limiting (5/hour/IP), honeypot check, validation, and background contact email enqueue
-- [ ] 1.7 Register contact router in `app/main.py`
-- [ ] 1.8 Add contact email templates under `app/email/templates/en/contact_message.txt` and `app/email/templates/bg/contact_message.txt`
+- [ ] 1.1 Add `contact_messages` schema to `app/database.py` with message fields plus email delivery state (`email_status`, attempts, next attempt, claim expiry, sent timestamp, error) and indexes for created-at/status.
+- [ ] 1.2 Add idempotent migration support for existing SQLite DBs if the table is missing.
+- [ ] 1.3 Create `app/models/contact.py` with `ContactRequest` (`name`, `email`, `message`, `locale`, hidden `website`) and `ContactResponse` (`status`, `message_id` optional).
+- [ ] 1.4 Apply server-side validation: trim strings, require non-empty name/message, validate email via `EmailStr`, restrict locale to `en|bg`, and enforce reasonable max lengths.
+- [ ] 1.5 Create `app/services/contact_service.py` to persist valid messages and expose the contact email drain/send helpers.
 
-## 2. Backend: Tests
+## 2. Backend: Contact Route and Spam Controls
 
-- [ ] 2.1 Write service tests for `contact_service` — persist, mark email sent, email failure leaves message saved
-- [ ] 2.2 Write route tests — valid submission (201 + background task queued), missing fields (422), invalid email (422), rate limit (429), honeypot bypass
-- [ ] 2.3 Write email service tests — mock shared provider, verify template context, recipient, reply-to, tags, and `email_sent` update
+- [ ] 2.1 Create `app/routes/contact.py` with `POST /v1/contact`.
+- [ ] 2.2 Reject non-JSON submissions consistently with existing state-changing routes.
+- [ ] 2.3 Implement honeypot behavior: non-empty `website` returns HTTP 201 success but does not persist or queue email.
+- [ ] 2.4 Implement SQLite-backed rate limiting: max 5 accepted submissions per IP per rolling hour; return HTTP 429 with a user-safe error when exceeded.
+- [ ] 2.5 Persist the message with `email_status='queued'` in the same DB transaction that accepts the request.
+- [ ] 2.6 Register the contact router in `app/main.py` at `/v1/contact`.
 
-## 3. Frontend: Social Links in Footer
+## 3. Backend: Durable Contact Email Delivery
 
-- [ ] 3.1 Add `NEXT_PUBLIC_INSTAGRAM_URL` and `NEXT_PUBLIC_TIKTOK_URL` to frontend environment config and `.env.local.example`
-- [ ] 3.2 Add Instagram and TikTok SVG icon components (or use existing icon approach)
-- [ ] 3.3 Update Footer component — add Instagram and TikTok icon links with `target="_blank"`, `rel="noopener noreferrer"`, accessible labels, and hover color transition to gold
+- [ ] 3.1 Add `contact_message.txt` Jinja2 templates under `app/email/templates/en/` and `app/email/templates/bg/`.
+- [ ] 3.2 Build contact email context from the `contact_messages` row: submitter name, submitter email, message body, locale, created timestamp, and message id.
+- [ ] 3.3 Send contact notifications to `settings.admin_notification_email`; if unset, mark the row skipped/no-recipient or failed-permanent and log the reason without failing the visitor submission.
+- [ ] 3.4 Send with `reply_to` set to the submitter's email address so the owner can reply directly.
+- [ ] 3.5 Implement `drain_contact_message_emails()` with retry/backoff semantics matching the order email outbox.
+- [ ] 3.6 Claim contact rows before sending (`queued`/`failed` -> `in_flight` with claim expiry) so multiple uvicorn workers cannot send duplicate owner notifications.
+- [ ] 3.7 Integrate contact draining into the existing email outbox loop tick; avoid a second long-running app task unless the existing loop cannot be cleanly reused.
+- [ ] 3.8 Ensure logs redact submitter email and never log full message bodies in production.
 
-## 4. Frontend: Contact Page
+## 4. Backend Tests
 
-- [ ] 4.1 Create localized `/contact` page (`app/[locale]/contact/page.tsx`) with heading, intro text, and form layout
-- [ ] 4.2 Create `ContactForm` client component with name, email, personalized message fields + hidden honeypot field
-- [ ] 4.3 Add client-side validation (required fields, email format) with inline error messages
-- [ ] 4.4 Implement form submission to `POST /v1/contact` with loading state, success message, and error handling
-- [ ] 4.5 Style the contact page with luxury design system (spacing, typography, gold accents)
-- [ ] 4.6 Add Contact form to mock API (`lib/mock-api.ts`) for development without backend
+- [ ] 4.1 Service tests: valid contact persists as queued, honeypot is ignored, rate limit counts recent messages, and max-length validation rejects oversized input.
+- [ ] 4.2 Route tests: 201 valid response, 422 missing/invalid fields, 429 rate limit, non-JSON rejection, and honeypot fake-success.
+- [ ] 4.3 Email drain tests with a recording provider: queued row sends to `ADMIN_NOTIFICATION_EMAIL`, `reply_to` equals submitter email, row becomes sent, and provider failures retry/terminally fail as expected.
+- [ ] 4.4 Concurrency test: two concurrent contact drains for the same queued row produce at most one provider send.
+- [ ] 4.5 Template tests: EN/BG contact templates render subject/body with submitter details and message body.
 
-## 5. Frontend: Footer Update
+## 5. Frontend: Social Links in Footer
 
-- [ ] 5.1 Replace footer "Contact" placeholder link (`#`) with working `/contact` link
-- [ ] 5.2 Add Instagram/TikTok social media section to footer layout (visually separated from nav links)
-- [ ] 5.3 Verify responsive behavior — icon touch targets, layout on mobile/tablet/desktop
+- [ ] 5.1 Add `NEXT_PUBLIC_INSTAGRAM_URL` and `NEXT_PUBLIC_TIKTOK_URL` to `frontend/.env.local.example` with the confirmed Atelier Marie profile URLs.
+- [ ] 5.2 Add a small frontend config/helper for social URLs with defaults matching the confirmed URLs.
+- [ ] 5.3 Add Instagram and TikTok inline SVG icon components (no new icon dependency required) or use an existing local icon pattern if one exists by implementation time.
+- [ ] 5.4 Update `Footer` to render Instagram/TikTok icon links with `target="_blank"`, `rel="noopener noreferrer"`, descriptive `aria-label`s, visible focus states, and 44x44px touch targets.
+- [ ] 5.5 Replace the Contact footer placeholder with the localized `Link href="/contact"`; leave unrelated footer placeholders (such as About) unchanged unless a separate change covers them.
 
-## 6. Integration & Verification
+## 6. Frontend: Contact Page and Form
 
-- [ ] 6.1 End-to-end test: submit contact form → message persisted → contact email queued/sent through shared console or Resend provider
-- [ ] 6.2 Verify rate limiting works across multiple rapid submissions
-- [ ] 6.3 Verify honeypot silently discards bot submissions
-- [ ] 6.4 Verify Layer 2 boundary — contact feature is Layer 1 (no analytics dependencies)
+- [ ] 6.1 Add `app/[locale]/contact/page.tsx` with localized page metadata and restrained storefront styling.
+- [ ] 6.2 Build the contact page as a restrained two-column desktop layout with short contextual copy plus direct email/social links beside the form; stack cleanly on mobile.
+- [ ] 6.3 Add a `ContactForm` client component with name, email, message, hidden `website`, loading state, success state, and non-destructive error state.
+- [ ] 6.4 Style the form using existing storefront conventions: modest heading scale, calm borders, clear focus rings, readable inline errors, and the existing primary button treatment.
+- [ ] 6.5 Add client-side validation matching backend basics: required fields, email format, max lengths, and inline accessible errors.
+- [ ] 6.6 Add `contact` messages to `frontend/messages/en.json` and `frontend/messages/bg.json`.
+- [ ] 6.7 Add TypeScript request/response types and an API facade method that calls `POST /v1/contact`.
+- [ ] 6.8 Add mock API support for contact submission so mock-mode development remains usable.
+
+## 7. Frontend Tests
+
+- [ ] 7.1 Footer tests: Contact link points to `/contact`; Instagram/TikTok links render with confirmed URLs, new-tab/security attributes, and accessible labels.
+- [ ] 7.2 Contact form tests: required/email validation, successful submission clears the form and shows success, backend error preserves entered data, and loading state prevents duplicate submits.
+- [ ] 7.3 i18n rendering tests for English and Bulgarian contact page/form labels and messages.
+- [ ] 7.4 Responsive presentation tests or screenshots: desktop uses the two-column layout, mobile stacks cleanly, and no text/control overlap appears in the contact page or footer.
+
+## 8. Integration Verification
+
+- [ ] 8.1 End-to-end backend flow: submit contact form -> row persisted as queued -> one sweeper tick sends via console/recording provider -> row marked sent.
+- [ ] 8.2 Verify provider outage does not fail the visitor response and the contact row remains retryable.
+- [ ] 8.3 Verify `/contact` redirects through existing locale middleware and `/{locale}/contact` renders for both `en` and `bg`.
+- [ ] 8.4 Verify social links work in desktop and mobile footer layouts.

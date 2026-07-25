@@ -21,7 +21,7 @@ const mockCartState = {
   items: [
     {
       product_id: "lavender-dream",
-      product: { id: "lavender-dream", name: "Lavender Dream", price_cents: 2500, image_url: "/img.jpg", stock: 5 },
+      product: { id: "lavender-dream", name: "Lavender Dream", price_cents: 2500, images: [], primary_image_url: "/img.jpg", primary_thumbnail_url: "/img.jpg", stock: 5 },
       quantity: 1,
       added_at: "2026-01-01T00:00:00Z",
     },
@@ -89,7 +89,7 @@ describe("Checkout Page", () => {
     mockCartState.items = [
       {
         product_id: "lavender-dream",
-        product: { id: "lavender-dream", name: "Lavender Dream", price_cents: 2500, image_url: "/img.jpg", stock: 5 },
+        product: { id: "lavender-dream", name: "Lavender Dream", price_cents: 2500, images: [], primary_image_url: "/img.jpg", primary_thumbnail_url: "/img.jpg", stock: 5 },
         quantity: 1,
         added_at: "2026-01-01T00:00:00Z",
       },
@@ -117,7 +117,7 @@ describe("Checkout Page", () => {
   it("shows 'Email is required' on submit with empty email", async () => {
     renderWithIntl(<CheckoutPage />);
     const submitButtons = screen.getAllByRole("button", { name: /place order/i });
-    fireEvent.click(submitButtons[0]);
+    fireEvent.click(submitButtons[0]!);
     await waitFor(() => {
       expect(screen.getByText("Email is required")).toBeInTheDocument();
     });
@@ -137,6 +137,9 @@ describe("Checkout Page", () => {
       delivery_details: null,
       notes: null,
       items: [{ product_id: "lavender-dream", product_name: "Lavender Dream", price_cents: 2500, quantity: 1 }],
+      tracking_number: null,
+      tracking_carrier: null,
+      tracking_url: null,
       created_at: "2026-07-01T00:00:00Z",
       updated_at: "2026-07-01T00:00:00Z",
     });
@@ -146,7 +149,7 @@ describe("Checkout Page", () => {
     fireEvent.change(emailInput, { target: { value: "test@example.com" } });
 
     const submitButtons = screen.getAllByRole("button", { name: /place order/i });
-    fireEvent.click(submitButtons[0]);
+    fireEvent.click(submitButtons[0]!);
 
     await waitFor(() => {
       expect(mockedCreateOrder).toHaveBeenCalledWith(

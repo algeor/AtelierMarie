@@ -1,4 +1,5 @@
 export { ProductImage } from "./ProductImage";
+export { ProductGallery } from "./ProductGallery";
 export { ProductCard } from "./ProductCard";
 export { ProductGrid } from "./ProductGrid";
 export { CategoryFilter } from "./CategoryFilter";

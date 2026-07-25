@@ -30,6 +30,7 @@ _PNG_MAGIC = b"\x89\x50\x4e\x47"
 
 # Product ID slug format
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*[a-z0-9]$")
+_IMAGE_ID_RE = re.compile(r"^[a-f0-9]{32}$")
 
 
 # --- Exceptions ---
@@ -53,6 +54,10 @@ class ImageProcessingError(ImageServiceError):
 
 class InvalidProductIdError(ImageServiceError):
     """Product ID does not match the required slug format."""
+
+
+class InvalidImageIdError(ImageServiceError):
+    """Image ID does not match the required UUID hex format."""
 
 
 # --- Public Functions ---
@@ -88,7 +93,18 @@ def validate_image_file(file_bytes: bytes, product_id: str) -> None:
         raise InvalidImageTypeError("Unsupported image format. Only JPEG and PNG are accepted.")
 
 
-def process_image(file_bytes: bytes, product_id: str, static_path: str | None = None) -> dict:
+def validate_image_id(image_id: str) -> None:
+    """Validate the per-image UUID hex used in file names."""
+    if not image_id or not _IMAGE_ID_RE.match(image_id):
+        raise InvalidImageIdError(f"Image ID must be a UUID hex string: {image_id!r}")
+
+
+def process_image(
+    file_bytes: bytes,
+    product_id: str,
+    static_path: str | None = None,
+    image_id: str | None = None,
+) -> dict:
     """Process an image: validate with Pillow, strip EXIF, resize, save as WebP.
 
     Creates both a main image and a thumbnail.
@@ -97,6 +113,7 @@ def process_image(file_bytes: bytes, product_id: str, static_path: str | None = 
         file_bytes: Raw file bytes (already validated by validate_image_file).
         product_id: Product slug (already validated).
         static_path: Override for static file directory (defaults to settings).
+        image_id: Optional UUID hex. When supplied, filenames are unique per image.
 
     Returns:
         Dict with image_url and thumbnail_url (relative paths for serving).
@@ -110,6 +127,8 @@ def process_image(file_bytes: bytes, product_id: str, static_path: str | None = 
         raise InvalidProductIdError(
             f"Product ID must match slug format (lowercase alphanumeric + hyphens): {product_id!r}"
         )
+    if image_id is not None:
+        validate_image_id(image_id)
 
     if static_path is None:
         settings = get_settings()
@@ -119,8 +138,9 @@ def process_image(file_bytes: bytes, product_id: str, static_path: str | None = 
     base_dir = (Path(static_path).resolve() / "products").resolve()
     base_dir.mkdir(parents=True, exist_ok=True)
 
-    main_path = (base_dir / f"{product_id}.webp").resolve()
-    thumb_path = (base_dir / f"{product_id}_thumb.webp").resolve()
+    filename_stem = f"{product_id}_{image_id}" if image_id else product_id
+    main_path = (base_dir / f"{filename_stem}.webp").resolve()
+    thumb_path = (base_dir / f"{filename_stem}_thumb.webp").resolve()
 
     # Path traversal prevention: ensure resolved paths are under base_dir
     try:
@@ -177,6 +197,6 @@ def process_image(file_bytes: bytes, product_id: str, static_path: str | None = 
     thumb_img.save(str(thumb_path), format="WEBP", quality=_THUMB_QUALITY)
 
     return {
-        "image_url": f"/static/products/{product_id}.webp",
-        "thumbnail_url": f"/static/products/{product_id}_thumb.webp",
+        "image_url": f"/static/products/{filename_stem}.webp",
+        "thumbnail_url": f"/static/products/{filename_stem}_thumb.webp",
     }

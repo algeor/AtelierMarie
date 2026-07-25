@@ -18,14 +18,13 @@ export default function CreateProductPage() {
       days_to_craft: data.days_to_craft,
       price_cents: data.price_cents,
       category: data.category,
-      image_url: data.image_url || null,
       stock: data.stock,
       weight_grams: data.weight_grams,
       is_active: data.is_active,
       is_featured: data.is_featured,
     });
-    if (data.image_file) {
-      await uploadProductImage(product.id, data.image_file);
+    for (const file of data.image_files) {
+      await uploadProductImage(product.id, file);
     }
   }
 

@@ -62,7 +62,9 @@ const MOCK_PRODUCT: AdminProductResponse = {
   days_to_craft: 3,
   price_cents: 3200,
   category: "Floral",
-  image_url: null,
+  images: [],
+  primary_image_url: null,
+  primary_thumbnail_url: null,
   stock: 24,
   weight_grams: 300,
   is_active: true,
@@ -162,7 +164,7 @@ describe("Admin Products List", () => {
     });
 
     const deactivateButtons = screen.getAllByText("Deactivate");
-    fireEvent.click(deactivateButtons[0]);
+    fireEvent.click(deactivateButtons[0]!);
 
     await waitFor(() => {
       expect(mockedUpdateProduct).toHaveBeenCalledWith("lavender-dreams-300ml", {

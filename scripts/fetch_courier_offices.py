@@ -33,26 +33,43 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
-# Support both `python -m scripts.fetch_courier_offices` and direct execution
-# (`python scripts/fetch_courier_offices.py`). Under direct execution, sys.path[0]
-# is the scripts/ directory, so `from scripts...` fails without this.
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+from pydantic_settings import BaseSettings
 
-from scripts.normalize_econt_office_data import normalize_econt  # noqa: E402
+from scripts.normalize_econt_office_data import normalize_econt
 
 logger = logging.getLogger("fetch_courier_offices")
 
-REPO_ROOT = _REPO_ROOT
+REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = REPO_ROOT / "data"
 
 SPEEDY_URL = "https://api.speedy.bg/v1/location/office"
 ECONT_URL = "https://ee.econt.com/services/Nomenclatures/NomenclaturesService.getOffices.json"
 
 _HTTP_TIMEOUT_S = 30
+
+
+class CourierFetchSettings(BaseSettings):
+    """Credentials for one-off courier office fetches."""
+
+    speedy_username: str = ""
+    speedy_password: str = ""
+    econt_username: str = ""
+    econt_password: str = ""
+
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore",
+    }
+
+
+@lru_cache
+def get_courier_fetch_settings() -> CourierFetchSettings:
+    """Return cached courier fetch settings loaded from environment/.env."""
+    return CourierFetchSettings()
 
 
 def _post_json(url: str, payload: dict) -> dict:
@@ -70,8 +87,9 @@ def _post_json(url: str, payload: dict) -> dict:
 
 def _fetch_speedy() -> dict:
     """Fetch full Speedy office list. Credentials from env."""
-    username = os.environ.get("SPEEDY_USERNAME")
-    password = os.environ.get("SPEEDY_PASSWORD")
+    settings = get_courier_fetch_settings()
+    username = settings.speedy_username
+    password = settings.speedy_password
     if not username or not password:
         raise RuntimeError(
             "SPEEDY_USERNAME and SPEEDY_PASSWORD env vars are required for Speedy fetch"
@@ -124,8 +142,9 @@ def _fetch_econt() -> dict:
     """Fetch full Econt office list. Credentials optional (public endpoint)."""
     # Econt's Nomenclatures endpoint is public but rate-limits anonymous callers.
     # Basic auth is accepted if credentials are set.
-    username = os.environ.get("ECONT_USERNAME")
-    password = os.environ.get("ECONT_PASSWORD")
+    settings = get_courier_fetch_settings()
+    username = settings.econt_username
+    password = settings.econt_password
     req = urllib.request.Request(  # noqa: S310 — HTTPS to trusted host
         ECONT_URL,
         data=b"{}",

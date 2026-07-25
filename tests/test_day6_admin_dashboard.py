@@ -218,50 +218,20 @@ class TestInputValidationEdgeCases:
         assert response.status_code == 422
 
     @pytest.mark.asyncio
-    async def test_invalid_image_url_rejected(self, admin_client):
-        """Image URL that doesn't start with http(s):// or / is rejected."""
+    async def test_created_product_has_empty_gallery(self, admin_client):
+        """Images are managed through dedicated gallery endpoints, not product create."""
         response = await admin_client.post(
             "/v1/admin/products",
             json={
-                "id": "bad-url",
-                "name_en": "Bad URL",
+                "id": "no-image-yet",
+                "name_en": "No Image Yet",
                 "price_cents": 1000,
                 "stock": 5,
-                "image_url": "ftp://evil.com/image.jpg",
-            },
-        )
-        assert response.status_code == 422
-
-    @pytest.mark.asyncio
-    async def test_valid_relative_image_url_accepted(self, admin_client):
-        """Relative URL (starts with /) is accepted."""
-        response = await admin_client.post(
-            "/v1/admin/products",
-            json={
-                "id": "relative-url",
-                "name_en": "Relative URL Product",
-                "price_cents": 1000,
-                "stock": 5,
-                "image_url": "/static/products/relative-url.webp",
             },
         )
         assert response.status_code == 201
-        assert response.json()["image_url"] == "/static/products/relative-url.webp"
-
-    @pytest.mark.asyncio
-    async def test_valid_https_image_url_accepted(self, admin_client):
-        """HTTPS URL is accepted."""
-        response = await admin_client.post(
-            "/v1/admin/products",
-            json={
-                "id": "https-url",
-                "name_en": "HTTPS URL Product",
-                "price_cents": 1000,
-                "stock": 5,
-                "image_url": "https://cdn.example.com/image.webp",
-            },
-        )
-        assert response.status_code == 201
+        assert response.json()["images"] == []
+        assert response.json()["primary_image_url"] is None
 
     @pytest.mark.asyncio
     async def test_invalid_product_id_pattern(self, admin_client):

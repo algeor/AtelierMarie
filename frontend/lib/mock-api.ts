@@ -14,6 +14,8 @@ import type {
   CommentListResponse,
   CommentResponse,
   CommentSort,
+  ContactRequest,
+  ContactResponse,
   Courier,
   CreateOrderRequest,
   CreateProductRequest,
@@ -24,6 +26,7 @@ import type {
   OrderResponse,
   OrderStatus,
   ProductListResponse,
+  ProductImage,
   ProductResponse,
   ReactionCountsResponse,
   ReactionToggleRequest,
@@ -32,6 +35,7 @@ import type {
   UserResponse,
 } from "./types";
 import { ApiError } from "./api-client";
+import { buildTrackingUrl } from "./tracking";
 
 // --- Helpers ---
 
@@ -64,6 +68,24 @@ function toPublicProduct(product: MockProduct): ProductResponse {
   return pub;
 }
 
+function mockProductImage(productId: string, sortOrder = 0, isPrimary = true): ProductImage {
+  return {
+    id: `${productId}-${sortOrder}`,
+    image_url: `/static/products/${productId}.webp`,
+    thumbnail_url: `/static/products/${productId}_thumb.webp`,
+    sort_order: sortOrder,
+    is_primary: isPrimary,
+  };
+}
+
+function primaryImageUrl(images: ProductImage[]): string | null {
+  return images.find((image) => image.is_primary)?.image_url ?? null;
+}
+
+function primaryThumbnailUrl(images: ProductImage[]): string | null {
+  return images.find((image) => image.is_primary)?.thumbnail_url ?? null;
+}
+
 const MOCK_PRODUCTS: MockProduct[] = [
   {
     id: "lavender-dreams-300ml",
@@ -73,7 +95,9 @@ const MOCK_PRODUCTS: MockProduct[] = [
     days_to_craft: 3,
     price_cents: 3200,
     category: "Floral",
-    image_url: "/static/products/lavender-dreams-300ml.webp",
+    images: [mockProductImage("lavender-dreams-300ml")],
+    primary_image_url: "/static/products/lavender-dreams-300ml.webp",
+    primary_thumbnail_url: "/static/products/lavender-dreams-300ml_thumb.webp",
     stock: 24,
     weight_grams: 300,
     is_active: true,
@@ -89,7 +113,9 @@ const MOCK_PRODUCTS: MockProduct[] = [
     days_to_craft: 5,
     price_cents: 4500,
     category: "Woody",
-    image_url: "/static/products/midnight-amber-300ml.webp",
+    images: [mockProductImage("midnight-amber-300ml")],
+    primary_image_url: "/static/products/midnight-amber-300ml.webp",
+    primary_thumbnail_url: "/static/products/midnight-amber-300ml_thumb.webp",
     stock: 12,
     weight_grams: 450,
     is_active: true,
@@ -105,7 +131,9 @@ const MOCK_PRODUCTS: MockProduct[] = [
     days_to_craft: 2,
     price_cents: 2800,
     category: "Fresh",
-    image_url: null,
+    images: [],
+    primary_image_url: null,
+    primary_thumbnail_url: null,
     stock: 36,
     weight_grams: 250,
     is_active: true,
@@ -121,7 +149,9 @@ const MOCK_PRODUCTS: MockProduct[] = [
     days_to_craft: null,
     price_cents: 3800,
     category: "Gourmand",
-    image_url: "/static/products/vanilla-bourbon-300ml.webp",
+    images: [mockProductImage("vanilla-bourbon-300ml")],
+    primary_image_url: "/static/products/vanilla-bourbon-300ml.webp",
+    primary_thumbnail_url: "/static/products/vanilla-bourbon-300ml_thumb.webp",
     stock: 0,
     weight_grams: 500,
     is_active: false,
@@ -202,6 +232,17 @@ export async function getProducts(
     page,
     limit,
   };
+}
+
+export async function submitContact(
+  data: ContactRequest
+): Promise<ContactResponse> {
+  await delay();
+  if (data.website?.trim()) return { status: "received", message_id: null };
+  if (!data.name.trim() || !data.email.trim() || !data.message.trim()) {
+    mockError("VALIDATION_ERROR", "Please check your input and try again");
+  }
+  return { status: "received", message_id: Date.now() };
 }
 
 export async function getProduct(
@@ -358,6 +399,9 @@ export async function createOrder(
       price_cents: item.product.price_cents,
       quantity: item.quantity,
     })),
+    tracking_number: null,
+    tracking_carrier: null,
+    tracking_url: null,
     created_at: now,
     updated_at: now,
   };
@@ -444,6 +488,9 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
       { product_id: "lavender-dreams-300ml", product_name: "Lavender Dreams", price_cents: 3200, quantity: 1 },
       { product_id: "midnight-amber-300ml", product_name: "Midnight Amber", price_cents: 4500, quantity: 1 },
     ],
+    tracking_number: null,
+    tracking_carrier: null,
+    tracking_url: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -470,6 +517,9 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     items: [
       { product_id: "citrus-garden-200ml", product_name: "Citrus Garden", price_cents: 2800, quantity: 2 },
     ],
+    tracking_number: null,
+    tracking_carrier: null,
+    tracking_url: null,
     created_at: new Date(Date.now() - 86400000).toISOString(),
     updated_at: new Date(Date.now() - 43200000).toISOString(),
   },
@@ -494,6 +544,9 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     items: [
       { product_id: "lavender-dreams-300ml", product_name: "Lavender Dreams", price_cents: 3200, quantity: 1 },
     ],
+    tracking_number: "1234567890",
+    tracking_carrier: "speedy",
+    tracking_url: "https://www.speedy.bg/en/track-shipment?shipmentNumber=1234567890",
     created_at: new Date(Date.now() - 172800000).toISOString(),
     updated_at: new Date(Date.now() - 86400000).toISOString(),
   },
@@ -518,6 +571,9 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     items: [
       { product_id: "midnight-amber-300ml", product_name: "Midnight Amber", price_cents: 4500, quantity: 2 },
     ],
+    tracking_number: "JD014600003922222222",
+    tracking_carrier: "dhl",
+    tracking_url: "https://www.dhl.com/en/express/tracking.html?AWB=JD014600003922222222",
     created_at: new Date(Date.now() - 604800000).toISOString(),
     updated_at: new Date(Date.now() - 259200000).toISOString(),
   },
@@ -554,7 +610,9 @@ function toAdminProduct(product: MockProduct): AdminProductResponse {
     days_to_craft: product.days_to_craft,
     price_cents: product.price_cents,
     category: product.category,
-    image_url: product.image_url,
+    images: product.images,
+    primary_image_url: product.primary_image_url,
+    primary_thumbnail_url: product.primary_thumbnail_url,
     stock: product.stock,
     weight_grams: product.weight_grams,
     is_active: product.is_active,
@@ -601,7 +659,9 @@ export async function createProduct(data: CreateProductRequest): Promise<AdminPr
     days_to_craft: data.days_to_craft ?? null,
     price_cents: data.price_cents,
     category: data.category,
-    image_url: data.image_url ?? null,
+    images: [],
+    primary_image_url: null,
+    primary_thumbnail_url: null,
     stock: data.stock,
     weight_grams: data.weight_grams ?? 300,
     is_active: data.is_active ?? true,
@@ -627,7 +687,6 @@ export async function updateProduct(
   if (data.days_to_craft !== undefined) product.days_to_craft = data.days_to_craft;
   if (data.price_cents !== undefined) product.price_cents = data.price_cents;
   if (data.category !== undefined) product.category = data.category;
-  if (data.image_url !== undefined) product.image_url = data.image_url;
   if (data.stock !== undefined) product.stock = data.stock;
   if (data.weight_grams !== undefined) product.weight_grams = data.weight_grams;
   if (data.is_active !== undefined) product.is_active = data.is_active;
@@ -646,13 +705,75 @@ export async function uploadProductImage(
   if (!/^image\/(jpeg|png)$/.test(file.type)) {
     mockError("invalid_image_type", "Only JPEG and PNG images are accepted");
   }
-  const imageUrl = `/static/products/${productId}.webp`;
-  product.image_url = imageUrl;
-  product.updated_at = new Date().toISOString();
-  return {
+  if (product.images.length >= 6) {
+    mockError("max_product_images", "Product already has the maximum number of images");
+  }
+  const imageId = `${productId}-${Date.now()}`;
+  const imageUrl = `/static/products/${productId}_${imageId}.webp`;
+  const image: ProductImage = {
+    id: imageId,
     image_url: imageUrl,
-    thumbnail_url: `/static/products/${productId}_thumb.webp`,
+    thumbnail_url: `/static/products/${productId}_${imageId}_thumb.webp`,
+    sort_order: product.images.length,
+    is_primary: product.images.length === 0,
   };
+  product.images.push(image);
+  product.primary_image_url = primaryImageUrl(product.images);
+  product.primary_thumbnail_url = primaryThumbnailUrl(product.images);
+  product.updated_at = new Date().toISOString();
+  return image;
+}
+
+export async function deleteProductImage(productId: string, imageId: string): Promise<void> {
+  await delay();
+  const product = MOCK_PRODUCTS.find((p) => p.id === productId);
+  if (!product) mockError("product_not_found", `Product ${productId} not found`);
+  const image = product.images.find((item) => item.id === imageId);
+  if (!image) mockError("image_not_found", `Image ${imageId} not found`);
+  product.images = product.images.filter((item) => item.id !== imageId);
+  if (image.is_primary && product.images.length > 0) {
+    product.images = product.images.map((item, index) => ({ ...item, is_primary: index === 0 }));
+  }
+  product.images = product.images.map((item, index) => ({ ...item, sort_order: index }));
+  product.primary_image_url = primaryImageUrl(product.images);
+  product.primary_thumbnail_url = primaryThumbnailUrl(product.images);
+}
+
+export async function reorderProductImages(
+  productId: string,
+  orderedIds: string[]
+): Promise<ProductImage[]> {
+  await delay();
+  const product = MOCK_PRODUCTS.find((p) => p.id === productId);
+  if (!product) mockError("product_not_found", `Product ${productId} not found`);
+  if (new Set(orderedIds).size !== product.images.length) {
+    mockError("invalid_image_order", "ordered_ids must match all images for the product");
+  }
+  product.images = orderedIds.map((id, index) => {
+    const image = product.images.find((item) => item.id === id);
+    if (!image) mockError("invalid_image_order", "ordered_ids must match all images for the product");
+    return { ...image, sort_order: index };
+  });
+  return product.images;
+}
+
+export async function setPrimaryProductImage(
+  productId: string,
+  imageId: string
+): Promise<ProductImage> {
+  await delay();
+  const product = MOCK_PRODUCTS.find((p) => p.id === productId);
+  if (!product) mockError("product_not_found", `Product ${productId} not found`);
+  let primary: ProductImage | undefined;
+  product.images = product.images.map((image) => {
+    const next = { ...image, is_primary: image.id === imageId };
+    if (next.is_primary) primary = next;
+    return next;
+  });
+  if (!primary) mockError("image_not_found", `Image ${imageId} not found`);
+  product.primary_image_url = primaryImageUrl(product.images);
+  product.primary_thumbnail_url = primaryThumbnailUrl(product.images);
+  return primary;
 }
 
 export async function getAdminOrders(
@@ -675,9 +796,22 @@ export async function getAdminOrders(
   };
 }
 
+export async function getAdminOrder(orderId: string): Promise<OrderResponse> {
+  await delay();
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders];
+  const order = allOrders.find((o) => o.id === orderId);
+  if (!order) mockError("NOT_FOUND", `Order ${orderId} not found`);
+  return order;
+}
+
 export async function updateOrderStatus(
   orderId: string,
-  status: OrderStatus
+  status: OrderStatus,
+  tracking?: {
+    tracking_number?: string;
+    tracking_carrier?: string;
+    tracking_url?: string;
+  }
 ): Promise<OrderResponse> {
   await delay();
   const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders];
@@ -694,6 +828,20 @@ export async function updateOrderStatus(
 
   if (!validTransitions[order.status].includes(status)) {
     mockError("VALIDATION_ERROR", `Cannot transition from ${order.status} to ${status}`);
+  }
+
+  if (status === "shipped") {
+    if (!tracking?.tracking_number || !tracking?.tracking_carrier) {
+      mockError(
+        "TRACKING_REQUIRED",
+        "tracking_number and tracking_carrier are required when shipping"
+      );
+    }
+    order.tracking_number = tracking.tracking_number;
+    order.tracking_carrier = tracking.tracking_carrier;
+    order.tracking_url =
+      tracking.tracking_url ??
+      buildTrackingUrl(tracking.tracking_carrier, tracking.tracking_number);
   }
 
   order.status = status;

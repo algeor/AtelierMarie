@@ -3,7 +3,14 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { getAdminProduct, updateProduct, uploadProductImage } from "@/lib/api";
+import {
+  deleteProductImage,
+  getAdminProduct,
+  reorderProductImages,
+  setPrimaryProductImage,
+  updateProduct,
+  uploadProductImage,
+} from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
 import { ProductForm, type ProductFormData } from "@/components/admin/ProductForm";
@@ -38,14 +45,22 @@ export default function EditProductPage() {
       days_to_craft: data.days_to_craft,
       price_cents: data.price_cents,
       category: data.category,
-      image_url: data.image_url || null,
       stock: data.stock,
       weight_grams: data.weight_grams,
       is_active: data.is_active,
       is_featured: data.is_featured,
     });
-    if (data.image_file) {
-      await uploadProductImage(productId, data.image_file);
+    for (const imageId of data.deleted_image_ids) {
+      await deleteProductImage(productId, imageId);
+    }
+    if (data.ordered_image_ids.length > 0) {
+      await reorderProductImages(productId, data.ordered_image_ids);
+    }
+    if (data.primary_image_id) {
+      await setPrimaryProductImage(productId, data.primary_image_id);
+    }
+    for (const file of data.image_files) {
+      await uploadProductImage(productId, file);
     }
   }
 

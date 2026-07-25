@@ -14,6 +14,8 @@ import type {
   CommentListResponse,
   CommentResponse,
   CommentSort,
+  ContactRequest,
+  ContactResponse,
   Courier,
   CreateOrderRequest,
   CreateProductRequest,
@@ -28,6 +30,7 @@ import type {
   ReactionCountsResponse,
   ReactionToggleRequest,
   ReactionToggleResponse,
+  ProductImage,
   UpdateProductRequest,
   UserResponse,
 } from "./types";
@@ -184,6 +187,15 @@ export async function logout(): Promise<void> {
   await apiClient.post<void>("/v1/auth/logout");
 }
 
+// --- Contact ---
+
+export async function submitContact(
+  data: ContactRequest
+): Promise<ContactResponse> {
+  if (USE_MOCK) return (await getMock()).submitContact(data);
+  return apiClient.post<ContactResponse>("/v1/contact", data);
+}
+
 // --- Admin ---
 
 export async function getAdminStats(): Promise<AdminStats> {
@@ -229,8 +241,40 @@ export async function uploadProductImage(
   const formData = new FormData();
   formData.append("file", file);
   return apiClient.postForm<ImageUploadResponse>(
-    `/v1/admin/products/${encodeURIComponent(productId)}/image`,
+    `/v1/admin/products/${encodeURIComponent(productId)}/images`,
     formData
+  );
+}
+
+export async function deleteProductImage(
+  productId: string,
+  imageId: string
+): Promise<void> {
+  if (USE_MOCK) return (await getMock()).deleteProductImage(productId, imageId);
+  return apiClient.del<void>(
+    `/v1/admin/products/${encodeURIComponent(productId)}/images/${encodeURIComponent(imageId)}`
+  );
+}
+
+export async function reorderProductImages(
+  productId: string,
+  orderedIds: string[]
+): Promise<ProductImage[]> {
+  if (USE_MOCK) return (await getMock()).reorderProductImages(productId, orderedIds);
+  return apiClient.patch<ProductImage[]>(
+    `/v1/admin/products/${encodeURIComponent(productId)}/images/reorder`,
+    { ordered_ids: orderedIds }
+  );
+}
+
+export async function setPrimaryProductImage(
+  productId: string,
+  imageId: string
+): Promise<ProductImage> {
+  if (USE_MOCK) return (await getMock()).setPrimaryProductImage(productId, imageId);
+  return apiClient.patch<ProductImage>(
+    `/v1/admin/products/${encodeURIComponent(productId)}/images/${encodeURIComponent(imageId)}/primary`,
+    {}
   );
 }
 
@@ -247,12 +291,17 @@ export async function getAdminOrders(
 
 export async function updateOrderStatus(
   orderId: string,
-  status: OrderStatus
+  status: OrderStatus,
+  tracking?: {
+    tracking_number?: string;
+    tracking_carrier?: string;
+    tracking_url?: string;
+  }
 ): Promise<OrderResponse> {
-  if (USE_MOCK) return (await getMock()).updateOrderStatus(orderId, status);
+  if (USE_MOCK) return (await getMock()).updateOrderStatus(orderId, status, tracking);
   return apiClient.patch<OrderResponse>(
     `/v1/admin/orders/${encodeURIComponent(orderId)}/status`,
-    { status }
+    { status, ...tracking }
   );
 }
 

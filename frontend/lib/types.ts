@@ -15,7 +15,30 @@ export interface ErrorResponse {
   error: ErrorDetail;
 }
 
+// --- Contact ---
+
+export interface ContactRequest {
+  name: string;
+  email: string;
+  message: string;
+  locale: "en" | "bg";
+  website?: string;
+}
+
+export interface ContactResponse {
+  status: "received";
+  message_id: number | null;
+}
+
 // --- Products ---
+
+export interface ProductImage {
+  id: string;
+  image_url: string;
+  thumbnail_url: string;
+  sort_order: number;
+  is_primary: boolean;
+}
 
 export interface ProductResponse {
   id: string;
@@ -25,7 +48,9 @@ export interface ProductResponse {
   days_to_craft: number | null;
   price_cents: number;
   category: string | null;
-  image_url: string | null;
+  images: ProductImage[];
+  primary_image_url: string | null;
+  primary_thumbnail_url: string | null;
   stock: number;
   is_active: boolean;
   is_featured: boolean;
@@ -84,6 +109,9 @@ export interface OrderResponse {
   delivery_details: DeliveryOffice | DeliveryDoor | null;
   notes: string | null;
   items: OrderItemResponse[];
+  tracking_number: string | null;
+  tracking_carrier: string | null;
+  tracking_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -143,6 +171,9 @@ export interface CreateOrderRequest {
 
 export interface UpdateOrderStatusRequest {
   status: OrderStatus;
+  tracking_number?: string;
+  tracking_carrier?: string;
+  tracking_url?: string;
 }
 
 // --- Users ---
@@ -181,7 +212,9 @@ export interface AdminProductResponse {
   days_to_craft: number | null;
   price_cents: number;
   category: string | null;
-  image_url: string | null;
+  images: ProductImage[];
+  primary_image_url: string | null;
+  primary_thumbnail_url: string | null;
   stock: number;
   weight_grams: number;
   is_active: boolean;
@@ -209,7 +242,6 @@ export interface CreateProductRequest {
   days_to_craft?: number | null;
   price_cents: number;
   category: string;
-  image_url?: string | null;
   stock: number;
   weight_grams?: number;
   is_active?: boolean;
@@ -225,17 +257,13 @@ export interface UpdateProductRequest {
   days_to_craft?: number | null;
   price_cents?: number;
   category?: string;
-  image_url?: string | null;
   stock?: number;
   weight_grams?: number;
   is_active?: boolean;
   is_featured?: boolean;
 }
 
-export interface ImageUploadResponse {
-  image_url: string;
-  thumbnail_url: string;
-}
+export type ImageUploadResponse = ProductImage;
 
 // --- Reactions ---
 

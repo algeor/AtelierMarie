@@ -34,7 +34,35 @@
   },
   "footer": {
     "handcrafted": "Handcrafted with love",
-    "copyright": "© {year} Atelier Marie. All rights reserved."
+    "copyright": "© {year} Atelier Marie. All rights reserved.",
+    "socialLinks": "Social links",
+    "instagram": "Follow Atelier Marie on Instagram",
+    "tiktok": "Follow Atelier Marie on TikTok"
+  },
+  "contact": {
+    "eyebrow": "Atelier Marie",
+    "title": "Contact",
+    "intro": "For custom candles, order questions, or a thoughtful gift, send a short note and we will reply from the atelier inbox.",
+    "emailLabel": "Email",
+    "socialLabel": "Social",
+    "name": "Name",
+    "namePlaceholder": "Your name",
+    "nameRequired": "Name is required",
+    "nameTooLong": "Name is too long",
+    "email": "Email",
+    "emailPlaceholder": "your@email.com",
+    "emailRequired": "Email is required",
+    "emailTooLong": "Email address is too long",
+    "emailInvalid": "Please enter a valid email address",
+    "message": "Message",
+    "messagePlaceholder": "Tell us what you need...",
+    "messageHelp": "Include product names, timing, or delivery questions if relevant.",
+    "messageRequired": "Message is required",
+    "messageTooLong": "Message is too long",
+    "submit": "Send message",
+    "submitting": "Sending...",
+    "success": "Thank you. We will get back to you soon.",
+    "genericError": "Something went wrong. Please try again later."
   },
   "auth": {
     "signIn": "Sign In",
@@ -217,7 +245,10 @@
       "shipped": "Shipped",
       "delivered": "Delivered",
       "cancelled": "Cancelled"
-    }
+    },
+    "carrier": "Carrier",
+    "trackingNumber": "Tracking number",
+    "trackPackage": "Track your package"
   },
   "admin": {
     "title": "Admin",
@@ -294,9 +325,13 @@
     "category": "Category",
     "selectCategory": "Select category...",
     "imageUrl": "Image URL",
-    "productImage": "Product image",
+    "productImage": "Product images",
     "currentImage": "Current image: {url}",
     "selectedFile": "Selected: {name}",
+    "selectedFiles": "{count} file(s) selected",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "setPrimary": "Primary",
     "materials": "Materials",
     "materialsPlaceholder": "e.g., Soy wax, lavender oil",
     "daysToCraft": "Days to Craft",
@@ -314,7 +349,8 @@
       "stockNonNegative": "Stock cannot be negative",
       "weightRange": "Weight must be between 1 and 100000 grams",
       "imageType": "Image must be a JPEG or PNG file",
-      "imageSize": "Image must be 5MB or smaller"
+      "imageSize": "Image must be 5MB or smaller",
+      "maxImages": "A product can have up to 6 images"
     },
     "errors": {
       "saveProduct": "Failed to save product",
@@ -324,6 +360,18 @@
       "loadProducts": "Failed to load products",
       "updateProduct": "Failed to update product",
       "loadProduct": "Failed to load product"
+    },
+    "ship": {
+      "title": "Ship order",
+      "trackingNumber": "Tracking number",
+      "carrier": "Carrier",
+      "trackingUrl": "Tracking URL",
+      "urlAuto": "Auto-generated from carrier + number",
+      "urlPreview": "Link preview",
+      "customUrlPlaceholder": "https://…",
+      "cancel": "Cancel",
+      "confirm": "Mark as shipped",
+      "trackingRequired": "Tracking number is required"
     }
   },
   "locale": {

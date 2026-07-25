@@ -12,7 +12,7 @@ from typing import Literal, TypedDict
 
 import structlog
 
-from app.constants import MAX_LIMIT, MAX_PAGE
+from app.constants import MAX_LIMIT, MAX_PAGE, STATUS_TO_EMAIL_EVENT, tracking_url_for
 from app.models.delivery import DeliveryInfo
 from app.models.orders import OrderStatus
 
@@ -94,6 +94,20 @@ class OrderNotFoundError(OrderServiceError):
         super().__init__(f"Order not found: {order_id}")
 
 
+class TrackingRequiredError(OrderServiceError):
+    """Raised when shipping an order without required tracking data.
+
+    Translated to a 422 with code TRACKING_REQUIRED at the route layer — this
+    lives in the service (not a Pydantic validator) because the requirement is
+    conditional on the target status and must use our error envelope
+    (design Decision 21).
+    """
+
+    def __init__(self, missing: list[str]) -> None:
+        self.missing = missing
+        super().__init__(f"Tracking information required when shipping: {', '.join(missing)}")
+
+
 # ---------------------------------------------------------------------------
 # TypedDict return types
 # ---------------------------------------------------------------------------
@@ -119,6 +133,10 @@ class OrderData(TypedDict):
     delivery_method: str | None
     delivery_courier: str | None
     delivery_details: dict | None
+    tracking_number: str | None
+    tracking_carrier: str | None
+    tracking_url: str | None
+    locale: str
     notes: str | None
     created_at: str
     updated_at: str
@@ -146,6 +164,7 @@ def checkout(
     notes: str | None = None,
     user_id: str | None = None,
     locale: Locale = "en",
+    admin_notification_email: str = "",
 ) -> OrderData:
     """Convert cart to an order atomically.
 
@@ -227,8 +246,8 @@ def checkout(
             INSERT INTO orders (id, session_id, user_id, status, total_cents,
                                customer_email, customer_name,
                                delivery_method, delivery_courier, delivery_details,
-                               notes, created_at, updated_at)
-            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               locale, notes, created_at, updated_at)
+            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 order_id,
@@ -240,6 +259,7 @@ def checkout(
                 delivery.method,
                 delivery_courier,
                 delivery_details_json,
+                locale,
                 notes,
                 now,
                 now,
@@ -292,6 +312,26 @@ def checkout(
             [session_id, *product_ids],
         )
 
+        # 7. Durable outbox intent (email-notifications Decision 25): write the
+        # 'queued' rows in the SAME transaction as the order so the email
+        # handoff survives any crash. The sweeper delivers them; no send here.
+        # Customer "placed" email: status 'pending' maps to event 'placed'
+        # (Decision 19 — never event='pending').
+        placed_event = STATUS_TO_EMAIL_EVENT["pending"]
+        if placed_event is not None:
+            conn.execute(
+                "INSERT INTO order_emails (order_id, event, recipient, status) "
+                "VALUES (?, ?, ?, 'queued')",
+                (order_id, placed_event, customer_email),
+            )
+        # Admin new-order alert rides the same outbox. Empty recipient (no
+        # ADMIN_NOTIFICATION_EMAIL) is queued too; the send path skips it.
+        conn.execute(
+            "INSERT INTO order_emails (order_id, event, recipient, status) "
+            "VALUES (?, 'admin_new_order', ?, 'queued')",
+            (order_id, admin_notification_email or ""),
+        )
+
         conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")
@@ -310,6 +350,10 @@ def checkout(
         delivery_method=delivery.method,
         delivery_courier=delivery_courier,
         delivery_details=json.loads(delivery_details_json) if delivery_details_json else None,
+        tracking_number=None,
+        tracking_carrier=None,
+        tracking_url=None,
+        locale=locale,
         notes=notes,
         created_at=now,
         updated_at=now,
@@ -359,6 +403,7 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
     total_cents = row["total_cents"]
     items_total_cents = total_cents - shipping_cents
 
+    row_keys = row.keys()
     return OrderData(
         id=row["id"],
         session_id=row["session_id"],
@@ -369,9 +414,13 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
         shipping_cents=shipping_cents,
         customer_email=row["customer_email"],
         customer_name=row["customer_name"],
-        delivery_method=row["delivery_method"] if "delivery_method" in row.keys() else None,
-        delivery_courier=row["delivery_courier"] if "delivery_courier" in row.keys() else None,
+        delivery_method=row["delivery_method"] if "delivery_method" in row_keys else None,
+        delivery_courier=row["delivery_courier"] if "delivery_courier" in row_keys else None,
         delivery_details=delivery_details,
+        tracking_number=row["tracking_number"] if "tracking_number" in row_keys else None,
+        tracking_carrier=row["tracking_carrier"] if "tracking_carrier" in row_keys else None,
+        tracking_url=row["tracking_url"] if "tracking_url" in row_keys else None,
+        locale=(row["locale"] if "locale" in row_keys and row["locale"] else "en"),
         notes=row["notes"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
@@ -502,10 +551,16 @@ def update_status(
     conn: sqlite3.Connection,
     order_id: str,
     new_status: OrderStatus,
+    tracking_number: str | None = None,
+    tracking_carrier: str | None = None,
+    tracking_url: str | None = None,
 ) -> OrderData:
     """Update order status with state machine validation.
 
-    Restores stock on cancellation (from pending or confirmed).
+    When transitioning to "shipped", tracking_number and tracking_carrier are
+    required (raises TrackingRequiredError → 422 TRACKING_REQUIRED). tracking_url
+    is auto-generated from a known carrier when not supplied, and persisted
+    alongside the status. Restores stock on cancellation (from pending/confirmed).
     """
     row = conn.execute("SELECT id, status FROM orders WHERE id = ?", (order_id,)).fetchone()
 
@@ -518,11 +573,34 @@ def update_status(
     if new_status not in VALID_TRANSITIONS.get(current_status, set()):
         raise InvalidStateTransitionError(order_id, current_status, new_status)
 
-    # Update status (updated_at handled by trigger)
-    conn.execute(
-        "UPDATE orders SET status = ? WHERE id = ?",
-        (new_status, order_id),
-    )
+    if new_status == "shipped":
+        # Tracking is required on ship; url is optional (auto-generated below).
+        missing = []
+        if not tracking_number:
+            missing.append("tracking_number")
+        if not tracking_carrier:
+            missing.append("tracking_carrier")
+        if missing:
+            raise TrackingRequiredError(missing)
+
+        # Auto-generate the URL from a known carrier when the admin didn't paste one.
+        if not tracking_url:
+            tracking_url = tracking_url_for(tracking_carrier, tracking_number)
+
+        conn.execute(
+            """
+            UPDATE orders
+            SET status = ?, tracking_number = ?, tracking_carrier = ?, tracking_url = ?
+            WHERE id = ?
+            """,
+            (new_status, tracking_number, tracking_carrier, tracking_url, order_id),
+        )
+    else:
+        # Tracking fields are ignored for non-ship transitions (order-tracking spec).
+        conn.execute(
+            "UPDATE orders SET status = ? WHERE id = ?",
+            (new_status, order_id),
+        )
 
     # Restore stock on cancellation
     if new_status == "cancelled":
