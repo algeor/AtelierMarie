@@ -458,8 +458,14 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
         notes=row["notes"],
         payment_method=row["payment_method"] if "payment_method" in row_keys else "cod",
         payment_status=row["payment_status"] if "payment_status" in row_keys else "cod_pending",
-        stripe_checkout_session_id=row["stripe_checkout_session_id"] if "stripe_checkout_session_id" in row_keys else None,
-        stripe_payment_intent_id=row["stripe_payment_intent_id"] if "stripe_payment_intent_id" in row_keys else None,
+        stripe_checkout_session_id=(
+            row["stripe_checkout_session_id"]
+            if "stripe_checkout_session_id" in row_keys else None
+        ),
+        stripe_payment_intent_id=(
+            row["stripe_payment_intent_id"]
+            if "stripe_payment_intent_id" in row_keys else None
+        ),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         items=items,

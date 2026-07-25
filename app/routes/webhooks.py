@@ -94,7 +94,9 @@ async def stripe_webhook(request: Request) -> JSONResponse:
         logger.warning("stripe_webhook_signature_rejected", error=str(exc))
         return JSONResponse(
             status_code=400,
-            content={"error": {"code": "INVALID_SIGNATURE", "message": "Stripe signature rejected"}},
+            content={"error": {
+                "code": "INVALID_SIGNATURE", "message": "Stripe signature rejected",
+            }},
         )
 
     now = _now_str()

@@ -113,7 +113,8 @@ def create_retry_session(
     Raises OrderNotFoundError if the order doesn't exist.
     """
     row = conn.execute(
-        "SELECT id, payment_method, payment_status, total_cents, customer_email FROM orders WHERE id = ?",
+        "SELECT id, payment_method, payment_status, total_cents, customer_email"
+        " FROM orders WHERE id = ?",
         (order_id,),
     ).fetchone()
     if not row:
@@ -169,7 +170,8 @@ def handle_payment_succeeded(
         ).fetchone()
         if order_row:
             conn.execute(
-                "INSERT INTO order_emails (order_id, event, recipient, status) VALUES (?, 'placed', ?, 'queued')",
+                "INSERT INTO order_emails (order_id, event, recipient, status)"
+                " VALUES (?, 'placed', ?, 'queued')",
                 (order_id, order_row["customer_email"]),
             )
         conn.execute("COMMIT")

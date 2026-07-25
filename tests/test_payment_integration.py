@@ -14,14 +14,19 @@ from app.email.renderer import render_template
 from app.models.delivery import DeliveryInfo, DeliveryOffice
 from app.services.order_service import (
     PaymentAlreadyPaidError as BankTransferAlreadyPaidError,
+)
+from app.services.order_service import (
     WrongPaymentMethodError as InvalidPaymentMethodError,
+)
+from app.services.order_service import (
     checkout,
-    get_order_admin as get_order,
     mark_bank_transfer_paid,
     update_status,
 )
+from app.services.order_service import (
+    get_order_admin as get_order,
+)
 from app.services.payment_service import (
-    PaymentAlreadyPaidError,
     handle_payment_succeeded,
     handle_session_expired,
 )
@@ -61,7 +66,8 @@ def delivery() -> DeliveryInfo:
 def _seed_product(conn: sqlite3.Connection, stock: int = 5) -> str:
     pid = f"test-product-{uuid.uuid4().hex[:8]}"
     conn.execute(
-        "INSERT INTO products (id, name_en, price_cents, stock, is_active) VALUES (?, 'Test', 100, ?, 1)",
+        "INSERT INTO products (id, name_en, price_cents, stock, is_active)"
+        " VALUES (?, 'Test', 100, ?, 1)",
         (pid, stock),
     )
     conn.commit()
@@ -274,7 +280,7 @@ class TestHandleSessionExpired:
 @pytest.fixture()
 def stripe_app(tmp_path):
     from app.config import get_settings
-    from app.database import get_db, init_db
+    from app.database import init_db
 
     db_path = str(tmp_path / "test.db")
     init_db(db_path)
@@ -297,7 +303,9 @@ class TestStripeWebhookRoute:
     @pytest.mark.anyio
     async def test_invalid_signature_returns_400(self, stripe_app):
         from httpx import ASGITransport, AsyncClient
-        async with AsyncClient(transport=ASGITransport(app=stripe_app), base_url="http://test") as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=stripe_app), base_url="http://test"
+        ) as client:
             resp = await client.post(
                 "/v1/webhooks/stripe",
                 content=b'{"type":"checkout.session.completed"}',
@@ -311,7 +319,9 @@ class TestStripeWebhookRoute:
         import sys
         import types
 
-        body = json.dumps({"id": "evt_unknown", "type": "some.unknown.event", "data": {"object": {}}}).encode()
+        body = json.dumps({
+            "id": "evt_unknown", "type": "some.unknown.event", "data": {"object": {}},
+        }).encode()
 
         mock_event = {"id": "evt_unknown", "type": "some.unknown.event", "data": {"object": {}}}
 
@@ -322,7 +332,9 @@ class TestStripeWebhookRoute:
 
         with patch.dict(sys.modules, {"stripe": fake_stripe}):
             from httpx import ASGITransport, AsyncClient
-            async with AsyncClient(transport=ASGITransport(app=stripe_app), base_url="http://test") as client:
+            async with AsyncClient(
+                transport=ASGITransport(app=stripe_app), base_url="http://test"
+            ) as client:
                 resp = await client.post(
                     "/v1/webhooks/stripe",
                     content=body,
@@ -352,14 +364,18 @@ class TestAutoCancel:
             conn, session_id=sid, customer_email="x@x.com", customer_name=None,
             delivery=delivery, notes=None, payment_method="card",
         )
-        stock_after_order = conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0]
+        stock_after_order = conn.execute(
+            "SELECT stock FROM products WHERE id = ?", (pid,)
+        ).fetchone()[0]
         old_time = (datetime.now(UTC) - timedelta(hours=25)).strftime(_DT_FMT)
         conn.execute("UPDATE orders SET created_at = ? WHERE id = ?", (old_time, order["id"]))
         conn.commit()
         self._run(conn)
         updated = get_order(conn, order["id"])
         assert updated["status"] == "cancelled"
-        assert conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0] == stock_after_order + 2
+        assert conn.execute(
+            "SELECT stock FROM products WHERE id = ?", (pid,)
+        ).fetchone()[0] == stock_after_order + 2
 
     def test_does_not_cancel_cod_orders(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="cod")

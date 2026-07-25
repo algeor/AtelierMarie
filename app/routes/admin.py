@@ -429,7 +429,9 @@ def admin_list_orders(
             )
 
     with get_db() as conn:
-        result = list_orders_admin(conn=conn, status=status, payment_status=payment_status, page=page, limit=limit)
+        result = list_orders_admin(
+            conn=conn, status=status, payment_status=payment_status, page=page, limit=limit
+        )
 
     return OrderListResponse(
         items=[OrderResponse.model_validate(o) for o in result["items"]],

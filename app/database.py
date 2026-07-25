@@ -100,7 +100,9 @@ CREATE TABLE IF NOT EXISTS orders (
     payment_method  TEXT NOT NULL DEFAULT 'cod'
                     CHECK (payment_method IN ('cod', 'card', 'bank_transfer')),
     payment_status  TEXT NOT NULL DEFAULT 'cod_pending'
-                    CHECK (payment_status IN ('pending', 'paid', 'cod_pending', 'failed', 'refunded')),
+                    CHECK (payment_status IN (
+                        'pending', 'paid', 'cod_pending', 'failed', 'refunded'
+                    )),
     stripe_checkout_session_id TEXT,
     stripe_payment_intent_id   TEXT,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
@@ -554,10 +556,12 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
             "payment_status TEXT NOT NULL DEFAULT 'cod_pending'",
         )
         _add_column_if_missing(
-            conn, "orders", order_columns, "stripe_checkout_session_id", "stripe_checkout_session_id TEXT"
+            conn, "orders", order_columns,
+            "stripe_checkout_session_id", "stripe_checkout_session_id TEXT"
         )
         _add_column_if_missing(
-            conn, "orders", order_columns, "stripe_payment_intent_id", "stripe_payment_intent_id TEXT"
+            conn, "orders", order_columns,
+            "stripe_payment_intent_id", "stripe_payment_intent_id TEXT"
         )
 
 

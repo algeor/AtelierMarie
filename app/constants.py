@@ -42,7 +42,9 @@ PaymentStatus = Literal["pending", "paid", "cod_pending", "failed", "refunded"]
 # Extension point: 'payment_pending' is NOT an order status — it's a
 # payment-lifecycle event queued at order creation for card/bank_transfer
 # orders instead of 'placed'. The sweeper treats it identically to other events.
-EmailEvent = Literal["placed", "shipped", "delivered", "cancelled", "admin_new_order", "payment_pending"]
+EmailEvent = Literal[
+    "placed", "shipped", "delivered", "cancelled", "admin_new_order", "payment_pending"
+]
 
 # OrderStatus → EmailEvent. None means "no customer email for this transition".
 # NOTE: status "pending" maps to event "placed" for COD orders; card/bank_transfer
