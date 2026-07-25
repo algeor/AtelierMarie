@@ -117,7 +117,6 @@ class CreateProductRequest(BaseModel):
     days_to_craft: int | None = Field(default=None, ge=0, le=MAX_DAYS_TO_CRAFT)
     price_cents: int = Field(..., gt=0, le=99_999_99)
     category: str | None = Field(default=None, max_length=MAX_CATEGORY_LENGTH)
-    image_url: str | None = Field(default=None, max_length=MAX_IMAGE_URL_LENGTH)
     stock: int = Field(..., ge=0, le=MAX_STOCK)
     weight_grams: int = Field(default=300, ge=1, le=MAX_WEIGHT_GRAMS)
     is_active: bool = True
@@ -163,7 +162,6 @@ class UpdateProductRequest(BaseModel):
     days_to_craft: int | None = Field(default=None, ge=0, le=MAX_DAYS_TO_CRAFT)
     price_cents: int | None = Field(default=None, gt=0, le=99_999_99)
     category: str | None = Field(default=None, max_length=MAX_CATEGORY_LENGTH)
-    image_url: str | None = Field(default=None, max_length=MAX_IMAGE_URL_LENGTH)
     stock: int | None = Field(default=None, ge=0, le=MAX_STOCK)
     weight_grams: int | None = Field(default=None, ge=1, le=MAX_WEIGHT_GRAMS)
     is_active: bool | None = None

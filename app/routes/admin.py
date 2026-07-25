@@ -452,10 +452,10 @@ async def admin_import_products(
             if len((row.get(column) or "").strip()) > max_length:
                 row_errors.append(f"{column} exceeds maximum length ({max_length})")
 
-        image_url: str | None = None
+        imported_image_url: str | None = None
         if "image_url" in headers and row.get("image_url"):
             try:
-                image_url = _parse_csv_image_url(row["image_url"])
+                imported_image_url = _parse_csv_image_url(row["image_url"])
             except ValueError as e:
                 row_errors.append(f"image_url {e}")
 
@@ -487,8 +487,6 @@ async def admin_import_products(
             data["category"] = row["category"].strip()
         if stock is not None:
             data["stock"] = stock
-        if image_url:
-            data["image_url"] = image_url
         if weight_grams is not None:
             data["weight_grams"] = weight_grams
         if days_to_craft is not None:
