@@ -11,6 +11,7 @@ import { formatPrice } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { ProductBulkDiscountBar } from "@/components/admin/promotions/ProductBulkDiscountBar";
 import type { AdminProductResponse } from "@/lib/types";
 
 export default function AdminProductsPage() {
@@ -23,6 +24,7 @@ export default function AdminProductsPage() {
   const [error, setError] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Show success banner from query param
@@ -98,6 +100,23 @@ export default function AdminProductsPage() {
     if (successTimerRef.current) clearTimeout(successTimerRef.current);
   }
 
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelectedIds((prev) =>
+      prev.size === products.length ? new Set() : new Set(products.map((p) => p.id))
+    );
+  }
+
+  const allSelected = products.length > 0 && selectedIds.size === products.length;
+
   return (
     <div>
       <div className="mb-8 flex items-center justify-between">
@@ -136,10 +155,27 @@ export default function AdminProductsPage() {
         </div>
       )}
 
+      {selectedIds.size > 0 && (
+        <ProductBulkDiscountBar
+          selectedIds={Array.from(selectedIds)}
+          onDone={() => {
+            loadProducts();
+          }}
+        />
+      )}
+
       <div className="overflow-x-auto rounded-brand border border-champagne-beige bg-cream">
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="border-b border-champagne-beige bg-champagne-beige/30">
+              <th className="px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleSelectAll}
+                  aria-label={t("promotions.selectAll")}
+                />
+              </th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("name")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("category")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("price")}</th>
@@ -152,6 +188,7 @@ export default function AdminProductsPage() {
             {isLoading ? (
               Array.from({ length: 4 }).map((_, i) => (
                 <tr key={i} className="border-b border-champagne-beige/50">
+                  <td className="px-4 py-3"><Skeleton className="h-4 w-4" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-4 w-32" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-4 w-20" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-4 w-16" /></td>
@@ -162,7 +199,7 @@ export default function AdminProductsPage() {
               ))
             ) : products.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-soft-brown">
+                <td colSpan={7} className="px-4 py-8 text-center text-soft-brown">
                   {t("noProducts")}
                 </td>
               </tr>
@@ -172,6 +209,14 @@ export default function AdminProductsPage() {
                   key={product.id}
                   className="border-b border-champagne-beige/50 last:border-0"
                 >
+                  <td className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(product.id)}
+                      onChange={() => toggleSelected(product.id)}
+                      aria-label={product.name_en}
+                    />
+                  </td>
                   <td className="px-4 py-3 font-medium text-charcoal">
                     {product.name_en}
                   </td>

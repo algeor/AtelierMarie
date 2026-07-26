@@ -264,8 +264,15 @@ def _clean_tables(db_path, app):
         "orders",
         "cart_items",
         "product_images",
+        "promotion_campaign_products",
+        "promotion_campaigns",
     ):
         conn.execute(f"DELETE FROM {table}")  # noqa: S608
+    # Reset the singleton managed banner to its seeded default between tests.
+    conn.execute("DELETE FROM site_banners")
+    from app.database import _seed_site_banner
+
+    _seed_site_banner(conn)
     # Delete sessions except the fake middleware session
     if fake_session_id:
         conn.execute("DELETE FROM sessions WHERE id != ?", (fake_session_id,))

@@ -279,6 +279,125 @@ export interface UpdateProductRequest {
 
 export type ImageUploadResponse = ProductImage;
 
+// --- Promotions (campaigns, bulk discount, managed banner) ---
+
+/** Admin product-list filter descriptor used as a bulk/campaign target. */
+export interface ProductFilter {
+  q?: string | null;
+  category?: string | null;
+  is_active?: boolean | null;
+  in_stock?: boolean | null;
+}
+
+export type BulkOperation = "apply" | "remove";
+export type BulkItemStatus = "updated" | "skipped" | "failed";
+
+export interface BulkResultItem {
+  id: string;
+  status: BulkItemStatus;
+  error?: string | null;
+}
+
+export interface BulkDiscountResponse {
+  success_count: number;
+  failure_count: number;
+  results: BulkResultItem[];
+}
+
+export interface BulkDiscountRequest {
+  operation: BulkOperation;
+  product_ids?: string[] | null;
+  filter?: ProductFilter | null;
+  discount_percent?: number | null;
+  discount_starts_at?: string | null;
+  discount_ends_at?: string | null;
+}
+
+export type CampaignStatus =
+  | "draft"
+  | "scheduled"
+  | "active"
+  | "ended"
+  | "removed";
+
+export interface CampaignResponse {
+  id: string;
+  name: string;
+  note: string | null;
+  discount_percent: number;
+  discount_starts_at: string | null;
+  discount_ends_at: string | null;
+  target_type: "ids" | "filter";
+  target_count: number;
+  status: CampaignStatus;
+  applied_at: string | null;
+  removed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  last_result: BulkDiscountResponse | null;
+}
+
+export interface CampaignListResponse {
+  items: CampaignResponse[];
+  total: number;
+}
+
+export interface CampaignCreateRequest {
+  name: string;
+  note?: string | null;
+  discount_percent: number;
+  discount_starts_at?: string | null;
+  discount_ends_at?: string | null;
+  product_ids?: string[] | null;
+  filter?: ProductFilter | null;
+}
+
+export interface CampaignUpdateRequest {
+  name?: string | null;
+  note?: string | null;
+  discount_percent?: number | null;
+  discount_starts_at?: string | null;
+  discount_ends_at?: string | null;
+  product_ids?: string[] | null;
+  filter?: ProductFilter | null;
+}
+
+export interface BannerAdminResponse {
+  message_en: string | null;
+  message_bg: string | null;
+  link_label_en: string | null;
+  link_label_bg: string | null;
+  link_url: string | null;
+  is_enabled: boolean;
+  starts_at: string | null;
+  ends_at: string | null;
+  version: number;
+  updated_at: string;
+}
+
+export interface BannerUpdateRequest {
+  message_en?: string | null;
+  message_bg?: string | null;
+  link_label_en?: string | null;
+  link_label_bg?: string | null;
+  link_url?: string | null;
+  is_enabled: boolean;
+  starts_at?: string | null;
+  ends_at?: string | null;
+}
+
+/** The single active banner, localized for the requested locale. */
+export interface PublicBanner {
+  message: string;
+  link_label: string | null;
+  link_url: string | null;
+  dismiss_key: string;
+}
+
+export interface PublicBannerResponse {
+  banner: PublicBanner | null;
+}
+
 // --- Reactions ---
 
 export interface ReactionTypeCount {

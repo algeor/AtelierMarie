@@ -8,6 +8,15 @@ import type {
   AdminProductResponse,
   AdminStats,
   AuthTokenResponse,
+  BannerAdminResponse,
+  BannerUpdateRequest,
+  BulkDiscountRequest,
+  BulkDiscountResponse,
+  BulkResultItem,
+  CampaignCreateRequest,
+  CampaignListResponse,
+  CampaignResponse,
+  CampaignUpdateRequest,
   CartItemResponse,
   CartResponse,
   CommentCreateRequest,
@@ -28,6 +37,7 @@ import type {
   ProductListResponse,
   ProductImage,
   ProductResponse,
+  PublicBannerResponse,
   ReactionCountsResponse,
   ReactionToggleRequest,
   ReactionToggleResponse,
@@ -985,4 +995,324 @@ export async function getComments(
   const start = (page - 1) * limit;
   const items = sorted.slice(start, start + limit);
   return { items, total: mockComments.length, page, limit };
+}
+
+// --- Promotions (campaigns, bulk discount, managed banner) ---
+
+interface AppliedTarget {
+  id: string;
+  percent: number | null;
+  starts_at: string | null;
+  ends_at: string | null;
+}
+
+const mockCampaigns: CampaignResponse[] = [];
+const mockAppliedTargets: Map<string, AppliedTarget[]> = new Map();
+
+let mockBanner: BannerAdminResponse = {
+  message_en: "Free shipping on orders over €50 ✨",
+  message_bg: "Безплатна доставка за поръчки над 50€ ✨",
+  link_label_en: null,
+  link_label_bg: null,
+  link_url: null,
+  is_enabled: true,
+  starts_at: null,
+  ends_at: null,
+  version: 1,
+  updated_at: new Date().toISOString(),
+};
+
+function deriveCampaignStatus(c: CampaignResponse): CampaignResponse["status"] {
+  if (c.removed_at) return "removed";
+  if (!c.applied_at) return "draft";
+  const now = new Date().toISOString();
+  if (c.discount_starts_at && now < c.discount_starts_at) return "scheduled";
+  if (c.discount_ends_at && now > c.discount_ends_at) return "ended";
+  return "active";
+}
+
+function resolveMockTargets(
+  productIds: string[] | null | undefined,
+  filter: BulkDiscountRequest["filter"]
+): string[] {
+  if (productIds) return Array.from(new Set(productIds));
+  if (!filter) return [];
+  return MOCK_PRODUCTS.filter((p) => {
+    if (filter.q) {
+      const q = filter.q.toLowerCase();
+      if (!p.name.toLowerCase().includes(q) && !p.id.toLowerCase().includes(q)) return false;
+    }
+    if (filter.category && p.category !== filter.category) return false;
+    if (filter.is_active != null && p.is_active !== filter.is_active) return false;
+    if (filter.in_stock && p.stock <= 0) return false;
+    return true;
+  }).map((p) => p.id);
+}
+
+function runMockBulk(
+  operation: "apply" | "remove",
+  ids: string[],
+  percent: number | null,
+  startsAt: string | null,
+  endsAt: string | null
+): BulkDiscountResponse {
+  const results: BulkResultItem[] = [];
+  let success = 0;
+  for (const id of ids) {
+    const product = MOCK_PRODUCTS.find((p) => p.id === id);
+    if (!product) {
+      results.push({ id, status: "failed", error: `Product not found: ${id}` });
+      continue;
+    }
+    if (operation === "apply") {
+      product.discount_percent = percent;
+      product.discount_starts_at = startsAt;
+      product.discount_ends_at = endsAt;
+    } else {
+      product.discount_percent = null;
+      product.discount_starts_at = null;
+      product.discount_ends_at = null;
+    }
+    results.push({ id, status: "updated" });
+    success += 1;
+  }
+  return { success_count: success, failure_count: results.length - success, results };
+}
+
+export async function getCampaigns(): Promise<CampaignListResponse> {
+  await delay();
+  const items = mockCampaigns.map((c) => ({ ...c, status: deriveCampaignStatus(c) }));
+  return { items, total: items.length };
+}
+
+export async function getCampaign(campaignId: string): Promise<CampaignResponse> {
+  await delay();
+  const c = mockCampaigns.find((x) => x.id === campaignId);
+  if (!c) mockError("NOT_FOUND", "Campaign not found");
+  return { ...c, status: deriveCampaignStatus(c) };
+}
+
+export async function createCampaign(
+  data: CampaignCreateRequest
+): Promise<CampaignResponse> {
+  await delay();
+  const now = new Date().toISOString();
+  const targetType = data.product_ids ? "ids" : "filter";
+  const targetCount = data.product_ids
+    ? Array.from(new Set(data.product_ids)).length
+    : resolveMockTargets(null, data.filter).length;
+  const campaign: CampaignResponse = {
+    id: `campaign-${Math.round(Math.random() * 1e9)}`,
+    name: data.name,
+    note: data.note ?? null,
+    discount_percent: data.discount_percent,
+    discount_starts_at: data.discount_starts_at ?? null,
+    discount_ends_at: data.discount_ends_at ?? null,
+    target_type: targetType,
+    target_count: targetCount,
+    status: "draft",
+    applied_at: null,
+    removed_at: null,
+    created_at: now,
+    updated_at: now,
+    last_result: null,
+  };
+  // Store the raw target for later apply resolution.
+  mockAppliedTargets.set(`${campaign.id}:targets`, [
+    ...(data.product_ids ?? resolveMockTargets(null, data.filter)).map((id) => ({
+      id,
+      percent: null,
+      starts_at: null,
+      ends_at: null,
+    })),
+  ]);
+  mockCampaigns.unshift(campaign);
+  return campaign;
+}
+
+export async function updateCampaign(
+  campaignId: string,
+  data: CampaignUpdateRequest
+): Promise<CampaignResponse> {
+  await delay();
+  const c = mockCampaigns.find((x) => x.id === campaignId);
+  if (!c) mockError("NOT_FOUND", "Campaign not found");
+  if (data.name != null) c.name = data.name;
+  if (data.note !== undefined) c.note = data.note;
+  if (data.discount_percent != null) c.discount_percent = data.discount_percent;
+  if (data.discount_starts_at !== undefined) c.discount_starts_at = data.discount_starts_at;
+  if (data.discount_ends_at !== undefined) c.discount_ends_at = data.discount_ends_at;
+  if (data.product_ids) {
+    c.target_type = "ids";
+    c.target_count = Array.from(new Set(data.product_ids)).length;
+    mockAppliedTargets.set(
+      `${c.id}:targets`,
+      data.product_ids.map((id) => ({ id, percent: null, starts_at: null, ends_at: null }))
+    );
+  } else if (data.filter) {
+    c.target_type = "filter";
+    const ids = resolveMockTargets(null, data.filter);
+    c.target_count = ids.length;
+    mockAppliedTargets.set(
+      `${c.id}:targets`,
+      ids.map((id) => ({ id, percent: null, starts_at: null, ends_at: null }))
+    );
+  }
+  c.updated_at = new Date().toISOString();
+  return { ...c, status: deriveCampaignStatus(c) };
+}
+
+export async function deleteCampaign(campaignId: string): Promise<void> {
+  await delay();
+  const idx = mockCampaigns.findIndex((x) => x.id === campaignId);
+  if (idx === -1) mockError("NOT_FOUND", "Campaign not found");
+  mockCampaigns.splice(idx, 1);
+  mockAppliedTargets.delete(`${campaignId}:targets`);
+  mockAppliedTargets.delete(campaignId);
+}
+
+export async function applyCampaign(campaignId: string): Promise<BulkDiscountResponse> {
+  await delay();
+  const c = mockCampaigns.find((x) => x.id === campaignId);
+  if (!c) mockError("NOT_FOUND", "Campaign not found");
+  const targets = mockAppliedTargets.get(`${c.id}:targets`) ?? [];
+  const ids = targets.map((t) => t.id);
+  const result = runMockBulk(
+    "apply",
+    ids,
+    c.discount_percent,
+    c.discount_starts_at,
+    c.discount_ends_at
+  );
+  const updatedIds = result.results.filter((r) => r.status === "updated").map((r) => r.id);
+  mockAppliedTargets.set(
+    campaignId,
+    updatedIds.map((id) => ({
+      id,
+      percent: c.discount_percent,
+      starts_at: c.discount_starts_at,
+      ends_at: c.discount_ends_at,
+    }))
+  );
+  c.applied_at = new Date().toISOString();
+  c.removed_at = null;
+  c.last_result = result;
+  return result;
+}
+
+export async function removeCampaign(campaignId: string): Promise<BulkDiscountResponse> {
+  await delay();
+  const c = mockCampaigns.find((x) => x.id === campaignId);
+  if (!c) mockError("NOT_FOUND", "Campaign not found");
+  const applied = mockAppliedTargets.get(campaignId) ?? [];
+  const results: BulkResultItem[] = [];
+  let success = 0;
+  for (const t of applied) {
+    const product = MOCK_PRODUCTS.find((p) => p.id === t.id);
+    if (!product) {
+      results.push({ id: t.id, status: "failed", error: "Product not found" });
+      continue;
+    }
+    const matches =
+      product.discount_percent === t.percent &&
+      product.discount_starts_at === t.starts_at &&
+      product.discount_ends_at === t.ends_at;
+    if (!matches) {
+      results.push({
+        id: t.id,
+        status: "skipped",
+        error: "discount changed after campaign apply; left unchanged",
+      });
+      continue;
+    }
+    product.discount_percent = null;
+    product.discount_starts_at = null;
+    product.discount_ends_at = null;
+    results.push({ id: t.id, status: "updated" });
+    success += 1;
+  }
+  const result: BulkDiscountResponse = {
+    success_count: success,
+    failure_count: results.length - success,
+    results,
+  };
+  c.removed_at = new Date().toISOString();
+  c.last_result = result;
+  return result;
+}
+
+export async function bulkDiscount(
+  data: BulkDiscountRequest
+): Promise<BulkDiscountResponse> {
+  await delay();
+  const ids = resolveMockTargets(data.product_ids, data.filter);
+  if (ids.length === 0) mockError("VALIDATION_ERROR", "target resolves to no products");
+  if (ids.length > 500) {
+    mockError("BULK_TARGET_LIMIT_EXCEEDED", `target resolves to ${ids.length} products; limit is 500`);
+  }
+  return runMockBulk(
+    data.operation,
+    ids,
+    data.discount_percent ?? null,
+    data.discount_starts_at ?? null,
+    data.discount_ends_at ?? null
+  );
+}
+
+export async function getAdminBanner(): Promise<BannerAdminResponse> {
+  await delay();
+  return { ...mockBanner };
+}
+
+export async function updateBanner(
+  data: BannerUpdateRequest
+): Promise<BannerAdminResponse> {
+  await delay();
+  const changed =
+    mockBanner.message_en !== (data.message_en ?? null) ||
+    mockBanner.message_bg !== (data.message_bg ?? null) ||
+    mockBanner.link_label_en !== (data.link_label_en ?? null) ||
+    mockBanner.link_label_bg !== (data.link_label_bg ?? null) ||
+    mockBanner.link_url !== (data.link_url ?? null) ||
+    mockBanner.is_enabled !== data.is_enabled ||
+    mockBanner.starts_at !== (data.starts_at ?? null) ||
+    mockBanner.ends_at !== (data.ends_at ?? null);
+  mockBanner = {
+    message_en: data.message_en ?? null,
+    message_bg: data.message_bg ?? null,
+    link_label_en: data.link_label_en ?? null,
+    link_label_bg: data.link_label_bg ?? null,
+    link_url: data.link_url ?? null,
+    is_enabled: data.is_enabled,
+    starts_at: data.starts_at ?? null,
+    ends_at: data.ends_at ?? null,
+    version: changed ? mockBanner.version + 1 : mockBanner.version,
+    updated_at: new Date().toISOString(),
+  };
+  return { ...mockBanner };
+}
+
+export async function getPublicBanner(
+  locale: string = "en"
+): Promise<PublicBannerResponse> {
+  await delay();
+  if (!mockBanner.is_enabled) return { banner: null };
+  const now = new Date().toISOString();
+  if (mockBanner.starts_at && now < mockBanner.starts_at) return { banner: null };
+  if (mockBanner.ends_at && now > mockBanner.ends_at) return { banner: null };
+  const message =
+    locale === "bg" && mockBanner.message_bg ? mockBanner.message_bg : mockBanner.message_en;
+  if (!message) return { banner: null };
+  const linkLabel =
+    locale === "bg" && mockBanner.link_label_bg
+      ? mockBanner.link_label_bg
+      : mockBanner.link_label_en;
+  return {
+    banner: {
+      message,
+      link_label: linkLabel,
+      link_url: mockBanner.link_url,
+      dismiss_key: `default:v${mockBanner.version}`,
+    },
+  };
 }
