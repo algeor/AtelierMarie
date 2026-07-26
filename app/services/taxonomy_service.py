@@ -81,6 +81,9 @@ def _counts_for_kind(conn: sqlite3.Connection, kind: str) -> dict[str, int]:
 
 
 def _count_one(conn: sqlite3.Connection, kind: str, slug: str) -> int:
+    # Counts include soft-deleted (is_active=0) products on purpose: a term ever
+    # referenced by any product — even an archived one — must stay for order and
+    # history integrity. Such a term can be deactivated but not hard-deleted.
     if kind == "product-types":
         sql = "SELECT COUNT(*) AS c FROM products WHERE product_type_slug = ?"
     elif kind == "categories":
@@ -164,17 +167,30 @@ def get_admin_term(kind: Kind, slug: str) -> dict:
 
 
 def create_term(kind: Kind, name_en: str, name_bg: str | None, sort_order: int) -> dict:
-    """Create a taxonomy term with a server-derived unique slug."""
+    """Create a taxonomy term with a server-derived unique slug.
+
+    The slug is derived from all existing slugs, then inserted. If a concurrent
+    create claims the same slug first, the PRIMARY KEY insert fails; we recompute
+    against the now-updated slug set and retry rather than surfacing a 500.
+    """
     table = _table_for(kind)
     now = _now_utc()
     with get_db() as conn:
-        existing = {r["slug"] for r in conn.execute(f"SELECT slug FROM {table}")}  # noqa: S608
-        slug = unique_slug(slugify(name_en), existing)
-        conn.execute(
-            f"INSERT INTO {table} (slug, name_en, name_bg, sort_order, is_active, "  # noqa: S608
-            "created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
-            (slug, name_en, name_bg, sort_order, now, now),
-        )
+        slug = ""
+        for _attempt in range(5):
+            existing = {r["slug"] for r in conn.execute(f"SELECT slug FROM {table}")}  # noqa: S608
+            slug = unique_slug(slugify(name_en), existing)
+            try:
+                conn.execute(
+                    f"INSERT INTO {table} (slug, name_en, name_bg, sort_order, is_active, "  # noqa: S608
+                    "created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
+                    (slug, name_en, name_bg, sort_order, now, now),
+                )
+                break
+            except sqlite3.IntegrityError:
+                continue
+        else:
+            raise TaxonomyValidationError(f"Could not generate a unique slug for: {name_en}")
     return get_admin_term(kind, slug)
 
 
@@ -197,6 +213,16 @@ def update_term(kind: Kind, slug: str, updates: dict) -> dict:
         if exists is None:
             raise TaxonomyNotFoundError(f"{kind} not found: {slug}")
 
+        # Products default to a product type and the column is NOT NULL, so the
+        # shop must always have at least one active type to assign on create.
+        if kind == "product-types" and fields.get("is_active") == 0:
+            active_others = conn.execute(
+                "SELECT COUNT(*) AS c FROM product_types WHERE is_active = 1 AND slug != ?",
+                (slug,),
+            ).fetchone()["c"]
+            if active_others == 0:
+                raise TaxonomyValidationError("Cannot deactivate the last active product type")
+
         if fields:
             fields["updated_at"] = _now_utc()
             set_clause = ", ".join(f"{col} = ?" for col in fields)
@@ -208,7 +234,12 @@ def update_term(kind: Kind, slug: str, updates: dict) -> dict:
 
 
 def delete_term(kind: Kind, slug: str) -> None:
-    """Hard-delete an unused term. Raises TaxonomyInUseError if referenced."""
+    """Hard-delete an unused term. Raises TaxonomyInUseError if referenced.
+
+    "Referenced" counts products regardless of active state (see `_count_one`),
+    so a term used by any current or archived product must be deactivated
+    instead of deleted.
+    """
     table = _table_for(kind)
     with get_db() as conn:
         exists = conn.execute(
@@ -278,17 +309,26 @@ def validate_category(
 def validate_labels(
     conn: sqlite3.Connection, slugs: list[str], *, current: set[str] | None = None
 ) -> None:
-    """Each label must be an active label, or already assigned to the product."""
+    """Each label must be an active label, or already assigned to the product.
+
+    Validates the whole set in a single query (no per-slug round-trips).
+    """
     current = current or set()
-    for slug in slugs:
-        if slug in current:
-            if _term_state(conn, "product_labels", slug) is None:
-                raise TaxonomyValidationError(f"Unknown label: {slug}")
-            continue
-        state = _term_state(conn, "product_labels", slug)
-        if state is None:
+    unique = list(dict.fromkeys(slugs))
+    if not unique:
+        return
+    placeholders = ", ".join("?" for _ in unique)
+    rows = conn.execute(
+        f"SELECT slug, is_active FROM product_labels WHERE slug IN ({placeholders})",  # noqa: S608
+        unique,
+    ).fetchall()
+    state = {r["slug"]: r["is_active"] for r in rows}
+    for slug in unique:
+        st = state.get(slug)
+        if st is None:
             raise TaxonomyValidationError(f"Unknown label: {slug}")
-        if state == 0:
+        # Inactive labels are allowed only if the product already carries them.
+        if st == 0 and slug not in current:
             raise TaxonomyValidationError(f"Label is not active: {slug}")
 
 

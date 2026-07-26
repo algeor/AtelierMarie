@@ -11,6 +11,32 @@ from app.services.product_service import NotFoundError
 
 router = APIRouter()
 
+# Cap distinct label slugs accepted from the public filter (bounds query cost and
+# keeps well under SQLite's bound-variable limit on an unauthenticated endpoint).
+_MAX_LABEL_FILTERS = 50
+
+
+def _parse_label_filters(labels: str | None, label: list[str] | None) -> list[str] | None:
+    """Merge comma-separated and repeated label filters with stable de-duplication.
+
+    Caps the number of distinct slugs (public, unauthenticated endpoint) so a
+    request can't blow past SQLite's bound-variable limit or amplify query cost.
+    """
+    slugs: list[str] = []
+    raw_values = [labels] if labels else []
+    if label:
+        raw_values.extend(label)
+
+    for raw_value in raw_values:
+        for raw in raw_value.split(","):
+            slug = raw.strip()
+            if slug and slug not in slugs:
+                slugs.append(slug)
+            if len(slugs) >= _MAX_LABEL_FILTERS:
+                return slugs
+
+    return slugs or None
+
 
 @router.get(
     "",
@@ -25,6 +51,9 @@ async def list_products(
     labels: str | None = Query(
         default=None, description="Comma-separated label slugs (AND semantics)"
     ),
+    label: list[str] | None = Query(
+        default=None, description="Repeated label slug filter (AND semantics)"
+    ),
     q: str | None = Query(default=None, description="Search query (FTS5)"),
     sort: Literal["price_asc", "price_desc", "name", "newest"] | None = Query(
         default=None, description="Sort order"
@@ -38,8 +67,7 @@ async def list_products(
     # Cap limit at 100 (also enforced by Query constraint but explicit for clarity)
     limit = min(limit, 100)
 
-    # Parse comma-separated label slugs into a list.
-    label_list = [s.strip() for s in labels.split(",") if s.strip()] if labels else None
+    label_list = _parse_label_filters(labels, label)
 
     # If search query is provided, use FTS5 search with SQL-level filtering (B.6)
     if q:

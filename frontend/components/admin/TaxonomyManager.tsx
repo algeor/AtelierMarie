@@ -32,6 +32,7 @@ export function TaxonomyManager({ kind }: TaxonomyManagerProps) {
   const [newNameEn, setNewNameEn] = useState("");
   const [newNameBg, setNewNameBg] = useState("");
   const [isCreating, setIsCreating] = useState(false);
+  const [isReordering, setIsReordering] = useState(false);
 
   async function refresh() {
     try {
@@ -84,17 +85,36 @@ export function TaxonomyManager({ kind }: TaxonomyManagerProps) {
     const nextEn = window.prompt(t("taxonomy.renameEnPrompt"), term.name_en);
     if (nextEn === null || !nextEn.trim()) return;
     const nextBg = window.prompt(t("taxonomy.renameBgPrompt"), term.name_bg ?? "");
-    await patch(term.slug, { name_en: nextEn.trim(), name_bg: nextBg?.trim() || null });
+    const data: Parameters<typeof updateTaxonomyTerm>[2] = { name_en: nextEn.trim() };
+    // Cancelling the BG prompt (null) leaves name_bg unchanged; only an
+    // explicit empty string clears it.
+    if (nextBg !== null) data.name_bg = nextBg.trim() || null;
+    await patch(term.slug, data);
   }
 
   async function handleReorder(index: number, direction: -1 | 1) {
     const other = index + direction;
-    if (other < 0 || other >= terms.length) return;
+    if (other < 0 || other >= terms.length || isReordering) return;
     const a = terms[index];
     const b = terms[other];
-    // Swap sort orders.
-    await patch(a.slug, { sort_order: b.sort_order });
-    await patch(b.slug, { sort_order: a.sort_order });
+    if (!a || !b) return;
+    setIsReordering(true);
+    setError(null);
+    try {
+      // If both share a sort_order, synthesize a gap so the swap is observable.
+      const aOrder = a.sort_order;
+      const bOrder = b.sort_order === a.sort_order ? a.sort_order + direction : b.sort_order;
+      // Apply both updates, then refresh once (avoids the transient mid-swap
+      // state a per-call refresh would render).
+      await updateTaxonomyTerm(kind, a.slug, { sort_order: bOrder });
+      await updateTaxonomyTerm(kind, b.slug, { sort_order: aOrder });
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? getLocalizedError(err.code) : t("taxonomy.saveError"));
+      await refresh(); // resync after a partial failure
+    } finally {
+      setIsReordering(false);
+    }
   }
 
   async function handleDelete(term: AdminTaxonomyTerm) {
@@ -180,10 +200,10 @@ export function TaxonomyManager({ kind }: TaxonomyManagerProps) {
                   </span>
                 </td>
                 <td className="flex flex-wrap gap-1.5 py-2">
-                  <Button type="button" variant="ghost" onClick={() => handleReorder(index, -1)} disabled={index === 0}>
+                  <Button type="button" variant="ghost" onClick={() => handleReorder(index, -1)} disabled={index === 0 || isReordering}>
                     ↑
                   </Button>
-                  <Button type="button" variant="ghost" onClick={() => handleReorder(index, 1)} disabled={index === terms.length - 1}>
+                  <Button type="button" variant="ghost" onClick={() => handleReorder(index, 1)} disabled={index === terms.length - 1 || isReordering}>
                     ↓
                   </Button>
                   <Button type="button" variant="secondary" onClick={() => handleRename(term)}>

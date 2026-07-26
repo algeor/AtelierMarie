@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import type { ProductResponse, TaxonomyResponse, TaxonomyTerm } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,52 @@ import { ProductCard } from "./ProductCard";
 interface ProductListingClientProps {
   products: ProductResponse[];
   taxonomy: TaxonomyResponse;
+}
+
+/**
+ * A single-select filter group (product type or category/tier). Declared at
+ * module scope so its component identity is stable across renders — defining it
+ * inside the parent would remount the whole group on every filter change.
+ */
+function SingleSelectGroup({
+  title,
+  terms,
+  selected,
+  onSelect,
+}: {
+  title: string;
+  terms: TaxonomyTerm[];
+  selected: string | null;
+  onSelect: (slug: string | null) => void;
+}) {
+  if (terms.length === 0) return null;
+  return (
+    <div className="mb-6">
+      <h3 className="mb-2 text-sm font-semibold text-charcoal">{title}</h3>
+      <ul className="space-y-1">
+        {terms.map((term) => {
+          const active = selected === term.slug;
+          return (
+            <li key={term.slug}>
+              <button
+                type="button"
+                aria-pressed={active}
+                onClick={() => onSelect(active ? null : term.slug)}
+                className={cn(
+                  "w-full rounded-brand px-2 py-1.5 text-left text-sm transition-colors",
+                  active
+                    ? "bg-muted-gold text-charcoal"
+                    : "text-soft-brown hover:bg-champagne-beige/50"
+                )}
+              >
+                {term.name}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
 }
 
 /**
@@ -26,15 +72,47 @@ export function ProductListingClient({ products, taxonomy }: ProductListingClien
   const [labels, setLabels] = useState<string[]>([]);
   const [inStockOnly, setInStockOnly] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  // Gate URL writes until after we've hydrated state from the URL, so the
+  // initial write can't clobber incoming query params.
+  const [hydrated, setHydrated] = useState(false);
 
-  // slug → localized name, for rendering chips.
-  const nameBySlug = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const group of [taxonomy.product_types, taxonomy.categories, taxonomy.labels]) {
-      for (const term of group) map.set(term.slug, term.name);
-    }
-    return map;
-  }, [taxonomy]);
+  // Hydrate filter state from the URL once on mount (shareable/bookmarkable
+  // filtered views). Done in an effect (not a useState initializer) to avoid a
+  // server/client hydration mismatch.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const pt = params.get("type");
+    const cat = params.get("category");
+    const lbls = params.get("labels");
+    if (pt) setProductType(pt);
+    if (cat) setCategory(cat);
+    if (lbls) setLabels(lbls.split(",").filter(Boolean));
+    if (params.get("in_stock") === "1") setInStockOnly(true);
+    setHydrated(true);
+  }, []);
+
+  // Reflect active filters back into the URL without triggering navigation.
+  useEffect(() => {
+    if (!hydrated) return;
+    const params = new URLSearchParams();
+    if (productType) params.set("type", productType);
+    if (category) params.set("category", category);
+    if (labels.length) params.set("labels", labels.join(","));
+    if (inStockOnly) params.set("in_stock", "1");
+    const qs = params.toString();
+    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
+  }, [hydrated, productType, category, labels, inStockOnly]);
+
+  // Per-kind slug → localized name maps. Keyed by kind because a slug is only
+  // unique within its kind (a category and a label could share one).
+  const nameByKind = useMemo(
+    () => ({
+      type: new Map(taxonomy.product_types.map((term) => [term.slug, term.name])),
+      category: new Map(taxonomy.categories.map((term) => [term.slug, term.name])),
+      label: new Map(taxonomy.labels.map((term) => [term.slug, term.name])),
+    }),
+    [taxonomy]
+  );
 
   const filtered = useMemo(
     () =>
@@ -69,64 +147,23 @@ export function ProductListingClient({ products, taxonomy }: ProductListingClien
   if (productType) {
     chips.push({
       key: `type:${productType}`,
-      label: nameBySlug.get(productType) ?? productType,
+      label: nameByKind.type.get(productType) ?? productType,
       onRemove: () => setProductType(null),
     });
   }
   if (category) {
     chips.push({
       key: `cat:${category}`,
-      label: nameBySlug.get(category) ?? category,
+      label: nameByKind.category.get(category) ?? category,
       onRemove: () => setCategory(null),
     });
   }
   for (const slug of labels) {
     chips.push({
       key: `label:${slug}`,
-      label: nameBySlug.get(slug) ?? slug,
+      label: nameByKind.label.get(slug) ?? slug,
       onRemove: () => toggleLabel(slug),
     });
-  }
-
-  function SingleSelectGroup({
-    title,
-    terms,
-    selected,
-    onSelect,
-  }: {
-    title: string;
-    terms: TaxonomyTerm[];
-    selected: string | null;
-    onSelect: (slug: string | null) => void;
-  }) {
-    if (terms.length === 0) return null;
-    return (
-      <div className="mb-6">
-        <h3 className="mb-2 text-sm font-semibold text-charcoal">{title}</h3>
-        <ul className="space-y-1">
-          {terms.map((term) => {
-            const active = selected === term.slug;
-            return (
-              <li key={term.slug}>
-                <button
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => onSelect(active ? null : term.slug)}
-                  className={cn(
-                    "w-full rounded-brand px-2 py-1.5 text-left text-sm transition-colors",
-                    active
-                      ? "bg-muted-gold text-charcoal"
-                      : "text-soft-brown hover:bg-champagne-beige/50"
-                  )}
-                >
-                  {term.name}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-    );
   }
 
   const filterPanel = (

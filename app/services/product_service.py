@@ -116,14 +116,17 @@ def list_products(
         params.append(category)
 
     if labels:
-        placeholders = ", ".join("?" for _ in labels)
+        # De-duplicate so the HAVING COUNT(DISTINCT) = ? equality holds even if a
+        # caller passes repeated slugs (the route already de-dupes; belt-and-braces).
+        unique_labels = list(dict.fromkeys(labels))
+        placeholders = ", ".join("?" for _ in unique_labels)
         conditions.append(
             f"id IN (SELECT product_id FROM product_label_assignments "  # noqa: S608
             f"WHERE label_slug IN ({placeholders}) "
             "GROUP BY product_id HAVING COUNT(DISTINCT label_slug) = ?)"
         )
-        params.extend(labels)
-        params.append(len(labels))
+        params.extend(unique_labels)
+        params.append(len(unique_labels))
 
     if in_stock:
         conditions.append("stock > 0")
@@ -202,6 +205,19 @@ def get_product_admin(product_id: str) -> dict:
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
 
     return _flatten_admin_labels(product_image_service.attach_image_fields_one(product))
+
+
+def product_exists(product_id: str) -> bool:
+    """Lightweight existence check (no taxonomy/image resolution).
+
+    For bulk paths like CSV import that only need created-vs-updated, not the
+    full product payload.
+    """
+    with get_db() as conn:
+        return (
+            conn.execute("SELECT 1 FROM products WHERE id = ?", (product_id,)).fetchone()
+            is not None
+        )
 
 
 def list_products_admin(
@@ -466,6 +482,13 @@ def update_product(product_id: str, data: dict) -> dict:
 
         if labels_update:
             taxonomy_service.replace_product_labels(conn, product_id, data["labels"])
+            if not updates:
+                # A label-only change still modifies the product; touch the row so
+                # the products_updated_at trigger refreshes updated_at.
+                conn.execute(
+                    "UPDATE products SET updated_at = updated_at WHERE id = ?",
+                    (product_id,),
+                )
 
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
         product = _row_to_dict(row)
@@ -538,14 +561,15 @@ def search_products(
         params.append(category)
 
     if labels:
-        placeholders = ", ".join("?" for _ in labels)
+        unique_labels = list(dict.fromkeys(labels))
+        placeholders = ", ".join("?" for _ in unique_labels)
         conditions.append(
             f"p.id IN (SELECT product_id FROM product_label_assignments "  # noqa: S608
             f"WHERE label_slug IN ({placeholders}) "
             "GROUP BY product_id HAVING COUNT(DISTINCT label_slug) = ?)"
         )
-        params.extend(labels)
-        params.append(len(labels))
+        params.extend(unique_labels)
+        params.append(len(unique_labels))
 
     if in_stock:
         conditions.append("p.stock > 0")

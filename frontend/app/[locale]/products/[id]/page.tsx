@@ -11,32 +11,34 @@ import type { Locale } from "@/i18n/routing";
 import { getLocalizedAlternates } from "@/lib/seo";
 
 interface ProductPageProps {
-  params: { id: string; locale: Locale };
+  params: Promise<{ id: string; locale: Locale }>;
 }
 
 export async function generateMetadata({
   params,
 }: ProductPageProps): Promise<Metadata> {
+  const { id, locale } = await params;
   try {
-    const product = await getProduct(params.id, params.locale);
+    const product = await getProduct(id, locale);
     return {
       title: product.name,
-      alternates: getLocalizedAlternates(params.locale, `/products/${params.id}`),
+      alternates: getLocalizedAlternates(locale, `/products/${id}`),
     };
   } catch {
-    const t = await getTranslations({ locale: params.locale, namespace: "products" });
+    const t = await getTranslations({ locale, namespace: "products" });
     return {
       title: t("notFound"),
-      alternates: getLocalizedAlternates(params.locale, `/products/${params.id}`),
+      alternates: getLocalizedAlternates(locale, `/products/${id}`),
     };
   }
 }
 
 export default async function ProductDetailPage({ params }: ProductPageProps) {
-  const t = await getTranslations({ locale: params.locale, namespace: "products" });
+  const { id, locale } = await params;
+  const t = await getTranslations({ locale, namespace: "products" });
   let product;
   try {
-    product = await getProduct(params.id, params.locale);
+    product = await getProduct(id, locale);
   } catch {
     notFound();
   }

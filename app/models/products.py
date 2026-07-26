@@ -30,11 +30,11 @@ class ProductResponse(BaseModel):
     days_to_craft: int | None = None
     price_cents: int
     # `category` now carries the managed category/tier slug (was legacy free text).
-    category: str | None = None
-    category_name: str | None = None
-    product_type: str = "candles"
-    product_type_name: str = ""
-    labels: list[ProductLabelRef] = Field(default_factory=list)
+    category: str | None
+    category_name: str | None
+    product_type: str
+    product_type_name: str
+    labels: list[ProductLabelRef]
     images: list["ProductImage"] = Field(default_factory=list)
     primary_image_url: str | None = None
     primary_thumbnail_url: str | None = None

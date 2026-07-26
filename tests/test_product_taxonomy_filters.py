@@ -113,6 +113,12 @@ class TestFacetedFilters:
         assert body["products"][0]["id"] == "winter-candle"
 
     @pytest.mark.asyncio
+    async def test_filter_by_repeated_label_parameters(self, client, _tax_products):
+        body = (await client.get("/v1/products?label=winter&label=gift")).json()
+        assert body["total"] == 1
+        assert body["products"][0]["id"] == "winter-candle"
+
+    @pytest.mark.asyncio
     async def test_filters_combine(self, client, _tax_products):
         body = (
             await client.get("/v1/products?product_type=boxes&category=premium&labels=gift")

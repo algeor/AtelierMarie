@@ -22,6 +22,7 @@ from app.services.taxonomy_service import (
     Kind,
     TaxonomyInUseError,
     TaxonomyNotFoundError,
+    TaxonomyValidationError,
 )
 
 public_router = APIRouter()
@@ -68,6 +69,11 @@ def _update_term(
         term = taxonomy_service.update_term(kind, slug, body.model_dump(exclude_unset=True))
     except TaxonomyNotFoundError:
         return _not_found(kind)
+    except TaxonomyValidationError as e:
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "INVALID_TAXONOMY", "message": str(e)}},
+        )
     return AdminTaxonomyTerm(**term)
 
 

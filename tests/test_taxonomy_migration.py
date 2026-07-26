@@ -52,6 +52,46 @@ def _build_legacy_db(path: str, rows: list[tuple[str, str, str | None]]) -> None
     conn.close()
 
 
+def _build_db_with_old_label_assignment_table(path: str) -> None:
+    """Create the pre-FK label assignment shape with one orphan label link."""
+    Path(path).unlink(missing_ok=True)
+    conn = sqlite3.connect(path)
+    conn.executescript(_LEGACY_PRODUCTS_DDL)
+    conn.execute(
+        "INSERT INTO products (id, name_en, price_cents, category, stock) "
+        "VALUES ('p1', 'One', 1000, NULL, 5)"
+    )
+    conn.execute(
+        """
+        CREATE TABLE product_labels (
+            slug        TEXT PRIMARY KEY,
+            name_en     TEXT NOT NULL,
+            name_bg     TEXT,
+            sort_order  INTEGER NOT NULL DEFAULT 0,
+            is_active   INTEGER NOT NULL DEFAULT 1,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+    conn.execute("INSERT INTO product_labels (slug, name_en) VALUES ('floral', 'Floral')")
+    conn.execute(
+        """
+        CREATE TABLE product_label_assignments (
+            product_id  TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            label_slug  TEXT NOT NULL,
+            PRIMARY KEY (product_id, label_slug)
+        )
+        """
+    )
+    conn.executemany(
+        "INSERT INTO product_label_assignments (product_id, label_slug) VALUES (?, ?)",
+        [("p1", "floral"), ("p1", "ghost")],
+    )
+    conn.commit()
+    conn.close()
+
+
 @pytest.fixture()
 def legacy_db_path(tmp_path) -> str:
     return str(tmp_path / "legacy.db")
@@ -219,3 +259,50 @@ class TestIdempotentReRun:
         assert labels_after == labels_before
         assert assign_after == assign_before
         assert mapping_after == mapping_before
+
+    def test_rerun_does_not_restore_deleted_seed_terms(self, tmp_path):
+        path = str(tmp_path / "taxonomy.db")
+        init_db(path)
+
+        conn = _connect(path)
+        conn.execute("DELETE FROM product_types WHERE slug = 'boxes'")
+        conn.execute("DELETE FROM product_labels WHERE slug = 'winter'")
+        conn.commit()
+        conn.close()
+
+        init_db(path)
+
+        conn = _connect(path)
+        boxes = conn.execute("SELECT 1 FROM product_types WHERE slug = 'boxes'").fetchone()
+        winter = conn.execute("SELECT 1 FROM product_labels WHERE slug = 'winter'").fetchone()
+        conn.close()
+
+        assert boxes is None
+        assert winter is None
+
+
+class TestExistingLabelAssignmentMigration:
+    def test_existing_assignment_table_gets_label_foreign_key(self, tmp_path):
+        path = str(tmp_path / "old-assignments.db")
+        _build_db_with_old_label_assignment_table(path)
+
+        init_db(path)
+
+        conn = _connect(path)
+        fks = conn.execute("PRAGMA foreign_key_list(product_label_assignments)").fetchall()
+        assignments = {
+            (r["product_id"], r["label_slug"])
+            for r in conn.execute("SELECT product_id, label_slug FROM product_label_assignments")
+        }
+
+        assert any(row["table"] == "product_labels" and row["from"] == "label_slug" for row in fks)
+        assert ("p1", "floral") in assignments
+        assert ("p1", "ghost") not in assignments
+
+        conn.execute("PRAGMA foreign_keys=ON")
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO product_label_assignments (product_id, label_slug) VALUES (?, ?)",
+                ("p1", "ghost"),
+            )
+        conn.close()

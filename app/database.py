@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS product_labels (
 
 CREATE TABLE IF NOT EXISTS product_label_assignments (
     product_id  TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-    label_slug  TEXT NOT NULL,
+    label_slug  TEXT NOT NULL REFERENCES product_labels(slug) ON DELETE RESTRICT,
     PRIMARY KEY (product_id, label_slug)
 );
 
@@ -464,6 +464,7 @@ def init_db(path: str) -> None:
         _migrate_existing_schema(conn)
         conn.executescript(_SCHEMA_SQL)
         _migrate_taxonomy(conn)
+        _migrate_product_label_assignments_table(conn)
         _rebuild_product_fts(conn)
         conn.commit()
     finally:
@@ -652,6 +653,49 @@ def _migrate_products_table(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA foreign_keys=ON")
 
 
+def _migrate_product_label_assignments_table(conn: sqlite3.Connection) -> None:
+    """Add the product_labels FK to existing label assignment tables.
+
+    SQLite cannot add foreign keys with ALTER TABLE. Older dynamic-categories DBs
+    created product_label_assignments without a label_slug FK, so rebuild the
+    table once and copy only assignments that still reference real products and
+    labels.
+    """
+    if not _table_exists(conn, "product_label_assignments"):
+        return
+
+    fks = conn.execute("PRAGMA foreign_key_list(product_label_assignments)").fetchall()
+    has_label_fk = any(row[2] == "product_labels" and row[3] == "label_slug" for row in fks)
+    if has_label_fk:
+        return
+
+    conn.execute("DROP TABLE IF EXISTS product_label_assignments_new")
+    conn.execute(
+        """
+        CREATE TABLE product_label_assignments_new (
+            product_id  TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            label_slug  TEXT NOT NULL REFERENCES product_labels(slug) ON DELETE RESTRICT,
+            PRIMARY KEY (product_id, label_slug)
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO product_label_assignments_new (product_id, label_slug)
+        SELECT pla.product_id, pla.label_slug
+        FROM product_label_assignments pla
+        JOIN products p ON p.id = pla.product_id
+        JOIN product_labels pl ON pl.slug = pla.label_slug
+        """
+    )
+    conn.execute("DROP TABLE product_label_assignments")
+    conn.execute("ALTER TABLE product_label_assignments_new RENAME TO product_label_assignments")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_label_assignments_label "
+        "ON product_label_assignments(label_slug)"
+    )
+
+
 def _rebuild_product_fts(conn: sqlite3.Connection) -> None:
     if not _table_exists(conn, "products"):
         return
@@ -763,15 +807,14 @@ def _backfill_legacy_categories(conn: sqlite3.Connection) -> None:
 
 def _migrate_taxonomy(conn: sqlite3.Connection) -> None:
     """Seed starter taxonomy and (once) backfill labels from legacy categories."""
-    # Ensure seed terms exist every startup (idempotent).
-    _seed_taxonomy_table(conn, "product_types", _SEED_PRODUCT_TYPES)
-    _seed_taxonomy_table(conn, "product_categories", _SEED_CATEGORIES)
-    _seed_taxonomy_table(conn, "product_labels", _SEED_LABELS)
-
     # Marker guards the one-shot backfill so re-runs are a no-op even when seed
     # taxonomy already exists (the marker, not "seeds present", is the gate).
     if _migration_applied(conn, _TAXONOMY_MIGRATION_MARKER):
         return
+
+    _seed_taxonomy_table(conn, "product_types", _SEED_PRODUCT_TYPES)
+    _seed_taxonomy_table(conn, "product_categories", _SEED_CATEGORIES)
+    _seed_taxonomy_table(conn, "product_labels", _SEED_LABELS)
 
     _backfill_legacy_categories(conn)
     # Default any product missing a product type to candles; leave category NULL.

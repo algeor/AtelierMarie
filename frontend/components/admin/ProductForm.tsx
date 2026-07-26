@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { ApiError, BASE_URL } from "@/lib/api-client";
 import { getAdminTaxonomy } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import type { AdminProductResponse, AdminTaxonomyTerm, ProductImage } from "@/lib/types";
 import { useLocalizedError } from "@/lib/useLocalizedError";
 
@@ -103,7 +104,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
         setCategories(cats);
         setLabelTerms(labels);
       })
-      .catch(() => setError(t("errors.saveProduct")));
+      .catch(() => setError(t("taxonomy.loadError")));
   }, [t]);
 
   /**
@@ -358,9 +359,6 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
               </option>
             ))}
           </select>
-          {errors.category && (
-            <p className="mt-1.5 text-sm text-red-700">{errors.category}</p>
-          )}
         </div>
         <div className="sm:col-span-2">
           <span className="mb-1.5 block text-sm font-medium text-soft-brown">
@@ -373,11 +371,12 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
               return (
                 <label
                   key={term.slug}
-                  className={
+                  className={cn(
+                    "cursor-pointer rounded-pill px-3 py-1.5 text-sm focus-within:ring-2 focus-within:ring-soft-brown focus-within:ring-offset-2",
                     checked
-                      ? "cursor-pointer rounded-pill bg-muted-gold px-3 py-1.5 text-sm text-charcoal"
-                      : "cursor-pointer rounded-pill bg-champagne-beige/50 px-3 py-1.5 text-sm text-soft-brown hover:bg-champagne-beige"
-                  }
+                      ? "bg-muted-gold text-charcoal"
+                      : "bg-champagne-beige/50 text-soft-brown hover:bg-champagne-beige"
+                  )}
                 >
                   <input
                     type="checkbox"

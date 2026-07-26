@@ -6,16 +6,18 @@ import { ProductCard } from "@/components/products/ProductCard";
 import type { Locale } from "@/i18n/routing";
 import { getLocalizedAlternates } from "@/lib/seo";
 
-export function generateMetadata({ params }: { params: { locale: Locale } }) {
+export async function generateMetadata({ params }: { params: Promise<{ locale: Locale }> }) {
+  const { locale } = await params;
   return {
     title: "Atelier Marie | Luxury Handcrafted Candles",
-    alternates: getLocalizedAlternates(params.locale, ""),
+    alternates: getLocalizedAlternates(locale, ""),
   };
 }
 
-export default async function HomePage({ params }: { params: { locale: Locale } }) {
-  const t = await getTranslations({ locale: params.locale, namespace: "home" });
-  const { products } = await getProducts(1, 100, params.locale);
+export default async function HomePage({ params }: { params: Promise<{ locale: Locale }> }) {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "home" });
+  const { products } = await getProducts(1, 100, locale);
   const featured = products.filter((p) => p.is_featured);
 
   return (

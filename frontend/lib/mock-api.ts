@@ -198,7 +198,7 @@ function mockTerm(slug: string, name_en: string, name_bg: string, sort_order: nu
   };
 }
 
-const MOCK_TAXONOMY: Record<string, MockTerm[]> = {
+const MOCK_TAXONOMY: Record<TaxonomyKind, MockTerm[]> = {
   "product-types": [mockTerm("candles", "Candles", "Свещи", 0), mockTerm("boxes", "Boxes", "Кутии", 1)],
   categories: [
     mockTerm("small", "Small", "Малка", 0),
@@ -702,9 +702,9 @@ export async function getAdminProduct(productId: string): Promise<AdminProductRe
   return toAdminProduct(product);
 }
 
-function mockTermName(kind: string, slug: string | null): string | null {
+function mockTermName(kind: TaxonomyKind, slug: string | null): string | null {
   if (!slug) return null;
-  const term = MOCK_TAXONOMY[kind]?.find((t) => t.slug === slug);
+  const term = MOCK_TAXONOMY[kind].find((t) => t.slug === slug);
   return term ? term.name_en : slug;
 }
 
@@ -1022,7 +1022,7 @@ function localizedName(term: MockTerm, locale?: string): string {
 
 export async function getTaxonomy(locale?: string): Promise<TaxonomyResponse> {
   await delay();
-  const active = (kind: string) =>
+  const active = (kind: TaxonomyKind) =>
     MOCK_TAXONOMY[kind]
       .filter((t) => t.is_active)
       .sort((a, b) => a.sort_order - b.sort_order)

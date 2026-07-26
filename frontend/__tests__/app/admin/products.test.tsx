@@ -24,6 +24,7 @@ vi.mock("@/lib/api", () => ({
   getCurrentUser: vi.fn(),
   getAdminProducts: vi.fn(),
   getAdminProduct: vi.fn(),
+  getAdminTaxonomy: vi.fn(),
   updateProduct: vi.fn(),
   createProduct: vi.fn(),
   uploadProductImage: vi.fn(),
@@ -33,14 +34,21 @@ import {
   getCurrentUser,
   getAdminProducts,
   getAdminProduct,
+  getAdminTaxonomy,
   updateProduct,
   createProduct,
 } from "@/lib/api";
-import type { AdminProductListResponse, AdminProductResponse, UserResponse } from "@/lib/types";
+import type {
+  AdminProductListResponse,
+  AdminProductResponse,
+  AdminTaxonomyTerm,
+  UserResponse,
+} from "@/lib/types";
 
 const mockedGetCurrentUser = vi.mocked(getCurrentUser);
 const mockedGetAdminProducts = vi.mocked(getAdminProducts);
 const mockedGetAdminProduct = vi.mocked(getAdminProduct);
+const mockedGetAdminTaxonomy = vi.mocked(getAdminTaxonomy);
 const mockedUpdateProduct = vi.mocked(updateProduct);
 const mockedCreateProduct = vi.mocked(createProduct);
 
@@ -52,6 +60,34 @@ const ADMIN_USER: UserResponse = {
   is_admin: true,
 };
 
+const TAXONOMY_BASE = {
+  sort_order: 0,
+  is_active: true,
+  product_count: 0,
+  created_at: "2024-06-01T10:00:00Z",
+  updated_at: "2024-06-01T10:00:00Z",
+};
+
+const PRODUCT_TYPES: AdminTaxonomyTerm[] = [
+  { ...TAXONOMY_BASE, slug: "candles", name_en: "Candles", name_bg: null },
+];
+
+const CATEGORIES: AdminTaxonomyTerm[] = [
+  { ...TAXONOMY_BASE, slug: "medium", name_en: "Medium", name_bg: null },
+];
+
+const LABELS: AdminTaxonomyTerm[] = [
+  { ...TAXONOMY_BASE, slug: "floral", name_en: "Floral", name_bg: null },
+];
+
+function mockTaxonomy() {
+  mockedGetAdminTaxonomy.mockImplementation(async (kind) => {
+    if (kind === "product-types") return PRODUCT_TYPES;
+    if (kind === "categories") return CATEGORIES;
+    return LABELS;
+  });
+}
+
 const MOCK_PRODUCT: AdminProductResponse = {
   id: "lavender-dreams-300ml",
   name_en: "Lavender Dreams",
@@ -61,7 +97,9 @@ const MOCK_PRODUCT: AdminProductResponse = {
   materials: "Soy wax, lavender oil",
   days_to_craft: 3,
   price_cents: 3200,
-  category: "Floral",
+  product_type: "candles",
+  category: "medium",
+  labels: ["floral"],
   images: [],
   primary_image_url: null,
   primary_thumbnail_url: null,
@@ -94,6 +132,7 @@ describe("Admin Products List", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockedGetCurrentUser.mockResolvedValue(ADMIN_USER);
+    mockTaxonomy();
   });
 
   it("renders product table with data", async () => {
@@ -270,7 +309,7 @@ describe("Admin Product Form Validation", () => {
     await waitFor(() => {
       expect(screen.getByText("English name is required")).toBeInTheDocument();
       expect(screen.getByText("Product ID is required")).toBeInTheDocument();
-      expect(screen.getByText("Category is required")).toBeInTheDocument();
+      expect(screen.getByText("Product type is required")).toBeInTheDocument();
     });
 
     expect(mockedCreateProduct).not.toHaveBeenCalled();
@@ -300,8 +339,8 @@ describe("Admin Product Form Validation", () => {
     fireEvent.change(screen.getByLabelText("Name (English)"), {
       target: { value: "Test Product" },
     });
-    fireEvent.change(screen.getByLabelText("Category"), {
-      target: { value: "Floral" },
+    fireEvent.change(screen.getByLabelText("Product type"), {
+      target: { value: "candles" },
     });
 
     const submitButton = screen.getByRole("button", { name: "Create Product" });
@@ -338,8 +377,8 @@ describe("Admin Product Form Validation", () => {
     fireEvent.change(screen.getByLabelText("Name (English)"), {
       target: { value: "Test Product" },
     });
-    fireEvent.change(screen.getByLabelText("Category"), {
-      target: { value: "Floral" },
+    fireEvent.change(screen.getByLabelText("Product type"), {
+      target: { value: "candles" },
     });
     // Set a valid price
     const priceInput = screen.getByLabelText("Price (EUR)");
@@ -387,8 +426,8 @@ describe("Admin Product Form Validation", () => {
     fireEvent.change(screen.getByLabelText("Name (English)"), {
       target: { value: "Test Product" },
     });
-    fireEvent.change(screen.getByLabelText("Category"), {
-      target: { value: "Floral" },
+    fireEvent.change(screen.getByLabelText("Product type"), {
+      target: { value: "candles" },
     });
     const priceInput = screen.getByLabelText("Price (EUR)");
     fireEvent.change(priceInput, { target: { value: "25.00" } });

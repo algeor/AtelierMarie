@@ -2,6 +2,7 @@
 
 import csv
 import io
+import sqlite3
 from typing import get_args
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
@@ -260,7 +261,13 @@ async def admin_import_products(
 
     Required columns: id, name_en (or legacy 'name'), price_cents
     Optional columns: name_bg, description_en (or legacy 'description'),
-                      description_bg, category, stock, image_url
+                      description_bg, category, product_type, labels, stock, image_url
+
+    Taxonomy columns are managed SLUGS, not free text (breaking change from the
+    legacy free-text `category`): `product_type` and `category` must be existing
+    active slugs, and `labels` is a comma-separated list of active label slugs.
+    Unknown/inactive slugs surface as per-row errors; taxonomy is never
+    auto-created on import.
 
     Rows with validation errors are skipped; valid rows are upserted.
     """
@@ -392,12 +399,8 @@ async def admin_import_products(
         if stock is not None:
             data["stock"] = stock
 
-        # Check if product exists to track created vs updated
-        try:
-            product_service.get_product_admin(product_id)
-            is_existing = True
-        except NotFoundError:
-            is_existing = False
+        # Check if product exists to track created vs updated (lightweight probe).
+        is_existing = product_service.product_exists(product_id)
 
         try:
             product_service.upsert_product(product_id, data)
@@ -407,7 +410,9 @@ async def admin_import_products(
                 updated += 1
             else:
                 created += 1
-        except Exception as e:
+        except (TaxonomyValidationError, DuplicateError, ValueError, sqlite3.IntegrityError) as e:
+            # Expected per-row data errors are reported and the import continues.
+            # Unexpected exceptions propagate rather than masquerading as row errors.
             errors.append(CSVImportError(row=row_num, message=str(e)))
 
     return CSVImportResponse(created=created, updated=updated, errors=errors)
