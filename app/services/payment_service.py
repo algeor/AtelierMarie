@@ -84,7 +84,7 @@ def create_checkout_session(
                     "quantity": 1,
                 }
             ],
-            success_url=success_url,
+            success_url=success_url.replace("{order_id}", order["id"]),
             cancel_url=cancel_url,
             client_reference_id=order["id"],
             customer_email=order["customer_email"],
@@ -120,6 +120,8 @@ def create_retry_session(
     if not row:
         raise OrderNotFoundError(order_id)
 
+    if row["payment_method"] != "card":
+        raise InvalidRetryStateError(order_id, row["payment_status"])
     if row["payment_status"] == "paid":
         raise PaymentAlreadyPaidError(order_id)
     if row["payment_status"] not in ("pending", "failed"):
@@ -187,9 +189,14 @@ def handle_session_expired(
     conn: sqlite3.Connection,
     event_id: str,
     order_id: str,
+    stripe_session_id: str,
     now: str,
 ) -> bool:
     """Handle checkout.session.expired: set payment_status='failed'.
+
+    Only updates when payment_status is still 'pending' AND the current
+    stripe_checkout_session_id matches — guards against late-arriving expired
+    events for superseded sessions after a successful retry.
 
     Uses stripe_events dedup. Returns True if processed, False if already seen.
     """
@@ -205,8 +212,10 @@ def handle_session_expired(
             return False
 
         conn.execute(
-            "UPDATE orders SET payment_status = 'failed' WHERE id = ?",
-            (order_id,),
+            "UPDATE orders SET payment_status = 'failed'"
+            " WHERE id = ? AND payment_status = 'pending'"
+            " AND stripe_checkout_session_id = ?",
+            (order_id, stripe_session_id),
         )
         conn.execute("COMMIT")
     except Exception:

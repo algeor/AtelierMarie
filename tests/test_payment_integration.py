@@ -258,18 +258,44 @@ class TestHandlePaymentSucceeded:
 class TestHandleSessionExpired:
     def test_sets_failed(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="card")
+        # Simulate the session id Stripe would have stored after create_checkout_session.
+        conn.execute(
+            "UPDATE orders SET stripe_checkout_session_id = 'cs_test_abc' WHERE id = ?",
+            (order["id"],),
+        )
+        conn.commit()
         now = datetime.now(UTC).strftime(_DT_FMT)
-        result = handle_session_expired(conn, "evt_exp_001", order["id"], now)
+        result = handle_session_expired(conn, "evt_exp_001", order["id"], "cs_test_abc", now)
         assert result is True
         updated = get_order(conn, order["id"])
         assert updated["payment_status"] == "failed"
 
     def test_idempotent_on_duplicate(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="card")
+        conn.execute(
+            "UPDATE orders SET stripe_checkout_session_id = 'cs_test_dup' WHERE id = ?",
+            (order["id"],),
+        )
+        conn.commit()
         now = datetime.now(UTC).strftime(_DT_FMT)
-        handle_session_expired(conn, "evt_exp_002", order["id"], now)
-        result2 = handle_session_expired(conn, "evt_exp_002", order["id"], now)
+        handle_session_expired(conn, "evt_exp_002", order["id"], "cs_test_dup", now)
+        result2 = handle_session_expired(conn, "evt_exp_002", order["id"], "cs_test_dup", now)
         assert result2 is False
+
+    def test_ignores_stale_session_id(self, conn, delivery):
+        """Late-arriving expired event for an old session must not flip a paid order to failed."""
+        order = _do_checkout(conn, delivery, payment_method="card")
+        # Simulate: customer retried and paid with cs_test_new; cs_test_old expired late.
+        conn.execute(
+            "UPDATE orders SET stripe_checkout_session_id = 'cs_test_new',"
+            " payment_status = 'paid' WHERE id = ?",
+            (order["id"],),
+        )
+        conn.commit()
+        now = datetime.now(UTC).strftime(_DT_FMT)
+        handle_session_expired(conn, "evt_exp_stale", order["id"], "cs_test_old", now)
+        updated = get_order(conn, order["id"])
+        assert updated["payment_status"] == "paid"
 
 
 # ---------------------------------------------------------------------------

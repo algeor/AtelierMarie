@@ -100,17 +100,18 @@ async def stripe_webhook(request: Request) -> JSONResponse:
         )
 
     now = _now_str()
-    event_id = event["id"]
-    event_type = event["type"]
-    session_obj = event.get("data", {}).get("object", {})
-    order_id = session_obj.get("client_reference_id") or ""
+    event_id = event.id
+    event_type = event.type
+    session_obj = event.data.object
+    order_id = getattr(session_obj, "client_reference_id", None) or ""
 
     with get_db() as conn:
         if event_type == "checkout.session.completed":
-            payment_intent_id = session_obj.get("payment_intent")
+            payment_intent_id = getattr(session_obj, "payment_intent", None)
             handle_payment_succeeded(conn, event_id, order_id, payment_intent_id, now)
         elif event_type == "checkout.session.expired":
-            handle_session_expired(conn, event_id, order_id, now)
+            stripe_session_id = getattr(session_obj, "id", None) or ""
+            handle_session_expired(conn, event_id, order_id, stripe_session_id, now)
         else:
             logger.info("stripe_webhook_ignored", event_type=event_type, event_id=event_id)
 

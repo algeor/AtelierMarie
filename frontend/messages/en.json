@@ -270,6 +270,9 @@
         "refunded": "Refunded"
       },
       "retryPayment": "Retry payment",
+      "retryRedirecting": "Redirecting to payment…",
+      "retryError": "Could not start payment session. Please try again.",
+      "retryNotCard": "This order does not support card payment retry.",
       "bankInstructions": "Bank transfer instructions",
       "bankName": "Bank",
       "bankIban": "IBAN",

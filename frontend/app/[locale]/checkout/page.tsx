@@ -35,6 +35,7 @@ export default function CheckoutPage() {
   const [notes, setNotes] = useState("");
   const [delivery, setDelivery] = useState<Partial<DeliveryInfo>>({});
   const [deliveryErrors, setDeliveryErrors] = useState<DeliveryValidationErrors>({});
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cod");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -101,8 +102,13 @@ export default function CheckoutPage() {
           customer_name: name.trim() || null,
           delivery: normalized,
           notes: notes.trim() || null,
+          payment_method: paymentMethod,
         });
-        router.push(`/orders/${order.id}/confirmation`);
+        if (order.stripe_checkout_url) {
+          window.location.href = order.stripe_checkout_url;
+        } else {
+          router.push(`/orders/${order.id}/confirmation`);
+        }
       } catch (error) {
         if (error instanceof ApiError) {
           setSubmitError(getLocalizedError(error.code));
@@ -113,7 +119,7 @@ export default function CheckoutPage() {
         setIsSubmitting(false);
       }
     },
-    [email, name, notes, delivery, validateEmail, router, t, tRoot, getLocalizedError],
+    [email, name, notes, delivery, paymentMethod, validateEmail, router, t, tRoot, getLocalizedError],
   );
 
   if (isLoading) {
@@ -214,6 +220,52 @@ export default function CheckoutPage() {
               placeholder={t("notesPlaceholder")}
             />
           </div>
+
+          {/* Payment method — only shown when more than one option is available */}
+          {(STRIPE_ENABLED || BANK_TRANSFER_ENABLED) && (
+          <div className="mb-6">
+            <p className="mb-2 text-sm font-medium text-soft-brown">{t("paymentMethod.label")}</p>
+            <div className="flex flex-col gap-2">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="radio"
+                  name="payment_method"
+                  value="cod"
+                  checked={paymentMethod === "cod"}
+                  onChange={() => setPaymentMethod("cod")}
+                  className="accent-soft-brown"
+                />
+                <span className="text-sm text-charcoal">{t("paymentMethod.cod")}</span>
+              </label>
+              {STRIPE_ENABLED && (
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="payment_method"
+                    value="card"
+                    checked={paymentMethod === "card"}
+                    onChange={() => setPaymentMethod("card")}
+                    className="accent-soft-brown"
+                  />
+                  <span className="text-sm text-charcoal">{t("paymentMethod.card")}</span>
+                </label>
+              )}
+              {BANK_TRANSFER_ENABLED && (
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="payment_method"
+                    value="bank_transfer"
+                    checked={paymentMethod === "bank_transfer"}
+                    onChange={() => setPaymentMethod("bank_transfer")}
+                    className="accent-soft-brown"
+                  />
+                  <span className="text-sm text-charcoal">{t("paymentMethod.bank_transfer")}</span>
+                </label>
+              )}
+            </div>
+          </div>
+          )}
 
           <div className="lg:hidden">
             <Button type="submit" variant="primary" size="lg" isLoading={isSubmitting} className="w-full">
