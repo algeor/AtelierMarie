@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.common import PRODUCT_ID_PATTERN
+from app.services.pricing import normalize_discount_datetime
 
 # Maximum stock value — prevents absurd inventory numbers
 MAX_STOCK = 99999
@@ -35,6 +36,14 @@ class ProductResponse(BaseModel):
     materials: str | None = None
     days_to_craft: int | None = None
     price_cents: int
+    # Discount display fields (computed via the pricing helper):
+    #   effective_price_cents = discounted price (== price_cents when inactive)
+    #   discount_percent       = active display percent, or null when inactive
+    #   discount_active        = whether a discount is currently applied
+    # Discount window timestamps are intentionally NOT exposed publicly.
+    effective_price_cents: int
+    discount_percent: int | None = None
+    discount_active: bool = False
     category: str | None = None
     images: list["ProductImage"] = Field(default_factory=list)
     primary_image_url: str | None = None
@@ -57,6 +66,13 @@ class ProductAdminResponse(BaseModel):
     materials: str | None = None
     days_to_craft: int | None = None
     price_cents: int
+    # Raw discount configuration (admin sees the full schedule) plus a computed
+    # live preview (effective_price_cents / discount_active) for the sale price.
+    discount_percent: int | None = None
+    discount_starts_at: str | None = None
+    discount_ends_at: str | None = None
+    effective_price_cents: int
+    discount_active: bool = False
     category: str | None = None
     images: list["ProductImage"] = Field(default_factory=list)
     primary_image_url: str | None = None
@@ -117,10 +133,40 @@ class CreateProductRequest(BaseModel):
     days_to_craft: int | None = Field(default=None, ge=0, le=MAX_DAYS_TO_CRAFT)
     price_cents: int = Field(..., gt=0, le=99_999_99)
     category: str | None = Field(default=None, max_length=MAX_CATEGORY_LENGTH)
+    discount_percent: int | None = Field(default=None, ge=1, le=99)
+    discount_starts_at: str | None = None
+    discount_ends_at: str | None = None
     stock: int = Field(..., ge=0, le=MAX_STOCK)
     weight_grams: int = Field(default=300, ge=1, le=MAX_WEIGHT_GRAMS)
     is_active: bool = True
     is_featured: bool = False
+
+    @field_validator("discount_starts_at", "discount_ends_at")
+    @classmethod
+    def _normalize_discount_datetime(cls, v: str | None) -> str | None:
+        """Normalize datetime input to canonical UTC; reject timezone-less input."""
+        return normalize_discount_datetime(v)
+
+    @model_validator(mode="after")
+    def _validate_discount_window(self) -> "CreateProductRequest":
+        """Self-contained discount validation for a full create payload.
+
+        (Update merge validation lives in the service, which has the existing
+        persisted row to merge against.)
+        """
+        if (
+            self.discount_starts_at is not None or self.discount_ends_at is not None
+        ) and self.discount_percent is None:
+            msg = "discount_percent is required when a discount date is set"
+            raise ValueError(msg)
+        if (
+            self.discount_starts_at is not None
+            and self.discount_ends_at is not None
+            and self.discount_starts_at >= self.discount_ends_at
+        ):
+            msg = "discount_starts_at must be earlier than discount_ends_at"
+            raise ValueError(msg)
+        return self
 
     @field_validator(
         "name_en",
@@ -162,10 +208,23 @@ class UpdateProductRequest(BaseModel):
     days_to_craft: int | None = Field(default=None, ge=0, le=MAX_DAYS_TO_CRAFT)
     price_cents: int | None = Field(default=None, gt=0, le=99_999_99)
     category: str | None = Field(default=None, max_length=MAX_CATEGORY_LENGTH)
+    discount_percent: int | None = Field(default=None, ge=1, le=99)
+    discount_starts_at: str | None = None
+    discount_ends_at: str | None = None
     stock: int | None = Field(default=None, ge=0, le=MAX_STOCK)
     weight_grams: int | None = Field(default=None, ge=1, le=MAX_WEIGHT_GRAMS)
     is_active: bool | None = None
     is_featured: bool | None = None
+
+    @field_validator("discount_starts_at", "discount_ends_at")
+    @classmethod
+    def _normalize_discount_datetime(cls, v: str | None) -> str | None:
+        """Normalize datetime input to canonical UTC; reject timezone-less input.
+
+        Cross-field validation (percent-required-with-date, start < end) is
+        deferred to the service, which merges this patch with the persisted row.
+        """
+        return normalize_discount_datetime(v)
 
     @model_validator(mode="before")
     @classmethod

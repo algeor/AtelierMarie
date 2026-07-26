@@ -1,4 +1,4 @@
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Product list table
 The admin product list at `/admin/products` SHALL display all products in a table with columns: Name, Category, Price, Stock, Status (active/inactive), and Actions (edit, deactivate/activate).
@@ -75,3 +75,54 @@ The admin product create/edit form SHALL let admins upload up to 6 images, reord
 #### Scenario: Cap enforced in UI
 - **WHEN** a product already has 6 images
 - **THEN** the upload control is disabled or shows a "maximum reached" message
+
+### Requirement: Product form supports discount fields
+The admin product create/edit form SHALL provide inputs for `discount_percent` (integer 1–99, optional), `discount_starts_at`, and `discount_ends_at` (optional datetime pickers). The form SHALL validate client-side that percent is within 1–99, that a start is before an end when both are set, and that a percent is present when any date is set. The form SHALL convert browser-local datetime input to timezone-aware UTC values before submitting, and SHALL convert stored UTC values back to local datetime input values when editing. When a discount is entered the form SHALL preview the resulting sale price. Leaving `discount_percent` empty SHALL submit `discount_percent = null` and clear both datetime fields.
+
+#### Scenario: Set a manual discount
+- **WHEN** admin enters `discount_percent` = 20 with no dates and submits
+- **THEN** the product is saved with a manual (always-on) discount
+
+#### Scenario: Set a scheduled discount
+- **WHEN** admin enters `discount_percent` = 30 with a start and end date and submits
+- **THEN** the product is saved with the scheduled window
+
+#### Scenario: Client-side validation blocks invalid window
+- **WHEN** admin sets an end date earlier than the start date
+- **THEN** an inline validation error is shown and the form is not submitted
+
+#### Scenario: Clearing the discount
+- **WHEN** admin blanks the `discount_percent` field on a discounted product and submits
+- **THEN** the submitted payload clears `discount_percent`, `discount_starts_at`, and `discount_ends_at`
+
+#### Scenario: Edit scheduled discount displays local time
+- **WHEN** admin edits a product whose stored `discount_starts_at` is `2026-08-01 09:30:00` UTC
+- **THEN** the datetime picker displays the equivalent local browser time
+
+### Requirement: Product list multi-select
+
+The admin products list SHALL let an admin select multiple product rows and SHALL provide a "select all matching current filter" affordance that targets the active filter descriptor rather than only the loaded page. The current selection count SHALL be visible while a selection is active.
+
+#### Scenario: Select individual rows
+- **WHEN** an admin toggles the checkbox on one or more product rows
+- **THEN** those products form the current selection and the selection count updates
+
+#### Scenario: Select all matching filter
+- **WHEN** an admin chooses "select all matching" while a filter is active
+- **THEN** the bulk action targets the current filter descriptor rather than an enumerated list of the loaded rows
+
+### Requirement: Inline bulk discount action bar
+
+When a product selection is active, the admin products list SHALL show a bulk action bar to apply or clear a discount on the selection by calling the bulk discount endpoint. Applying SHALL collect a discount percent (1–99) and an optional start/end window; clearing SHALL remove the discount. The action SHALL surface the per-item result as a summary (for example "N updated, M failed") rather than a raw error or silent success. This inline flow reuses the same bulk discount endpoint and validation as the `/admin/promotions` campaign target picker.
+
+#### Scenario: Apply discount to selection from the products list
+- **WHEN** an admin has products selected and submits the apply-discount action with a valid percent and optional window
+- **THEN** the discount is applied to the selection via the bulk discount endpoint and a summary shows the updated and failed counts
+
+#### Scenario: Clear discount on selection from the products list
+- **WHEN** an admin selects the clear-discount action for the current selection
+- **THEN** the discount is removed from the selected products and a result summary is shown
+
+#### Scenario: Partial failure surfaced inline
+- **WHEN** a bulk apply from the products list returns some failed products
+- **THEN** the UI shows a summary such as "N updated, M failed" and does not report the whole action as a plain success or a raw error

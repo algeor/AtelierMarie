@@ -9,6 +9,15 @@ import type {
   AdminProductListResponse,
   AdminProductResponse,
   AdminStats,
+  BannerAdminResponse,
+  BannerUpdateRequest,
+  BulkDiscountRequest,
+  BulkDiscountResponse,
+  CampaignCreateRequest,
+  CampaignListResponse,
+  CampaignResponse,
+  CampaignUpdateRequest,
+  PublicBannerResponse,
   CartResponse,
   CommentCreateRequest,
   CommentListResponse,
@@ -309,6 +318,91 @@ export async function updateOrderStatus(
   return apiClient.patch<OrderResponse>(
     `/v1/admin/orders/${encodeURIComponent(orderId)}/status`,
     { status, ...tracking }
+  );
+}
+
+// --- Promotions (campaigns, bulk discount, managed banner) ---
+
+export async function getCampaigns(): Promise<CampaignListResponse> {
+  if (USE_MOCK) return (await getMock()).getCampaigns();
+  return apiClient.get<CampaignListResponse>("/v1/admin/promotions/campaigns");
+}
+
+export async function getCampaign(campaignId: string): Promise<CampaignResponse> {
+  if (USE_MOCK) return (await getMock()).getCampaign(campaignId);
+  return apiClient.get<CampaignResponse>(
+    `/v1/admin/promotions/campaigns/${encodeURIComponent(campaignId)}`
+  );
+}
+
+export async function createCampaign(
+  data: CampaignCreateRequest
+): Promise<CampaignResponse> {
+  if (USE_MOCK) return (await getMock()).createCampaign(data);
+  return apiClient.post<CampaignResponse>("/v1/admin/promotions/campaigns", data);
+}
+
+export async function updateCampaign(
+  campaignId: string,
+  data: CampaignUpdateRequest
+): Promise<CampaignResponse> {
+  if (USE_MOCK) return (await getMock()).updateCampaign(campaignId, data);
+  return apiClient.patch<CampaignResponse>(
+    `/v1/admin/promotions/campaigns/${encodeURIComponent(campaignId)}`,
+    data
+  );
+}
+
+export async function deleteCampaign(campaignId: string): Promise<void> {
+  if (USE_MOCK) return (await getMock()).deleteCampaign(campaignId);
+  return apiClient.del<void>(
+    `/v1/admin/promotions/campaigns/${encodeURIComponent(campaignId)}`
+  );
+}
+
+export async function applyCampaign(
+  campaignId: string
+): Promise<BulkDiscountResponse> {
+  if (USE_MOCK) return (await getMock()).applyCampaign(campaignId);
+  return apiClient.post<BulkDiscountResponse>(
+    `/v1/admin/promotions/campaigns/${encodeURIComponent(campaignId)}/apply`
+  );
+}
+
+export async function removeCampaign(
+  campaignId: string
+): Promise<BulkDiscountResponse> {
+  if (USE_MOCK) return (await getMock()).removeCampaign(campaignId);
+  return apiClient.post<BulkDiscountResponse>(
+    `/v1/admin/promotions/campaigns/${encodeURIComponent(campaignId)}/remove`
+  );
+}
+
+export async function bulkDiscount(
+  data: BulkDiscountRequest
+): Promise<BulkDiscountResponse> {
+  if (USE_MOCK) return (await getMock()).bulkDiscount(data);
+  return apiClient.patch<BulkDiscountResponse>("/v1/admin/products/bulk-discount", data);
+}
+
+export async function getAdminBanner(): Promise<BannerAdminResponse> {
+  if (USE_MOCK) return (await getMock()).getAdminBanner();
+  return apiClient.get<BannerAdminResponse>("/v1/admin/promotions/banner");
+}
+
+export async function updateBanner(
+  data: BannerUpdateRequest
+): Promise<BannerAdminResponse> {
+  if (USE_MOCK) return (await getMock()).updateBanner(data);
+  return apiClient.put<BannerAdminResponse>("/v1/admin/promotions/banner", data);
+}
+
+export async function getPublicBanner(
+  locale: Locale = "en"
+): Promise<PublicBannerResponse> {
+  if (USE_MOCK) return (await getMock()).getPublicBanner(locale);
+  return apiClient.get<PublicBannerResponse>(
+    `/v1/promotions/banner?locale=${encodeURIComponent(locale)}`
   );
 }
 

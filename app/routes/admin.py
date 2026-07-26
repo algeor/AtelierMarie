@@ -39,6 +39,7 @@ from app.models.products import (
     ReorderProductImagesRequest,
     UpdateProductRequest,
 )
+from app.models.promotions import BulkDiscountRequest, BulkDiscountResponse
 from app.services import admin_service, product_image_service, product_service
 from app.services.auth_service import get_oauth_circuit_breaker
 from app.services.comment_service import CommentNotFoundError, list_all_comments
@@ -57,7 +58,12 @@ from app.services.order_service import (
     list_orders_admin,
     update_status,
 )
-from app.services.product_service import DuplicateError, NotFoundError
+from app.services.product_service import (
+    BulkTargetLimitError,
+    DiscountValidationError,
+    DuplicateError,
+    NotFoundError,
+)
 
 router = APIRouter(dependencies=[Depends(require_admin)])
 
@@ -131,6 +137,51 @@ async def admin_list_low_stock_products(
     )
 
 
+@router.patch(
+    "/products/bulk-discount",
+    response_model=BulkDiscountResponse,
+    summary="Bulk apply/remove product discount",
+    description="Apply or clear the discount on many products at once, targeted by "
+    "explicit product IDs or an admin product-list filter. Capped at 500 resolved "
+    "targets. Returns per-product results with success/failure counts.",
+    responses={
+        422: {"description": "Validation error or target set exceeds the 500-product cap"},
+    },
+)
+async def admin_bulk_discount(body: BulkDiscountRequest) -> BulkDiscountResponse | JSONResponse:
+    """Apply or clear a discount across many products via the shared bulk logic."""
+    try:
+        target_ids = product_service.resolve_bulk_target(
+            product_ids=body.product_ids,
+            filter=body.filter.model_dump() if body.filter is not None else None,
+        )
+    except BulkTargetLimitError as e:
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "BULK_TARGET_LIMIT_EXCEEDED", "message": str(e)}},
+        )
+
+    if not target_ids:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "target resolves to no products",
+                }
+            },
+        )
+
+    result = product_service.bulk_update_discount(
+        operation=body.operation,
+        product_ids=target_ids,
+        discount_percent=body.discount_percent,
+        discount_starts_at=body.discount_starts_at,
+        discount_ends_at=body.discount_ends_at,
+    )
+    return BulkDiscountResponse(**result)
+
+
 @router.get(
     "/products/{product_id}",
     response_model=ProductAdminResponse,
@@ -185,6 +236,11 @@ async def admin_update_product(
         return JSONResponse(
             status_code=404,
             content={"error": {"code": "NOT_FOUND", "message": "Product not found"}},
+        )
+    except DiscountValidationError as e:
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "VALIDATION_ERROR", "message": str(e)}},
         )
 
     return ProductAdminResponse(**product)

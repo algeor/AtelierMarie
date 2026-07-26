@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { cn, formatPrice } from "@/lib/utils";
+import { PriceDisplay } from "@/components/products/PriceDisplay";
 import type { CartItemResponse } from "@/lib/types";
 
 interface CartItemProps {
@@ -13,7 +14,7 @@ interface CartItemProps {
 export function CartItem({ item, onUpdateQuantity, onRemove }: CartItemProps) {
   const t = useTranslations("cart");
   const { product, quantity, product_id } = item;
-  const lineTotal = product.price_cents * quantity;
+  const lineTotal = product.effective_price_cents * quantity;
   const canDecrement = quantity > 1;
   const canIncrement = quantity < 10;
 
@@ -24,7 +25,7 @@ export function CartItem({ item, onUpdateQuantity, onRemove }: CartItemProps) {
           {product.name}
         </h3>
         <p className="mt-1 text-sm text-soft-brown">
-          {formatPrice(product.price_cents)}
+          <PriceDisplay product={product} className="text-sm text-soft-brown" />
         </p>
 
         <div className="mt-2 flex items-center gap-2">

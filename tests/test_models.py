@@ -19,6 +19,7 @@ class TestProductModels:
             materials="Soy wax, lavender oil",
             days_to_craft=3,
             price_cents=3200,
+            effective_price_cents=3200,
             category="Floral",
             images=[
                 {
@@ -48,6 +49,7 @@ class TestProductModels:
             materials=None,
             days_to_craft=None,
             price_cents=1000,
+            effective_price_cents=1000,
             category=None,
             stock=0,
             is_active=True,

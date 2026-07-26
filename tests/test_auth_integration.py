@@ -261,6 +261,20 @@ class TestCorsConfig:
         assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"
 
     @pytest.mark.asyncio
+    async def test_cors_allows_put_preflight(self, client: AsyncClient):
+        """PUT admin endpoints pass browser CORS preflight."""
+        response = await client.options(
+            "/v1/admin/promotions/banner",
+            headers={
+                "Origin": "http://localhost:3000",
+                "Access-Control-Request-Method": "PUT",
+                "Access-Control-Request-Headers": "authorization,content-type",
+            },
+        )
+        assert response.status_code == 200
+        assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"
+
+    @pytest.mark.asyncio
     async def test_cors_rejects_unknown_origin(self, client: AsyncClient):
         """Unknown origin does not get Access-Control-Allow-Origin."""
         response = await client.options(

@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS products (
     days_to_craft INTEGER,
     price_cents INTEGER NOT NULL CHECK (price_cents > 0),
     category    TEXT,
+    discount_percent INTEGER CHECK (discount_percent IS NULL OR discount_percent BETWEEN 1 AND 99),
+    discount_starts_at TEXT,
+    discount_ends_at TEXT,
     stock       INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
     weight_grams INTEGER NOT NULL DEFAULT 300 CHECK (weight_grams > 0),
     is_active   INTEGER NOT NULL DEFAULT 1,
@@ -224,6 +227,62 @@ CREATE TABLE IF NOT EXISTS comments (
 CREATE INDEX IF NOT EXISTS idx_comments_product_created ON comments(product_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_comments_session_created ON comments(session_id, created_at);
 
+-- Promotion campaigns: admin management records over the per-product discount
+-- fields. Cart/checkout/public pricing NEVER read these rows — runtime pricing
+-- stays on products (see promotion-campaign-management design Decision 1).
+CREATE TABLE IF NOT EXISTS promotion_campaigns (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    note          TEXT,
+    discount_percent INTEGER NOT NULL
+                  CHECK (discount_percent BETWEEN 1 AND 99),
+    discount_starts_at TEXT,
+    discount_ends_at   TEXT,
+    target_type   TEXT NOT NULL CHECK (target_type IN ('ids', 'filter')),
+    target_ids    TEXT,   -- JSON array of product IDs when target_type = 'ids'
+    target_filter TEXT,   -- JSON filter descriptor when target_type = 'filter'
+    applied_at    TEXT,   -- NULL until first applied
+    removed_at    TEXT,   -- NULL unless discount has been removed
+    last_result   TEXT,   -- JSON summary of the most recent apply/remove result
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_promotion_campaigns_created
+    ON promotion_campaigns(created_at);
+
+-- Per-product apply record: the resolved targets and the exact discount values
+-- written, so conservative removal can compare current fields to last-applied.
+CREATE TABLE IF NOT EXISTS promotion_campaign_products (
+    campaign_id       TEXT NOT NULL
+                      REFERENCES promotion_campaigns(id) ON DELETE CASCADE,
+    product_id        TEXT NOT NULL,
+    applied_percent   INTEGER,
+    applied_starts_at TEXT,
+    applied_ends_at   TEXT,
+    PRIMARY KEY (campaign_id, product_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_promotion_campaign_products_product
+    ON promotion_campaign_products(product_id);
+
+-- Managed top-of-site announcement banner. Singleton row (id = 'default').
+-- `version` bumps whenever visible content or schedule changes so the public
+-- dismiss key changes and previously-dismissed old copy no longer suppresses it.
+CREATE TABLE IF NOT EXISTS site_banners (
+    id            TEXT PRIMARY KEY DEFAULT 'default',
+    message_en    TEXT,
+    message_bg    TEXT,
+    link_label_en TEXT,
+    link_label_bg TEXT,
+    link_url      TEXT,
+    is_enabled    INTEGER NOT NULL DEFAULT 0 CHECK (is_enabled IN (0, 1)),
+    starts_at     TEXT,
+    ends_at       TEXT,
+    version       INTEGER NOT NULL DEFAULT 1,
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Auto-update updated_at on row modification
 CREATE TRIGGER IF NOT EXISTS products_updated_at AFTER UPDATE ON products
 BEGIN
@@ -313,6 +372,9 @@ CREATE TABLE products_new (
     days_to_craft INTEGER,
     price_cents INTEGER NOT NULL CHECK (price_cents > 0),
     category    TEXT,
+    discount_percent INTEGER CHECK (discount_percent IS NULL OR discount_percent BETWEEN 1 AND 99),
+    discount_starts_at TEXT,
+    discount_ends_at TEXT,
     stock       INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
     weight_grams INTEGER NOT NULL DEFAULT 300 CHECK (weight_grams > 0),
     is_active   INTEGER NOT NULL DEFAULT 1,
@@ -351,6 +413,9 @@ _PRODUCT_COLUMNS = (
     "days_to_craft",
     "price_cents",
     "category",
+    "discount_percent",
+    "discount_starts_at",
+    "discount_ends_at",
     "stock",
     "weight_grams",
     "is_active",
@@ -395,6 +460,7 @@ def init_db(path: str) -> None:
         conn.execute("PRAGMA foreign_keys=ON")
         _migrate_existing_schema(conn)
         conn.executescript(_SCHEMA_SQL)
+        _seed_site_banner(conn)
         _rebuild_product_fts(conn)
         conn.commit()
     finally:
@@ -402,6 +468,27 @@ def init_db(path: str) -> None:
 
     # Restrict DB file permissions (owner read/write only)
     os.chmod(path, 0o600)
+
+
+def _seed_site_banner(conn: sqlite3.Connection) -> None:
+    """Seed the singleton managed banner from the former static announcement copy.
+
+    Uses INSERT OR IGNORE so a fresh DB gets the previous "free shipping" banner
+    (enabled, no window) — preserving current storefront behavior — while any
+    later admin edit or disable is never overwritten on subsequent startups.
+    """
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO site_banners (
+            id, message_en, message_bg, is_enabled, version, updated_at
+        ) VALUES (
+            'default',
+            'Free shipping on orders over €50 ✨',
+            'Безплатна доставка за поръчки над 50€ ✨',
+            1, 1, datetime('now')
+        )
+        """
+    )
 
 
 def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
@@ -525,6 +612,16 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
             conn, "orders", order_columns, "locale", "locale TEXT NOT NULL DEFAULT 'en'"
         )
 
+    if _table_exists(conn, "promotion_campaigns"):
+        campaign_columns = _table_columns(conn, "promotion_campaigns")
+        _add_column_if_missing(
+            conn,
+            "promotion_campaigns",
+            campaign_columns,
+            "last_result",
+            "last_result TEXT",
+        )
+
 
 def _migrate_products_table(conn: sqlite3.Connection) -> None:
     columns = _table_columns(conn, "products")
@@ -557,6 +654,9 @@ def _migrate_products_table(conn: sqlite3.Connection) -> None:
         _column_expr(columns, "days_to_craft"),
         price_expr,
         _column_expr(columns, "category"),
+        _column_expr(columns, "discount_percent"),
+        _column_expr(columns, "discount_starts_at"),
+        _column_expr(columns, "discount_ends_at"),
         _column_expr(columns, "stock", "0"),
         _column_expr(columns, "weight_grams", "300"),
         _column_expr(columns, "is_active", "1"),
