@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useLocale, useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import { getAdminOrders, updateOrderStatus } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
@@ -222,7 +223,12 @@ export default function AdminOrdersPage() {
                   className="border-b border-champagne-beige/50 last:border-0"
                 >
                   <td className="px-4 py-3 font-mono text-xs text-soft-brown">
-                    {order.id.slice(0, 8)}…
+                    <Link
+                      href={`/admin/orders/${order.id}`}
+                      className="transition-colors duration-fast hover:text-charcoal hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown"
+                    >
+                      {order.id.slice(0, 8)}...
+                    </Link>
                   </td>
                   <td className="px-4 py-3 text-charcoal">
                     <span title={order.customer_email}>

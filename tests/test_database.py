@@ -184,3 +184,66 @@ class TestDatabaseConstraints:
         # Cart items should be gone (CASCADE)
         row = db_conn.execute("SELECT COUNT(*) FROM cart_items WHERE session_id = 's1'").fetchone()
         assert row[0] == 0
+
+
+class TestWeightGramsMigration:
+    """Existing DBs missing weight_grams get the column backfilled to 300."""
+
+    @staticmethod
+    def _old_schema_products_sql() -> str:
+        """The products table as it existed before weight_grams was added."""
+        return """
+        CREATE TABLE products (
+            id          TEXT PRIMARY KEY,
+            name_en     TEXT NOT NULL,
+            name_bg     TEXT,
+            description_en TEXT,
+            description_bg TEXT,
+            materials   TEXT,
+            days_to_craft INTEGER,
+            price_cents INTEGER NOT NULL CHECK (price_cents > 0),
+            category    TEXT,
+            image_url   TEXT,
+            stock       INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
+            is_active   INTEGER NOT NULL DEFAULT 1,
+            is_featured INTEGER NOT NULL DEFAULT 0,
+            translation_stale_bg INTEGER NOT NULL DEFAULT 0,
+            translation_stale_en INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        """
+
+    def test_rebuild_backfills_weight_to_300(self):
+        from app.database import _migrate_products_table, _table_columns
+
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.executescript(self._old_schema_products_sql())
+        conn.execute(
+            "INSERT INTO products (id, name_en, price_cents, stock) VALUES (?, ?, ?, ?)",
+            ("legacy-candle", "Legacy", 2500, 7),
+        )
+
+        _migrate_products_table(conn)
+
+        cols = _table_columns(conn, "products")
+        assert "weight_grams" in cols
+        row = conn.execute(
+            "SELECT stock, weight_grams FROM products WHERE id = ?", ("legacy-candle",)
+        ).fetchone()
+        assert row["stock"] == 7  # preserved
+        assert row["weight_grams"] == 300  # backfilled
+        conn.close()
+
+    def test_rebuild_is_idempotent(self):
+        from app.database import _migrate_products_table, _table_columns
+
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.executescript(self._old_schema_products_sql())
+        _migrate_products_table(conn)
+        # Second run is a no-op (guard: columns == set(_PRODUCT_COLUMNS))
+        _migrate_products_table(conn)
+        assert "weight_grams" in _table_columns(conn, "products")
+        conn.close()

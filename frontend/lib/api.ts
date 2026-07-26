@@ -298,6 +298,13 @@ export async function getAdminOrders(
   return apiClient.get<OrderListResponse>(`/v1/admin/orders?${params}`);
 }
 
+export async function getAdminOrder(orderId: string): Promise<OrderResponse> {
+  if (USE_MOCK) return (await getMock()).getAdminOrder(orderId);
+  return apiClient.get<OrderResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}`
+  );
+}
+
 export async function updateOrderStatus(
   orderId: string,
   status: OrderStatus,

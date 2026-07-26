@@ -46,6 +46,8 @@ export default function EditProductPage() {
       price_cents: data.price_cents,
       category: data.category,
       stock: data.stock,
+      weight_grams: data.weight_grams,
+      is_active: data.is_active,
       is_featured: data.is_featured,
       discount_percent: data.discount_percent,
       discount_starts_at: data.discount_starts_at,

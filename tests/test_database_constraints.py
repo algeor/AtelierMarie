@@ -41,6 +41,22 @@ class TestProductConstraints:
                 ("test-candle", "Test", -500, 10),
             )
 
+    def test_zero_weight_rejected(self, conn: sqlite3.Connection):
+        """CHECK (weight_grams > 0) rejects zero weight."""
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO products (id, name_en, price_cents, weight_grams) VALUES (?, ?, ?, ?)",
+                ("test-candle", "Test", 1000, 0),
+            )
+
+    def test_negative_weight_rejected(self, conn: sqlite3.Connection):
+        """CHECK (weight_grams > 0) rejects negative weight."""
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO products (id, name_en, price_cents, weight_grams) VALUES (?, ?, ?, ?)",
+                ("test-candle", "Test", 1000, -5),
+            )
+
     def test_valid_product_accepted(self, conn: sqlite3.Connection):
         """A valid product row is accepted by all constraints."""
         conn.execute(

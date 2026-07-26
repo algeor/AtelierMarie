@@ -1,4 +1,21 @@
 import type { Metadata } from "next";
+import { Playfair_Display, Inter } from "next/font/google";
+import { getLocale } from "next-intl/server";
+import "./globals.css";
+
+const playfair = Playfair_Display({
+  subsets: ["latin", "cyrillic"],
+  weight: ["400", "700"],
+  variable: "--font-playfair",
+  display: "swap",
+});
+
+const inter = Inter({
+  subsets: ["latin", "cyrillic"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-inter",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: {
@@ -12,11 +29,16 @@ export const metadata: Metadata = {
   },
 };
 
-// Root layout is a bare shell — locale-aware rendering lives in [locale]/layout.tsx
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return children;
+  const locale = await getLocale();
+
+  return (
+    <html lang={locale} className={`${playfair.variable} ${inter.variable}`}>
+      <body className="font-sans">{children}</body>
+    </html>
+  );
 }

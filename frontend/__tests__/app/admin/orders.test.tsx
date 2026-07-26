@@ -64,6 +64,9 @@ const MOCK_ORDERS: OrderResponse[] = [
     items: [
       { product_id: "lavender-dreams-300ml", product_name: "Lavender Dreams", price_cents: 3200, quantity: 1 },
     ],
+    tracking_number: null,
+    tracking_carrier: null,
+    tracking_url: null,
     created_at: "2026-07-11T10:00:00Z",
     updated_at: "2026-07-11T10:00:00Z",
   },
@@ -88,6 +91,9 @@ const MOCK_ORDERS: OrderResponse[] = [
     items: [
       { product_id: "citrus-garden-200ml", product_name: "Citrus Garden", price_cents: 2800, quantity: 2 },
     ],
+    tracking_number: null,
+    tracking_carrier: null,
+    tracking_url: null,
     created_at: "2026-07-10T11:00:00Z",
     updated_at: "2026-07-10T11:00:00Z",
   },
@@ -195,7 +201,7 @@ describe("Admin Orders List", () => {
   it("updates order status via dropdown", async () => {
     mockedGetAdminOrders.mockResolvedValue(MOCK_ORDER_LIST);
     mockedUpdateOrderStatus.mockResolvedValue({
-      ...MOCK_ORDERS[0],
+      ...MOCK_ORDERS[0]!,
       status: "confirmed",
     });
 
@@ -217,7 +223,7 @@ describe("Admin Orders List", () => {
 
     // Find the status dropdown for the pending order
     const selects = screen.getAllByRole("combobox");
-    fireEvent.change(selects[0], { target: { value: "confirmed" } });
+    fireEvent.change(selects[0]!, { target: { value: "confirmed" } });
 
     await waitFor(() => {
       expect(mockedUpdateOrderStatus).toHaveBeenCalledWith(
@@ -249,7 +255,7 @@ describe("Admin Orders List", () => {
     });
 
     const selects = screen.getAllByRole("combobox");
-    fireEvent.change(selects[0], { target: { value: "confirmed" } });
+    fireEvent.change(selects[0]!, { target: { value: "confirmed" } });
 
     await waitFor(() => {
       expect(screen.getByText("Failed to update order status")).toBeInTheDocument();
@@ -281,12 +287,12 @@ describe("Admin Orders List", () => {
     const selects = screen.getAllByRole("combobox");
 
     // First select is for "pending" order → valid transitions: confirmed, cancelled
-    const pendingOptions = selects[0].querySelectorAll("option");
+    const pendingOptions = selects[0]!.querySelectorAll("option");
     const pendingValues = Array.from(pendingOptions).map((o) => o.value).filter(Boolean);
     expect(pendingValues).toEqual(["confirmed", "cancelled"]);
 
     // Second select is for "confirmed" order → valid transitions: shipped, cancelled
-    const confirmedOptions = selects[1].querySelectorAll("option");
+    const confirmedOptions = selects[1]!.querySelectorAll("option");
     const confirmedValues = Array.from(confirmedOptions).map((o) => o.value).filter(Boolean);
     expect(confirmedValues).toEqual(["shipped", "cancelled"]);
   });

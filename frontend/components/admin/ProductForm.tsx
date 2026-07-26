@@ -34,6 +34,8 @@ export interface ProductFormData {
   deleted_image_ids: string[];
   primary_image_id: string | null;
   stock: number;
+  weight_grams: number;
+  is_active: boolean;
   is_featured: boolean;
   // Discount (percent 1–99 or null; datetimes are timezone-aware UTC ISO strings).
   discount_percent: number | null;
@@ -42,6 +44,9 @@ export interface ProductFormData {
 }
 
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+
+// Mirrors the backend MAX_WEIGHT_GRAMS bound (app/models/products.py).
+const MAX_WEIGHT_GRAMS = 100_000;
 
 /** Convert a EUR string (e.g., "32.50") to cents without floating-point errors. */
 function eurToCents(value: string): number {
@@ -105,6 +110,12 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
     storedUtcToLocalInput(product?.discount_ends_at ?? null)
   );
 
+  // Local string state for weight so the field can be cleared / edited freely;
+  // normalized and clamped on blur.
+  const [weightDisplay, setWeightDisplay] = useState(
+    String(product?.weight_grams ?? 300)
+  );
+
   const [formData, setFormData] = useState<ProductFormData>({
     id: product?.id ?? "",
     name_en: product?.name_en ?? "",
@@ -120,6 +131,8 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
     deleted_image_ids: [],
     primary_image_id: product?.images.find((image) => image.is_primary)?.id ?? null,
     stock: product?.stock ?? 0,
+    weight_grams: product?.weight_grams ?? 300,
+    is_active: product?.is_active ?? true,
     is_featured: product?.is_featured ?? false,
     discount_percent: product?.discount_percent ?? null,
     discount_starts_at: product?.discount_starts_at ?? null,
@@ -139,6 +152,9 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
     if (formData.price_cents <= 0) newErrors.price_cents = t("validation.pricePositive");
     if (!formData.category) newErrors.category = t("validation.categoryRequired");
     if (formData.stock < 0) newErrors.stock = t("validation.stockNonNegative");
+    if (formData.weight_grams < 1 || formData.weight_grams > MAX_WEIGHT_GRAMS) {
+      newErrors.weight_grams = t("validation.weightRange");
+    }
     if (images.length + formData.image_files.length > 6) {
       newErrors.image_files = t("validation.maxImages");
     }
@@ -398,6 +414,28 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
           onChange={(e) => updateField("stock", Math.max(0, Math.floor(Number(e.target.value) || 0)))}
           error={errors.stock}
         />
+        <div className="w-full">
+          <Input
+            label={t("weightGrams")}
+            type="number"
+            min="1"
+            max={String(MAX_WEIGHT_GRAMS)}
+            step="1"
+            value={weightDisplay}
+            onChange={(e) => setWeightDisplay(e.target.value)}
+            onBlur={(e) => {
+              const parsed = Math.floor(Number(e.target.value));
+              const clamped =
+                Number.isFinite(parsed) && parsed >= 1
+                  ? Math.min(MAX_WEIGHT_GRAMS, parsed)
+                  : formData.weight_grams;
+              updateField("weight_grams", clamped);
+              setWeightDisplay(String(clamped));
+            }}
+            error={errors.weight_grams}
+          />
+          <p className="mt-1.5 text-xs text-soft-brown/70">{t("weightGramsHelp")}</p>
+        </div>
         <div className="sm:col-span-2 space-y-3">
           <label htmlFor="image_file" className="mb-1.5 block text-sm font-medium text-soft-brown">
             {t("productImage")}
@@ -547,6 +585,19 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
             {t("discount.preview", { price: formatPrice(discountPreviewCents) })}
           </p>
         )}
+      </div>
+
+      <div className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          id="is_active"
+          checked={formData.is_active}
+          onChange={(e) => updateField("is_active", e.target.checked)}
+          className="h-4 w-4 rounded border-champagne-beige text-muted-gold focus:ring-muted-gold"
+        />
+        <label htmlFor="is_active" className="text-sm text-soft-brown">
+          {t("activeProduct")}
+        </label>
       </div>
 
       <div className="flex items-center gap-3 border-t border-champagne-beige pt-6">
