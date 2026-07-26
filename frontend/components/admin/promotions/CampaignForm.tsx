@@ -17,6 +17,7 @@ import type {
 } from "@/lib/types";
 
 type TargetMode = "ids" | "filter";
+const PRODUCT_PAGE_LIMIT = 100;
 
 interface CampaignFormProps {
   campaign: CampaignResponse | null;
@@ -45,6 +46,9 @@ export function CampaignForm({ campaign, onSaved, onCancel }: CampaignFormProps)
     () => new Set(campaign?.target_ids ?? [])
   );
   const [products, setProducts] = useState<AdminProductResponse[]>([]);
+  const [productPage, setProductPage] = useState(1);
+  const [productTotal, setProductTotal] = useState(0);
+  const [productsLoading, setProductsLoading] = useState(false);
   const [productSearch, setProductSearch] = useState("");
 
   // Filter target descriptor (pre-seeded from the campaign's stored filter).
@@ -67,18 +71,25 @@ export function CampaignForm({ campaign, onSaved, onCancel }: CampaignFormProps)
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const loadProducts = useCallback(async () => {
+  const loadProducts = useCallback(async (page: number) => {
+    setProductsLoading(true);
     try {
-      const data = await getAdminProducts(1, 100);
+      const data = await getAdminProducts(page, PRODUCT_PAGE_LIMIT);
       setProducts(data.products);
+      setProductPage(data.page);
+      setProductTotal(data.total);
     } catch {
       // Non-fatal: the explicit picker just shows no rows.
+      setProducts([]);
+      setProductTotal(0);
+    } finally {
+      setProductsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadProducts();
-  }, [loadProducts]);
+    if (targetMode === "ids") loadProducts(productPage);
+  }, [loadProducts, productPage, targetMode]);
 
   function toggleId(id: string) {
     setTargetDirty(true);
@@ -180,6 +191,7 @@ export function CampaignForm({ campaign, onSaved, onCancel }: CampaignFormProps)
     const q = productSearch.toLowerCase();
     return p.name_en.toLowerCase().includes(q) || p.id.toLowerCase().includes(q);
   });
+  const productPageCount = Math.max(1, Math.ceil(productTotal / PRODUCT_PAGE_LIMIT));
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
@@ -286,33 +298,60 @@ export function CampaignForm({ campaign, onSaved, onCancel }: CampaignFormProps)
 
         {targetMode === "ids" ? (
           <div>
-            <div className="mb-2 flex items-center justify-between">
+            <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <Input
                 placeholder={t("promotions.searchProducts")}
                 value={productSearch}
                 onChange={(e) => setProductSearch(e.target.value)}
                 className="max-w-xs"
               />
-              <span className="text-sm text-soft-brown">
-                {t("promotions.selectedCount", { count: selectedIds.size })}
-              </span>
+              <div className="flex flex-wrap items-center gap-3 text-sm text-soft-brown">
+                <span>{t("promotions.selectedCount", { count: selectedIds.size })}</span>
+                <span>{tCommon("page", { current: productPage, total: productPageCount })}</span>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setProductPage((page) => Math.max(1, page - 1))}
+                    disabled={productsLoading || productPage <= 1}
+                  >
+                    {tCommon("previous")}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setProductPage((page) => Math.min(productPageCount, page + 1))}
+                    disabled={productsLoading || productPage >= productPageCount}
+                  >
+                    {tCommon("next")}
+                  </Button>
+                </div>
+              </div>
             </div>
             <div className="max-h-56 overflow-y-auto rounded-brand border border-champagne-beige">
-              {visibleProducts.map((p) => (
-                <label
-                  key={p.id}
-                  className="flex cursor-pointer items-center gap-2 border-b border-champagne-beige/50 px-3 py-2 text-sm last:border-0 hover:bg-champagne-beige/20"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.has(p.id)}
-                    onChange={() => toggleId(p.id)}
-                  />
-                  <span className="flex-1 text-charcoal">{p.name_en}</span>
-                  <code className="text-xs text-soft-brown">{p.id}</code>
-                </label>
-              ))}
-              {visibleProducts.length === 0 && (
+              {productsLoading ? (
+                <p className="px-3 py-4 text-center text-sm text-soft-brown">
+                  {tCommon("loading")}
+                </p>
+              ) : (
+                visibleProducts.map((p) => (
+                  <label
+                    key={p.id}
+                    className="flex cursor-pointer items-center gap-2 border-b border-champagne-beige/50 px-3 py-2 text-sm last:border-0 hover:bg-champagne-beige/20"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(p.id)}
+                      onChange={() => toggleId(p.id)}
+                    />
+                    <span className="flex-1 text-charcoal">{p.name_en}</span>
+                    <code className="text-xs text-soft-brown">{p.id}</code>
+                  </label>
+                ))
+              )}
+              {!productsLoading && visibleProducts.length === 0 && (
                 <p className="px-3 py-4 text-center text-sm text-soft-brown">
                   {t("noProducts")}
                 </p>

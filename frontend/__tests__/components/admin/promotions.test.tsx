@@ -2,6 +2,7 @@ import { screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { renderWithIntl } from "../../test-utils";
 import type {
+  AdminProductResponse,
   BulkDiscountResponse,
   CampaignListResponse,
   CampaignResponse,
@@ -72,6 +73,35 @@ const APPLY_RESULT: BulkDiscountResponse = {
   ],
 };
 
+function adminProduct(id: string, name: string): AdminProductResponse {
+  return {
+    id,
+    name_en: name,
+    name_bg: null,
+    description_en: null,
+    description_bg: null,
+    materials: null,
+    days_to_craft: null,
+    price_cents: 1000,
+    discount_percent: null,
+    discount_starts_at: null,
+    discount_ends_at: null,
+    effective_price_cents: 1000,
+    discount_active: false,
+    category: "candles",
+    images: [],
+    primary_image_url: null,
+    primary_thumbnail_url: null,
+    stock: 1,
+    is_active: true,
+    is_featured: false,
+    translation_stale_bg: false,
+    translation_stale_en: false,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+  };
+}
+
 describe("BulkResultSummary", () => {
   it("renders N updated, M failed with failed detail", () => {
     renderWithIntl(<BulkResultSummary result={APPLY_RESULT} />);
@@ -91,6 +121,8 @@ describe("CampaignsPanel", () => {
     expect(await screen.findByText("Spring Sale")).toBeInTheDocument();
     expect(screen.getByText("Draft")).toBeInTheDocument();
     expect(screen.getByText("20% off")).toBeInTheDocument();
+    expect(screen.getByText("Active window")).toBeInTheDocument();
+    expect(screen.getByText("Always on")).toBeInTheDocument();
   });
 
   it("apply shows confirmation then result summary", async () => {
@@ -102,6 +134,7 @@ describe("CampaignsPanel", () => {
     // Confirmation dialog appears.
     const heading = await screen.findByText("Apply campaign discount?");
     const dialog = heading.closest("div")!;
+    expect(within(dialog).getByText(/Window: Always on/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
 
     await waitFor(() => {
@@ -164,6 +197,42 @@ describe("CampaignForm validation", () => {
     const payload = mockedUpdateCampaign.mock.calls[0]![1];
     expect(payload).not.toHaveProperty("filter");
     expect(payload).not.toHaveProperty("product_ids");
+  });
+
+  it("selects explicit campaign targets across product pages", async () => {
+    mockedGetAdminProducts.mockImplementation(async (page = 1, limit = 100) => ({
+      products:
+        page === 1
+          ? [adminProduct("first-product", "First product")]
+          : [adminProduct("second-product", "Second product")],
+      total: 101,
+      page,
+      limit,
+    }));
+    mockedCreateCampaign.mockResolvedValue(CAMPAIGN);
+    const { container } = renderWithIntl(
+      <CampaignForm campaign={null} onSaved={vi.fn()} onCancel={vi.fn()} />
+    );
+
+    fireEvent.change(screen.getByLabelText("Campaign name"), {
+      target: { value: "Two-page campaign" },
+    });
+    fireEvent.change(screen.getByLabelText("Discount percent (1–99)"), {
+      target: { value: "15" },
+    });
+
+    fireEvent.click(await screen.findByLabelText(/First product/));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(await screen.findByLabelText(/Second product/));
+    fireEvent.submit(container.querySelector("form")!);
+
+    await waitFor(() => {
+      expect(mockedCreateCampaign).toHaveBeenCalledWith(
+        expect.objectContaining({
+          product_ids: ["first-product", "second-product"],
+        })
+      );
+    });
   });
 });
 

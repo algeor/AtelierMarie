@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import {
   applyCampaign,
   deleteCampaign,
@@ -30,6 +30,7 @@ type PendingAction =
   | null;
 
 export function CampaignsPanel() {
+  const locale = useLocale();
   const t = useTranslations("admin");
   const tCommon = useTranslations("common");
   const getLocalizedError = useLocalizedError();
@@ -75,6 +76,27 @@ export function CampaignsPanel() {
 
   function discountSummary(c: CampaignResponse): string {
     return t("promotions.percentOff", { percent: c.discount_percent });
+  }
+
+  function formatStoredDateTime(value: string | null): string {
+    if (!value) return "";
+    const hasTz = /[zZ]|[+-]\d{2}:?\d{2}$/.test(value);
+    const iso = value.includes("T") ? value : value.replace(" ", "T");
+    const date = new Date(hasTz ? iso : iso + "Z");
+    if (isNaN(date.getTime())) return value;
+    return new Intl.DateTimeFormat(locale, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(date);
+  }
+
+  function windowSummary(c: CampaignResponse): string {
+    const start = formatStoredDateTime(c.discount_starts_at);
+    const end = formatStoredDateTime(c.discount_ends_at);
+    if (start && end) return t("promotions.windowRange", { start, end });
+    if (start) return t("promotions.windowStarts", { start });
+    if (end) return t("promotions.windowEnds", { end });
+    return t("promotions.alwaysOn");
   }
 
   async function confirmAction() {
@@ -165,6 +187,7 @@ export function CampaignsPanel() {
                 <th className="px-4 py-3 font-medium text-charcoal">{t("promotions.campaignName")}</th>
                 <th className="px-4 py-3 font-medium text-charcoal">{t("status")}</th>
                 <th className="px-4 py-3 font-medium text-charcoal">{t("promotions.discount")}</th>
+                <th className="px-4 py-3 font-medium text-charcoal">{t("promotions.activeWindow")}</th>
                 <th className="px-4 py-3 font-medium text-charcoal">{t("promotions.targetCount")}</th>
                 <th className="px-4 py-3 font-medium text-charcoal">{t("actions")}</th>
               </tr>
@@ -177,6 +200,7 @@ export function CampaignsPanel() {
                     <Badge variant={STATUS_VARIANT[c.status]}>{statusLabel(c.status)}</Badge>
                   </td>
                   <td className="px-4 py-3 text-soft-brown">{discountSummary(c)}</td>
+                  <td className="px-4 py-3 text-soft-brown">{windowSummary(c)}</td>
                   <td className="px-4 py-3 text-soft-brown">{c.target_count}</td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap items-center gap-2">
@@ -244,6 +268,7 @@ export function CampaignsPanel() {
               {pending.type === "apply"
                 ? t("promotions.confirmApplyBody", {
                     percent: pending.campaign.discount_percent,
+                    window: windowSummary(pending.campaign),
                     count: pending.campaign.target_count,
                   })
                 : pending.type === "remove"
