@@ -118,7 +118,9 @@ class CreateProductRequest(BaseModel):
     days_to_craft: int | None = Field(default=None, ge=0, le=365)
     price_cents: int = Field(..., gt=0, le=99_999_99)
     category: str | None = Field(default=None, max_length=100)
-    product_type: str = Field(default="candles", min_length=1, max_length=100)
+    # Optional: when omitted, the service assigns the default active product type
+    # (lowest sort_order) rather than a hardcoded slug.
+    product_type: str | None = Field(default=None, min_length=1, max_length=100)
     labels: list[str] = Field(default_factory=list, max_length=50)
     stock: int = Field(..., ge=0, le=MAX_STOCK)
     is_active: bool = True

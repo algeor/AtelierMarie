@@ -139,3 +139,117 @@ class TestFacetedFilters:
         body = (await client.get("/v1/products?q=candle&labels=winter,gift")).json()
         ids = {p["id"] for p in body["products"]}
         assert ids == {"winter-candle"}
+
+    @pytest.mark.asyncio
+    async def test_repeated_identical_label_dedupes_in_filter(self, client, _tax_products):
+        # `?labels=winter,winter` must behave like a single `winter` (the AND
+        # HAVING COUNT(DISTINCT)=? equality would otherwise never match).
+        one = (await client.get("/v1/products?labels=winter")).json()
+        dup = (await client.get("/v1/products?labels=winter,winter")).json()
+        assert dup["total"] == one["total"] == 2
+
+
+class TestLabelFilterParsing:
+    """Unit tests for the public label-filter parser (cap + de-dup)."""
+
+    def test_cap_at_50_distinct_slugs(self):
+        from app.routes.products import _MAX_LABEL_FILTERS, _parse_label_filters
+
+        many = ",".join(f"l{i}" for i in range(60))
+        parsed = _parse_label_filters(many, None)
+        assert parsed is not None
+        assert len(parsed) == _MAX_LABEL_FILTERS == 50
+
+    def test_merges_comma_and_repeated_params_with_dedupe(self):
+        from app.routes.products import _parse_label_filters
+
+        parsed = _parse_label_filters("winter,gift", ["gift", "floral"])
+        assert parsed == ["winter", "gift", "floral"]
+
+    def test_no_labels_returns_none(self):
+        from app.routes.products import _parse_label_filters
+
+        assert _parse_label_filters(None, None) is None
+        assert _parse_label_filters("", []) is None
+
+
+class TestLabelFilterPagination:
+    """The count query must agree with the paged query under an AND label filter."""
+
+    @pytest.fixture()
+    def _many_labeled(self, app, db_path):
+        from app.services import product_service
+
+        for i in range(5):
+            product_service.create_product(
+                {
+                    "id": f"lp-{i}",
+                    "name_en": f"Labeled {i}",
+                    "price_cents": 1000 + i,
+                    "product_type": "candles",
+                    "labels": ["winter", "gift"],
+                    "stock": 5,
+                }
+            )
+
+    @pytest.mark.asyncio
+    async def test_total_counts_all_matches_across_pages(self, client, _many_labeled):
+        page2 = (await client.get("/v1/products?labels=winter,gift&limit=2&page=2")).json()
+        # total reflects the full match set, not just the returned page.
+        assert page2["total"] == 5
+        assert page2["page"] == 2
+        assert len(page2["products"]) == 2
+        assert all("winter" in {lb["slug"] for lb in p["labels"]} for p in page2["products"])
+
+
+class TestDynamicDefaultProductType:
+    """Products created without a product_type get the default active type."""
+
+    def test_create_without_type_uses_lowest_sort_order_active(self, app, db_path):
+        from app.services import product_service
+
+        product = product_service.create_product(
+            {"id": "no-type", "name_en": "No Type", "price_cents": 1000, "stock": 1}
+        )
+        # candles has sort_order 0 → the default.
+        assert product["product_type"] == "candles"
+
+    def test_create_default_skips_deactivated_type(self, app, db_path):
+        from app.services import product_service, taxonomy_service
+
+        # Taxonomy term tables aren't reset by the module cleanup fixture, so
+        # restore candles afterward to avoid leaking inactive state into later tests.
+        taxonomy_service.update_term("product-types", "candles", {"is_active": False})
+        try:
+            product = product_service.create_product(
+                {"id": "no-type-2", "name_en": "No Type 2", "price_cents": 1000, "stock": 1}
+            )
+            # candles is inactive → next active type (boxes) is chosen.
+            assert product["product_type"] == "boxes"
+        finally:
+            taxonomy_service.update_term("product-types", "candles", {"is_active": True})
+
+
+class TestSearchPagination:
+    """The FTS search path returns an accurate total across pages."""
+
+    @pytest.fixture()
+    def _searchable(self, app, db_path):
+        from app.services import product_service
+
+        for i in range(5):
+            product_service.create_product(
+                {
+                    "id": f"sp-{i}",
+                    "name_en": f"Lavender Candle {i}",
+                    "price_cents": 1000 + i,
+                    "product_type": "candles",
+                    "stock": 5,
+                }
+            )
+
+    @pytest.mark.asyncio
+    async def test_search_total_counts_all_matches(self, client, _searchable):
+        body = (await client.get("/v1/products?q=lavender&limit=2&page=1")).json()
+        assert body["total"] == 5
+        assert len(body["products"]) == 2

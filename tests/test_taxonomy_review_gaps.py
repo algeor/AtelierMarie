@@ -163,6 +163,26 @@ class TestDeleteGuard:
         with pytest.raises(TaxonomyInUseError):
             taxonomy_service.delete_term("labels", "gift")
 
+    def test_delete_product_type_blocked_by_inactive_product(self, tax_db):
+        # _count_one counts soft-deleted products for product-types too.
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO products (id, name_en, price_cents, is_active, product_type_slug) "
+                "VALUES ('p1', 'One', 1000, 0, 'boxes')"
+            )
+        with pytest.raises(TaxonomyInUseError):
+            taxonomy_service.delete_term("product-types", "boxes")
+
+    def test_delete_category_blocked_by_inactive_product(self, tax_db):
+        # _count_one counts soft-deleted products for categories too.
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO products (id, name_en, price_cents, is_active, category_slug) "
+                "VALUES ('p1', 'One', 1000, 0, 'premium')"
+            )
+        with pytest.raises(TaxonomyInUseError):
+            taxonomy_service.delete_term("categories", "premium")
+
     def test_delete_unused_term_succeeds(self, tax_db):
         taxonomy_service.delete_term("labels", "christmas")
         slugs = [t["slug"] for t in taxonomy_service.list_admin_terms("labels")]

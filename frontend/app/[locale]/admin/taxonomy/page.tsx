@@ -16,6 +16,15 @@ export default function TaxonomyPage() {
   const t = useTranslations("admin");
   const [activeKind, setActiveKind] = useState<TaxonomyKind>("product-types");
 
+  // Roving arrow-key navigation between tabs (WAI-ARIA tabs pattern).
+  function onTabKeyDown(event: React.KeyboardEvent, index: number) {
+    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+    event.preventDefault();
+    const delta = event.key === "ArrowRight" ? 1 : -1;
+    const next = (index + delta + TABS.length) % TABS.length;
+    setActiveKind(TABS[next]!.kind);
+  }
+
   return (
     <div>
       <div className="mb-8">
@@ -28,25 +37,38 @@ export default function TaxonomyPage() {
         aria-label={t("taxonomy.title")}
         className="mb-6 flex gap-2 border-b border-champagne-beige"
       >
-        {TABS.map((tab) => (
-          <button
-            key={tab.kind}
-            role="tab"
-            aria-selected={activeKind === tab.kind}
-            onClick={() => setActiveKind(tab.kind)}
-            className={cn(
-              "-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors",
-              activeKind === tab.kind
-                ? "border-muted-gold text-charcoal"
-                : "border-transparent text-soft-brown hover:text-charcoal"
-            )}
-          >
-            {t(tab.labelKey)}
-          </button>
-        ))}
+        {TABS.map((tab, index) => {
+          const selected = activeKind === tab.kind;
+          return (
+            <button
+              key={tab.kind}
+              id={`taxonomy-tab-${tab.kind}`}
+              role="tab"
+              type="button"
+              aria-selected={selected}
+              aria-controls="taxonomy-tabpanel"
+              tabIndex={selected ? 0 : -1}
+              onKeyDown={(e) => onTabKeyDown(e, index)}
+              onClick={() => setActiveKind(tab.kind)}
+              className={cn(
+                "-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors",
+                selected
+                  ? "border-muted-gold text-charcoal"
+                  : "border-transparent text-soft-brown hover:text-charcoal"
+              )}
+            >
+              {t(tab.labelKey)}
+            </button>
+          );
+        })}
       </div>
 
-      <div className="rounded-brand border border-champagne-beige bg-cream p-6">
+      <div
+        id="taxonomy-tabpanel"
+        role="tabpanel"
+        aria-labelledby={`taxonomy-tab-${activeKind}`}
+        className="rounded-brand border border-champagne-beige bg-cream p-6"
+      >
         <TaxonomyManager kind={activeKind} />
       </div>
     </div>

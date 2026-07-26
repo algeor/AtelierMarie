@@ -44,6 +44,19 @@ The product listing SHALL filter by taxonomy slugs while displaying localized ta
 - **THEN** selected filters appear above the grid as localized removable chips
 - **AND** removing a chip updates the grid
 
+#### Scenario: Search filters the grid
+- **WHEN** a user types a query into the filter menu search box
+- **THEN** the grid shows only products whose name or description matches the query
+- **AND** the active search term appears as a removable chip above the grid
+
+#### Scenario: Sort reorders the grid
+- **WHEN** a user selects a sort option (Featured, Newest, Price low→high, Price high→low, or Name A–Z)
+- **THEN** the grid reorders accordingly without a full page reload
+
+#### Scenario: Search and sort persist in the URL
+- **WHEN** a search term or non-default sort is active
+- **THEN** the URL reflects `q` and `sort` alongside the facet params, so the filtered/sorted view is shareable
+
 #### Scenario: Empty filtered state
 - **WHEN** no products match the selected filters
 - **THEN** a friendly empty state message displays

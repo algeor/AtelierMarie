@@ -269,6 +269,21 @@ def _term_state(conn: sqlite3.Connection, table: str, slug: str) -> int | None:
     return None if row is None else row["is_active"]
 
 
+def default_product_type(conn: sqlite3.Connection) -> str:
+    """Return the default product type slug for products created without one.
+
+    The lowest-sort_order active product type, ties broken by slug. Avoids
+    hardcoding a specific slug so the shop stays fully admin-managed. Raises
+    TaxonomyValidationError if no active product type exists.
+    """
+    row = conn.execute(
+        "SELECT slug FROM product_types WHERE is_active = 1 ORDER BY sort_order, slug LIMIT 1"
+    ).fetchone()
+    if row is None:
+        raise TaxonomyValidationError("No active product type is available to assign")
+    return row["slug"]
+
+
 def validate_product_type(
     conn: sqlite3.Connection, slug: str, *, current: str | None = None
 ) -> None:

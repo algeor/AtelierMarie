@@ -83,7 +83,8 @@ async def list_products(
             locale=locale,
         )
 
-        # Apply sort override if specified (otherwise FTS5 relevance is used)
+        # Apply sort override if specified (otherwise FTS5 relevance is used).
+        # Note: sort reorders the current page only; relevance drives selection.
         if sort:
             sort_key_map = {
                 "price_asc": lambda p: p.get("price_cents", 0),
@@ -94,8 +95,15 @@ async def list_products(
             reverse = sort in ("price_desc", "newest")
             products.sort(key=sort_key_map[sort], reverse=reverse)
 
-        # Total is approximate for FTS — return what we have
-        total = len(products)
+        # Accurate total across all matches so pagination works on the search path.
+        total = product_service.count_search_products(
+            q,
+            product_type=product_type,
+            category=category,
+            labels=label_list,
+            in_stock=in_stock,
+            locale=locale,
+        )
 
         return ProductListResponse(
             products=[ProductResponse(**p) for p in products],

@@ -62,6 +62,21 @@ On migration the system SHALL convert distinct non-null legacy `products.categor
 - **THEN** the second is suffixed (for example `-2`) so slugs remain unique
 - **AND** products are updated according to the recorded exact original-value mapping
 
+### Requirement: Product creation resolves a default product type
+When a product is created (or CSV-imported as a new row) without an explicit `product_type`, the system SHALL assign the default product type — the lowest `sort_order` active product type, ties broken by slug — resolved at request time rather than a hardcoded slug. If no active product type exists, creation SHALL fail with a validation error. A blank category value SHALL be normalized to NULL.
+
+#### Scenario: Missing product type uses the default active type
+- **WHEN** a product is created without a `product_type`
+- **THEN** it is assigned the lowest-`sort_order` active product type (for the default seed data, "candles")
+
+#### Scenario: Default skips a deactivated type
+- **WHEN** the lowest-`sort_order` product type is deactivated and a product is created without a `product_type`
+- **THEN** it is assigned the next active product type by `sort_order`
+
+#### Scenario: Blank category stored as NULL
+- **WHEN** a product is created or updated with an empty-string category
+- **THEN** `category_slug` is stored as NULL, not an empty string
+
 ### Requirement: Public taxonomy endpoint
 The system SHALL expose `GET /v1/taxonomy` returning active product types, categories/tiers, and labels ordered by `sort_order`, localized by optional `locale` query parameter (`en`|`bg`, default `en`) with fallback to `name_en` when `name_bg` is NULL.
 

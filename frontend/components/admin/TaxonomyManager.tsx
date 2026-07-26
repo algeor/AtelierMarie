@@ -34,6 +34,13 @@ export function TaxonomyManager({ kind }: TaxonomyManagerProps) {
   const [isCreating, setIsCreating] = useState(false);
   const [isReordering, setIsReordering] = useState(false);
 
+  // Inline rename state (replaces window.prompt).
+  const [editingSlug, setEditingSlug] = useState<string | null>(null);
+  const [editEn, setEditEn] = useState("");
+  const [editBg, setEditBg] = useState("");
+  // Inline delete confirmation state (replaces window.confirm).
+  const [confirmDeleteSlug, setConfirmDeleteSlug] = useState<string | null>(null);
+
   async function refresh() {
     try {
       setTerms(await getAdminTaxonomy(kind));
@@ -81,15 +88,21 @@ export function TaxonomyManager({ kind }: TaxonomyManagerProps) {
     }
   }
 
-  async function handleRename(term: AdminTaxonomyTerm) {
-    const nextEn = window.prompt(t("taxonomy.renameEnPrompt"), term.name_en);
-    if (nextEn === null || !nextEn.trim()) return;
-    const nextBg = window.prompt(t("taxonomy.renameBgPrompt"), term.name_bg ?? "");
-    const data: Parameters<typeof updateTaxonomyTerm>[2] = { name_en: nextEn.trim() };
-    // Cancelling the BG prompt (null) leaves name_bg unchanged; only an
-    // explicit empty string clears it.
-    if (nextBg !== null) data.name_bg = nextBg.trim() || null;
-    await patch(term.slug, data);
+  function startRename(term: AdminTaxonomyTerm) {
+    setConfirmDeleteSlug(null);
+    setEditingSlug(term.slug);
+    setEditEn(term.name_en);
+    setEditBg(term.name_bg ?? "");
+  }
+
+  function cancelRename() {
+    setEditingSlug(null);
+  }
+
+  async function saveRename(term: AdminTaxonomyTerm) {
+    if (!editEn.trim()) return;
+    await patch(term.slug, { name_en: editEn.trim(), name_bg: editBg.trim() || null });
+    setEditingSlug(null);
   }
 
   async function handleReorder(index: number, direction: -1 | 1) {
@@ -118,7 +131,7 @@ export function TaxonomyManager({ kind }: TaxonomyManagerProps) {
   }
 
   async function handleDelete(term: AdminTaxonomyTerm) {
-    if (!window.confirm(t("taxonomy.deleteConfirm", { name: term.name_en }))) return;
+    setConfirmDeleteSlug(null);
     setError(null);
     try {
       await deleteTaxonomyTerm(kind, term.slug);
@@ -180,44 +193,130 @@ export function TaxonomyManager({ kind }: TaxonomyManagerProps) {
             </tr>
           </thead>
           <tbody>
-            {terms.map((term, index) => (
-              <tr key={term.slug} className="border-b border-champagne-beige/60">
-                <td className="py-2 pr-3 text-charcoal">
-                  {term.name_en}
-                  {term.name_bg ? <span className="text-soft-brown/70"> / {term.name_bg}</span> : null}
-                </td>
-                <td className="py-2 pr-3 font-mono text-xs text-soft-brown">{term.slug}</td>
-                <td className="py-2 pr-3 text-soft-brown">{term.product_count}</td>
-                <td className="py-2 pr-3">
-                  <span
-                    className={
-                      term.is_active
-                        ? "rounded-pill bg-green-100 px-2 py-0.5 text-xs text-green-800"
-                        : "rounded-pill bg-champagne-beige px-2 py-0.5 text-xs text-soft-brown"
-                    }
-                  >
-                    {term.is_active ? t("taxonomy.active") : t("taxonomy.inactive")}
-                  </span>
-                </td>
-                <td className="flex flex-wrap gap-1.5 py-2">
-                  <Button type="button" variant="ghost" onClick={() => handleReorder(index, -1)} disabled={index === 0 || isReordering}>
-                    ↑
-                  </Button>
-                  <Button type="button" variant="ghost" onClick={() => handleReorder(index, 1)} disabled={index === terms.length - 1 || isReordering}>
-                    ↓
-                  </Button>
-                  <Button type="button" variant="secondary" onClick={() => handleRename(term)}>
-                    {t("taxonomy.rename")}
-                  </Button>
-                  <Button type="button" variant="secondary" onClick={() => patch(term.slug, { is_active: !term.is_active })}>
-                    {term.is_active ? t("taxonomy.deactivate") : t("taxonomy.activate")}
-                  </Button>
-                  <Button type="button" variant="ghost" onClick={() => handleDelete(term)} disabled={term.product_count > 0}>
-                    {t("taxonomy.delete")}
-                  </Button>
-                </td>
-              </tr>
-            ))}
+            {terms.map((term, index) => {
+              const isEditing = editingSlug === term.slug;
+              const isConfirmingDelete = confirmDeleteSlug === term.slug;
+              return (
+                <tr key={term.slug} className="border-b border-champagne-beige/60">
+                  <td className="py-2 pr-3 text-charcoal">
+                    {isEditing ? (
+                      <div className="flex flex-wrap gap-2">
+                        <input
+                          aria-label={t("taxonomy.nameEn")}
+                          value={editEn}
+                          onChange={(e) => setEditEn(e.target.value)}
+                          placeholder={t("taxonomy.nameEn")}
+                          className="w-32 rounded-brand border border-champagne-beige bg-warm-ivory px-2 py-1 text-sm text-charcoal focus:border-muted-gold focus:outline-none"
+                        />
+                        <input
+                          aria-label={t("taxonomy.nameBg")}
+                          value={editBg}
+                          onChange={(e) => setEditBg(e.target.value)}
+                          placeholder={t("taxonomy.nameBg")}
+                          className="w-32 rounded-brand border border-champagne-beige bg-warm-ivory px-2 py-1 text-sm text-charcoal focus:border-muted-gold focus:outline-none"
+                        />
+                      </div>
+                    ) : (
+                      <>
+                        {term.name_en}
+                        {term.name_bg ? (
+                          <span className="text-soft-brown/70"> / {term.name_bg}</span>
+                        ) : null}
+                      </>
+                    )}
+                  </td>
+                  <td className="py-2 pr-3 font-mono text-xs text-soft-brown">{term.slug}</td>
+                  <td className="py-2 pr-3 text-soft-brown">{term.product_count}</td>
+                  <td className="py-2 pr-3">
+                    <span
+                      className={
+                        term.is_active
+                          ? "rounded-pill bg-green-100 px-2 py-0.5 text-xs text-green-800"
+                          : "rounded-pill bg-champagne-beige px-2 py-0.5 text-xs text-soft-brown"
+                      }
+                    >
+                      {term.is_active ? t("taxonomy.active") : t("taxonomy.inactive")}
+                    </span>
+                  </td>
+                  <td className="flex flex-wrap items-center gap-1.5 py-2">
+                    {isEditing ? (
+                      <>
+                        <Button
+                          type="button"
+                          onClick={() => saveRename(term)}
+                          disabled={!editEn.trim()}
+                        >
+                          {t("taxonomy.save")}
+                        </Button>
+                        <Button type="button" variant="ghost" onClick={cancelRename}>
+                          {t("taxonomy.cancel")}
+                        </Button>
+                      </>
+                    ) : isConfirmingDelete ? (
+                      <>
+                        <span className="text-xs text-soft-brown">
+                          {t("taxonomy.deleteConfirm", { name: term.name_en })}
+                        </span>
+                        <Button
+                          type="button"
+                          onClick={() => handleDelete(term)}
+                          className="bg-red-600 text-white hover:bg-red-700"
+                        >
+                          {t("taxonomy.confirmDelete")}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => setConfirmDeleteSlug(null)}
+                        >
+                          {t("taxonomy.cancel")}
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => handleReorder(index, -1)}
+                          disabled={index === 0 || isReordering}
+                        >
+                          ↑
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => handleReorder(index, 1)}
+                          disabled={index === terms.length - 1 || isReordering}
+                        >
+                          ↓
+                        </Button>
+                        <Button type="button" variant="secondary" onClick={() => startRename(term)}>
+                          {t("taxonomy.rename")}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => patch(term.slug, { is_active: !term.is_active })}
+                        >
+                          {term.is_active ? t("taxonomy.deactivate") : t("taxonomy.activate")}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => {
+                            setEditingSlug(null);
+                            setConfirmDeleteSlug(term.slug);
+                          }}
+                          disabled={term.product_count > 0}
+                        >
+                          {t("taxonomy.delete")}
+                        </Button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}

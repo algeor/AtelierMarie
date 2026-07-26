@@ -13,9 +13,16 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: L
 
 export default async function ProductsPage({ params }: { params: Promise<{ locale: Locale }> }) {
   const { locale } = await params;
+  // Products drive the primary "sell candles" page; taxonomy only builds the
+  // filter menu. Fetch them independently so a taxonomy endpoint failure
+  // degrades the menu (empty facets) instead of taking down the product grid.
   const [{ products }, taxonomy] = await Promise.all([
     getProducts(1, 100, locale),
-    getTaxonomy(locale),
+    getTaxonomy(locale).catch(() => ({
+      product_types: [],
+      categories: [],
+      labels: [],
+    })),
   ]);
 
   return <ProductListingClient products={products} taxonomy={taxonomy} />;

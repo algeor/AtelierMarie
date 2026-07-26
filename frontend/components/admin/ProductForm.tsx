@@ -105,7 +105,10 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
         setLabelTerms(labels);
       })
       .catch(() => setError(t("taxonomy.loadError")));
-  }, [t]);
+    // Load taxonomy once on mount; `t` is read only for the error message and
+    // must not re-trigger the fetch if its identity changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /**
    * Options for a single-select: active terms, plus the product's current term

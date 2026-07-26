@@ -39,3 +39,8 @@ The public `GET /v1/products` endpoint SHALL filter by managed taxonomy slugs in
 #### Scenario: Filtering remains slug-based across locales
 - **WHEN** `GET /v1/products?category=medium&locale=bg` is called
 - **THEN** filtering matches the stored "medium" slug, independent of the Bulgarian category display name
+
+#### Scenario: Search returns an accurate paginated total
+- **WHEN** `GET /v1/products?q=lavender&limit=2&page=1` matches more products than the page size
+- **THEN** `total` reflects the full count of matching products (a `COUNT(*)` over the same FTS + filter WHERE clause), not just the number returned on the page
+- **AND** the response `products` are limited to the requested page size

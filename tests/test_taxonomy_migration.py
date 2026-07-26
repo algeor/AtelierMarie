@@ -306,3 +306,70 @@ class TestExistingLabelAssignmentMigration:
                 ("p1", "ghost"),
             )
         conn.close()
+
+
+class TestLegacyValueHygiene:
+    """Whitespace/empty legacy categories and the one-shot marker gate."""
+
+    def test_empty_and_whitespace_categories_produce_no_label(self, legacy_db_path):
+        _build_legacy_db(
+            legacy_db_path,
+            [
+                ("p-empty", "Empty", ""),
+                ("p-ws", "Whitespace", "   "),
+                ("p-real", "Real", "Floral "),  # trailing space, real value
+            ],
+        )
+        init_db(legacy_db_path)
+
+        conn = _connect(legacy_db_path)
+        # Only the real (trailing-space) value maps to a label; its name is trimmed.
+        mappings = {
+            r["original_value"]: r["label_slug"]
+            for r in conn.execute(
+                "SELECT original_value, label_slug FROM taxonomy_category_migration"
+            )
+        }
+        assert mappings == {"Floral ": "floral"}
+
+        # No label named "item" (the slugify fallback) was created for blanks.
+        label_slugs = {r["slug"] for r in conn.execute("SELECT slug FROM product_labels")}
+        assert "item" not in label_slugs
+
+        assignments = {
+            (r["product_id"], r["label_slug"])
+            for r in conn.execute("SELECT product_id, label_slug FROM product_label_assignments")
+        }
+        assert assignments == {("p-real", "floral")}
+        conn.close()
+
+    def test_marker_gates_new_legacy_value_added_after_first_run(self, legacy_db_path):
+        _build_legacy_db(legacy_db_path, [("p1", "One", "Woody")])
+        init_db(legacy_db_path)
+
+        # Insert a brand-new legacy category value AFTER the migration has run.
+        conn = _connect(legacy_db_path)
+        conn.execute(
+            "INSERT INTO products (id, name_en, price_cents, category, stock) "
+            "VALUES ('p2', 'Two', 1000, 'BrandNewValue', 5)"
+        )
+        conn.commit()
+        conn.close()
+
+        # Re-run: the marker gate means the new value is deliberately NOT backfilled.
+        init_db(legacy_db_path)
+
+        conn = _connect(legacy_db_path)
+        mapped = {
+            r["original_value"]
+            for r in conn.execute("SELECT original_value FROM taxonomy_category_migration")
+        }
+        assert "BrandNewValue" not in mapped
+        p2_labels = [
+            r["label_slug"]
+            for r in conn.execute(
+                "SELECT label_slug FROM product_label_assignments WHERE product_id = 'p2'"
+            )
+        ]
+        assert p2_labels == []
+        conn.close()

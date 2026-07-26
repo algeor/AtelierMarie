@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import type { ProductResponse, TaxonomyResponse, TaxonomyTerm } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -28,13 +28,17 @@ export function ProductListingClient({ products, taxonomy }: ProductListingClien
   const [category, setCategory] = useState<string | null>(null);
   const [labels, setLabels] = useState<string[]>([]);
   const [inStockOnly, setInStockOnly] = useState(false);
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
-  const [expandedProductType, setExpandedProductType] = useState<string | null>(
-    taxonomy.product_types[0]?.slug ?? null
-  );
+  const [expandedProductType, setExpandedProductType] = useState<string | null>(null);
   // Gate URL writes until after we've hydrated state from the URL, so the
   // initial write can't clobber incoming query params.
   const [hydrated, setHydrated] = useState(false);
+
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const returnFocusRef = useRef<Element | null>(null);
 
   // Hydrate filter state from the URL once on mount (shareable/bookmarkable
   // filtered views). Done in an effect (not a useState initializer) to avoid a
@@ -47,11 +51,21 @@ export function ProductListingClient({ products, taxonomy }: ProductListingClien
     if (pt) {
       setProductType(pt);
       setExpandedProductType(pt);
+    } else if (productTypeSections[0]) {
+      // Expand the first section that actually has products, not the first raw
+      // product type (which may have zero and would leave nothing expanded).
+      setExpandedProductType(productTypeSections[0].type.slug);
     }
     if (cat) setCategory(cat);
     if (lbls) setLabels(lbls.split(",").filter(Boolean));
     if (params.get("in_stock") === "1") setInStockOnly(true);
+    const q = params.get("q");
+    const srt = params.get("sort");
+    if (q) setSearch(q);
+    if (srt) setSort(srt);
     setHydrated(true);
+    // Mount-only: intentionally reads the initial-render section list once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Reflect active filters back into the URL without triggering navigation.
@@ -62,20 +76,56 @@ export function ProductListingClient({ products, taxonomy }: ProductListingClien
     if (category) params.set("category", category);
     if (labels.length) params.set("labels", labels.join(","));
     if (inStockOnly) params.set("in_stock", "1");
+    if (search.trim()) params.set("q", search.trim());
+    if (sort) params.set("sort", sort);
     const qs = params.toString();
     window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
-  }, [hydrated, productType, category, labels, inStockOnly]);
+  }, [hydrated, productType, category, labels, inStockOnly, search, sort]);
 
+  // Close on Escape, lock body scroll, and move focus into the drawer on open /
+  // restore it to the trigger on close (modal-dialog behavior, mirroring CartDrawer).
   useEffect(() => {
     if (!menuOpen) return;
+
+    returnFocusRef.current = document.activeElement;
+    requestAnimationFrame(() => closeButtonRef.current?.focus());
+    document.body.style.overflow = "hidden";
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setMenuOpen(false);
     };
-
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = "";
+      if (returnFocusRef.current instanceof HTMLElement) {
+        returnFocusRef.current.focus();
+      }
+      returnFocusRef.current = null;
+    };
   }, [menuOpen]);
+
+  // Focus trap: keep Tab / Shift+Tab cycling within the open drawer.
+  const handleMenuKeyDown = useCallback((event: React.KeyboardEvent) => {
+    if (event.key !== "Tab" || !drawerRef.current) return;
+    const focusable = drawerRef.current.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (!first || !last) return;
+    if (event.shiftKey) {
+      if (document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      }
+    } else if (document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }, []);
 
   // Per-kind slug -> localized name maps. Keyed by kind because a slug is only
   // unique within its kind (a category and a label could share one).
@@ -141,19 +191,48 @@ export function ProductListingClient({ products, taxonomy }: ProductListingClien
     }
   }, [category, hydrated, labels, productType, productTypeSections, products, visibleLabels]);
 
-  const filtered = useMemo(
-    () =>
-      products.filter((p) => {
-        if (productType && p.product_type !== productType) return false;
-        if (category && p.category !== category) return false;
-        if (labels.length && !labels.every((l) => p.labels.some((pl) => pl.slug === l))) {
-          return false;
-        }
-        if (inStockOnly && p.stock <= 0) return false;
-        return true;
-      }),
-    [products, productType, category, labels, inStockOnly]
-  );
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    const matched = products.filter((p) => {
+      if (productType && p.product_type !== productType) return false;
+      if (category && p.category !== category) return false;
+      if (labels.length && !labels.every((l) => p.labels.some((pl) => pl.slug === l))) {
+        return false;
+      }
+      if (inStockOnly && p.stock <= 0) return false;
+      if (query && !`${p.name} ${p.description ?? ""}`.toLowerCase().includes(query)) {
+        return false;
+      }
+      return true;
+    });
+
+    const sorted = [...matched];
+    switch (sort) {
+      case "price_asc":
+        sorted.sort((a, b) => a.price_cents - b.price_cents);
+        break;
+      case "price_desc":
+        sorted.sort((a, b) => b.price_cents - a.price_cents);
+        break;
+      case "name":
+        sorted.sort((a, b) => a.name.localeCompare(b.name));
+        break;
+      case "newest":
+        sorted.sort((a, b) => b.created_at.localeCompare(a.created_at));
+        break;
+      default:
+        break;
+    }
+    return sorted;
+  }, [products, productType, category, labels, inStockOnly, search, sort]);
+
+  const sortOptions = [
+    { value: "", labelKey: "sortRelevance" },
+    { value: "newest", labelKey: "sortNewest" },
+    { value: "price_asc", labelKey: "sortPriceAsc" },
+    { value: "price_desc", labelKey: "sortPriceDesc" },
+    { value: "name", labelKey: "sortName" },
+  ] as const;
 
   function toggleLabel(slug: string) {
     setLabels((prev) => (prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug]));
@@ -177,12 +256,21 @@ export function ProductListingClient({ products, taxonomy }: ProductListingClien
     setCategory(null);
     setLabels([]);
     setInStockOnly(false);
+    setSearch("");
   }
 
   const hasActiveFilters =
-    productType !== null || category !== null || labels.length > 0 || inStockOnly;
+    productType !== null ||
+    category !== null ||
+    labels.length > 0 ||
+    inStockOnly ||
+    search.trim() !== "";
   const activeFilterCount =
-    (productType ? 1 : 0) + (category ? 1 : 0) + labels.length + (inStockOnly ? 1 : 0);
+    (productType ? 1 : 0) +
+    (category ? 1 : 0) +
+    labels.length +
+    (inStockOnly ? 1 : 0) +
+    (search.trim() ? 1 : 0);
 
   // Active filters as removable chips.
   const chips: { key: string; label: string; onRemove: () => void }[] = [];
@@ -207,6 +295,13 @@ export function ProductListingClient({ products, taxonomy }: ProductListingClien
       onRemove: () => toggleLabel(slug),
     });
   }
+  if (search.trim()) {
+    chips.push({
+      key: "q",
+      label: `“${search.trim()}”`,
+      onRemove: () => setSearch(""),
+    });
+  }
 
   const menuPanel = (
     <>
@@ -214,6 +309,7 @@ export function ProductListingClient({ products, taxonomy }: ProductListingClien
         <div className="flex items-center justify-between gap-3">
           <h2 className="font-heading text-xl text-charcoal">{t("productMenu")}</h2>
           <button
+            ref={closeButtonRef}
             type="button"
             onClick={() => setMenuOpen(false)}
             aria-label={t("closeProductMenu")}
@@ -235,6 +331,39 @@ export function ProductListingClient({ products, taxonomy }: ProductListingClien
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 py-5">
+        <div className="mb-4 space-y-3">
+          <div>
+            <label htmlFor="product-search" className="sr-only">
+              {t("searchLabel")}
+            </label>
+            <input
+              id="product-search"
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t("searchPlaceholder")}
+              className="w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm text-charcoal placeholder:text-soft-brown/60 focus:border-muted-gold focus:outline-none focus:ring-1 focus:ring-muted-gold"
+            />
+          </div>
+          <div>
+            <label htmlFor="product-sort" className="sr-only">
+              {t("sortLabel")}
+            </label>
+            <select
+              id="product-sort"
+              value={sort}
+              onChange={(e) => setSort(e.target.value)}
+              className="w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm text-charcoal focus:border-muted-gold focus:outline-none focus:ring-1 focus:ring-muted-gold"
+            >
+              {sortOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {t(opt.labelKey)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
         <button
           type="button"
           onClick={() => {
@@ -415,7 +544,11 @@ export function ProductListingClient({ products, taxonomy }: ProductListingClien
 
       {menuOpen && (
         <aside
+          ref={drawerRef}
           id="product-taxonomy-menu"
+          role="dialog"
+          aria-modal="true"
+          onKeyDown={handleMenuKeyDown}
           className="product-menu-drawer fixed inset-y-0 left-0 z-50 flex w-[min(22rem,calc(100vw-2rem))] flex-col border-r border-champagne-beige bg-cream shadow-2xl shadow-charcoal/20"
           aria-label={t("productMenu")}
         >
@@ -432,6 +565,7 @@ export function ProductListingClient({ products, taxonomy }: ProductListingClien
                 key={chip.key}
                 type="button"
                 onClick={chip.onRemove}
+                aria-label={t("removeFilter", { name: chip.label })}
                 className="inline-flex items-center gap-1.5 rounded-pill bg-champagne-beige px-3 py-1 text-sm text-charcoal hover:bg-champagne-beige/70"
               >
                 {chip.label}

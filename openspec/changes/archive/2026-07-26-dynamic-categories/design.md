@@ -138,6 +138,10 @@ Display names resolve by locale:
 
 Resolution must include inactive taxonomy terms when rendering products that already reference them, so retired labels still display on existing products.
 
+**Search `total` (post-review update):** The `q=` search path returns an accurate `total` computed by a `COUNT(*)` over the same FTS + filter WHERE clause (no LIMIT), so paginated search reports the full match count rather than the current page size.
+
+**FTS index scope (post-review update):** The legacy free-text `products.category` column is no longer written by any create/update path, so it was dropped from the `products_fts_en`/`products_fts_bg` indexes and their sync triggers. FTS now covers name + description only, keeping search coverage consistent across legacy and newly-created products. The startup FTS reset + rebuild applies this to existing databases.
+
 ### 6. Assignment validation uses active terms, with preserve-current exceptions
 
 Product create validates:
@@ -145,6 +149,8 @@ Product create validates:
 - supplied `product_type` is an existing active product type
 - supplied `category` is NULL or an existing active category/tier
 - supplied labels are existing active label slugs
+
+When no `product_type` is supplied on create (or on a CSV insert), the service assigns the **default product type — the lowest `sort_order` active product type** (ties broken by slug) — resolved at request time rather than a hardcoded slug. A blank category (`""`) is normalized to NULL. If no active product type exists, create fails with a validation error.
 
 Product update validates only actual reassignment. Omitted values preserve existing assignments. Sending the current inactive product type/category/label is allowed so admins can edit unrelated fields without being forced to reclassify immediately. Assigning a different inactive term is rejected.
 
@@ -210,6 +216,10 @@ Labels
 Desktop uses a left sidebar. Mobile uses a collapsible filter panel. Selected filters are shown as removable chips above the grid. The grid updates without a full page reload.
 
 Filter option labels come from taxonomy APIs. Product cards and detail pages use product response metadata. The UI must not contain hardcoded taxonomy lists.
+
+**Search + sort (post-review update):** The filter menu also includes a **search box** (matches product name/description) and a **sort control** (Featured/relevance, Newest, Price low→high, Price high→low, Name A–Z). Search and sort state sync to the URL (`q`, `sort`) alongside the facet params, and the search term appears as a removable chip.
+
+**Scale note (post-review):** The storefront fetches up to 100 products once and applies facet filtering, search, and sort **client-side**. This is sufficient for the current small catalog. Growing past 100 products requires moving filtering/search/sort/pagination server-side (the public `GET /v1/products` endpoint already supports every parameter, including an accurate search `total`); this is a deliberate follow-up, not implemented here.
 
 ### 10. Admin product forms use taxonomy APIs
 

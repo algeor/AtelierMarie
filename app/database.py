@@ -301,11 +301,13 @@ BEGIN
     UPDATE orders SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
 END;
 
--- Full-text search for products — English index (content-backed via triggers)
+-- Full-text search for products — English index (content-backed via triggers).
+-- Indexes name + description only; the legacy `category` column is no longer
+-- written (taxonomy moved to product_type_slug/category_slug/labels), so it was
+-- dropped from the index to keep search coverage consistent across all products.
 CREATE VIRTUAL TABLE IF NOT EXISTS products_fts_en USING fts5(
     name_en,
     description_en,
-    category,
     content='products',
     content_rowid='rowid'
 );
@@ -314,7 +316,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS products_fts_en USING fts5(
 CREATE VIRTUAL TABLE IF NOT EXISTS products_fts_bg USING fts5(
     name_bg,
     description_bg,
-    category,
     content='products',
     content_rowid='rowid'
 );
@@ -322,49 +323,43 @@ CREATE VIRTUAL TABLE IF NOT EXISTS products_fts_bg USING fts5(
 -- Sync triggers: keep English FTS index in sync with products table
 CREATE TRIGGER IF NOT EXISTS products_fts_en_insert AFTER INSERT ON products
 BEGIN
-    INSERT INTO products_fts_en(rowid, name_en, description_en, category)
-    VALUES (NEW.rowid, NEW.name_en, COALESCE(NEW.description_en, ''), COALESCE(NEW.category, ''));
+    INSERT INTO products_fts_en(rowid, name_en, description_en)
+    VALUES (NEW.rowid, NEW.name_en, COALESCE(NEW.description_en, ''));
 END;
 
 CREATE TRIGGER IF NOT EXISTS products_fts_en_delete BEFORE DELETE ON products
 BEGIN
-    INSERT INTO products_fts_en(products_fts_en, rowid, name_en, description_en, category)
-    VALUES ('delete', OLD.rowid, OLD.name_en,
-            COALESCE(OLD.description_en, ''), COALESCE(OLD.category, ''));
+    INSERT INTO products_fts_en(products_fts_en, rowid, name_en, description_en)
+    VALUES ('delete', OLD.rowid, OLD.name_en, COALESCE(OLD.description_en, ''));
 END;
 
 CREATE TRIGGER IF NOT EXISTS products_fts_en_update AFTER UPDATE ON products
 BEGIN
-    INSERT INTO products_fts_en(products_fts_en, rowid, name_en, description_en, category)
-    VALUES ('delete', OLD.rowid, OLD.name_en,
-            COALESCE(OLD.description_en, ''), COALESCE(OLD.category, ''));
-    INSERT INTO products_fts_en(rowid, name_en, description_en, category)
-    VALUES (NEW.rowid, NEW.name_en, COALESCE(NEW.description_en, ''), COALESCE(NEW.category, ''));
+    INSERT INTO products_fts_en(products_fts_en, rowid, name_en, description_en)
+    VALUES ('delete', OLD.rowid, OLD.name_en, COALESCE(OLD.description_en, ''));
+    INSERT INTO products_fts_en(rowid, name_en, description_en)
+    VALUES (NEW.rowid, NEW.name_en, COALESCE(NEW.description_en, ''));
 END;
 
 -- Sync triggers: keep Bulgarian FTS index in sync with products table
 CREATE TRIGGER IF NOT EXISTS products_fts_bg_insert AFTER INSERT ON products
 BEGIN
-    INSERT INTO products_fts_bg(rowid, name_bg, description_bg, category)
-    VALUES (NEW.rowid, COALESCE(NEW.name_bg, ''),
-            COALESCE(NEW.description_bg, ''), COALESCE(NEW.category, ''));
+    INSERT INTO products_fts_bg(rowid, name_bg, description_bg)
+    VALUES (NEW.rowid, COALESCE(NEW.name_bg, ''), COALESCE(NEW.description_bg, ''));
 END;
 
 CREATE TRIGGER IF NOT EXISTS products_fts_bg_delete BEFORE DELETE ON products
 BEGIN
-    INSERT INTO products_fts_bg(products_fts_bg, rowid, name_bg, description_bg, category)
-    VALUES ('delete', OLD.rowid, COALESCE(OLD.name_bg, ''),
-            COALESCE(OLD.description_bg, ''), COALESCE(OLD.category, ''));
+    INSERT INTO products_fts_bg(products_fts_bg, rowid, name_bg, description_bg)
+    VALUES ('delete', OLD.rowid, COALESCE(OLD.name_bg, ''), COALESCE(OLD.description_bg, ''));
 END;
 
 CREATE TRIGGER IF NOT EXISTS products_fts_bg_update AFTER UPDATE ON products
 BEGIN
-    INSERT INTO products_fts_bg(products_fts_bg, rowid, name_bg, description_bg, category)
-    VALUES ('delete', OLD.rowid, COALESCE(OLD.name_bg, ''),
-            COALESCE(OLD.description_bg, ''), COALESCE(OLD.category, ''));
-    INSERT INTO products_fts_bg(rowid, name_bg, description_bg, category)
-    VALUES (NEW.rowid, COALESCE(NEW.name_bg, ''),
-            COALESCE(NEW.description_bg, ''), COALESCE(NEW.category, ''));
+    INSERT INTO products_fts_bg(products_fts_bg, rowid, name_bg, description_bg)
+    VALUES ('delete', OLD.rowid, COALESCE(OLD.name_bg, ''), COALESCE(OLD.description_bg, ''));
+    INSERT INTO products_fts_bg(rowid, name_bg, description_bg)
+    VALUES (NEW.rowid, COALESCE(NEW.name_bg, ''), COALESCE(NEW.description_bg, ''));
 END;
 """
 
@@ -650,6 +645,9 @@ def _migrate_products_table(conn: sqlite3.Connection) -> None:
         conn.execute("DROP TABLE products")
         conn.execute("ALTER TABLE products_new RENAME TO products")
     finally:
+        # Commit first: PRAGMA foreign_keys is a no-op inside an open transaction,
+        # so re-enabling enforcement only takes effect once the rebuild is committed.
+        conn.commit()
         conn.execute("PRAGMA foreign_keys=ON")
 
 
@@ -806,26 +804,46 @@ def _backfill_legacy_categories(conn: sqlite3.Connection) -> None:
 
 
 def _migrate_taxonomy(conn: sqlite3.Connection) -> None:
-    """Seed starter taxonomy and (once) backfill labels from legacy categories."""
-    # Marker guards the one-shot backfill so re-runs are a no-op even when seed
-    # taxonomy already exists (the marker, not "seeds present", is the gate).
+    """Seed starter taxonomy and (once) backfill labels from legacy categories.
+
+    The seed + backfill + marker write run inside a single BEGIN IMMEDIATE
+    transaction so concurrent uvicorn workers can't both execute the one-shot
+    backfill on first boot: the second worker blocks on the write lock, then
+    re-checks the marker inside the lock and no-ops. The marker (not "seeds
+    present") is the gate, so re-runs are a no-op even when seeds already exist.
+    """
+    # Fast path: already applied — avoid taking the write lock on every startup.
     if _migration_applied(conn, _TAXONOMY_MIGRATION_MARKER):
         return
 
-    _seed_taxonomy_table(conn, "product_types", _SEED_PRODUCT_TYPES)
-    _seed_taxonomy_table(conn, "product_categories", _SEED_CATEGORIES)
-    _seed_taxonomy_table(conn, "product_labels", _SEED_LABELS)
+    if conn.in_transaction:
+        conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        # Re-check under the lock: another worker may have applied it while we
+        # waited to acquire the write lock.
+        if _migration_applied(conn, _TAXONOMY_MIGRATION_MARKER):
+            conn.execute("ROLLBACK")
+            return
 
-    _backfill_legacy_categories(conn)
-    # Default any product missing a product type to candles; leave category NULL.
-    conn.execute(
-        "UPDATE products SET product_type_slug = 'candles' "
-        "WHERE product_type_slug IS NULL OR product_type_slug = ''"
-    )
-    conn.execute(
-        "INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)",
-        (_TAXONOMY_MIGRATION_MARKER,),
-    )
+        _seed_taxonomy_table(conn, "product_types", _SEED_PRODUCT_TYPES)
+        _seed_taxonomy_table(conn, "product_categories", _SEED_CATEGORIES)
+        _seed_taxonomy_table(conn, "product_labels", _SEED_LABELS)
+
+        _backfill_legacy_categories(conn)
+        # Default any product missing a product type to candles; leave category NULL.
+        conn.execute(
+            "UPDATE products SET product_type_slug = 'candles' "
+            "WHERE product_type_slug IS NULL OR product_type_slug = ''"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)",
+            (_TAXONOMY_MIGRATION_MARKER,),
+        )
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
 
 
 @contextmanager

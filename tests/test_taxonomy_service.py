@@ -353,6 +353,20 @@ class TestUpdatePreservesInactive:
         with pytest.raises(TaxonomyValidationError):
             product_service.update_product("reassign-label", {"labels": ["winter"]})
 
+    def test_reassign_to_different_inactive_product_type_rejected(self, tax_db):
+        product_service.create_product(
+            {
+                "id": "reassign-type",
+                "name_en": "Reassign Type",
+                "price_cents": 2000,
+                "product_type": "candles",
+                "stock": 5,
+            }
+        )
+        _deactivate("product-types", "boxes")
+        with pytest.raises(TaxonomyValidationError):
+            product_service.update_product("reassign-type", {"product_type": "boxes"})
+
     def test_category_can_be_set_null(self, tax_db):
         product_service.create_product(
             {
