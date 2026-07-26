@@ -95,6 +95,9 @@ export type OrderStatus =
   | "delivered"
   | "cancelled";
 
+export type PaymentMethod = "cod" | "card" | "bank_transfer";
+export type PaymentStatus = "pending" | "paid" | "cod_pending" | "failed" | "refunded";
+
 export interface OrderItemResponse {
   product_id: string;
   product_name: string;
@@ -105,6 +108,9 @@ export interface OrderItemResponse {
 export interface OrderResponse {
   id: string;
   status: OrderStatus;
+  payment_method: PaymentMethod;
+  payment_status: PaymentStatus;
+  stripe_checkout_url: string | null;
   items_total_cents: number;
   shipping_cents: number;
   total_cents: number;
@@ -173,6 +179,7 @@ export interface CreateOrderRequest {
   customer_name?: string | null;
   delivery: DeliveryInfo;
   notes?: string | null;
+  payment_method?: PaymentMethod;
 }
 
 export interface UpdateOrderStatusRequest {

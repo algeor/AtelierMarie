@@ -71,11 +71,23 @@ class Settings(BaseSettings):
         "/v1/redoc",
         "/v1/openapi.json",
         "/v1/webhooks/zeptomail",
+        "/v1/webhooks/stripe",
     ]
 
     # Cart limits
     cart_max_quantity_per_item: int = 10
     cart_max_distinct_items: int = 20
+
+    # Stripe (payment-integration)
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_success_url: str = ""
+    stripe_cancel_url: str = ""
+
+    # Bank transfer (payment-integration)
+    bank_iban: str = ""
+    bank_bic: str = ""
+    bank_name: str = ""
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

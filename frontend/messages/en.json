@@ -156,6 +156,12 @@
     "placingOrder": "Placing order...",
     "unavailableItems": "Some items are no longer available. Please review your cart.",
     "genericError": "Something went wrong. Please try again.",
+    "paymentMethod": {
+      "label": "Payment method",
+      "cod": "Cash on delivery",
+      "card": "Card (pay online)",
+      "bank_transfer": "Bank transfer"
+    },
     "delivery": {
       "sectionTitle": "Delivery",
       "method": {
@@ -251,7 +257,33 @@
     },
     "carrier": "Carrier",
     "trackingNumber": "Tracking number",
-    "trackPackage": "Track your package"
+    "trackPackage": "Track your package",
+    "payment": {
+      "sectionTitle": "Payment",
+      "method": {
+        "cod": "Cash on delivery",
+        "card": "Card",
+        "bank_transfer": "Bank transfer"
+      },
+      "status": {
+        "pending": "Awaiting payment",
+        "paid": "Paid",
+        "cod_pending": "Pay on delivery",
+        "failed": "Payment failed",
+        "refunded": "Refunded"
+      },
+      "retryPayment": "Retry payment",
+      "retryRedirecting": "Redirecting to payment…",
+      "retryError": "Could not start payment session. Please try again.",
+      "retryNotCard": "This order does not support card payment retry.",
+      "bankInstructions": "Bank transfer instructions",
+      "bankName": "Bank",
+      "bankIban": "IBAN",
+      "bankBic": "BIC",
+      "bankAmount": "Amount",
+      "bankReference": "Reference",
+      "bankNote": "Use the reference above so we can match your transfer to your order."
+    }
   },
   "admin": {
     "title": "Admin",

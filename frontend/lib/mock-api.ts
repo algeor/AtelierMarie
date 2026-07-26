@@ -431,6 +431,12 @@ export async function createOrder(
   const order: OrderResponse = {
     id: generateOrderId(),
     status: "pending",
+    payment_method: (data as { payment_method?: string }).payment_method === "card" ? "card"
+      : (data as { payment_method?: string }).payment_method === "bank_transfer" ? "bank_transfer"
+      : "cod",
+    payment_status: (data as { payment_method?: string }).payment_method === "cod" || !(data as { payment_method?: string }).payment_method
+      ? "cod_pending" : "pending",
+    stripe_checkout_url: null,
     items_total_cents: cart.total_cents,
     shipping_cents: 0,
     total_cents: cart.total_cents,
@@ -522,6 +528,9 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
   {
     id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
     status: "pending",
+    payment_method: "bank_transfer",
+    payment_status: "pending",
+    stripe_checkout_url: null,
     items_total_cents: 7700,
     shipping_cents: 0,
     total_cents: 7700,
@@ -550,6 +559,9 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
   {
     id: "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
     status: "confirmed",
+    payment_method: "cod",
+    payment_status: "cod_pending",
+    stripe_checkout_url: null,
     items_total_cents: 5600,
     shipping_cents: 0,
     total_cents: 5600,
@@ -579,6 +591,9 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
   {
     id: "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f",
     status: "shipped",
+    payment_method: "card",
+    payment_status: "paid",
+    stripe_checkout_url: null,
     items_total_cents: 3200,
     shipping_cents: 0,
     total_cents: 3200,
@@ -606,6 +621,9 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
   {
     id: "d4e5f6a7-b8c9-4d0e-1f2a-3b4c5d6e7f8a",
     status: "delivered",
+    payment_method: "cod",
+    payment_status: "paid",
+    stripe_checkout_url: null,
     items_total_cents: 9000,
     shipping_cents: 0,
     total_cents: 9000,

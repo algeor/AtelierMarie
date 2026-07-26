@@ -100,8 +100,25 @@ CREATE TABLE IF NOT EXISTS orders (
     -- order, not a session lookup — see email-notifications design Decision 8).
     locale      TEXT NOT NULL DEFAULT 'en',
     notes       TEXT,
+    -- Payment axis (orthogonal to order status — payment-integration design).
+    payment_method  TEXT NOT NULL DEFAULT 'cod'
+                    CHECK (payment_method IN ('cod', 'card', 'bank_transfer')),
+    payment_status  TEXT NOT NULL DEFAULT 'cod_pending'
+                    CHECK (payment_status IN (
+                        'pending', 'paid', 'cod_pending', 'failed', 'refunded'
+                    )),
+    stripe_checkout_session_id TEXT,
+    stripe_payment_intent_id   TEXT,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Stripe webhook dedup table — mirrors order_emails pattern (payment-integration Decision 7).
+CREATE TABLE IF NOT EXISTS stripe_events (
+    event_id    TEXT PRIMARY KEY,   -- Stripe's evt_xxx — dedup key
+    order_id    TEXT,               -- nullable: some events may not map to an order
+    event_type  TEXT NOT NULL,      -- e.g. 'checkout.session.completed'
+    received_at TEXT NOT NULL       -- YYYY-MM-DD HH:MM:SS UTC
 );
 
 CREATE INDEX IF NOT EXISTS idx_orders_session_id ON orders(session_id);
@@ -610,6 +627,31 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
         _add_column_if_missing(conn, "orders", order_columns, "tracking_url", "tracking_url TEXT")
         _add_column_if_missing(
             conn, "orders", order_columns, "locale", "locale TEXT NOT NULL DEFAULT 'en'"
+        )
+        # Payment axis columns (payment-integration).
+        # CHECK constraints omitted on ALTER ADD COLUMN (SQLite restriction);
+        # validation happens at the Pydantic + service layers.
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "payment_method",
+            "payment_method TEXT NOT NULL DEFAULT 'cod'",
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "payment_status",
+            "payment_status TEXT NOT NULL DEFAULT 'cod_pending'",
+        )
+        _add_column_if_missing(
+            conn, "orders", order_columns,
+            "stripe_checkout_session_id", "stripe_checkout_session_id TEXT"
+        )
+        _add_column_if_missing(
+            conn, "orders", order_columns,
+            "stripe_payment_intent_id", "stripe_payment_intent_id TEXT"
         )
 
     if _table_exists(conn, "promotion_campaigns"):

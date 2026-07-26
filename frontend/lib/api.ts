@@ -131,6 +131,15 @@ export async function createOrder(
   return apiClient.post<OrderResponse>("/v1/orders", data);
 }
 
+export async function createStripeRetrySession(
+  orderId: string
+): Promise<{ stripe_checkout_url: string }> {
+  return apiClient.post<{ stripe_checkout_url: string }>(
+    `/v1/orders/${encodeURIComponent(orderId)}/stripe-session`,
+    {}
+  );
+}
+
 // --- Delivery ---
 
 export async function getDeliveryOffices(
