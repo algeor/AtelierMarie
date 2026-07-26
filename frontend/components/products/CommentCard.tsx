@@ -1,3 +1,4 @@
+import { TEST_IDS } from "@/lib/testids";
 import type { CommentResponse } from "@/lib/types";
 
 interface CommentCardProps {
@@ -32,7 +33,7 @@ function formatRelativeTime(dateString: string): string {
 
 export function CommentCard({ comment }: CommentCardProps) {
   return (
-    <article className="py-4 border-b border-warm-gray/20 last:border-b-0">
+    <article data-testid={TEST_IDS.commentCard} className="py-4 border-b border-warm-gray/20 last:border-b-0">
       <div className="flex items-baseline justify-between gap-2">
         <p className="text-sm font-medium text-charcoal">
           {comment.display_name}

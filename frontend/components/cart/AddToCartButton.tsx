@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { useCart } from "@/contexts/CartContext";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
+import { TEST_IDS } from "@/lib/testids";
 
 interface AddToCartButtonProps {
   productId: string;
@@ -50,6 +51,7 @@ export function AddToCartButton({
       <Button
         disabled
         variant="secondary"
+        data-testid={TEST_IDS.addToCartBtn}
         className={cn("w-full sm:w-auto", className)}
       >
         {t("outOfStock")}
@@ -62,6 +64,7 @@ export function AddToCartButton({
       onClick={handleClick}
       disabled={status !== "idle"}
       isLoading={status === "loading"}
+      data-testid={TEST_IDS.addToCartBtn}
       className={cn("w-full sm:w-auto", className)}
     >
       {status === "success" ? (

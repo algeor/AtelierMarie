@@ -1,0 +1,11 @@
+# E2E test dependencies (Selenium-based UI automation).
+#
+# Installed by `make setup-ui-testing`, which layers these on top of the
+# backend `dev` extras from pyproject.toml. Not part of the shipped package
+# or the standard `dev` install — E2E is opt-in.
+#
+# To install manually: .venv/bin/pip install -r tests/e2e/requirements.txt
+
+selenium>=4.20.0
+webdriver-manager>=4.0.0
+pytest-selenium>=4.1.0

@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { postComment } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
+import { TEST_IDS } from "@/lib/testids";
 import type { CommentResponse } from "@/lib/types";
 
 interface CommentFormProps {
@@ -64,7 +65,7 @@ export function CommentForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className={cn("space-y-3", className)}>
+    <form onSubmit={handleSubmit} data-testid={TEST_IDS.commentForm} className={cn("space-y-3", className)}>
       {!isLoggedInWithName && (
         <div>
           <label

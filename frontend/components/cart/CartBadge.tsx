@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
+import { TEST_IDS } from "@/lib/testids";
 
 interface CartBadgeProps {
   count: number;
@@ -27,6 +28,7 @@ export function CartBadge({ count }: CartBadgeProps) {
 
   return (
     <span
+      data-testid={TEST_IDS.cartBadge}
       aria-hidden="true"
       className={cn(
         "absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center rounded-full",

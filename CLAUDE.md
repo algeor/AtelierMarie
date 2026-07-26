@@ -48,7 +48,7 @@ make setup-backend      # Python venv + pip install
 make setup-frontend     # npm install
 
 # Run servers
-make dev-backend        # FastAPI on port 8001 (uvicorn --reload)
+make dev-backend        # FastAPI on port 8000 (uvicorn --reload)
 make dev-frontend       # Next.js on port 3000
 
 # Tests
@@ -289,6 +289,12 @@ openspec/                # Feature specifications
 - **Framework:** vitest + @testing-library/react
 - Component tests in `frontend/__tests__/`
 - Run with `make test-frontend` or `cd frontend && npx vitest run`
+
+### E2E Testids (Single Source of Truth)
+- E2E-covered components MUST use `TEST_IDS` from `frontend/lib/testids.ts` — never hardcode `data-testid` strings inline
+- The Python mirror `tests/e2e/testids.py` is **generated** from `testids.ts` via `make generate-testids` — do not hand-edit it
+- Renaming or adding a testid: update `testids.ts`, run `make generate-testids`, commit `testids.py` in the same PR. CI (`.github/workflows/frontend-unit-tests.yml`) fails on a stale `testids.py`.
+- A vitest contract test (`frontend/__tests__/testids.contract.test.tsx`) asserts every E2E-covered component still renders its expected testid — treat a failure here as breaking the E2E contract, not a test-quality issue.
 
 ## Key Design Decisions
 

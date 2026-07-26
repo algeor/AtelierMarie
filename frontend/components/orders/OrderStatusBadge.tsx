@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { Badge } from "@/components/ui/Badge";
+import { TEST_IDS } from "@/lib/testids";
 import type { OrderStatus } from "@/lib/types";
 
 const STATUS_STYLES: Record<OrderStatus, string> = {
@@ -20,7 +21,7 @@ export function OrderStatusBadge({ status }: OrderStatusBadgeProps) {
   const t = useTranslations("orders.status");
 
   return (
-    <Badge className={STATUS_STYLES[status]}>
+    <Badge data-testid={TEST_IDS.orderStatus} className={STATUS_STYLES[status]}>
       {t(status)}
     </Badge>
   );

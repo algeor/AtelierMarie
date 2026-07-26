@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { cn, formatPrice } from "@/lib/utils";
 import { useCart } from "@/contexts/CartContext";
+import { TEST_IDS } from "@/lib/testids";
 import { CartItem } from "./CartItem";
 
 export function CartDrawer() {
@@ -120,6 +121,7 @@ export function CartDrawer() {
         role="dialog"
         aria-modal="true"
         aria-label={t("title")}
+        data-testid={TEST_IDS.cartDrawer}
         inert={!isDrawerOpen ? ("" as unknown as boolean) : undefined}
         onKeyDown={handleKeyDown}
         className={cn(

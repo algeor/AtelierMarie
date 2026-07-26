@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { formatPrice } from "@/lib/utils";
+import { TEST_IDS } from "@/lib/testids";
 import type { OrderResponse } from "@/lib/types";
 
 type PageState = "loading" | "success" | "error";
@@ -127,6 +128,7 @@ export default function OrdersPage() {
             <Link
               key={order.id}
               href={`/orders/${order.id}`}
+              data-testid={TEST_IDS.orderRow(order.id)}
               className="block bg-white rounded-brand p-6 shadow-sm border border-champagne-beige hover:border-soft-brown transition-colors duration-fast"
             >
               <div className="flex items-center justify-between gap-4">

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { useCart } from "@/contexts/CartContext";
 import { Button } from "@/components/ui/Button";
+import { TEST_IDS } from "@/lib/testids";
 import { QuantitySelector } from "./QuantitySelector";
 
 interface AddToCartSectionProps {
@@ -51,6 +52,7 @@ export function AddToCartSection({ productId, stock }: AddToCartSectionProps) {
         disabled={isOutOfStock || status !== "idle"}
         isLoading={status === "loading"}
         size="lg"
+        data-testid={TEST_IDS.addToCartBtn}
         className="w-full sm:w-auto"
       >
         {isOutOfStock

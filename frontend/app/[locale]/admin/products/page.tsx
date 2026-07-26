@@ -11,6 +11,7 @@ import { formatPrice } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { TEST_IDS } from "@/lib/testids";
 import type { AdminProductResponse } from "@/lib/types";
 
 export default function AdminProductsPage() {
@@ -170,6 +171,7 @@ export default function AdminProductsPage() {
               products.map((product) => (
                 <tr
                   key={product.id}
+                  data-testid={TEST_IDS.adminProductRow(product.id)}
                   className="border-b border-champagne-beige/50 last:border-0"
                 >
                   <td className="px-4 py-3 font-medium text-charcoal">
@@ -191,6 +193,7 @@ export default function AdminProductsPage() {
                     <div className="flex items-center gap-2">
                       <Link
                         href={`/admin/products/${product.id}/edit`}
+                        data-testid={TEST_IDS.adminEditLink(product.id)}
                         className="inline-flex h-8 items-center justify-center rounded-brand px-3 text-xs font-medium text-soft-brown hover:bg-champagne-beige/50 hover:text-charcoal"
                       >
                         {tCommon("edit")}

@@ -2,6 +2,7 @@ import { Link } from "@/i18n/navigation";
 import { ProductImage } from "./ProductImage";
 import { AddToCartButton } from "@/components/cart/AddToCartButton";
 import { formatPrice } from "@/lib/utils";
+import { TEST_IDS } from "@/lib/testids";
 import type { ProductResponse } from "@/lib/types";
 
 interface ProductCardProps {
@@ -10,7 +11,7 @@ interface ProductCardProps {
 
 export function ProductCard({ product }: ProductCardProps) {
   return (
-    <div className="group">
+    <div className="group" data-testid={TEST_IDS.productCard}>
       <Link
         href={`/products/${product.id}`}
         className="block rounded-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"

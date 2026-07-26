@@ -1,0 +1,77 @@
+name: E2E Test Pairing
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  pairing-check:
+    name: E2E Test Pairing Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          list-files: shell
+          filters: |
+            cart_components:
+              - 'frontend/components/cart/**'
+            checkout_pages:
+              - 'frontend/app/[locale]/checkout/**'
+            admin_pages:
+              - 'frontend/app/[locale]/admin/**'
+            product_components:
+              - 'frontend/components/products/**'
+            orders_pages:
+              - 'frontend/app/[locale]/orders/**'
+              - 'frontend/components/orders/**'
+            cart_tests:
+              - 'tests/e2e/test_cart.py'
+            checkout_tests:
+              - 'tests/e2e/test_checkout.py'
+            admin_tests:
+              - 'tests/e2e/test_admin.py'
+            product_tests:
+              - 'tests/e2e/test_products.py'
+              - 'tests/e2e/test_reactions.py'
+              - 'tests/e2e/test_comments.py'
+            orders_tests:
+              - 'tests/e2e/test_orders.py'
+
+      - name: Cart components changed but no test_cart.py update
+        if: steps.filter.outputs.cart_components == 'true' && steps.filter.outputs.cart_tests != 'true'
+        run: |
+          echo "::error::Files under frontend/components/cart/ changed but tests/e2e/test_cart.py was not modified. Update the paired E2E test or explain why the test does not need updating in the PR description."
+          exit 1
+
+      - name: Checkout pages changed but no test_checkout.py update
+        if: steps.filter.outputs.checkout_pages == 'true' && steps.filter.outputs.checkout_tests != 'true'
+        run: |
+          echo "::error::Files under frontend/app/[locale]/checkout/ changed but tests/e2e/test_checkout.py was not modified."
+          exit 1
+
+      - name: Admin pages changed but no test_admin.py update
+        if: steps.filter.outputs.admin_pages == 'true' && steps.filter.outputs.admin_tests != 'true'
+        run: |
+          echo "::error::Files under frontend/app/[locale]/admin/ changed but tests/e2e/test_admin.py was not modified."
+          exit 1
+
+      - name: Product components changed but no paired test update
+        if: steps.filter.outputs.product_components == 'true' && steps.filter.outputs.product_tests != 'true'
+        run: |
+          echo "::error::Files under frontend/components/products/ changed but none of tests/e2e/test_products.py, test_reactions.py, or test_comments.py were modified."
+          exit 1
+
+      - name: Orders changed but no test_orders.py update
+        if: steps.filter.outputs.orders_pages == 'true' && steps.filter.outputs.orders_tests != 'true'
+        run: |
+          echo "::error::Files under frontend/app/[locale]/orders/ or frontend/components/orders/ changed but tests/e2e/test_orders.py was not modified."
+          exit 1

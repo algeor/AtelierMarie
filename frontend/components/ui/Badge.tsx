@@ -6,6 +6,7 @@ interface BadgeProps {
   variant?: BadgeVariant;
   className?: string;
   children: React.ReactNode;
+  "data-testid"?: string;
 }
 
 const variantStyles: Record<BadgeVariant, string> = {
@@ -15,9 +16,10 @@ const variantStyles: Record<BadgeVariant, string> = {
   warning: "bg-amber-100 text-amber-800",
 };
 
-export function Badge({ variant = "default", className, children }: BadgeProps) {
+export function Badge({ variant = "default", className, children, "data-testid": dataTestId }: BadgeProps) {
   return (
     <span
+      data-testid={dataTestId}
       className={cn(
         "inline-flex items-center rounded-pill px-2.5 py-0.5 text-xs font-medium",
         variantStyles[variant],

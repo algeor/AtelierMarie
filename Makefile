@@ -1,5 +1,5 @@
-.PHONY: help setup setup-backend setup-frontend test test-backend test-unit test-integration \
-       test-frontend lint lint-backend lint-frontend format clean dev
+.PHONY: help setup setup-backend setup-frontend setup-ui-testing test test-backend test-unit test-integration \
+       test-frontend lint lint-backend lint-frontend format clean dev test-e2e generate-testids
 
 # Default
 help: ## Show this help
@@ -21,6 +21,12 @@ setup-frontend: ## Install Node.js dependencies
 	@echo "═══ Setting up Next.js frontend ═══"
 	cd frontend && npm install --silent
 	@echo "✓ Frontend ready"
+
+setup-ui-testing: setup-backend ## Install Selenium E2E test dependencies (adds to backend venv)
+	@echo "═══ Setting up UI testing (Selenium) ═══"
+	.venv/bin/pip install --quiet -r tests/e2e/requirements.txt
+	@echo "✓ UI testing ready (selenium, webdriver-manager, pytest-selenium installed)"
+	@echo "  Run 'make test-e2e' with both dev servers running (backend :8000, frontend :3000)"
 
 # ─── Test ─────────────────────────────────────────────────────────────────────
 
@@ -48,6 +54,14 @@ test-backend-cov: ## Run pytest with coverage report
 
 test-frontend-watch: ## Run vitest in watch mode
 	cd frontend && npx vitest
+
+test-e2e: ## Run Selenium E2E tests (requires backend on :8000 and frontend on :3000 already running)
+	@echo "═══ Running E2E tests (Selenium) ═══"
+	.venv/bin/pytest tests/e2e/ -v --tb=short -n 4 --dist worksteal
+
+generate-testids: ## Regenerate tests/e2e/testids.py from frontend/lib/testids.ts
+	@echo "═══ Regenerating tests/e2e/testids.py from testids.ts ═══"
+	.venv/bin/python scripts/generate_testids.py
 
 # ─── Lint & Format ───────────────────────────────────────────────────────────
 

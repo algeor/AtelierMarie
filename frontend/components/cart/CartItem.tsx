@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { cn, formatPrice } from "@/lib/utils";
+import { TEST_IDS } from "@/lib/testids";
 import type { CartItemResponse } from "@/lib/types";
 
 interface CartItemProps {
@@ -18,7 +19,7 @@ export function CartItem({ item, onUpdateQuantity, onRemove }: CartItemProps) {
   const canIncrement = quantity < 10;
 
   return (
-    <div className="flex gap-4 py-4 border-b border-champagne-beige last:border-b-0">
+    <div className="flex gap-4 py-4 border-b border-champagne-beige last:border-b-0" data-testid={TEST_IDS.cartItem(product_id)}>
       <div className="flex-1 min-w-0">
         <h3 className="text-sm font-medium text-charcoal truncate">
           {product.name}
@@ -74,6 +75,7 @@ export function CartItem({ item, onUpdateQuantity, onRemove }: CartItemProps) {
         </p>
         <button
           onClick={() => onRemove(product_id)}
+          data-testid={TEST_IDS.cartRemove(product_id)}
           aria-label={t("removeFromCart", { name: product.name })}
           className={cn(
             "text-soft-brown/70 hover:text-charcoal transition-colors duration-fast",

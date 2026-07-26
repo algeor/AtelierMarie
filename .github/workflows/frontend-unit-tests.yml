@@ -24,6 +24,16 @@ jobs:
       - name: Setup Frontend
         run: make setup-frontend
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Verify testids.py is in sync with testids.ts
+        run: |
+          python scripts/generate_testids.py
+          git diff --exit-code tests/e2e/testids.py
+
       - name: Run frontend unit tests
         run: make test-frontend
       

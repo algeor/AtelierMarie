@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { TEST_IDS } from "@/lib/testids";
 
 interface CategoryFilterProps {
   categories: string[];
@@ -30,6 +31,7 @@ export function CategoryFilter({
       <div
         role="group"
         aria-label="Filter by category"
+        data-testid={TEST_IDS.categoryFilter}
         className="flex flex-nowrap md:flex-wrap gap-2 overflow-x-auto md:overflow-x-visible pb-2 md:pb-0 -mx-4 px-4 md:mx-0 md:px-0"
       >
         {allCategories.map((category) => {
