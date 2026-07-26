@@ -349,7 +349,10 @@ class TestStripeWebhookRoute:
             "id": "evt_unknown", "type": "some.unknown.event", "data": {"object": {}},
         }).encode()
 
-        mock_event = {"id": "evt_unknown", "type": "some.unknown.event", "data": {"object": {}}}
+        mock_event = MagicMock()
+        mock_event.id = "evt_unknown"
+        mock_event.type = "some.unknown.event"
+        mock_event.data.object = MagicMock()
 
         fake_stripe = types.ModuleType("stripe")
         fake_stripe.api_key = None
