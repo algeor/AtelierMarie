@@ -26,6 +26,7 @@ import {
   applyCampaign,
   getAdminProducts,
   createCampaign,
+  updateCampaign,
   bulkDiscount,
   getAdminBanner,
 } from "@/lib/api";
@@ -39,6 +40,7 @@ const mockedGetCampaigns = vi.mocked(getCampaigns);
 const mockedApplyCampaign = vi.mocked(applyCampaign);
 const mockedGetAdminProducts = vi.mocked(getAdminProducts);
 const mockedCreateCampaign = vi.mocked(createCampaign);
+const mockedUpdateCampaign = vi.mocked(updateCampaign);
 const mockedBulkDiscount = vi.mocked(bulkDiscount);
 const mockedGetAdminBanner = vi.mocked(getAdminBanner);
 
@@ -51,6 +53,8 @@ const CAMPAIGN: CampaignResponse = {
   discount_ends_at: null,
   target_type: "ids",
   target_count: 2,
+  target_ids: ["candle-1", "candle-2"],
+  target_filter: null,
   status: "draft",
   applied_at: null,
   removed_at: null,
@@ -130,6 +134,36 @@ describe("CampaignForm validation", () => {
       ).toBeInTheDocument();
     });
     expect(mockedCreateCampaign).not.toHaveBeenCalled();
+  });
+
+  it("preserves an existing filter target when editing metadata", async () => {
+    const filterCampaign: CampaignResponse = {
+      ...CAMPAIGN,
+      id: "filter-campaign",
+      target_type: "filter",
+      target_count: 3,
+      target_ids: null,
+      target_filter: { category: "spring" },
+    };
+    mockedUpdateCampaign.mockResolvedValue(filterCampaign);
+    const { container } = renderWithIntl(
+      <CampaignForm campaign={filterCampaign} onSaved={vi.fn()} onCancel={vi.fn()} />
+    );
+
+    fireEvent.change(screen.getByLabelText("Campaign name"), {
+      target: { value: "Renamed" },
+    });
+    fireEvent.submit(container.querySelector("form")!);
+
+    await waitFor(() => {
+      expect(mockedUpdateCampaign).toHaveBeenCalledWith(
+        "filter-campaign",
+        expect.objectContaining({ name: "Renamed" })
+      );
+    });
+    const payload = mockedUpdateCampaign.mock.calls[0]![1];
+    expect(payload).not.toHaveProperty("filter");
+    expect(payload).not.toHaveProperty("product_ids");
   });
 });
 

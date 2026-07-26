@@ -644,8 +644,12 @@ def _resolve_filter_target_ids(conn: sqlite3.Connection, filt: dict) -> list[str
 
     q = (filt.get("q") or "").strip()
     if q:
-        conditions.append("(name_en LIKE ? OR name_bg LIKE ? OR id LIKE ?)")
-        like = f"%{q}%"
+        conditions.append(
+            "(name_en LIKE ? ESCAPE '\\' OR name_bg LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')"
+        )
+        # Escape LIKE wildcards so a query like "50%" matches literally.
+        escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{escaped}%"
         params.extend([like, like, like])
     if filt.get("category"):
         conditions.append("category = ?")
@@ -698,6 +702,7 @@ def bulk_update_discount(
     discount_percent: int | None = None,
     discount_starts_at: str | None = None,
     discount_ends_at: str | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> dict:
     """Apply or clear the discount on a resolved list of products.
 
@@ -707,8 +712,13 @@ def bulk_update_discount(
     single-product path. Returns
     `{success_count, failure_count, results: [{id, status, error?}]}`.
 
-    Callers must resolve/cap the target first via `resolve_bulk_target`.
+    Callers must resolve/cap the target first via `resolve_bulk_target`. Pass an
+    existing `conn` to run inside a caller-managed transaction (the caller then
+    owns the commit); otherwise a connection is opened and committed here.
     """
+    if operation == "apply" and discount_percent is None:
+        raise DiscountValidationError("discount_percent is required for operation=apply")
+
     if operation == "apply":
         # Pass all three keys so the campaign window fully replaces any prior one.
         patch = {
@@ -722,7 +732,8 @@ def bulk_update_discount(
     results: list[dict] = []
     success = 0
 
-    with get_db() as conn:
+    def _run(conn: sqlite3.Connection) -> None:
+        nonlocal success
         for pid in product_ids:
             conn.execute("SAVEPOINT bulk_item")
             try:
@@ -754,6 +765,12 @@ def bulk_update_discount(
                 results.append({"id": pid, "status": "updated"})
                 success += 1
 
+    if conn is not None:
+        _run(conn)
+    else:
+        with get_db() as owned:
+            _run(owned)
+
     return {
         "success_count": success,
         "failure_count": len(results) - success,
@@ -761,7 +778,9 @@ def bulk_update_discount(
     }
 
 
-def conservative_clear_discount(targets: list[dict]) -> dict:
+def conservative_clear_discount(
+    targets: list[dict], conn: sqlite3.Connection | None = None
+) -> dict:
     """Clear a discount only where a product's current fields still match.
 
     Each target: `{product_id, applied_percent, applied_starts_at, applied_ends_at}`
@@ -769,12 +788,14 @@ def conservative_clear_discount(targets: list[dict]) -> dict:
     discount fields still equal those; otherwise it is skipped (it was edited
     after apply) so a newer manual or campaign discount is never clobbered.
     Runs with per-product savepoints. Returns the same result shape as
-    `bulk_update_discount`, with `status` in {updated, skipped, failed}.
+    `bulk_update_discount`, with `status` in {updated, skipped, failed}. Pass an
+    existing `conn` to run inside a caller-managed transaction.
     """
     results: list[dict] = []
     success = 0
 
-    with get_db() as conn:
+    def _run(conn: sqlite3.Connection) -> None:
+        nonlocal success
         for t in targets:
             pid = t["product_id"]
             conn.execute("SAVEPOINT clear_item")
@@ -818,6 +839,12 @@ def conservative_clear_discount(targets: list[dict]) -> dict:
                 conn.execute("ROLLBACK TO clear_item")
                 conn.execute("RELEASE clear_item")
                 results.append({"id": pid, "status": "failed", "error": str(e)})
+
+    if conn is not None:
+        _run(conn)
+    else:
+        with get_db() as owned:
+            _run(owned)
 
     return {
         "success_count": success,

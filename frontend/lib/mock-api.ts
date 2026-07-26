@@ -1110,6 +1110,8 @@ export async function createCampaign(
     discount_ends_at: data.discount_ends_at ?? null,
     target_type: targetType,
     target_count: targetCount,
+    target_ids: data.product_ids ? Array.from(new Set(data.product_ids)) : null,
+    target_filter: data.product_ids ? null : (data.filter ?? {}),
     status: "draft",
     applied_at: null,
     removed_at: null,
@@ -1145,6 +1147,8 @@ export async function updateCampaign(
   if (data.product_ids) {
     c.target_type = "ids";
     c.target_count = Array.from(new Set(data.product_ids)).length;
+    c.target_ids = Array.from(new Set(data.product_ids));
+    c.target_filter = null;
     mockAppliedTargets.set(
       `${c.id}:targets`,
       data.product_ids.map((id) => ({ id, percent: null, starts_at: null, ends_at: null }))
@@ -1153,6 +1157,8 @@ export async function updateCampaign(
     c.target_type = "filter";
     const ids = resolveMockTargets(null, data.filter);
     c.target_count = ids.length;
+    c.target_ids = null;
+    c.target_filter = data.filter;
     mockAppliedTargets.set(
       `${c.id}:targets`,
       ids.map((id) => ({ id, percent: null, starts_at: null, ends_at: null }))

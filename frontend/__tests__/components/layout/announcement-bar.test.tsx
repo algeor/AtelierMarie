@@ -47,6 +47,17 @@ describe("AnnouncementBar (managed banner)", () => {
     expect(link).toHaveAttribute("href", "/products");
   });
 
+  it("does not render unsafe link schemes", async () => {
+    mockedGetPublicBanner.mockResolvedValue(
+      bannerResponse({ link_url: "javascript:alert(1)", link_label: "Shop now" })
+    );
+    renderWithIntl(<AnnouncementBar />);
+
+    expect(await screen.findByText("20% off spring candles")).toBeInTheDocument();
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.queryByText("Shop now")).not.toBeInTheDocument();
+  });
+
   it("renders nothing when no banner is active", async () => {
     mockedGetPublicBanner.mockResolvedValue({ banner: null });
     const { container } = renderWithIntl(<AnnouncementBar />);

@@ -25,7 +25,9 @@ const STATUS_VARIANT: Record<CampaignStatus, StatusVariant> = {
   removed: "default",
 };
 
-type PendingAction = { type: "apply" | "remove"; campaign: CampaignResponse } | null;
+type PendingAction =
+  | { type: "apply" | "remove" | "delete"; campaign: CampaignResponse }
+  | null;
 
 export function CampaignsPanel() {
   const t = useTranslations("admin");
@@ -57,6 +59,16 @@ export function CampaignsPanel() {
     load();
   }, [load]);
 
+  // Close the confirmation dialog on Escape.
+  useEffect(() => {
+    if (!pending) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape" && !actioning) setPending(null);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [pending, actioning]);
+
   function statusLabel(status: CampaignStatus): string {
     return t(`promotions.status.${status}`);
   }
@@ -70,27 +82,22 @@ export function CampaignsPanel() {
     setActioning(true);
     setError(null);
     try {
-      const result =
-        pending.type === "apply"
-          ? await applyCampaign(pending.campaign.id)
-          : await removeCampaign(pending.campaign.id);
-      setLastResult(result);
+      if (pending.type === "delete") {
+        await deleteCampaign(pending.campaign.id);
+        setLastResult(null);
+      } else {
+        const result =
+          pending.type === "apply"
+            ? await applyCampaign(pending.campaign.id)
+            : await removeCampaign(pending.campaign.id);
+        setLastResult(result);
+      }
       setPending(null);
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? getLocalizedError(err.code) : t("promotions.actionError"));
     } finally {
       setActioning(false);
-    }
-  }
-
-  async function handleDelete(campaign: CampaignResponse) {
-    if (!window.confirm(t("promotions.confirmDelete", { name: campaign.name }))) return;
-    try {
-      await deleteCampaign(campaign.id);
-      await load();
-    } catch (err) {
-      setError(err instanceof ApiError ? getLocalizedError(err.code) : t("promotions.actionError"));
     }
   }
 
@@ -196,7 +203,7 @@ export function CampaignsPanel() {
                         {t("promotions.removeDiscount")}
                       </Button>
                       <button
-                        onClick={() => handleDelete(c)}
+                        onClick={() => setPending({ type: "delete", campaign: c })}
                         className="inline-flex h-8 items-center rounded-brand px-3 text-xs font-medium text-red-600 hover:bg-red-50"
                       >
                         {tCommon("delete")}
@@ -210,14 +217,28 @@ export function CampaignsPanel() {
         </div>
       )}
 
-      {/* Apply/Remove confirmation */}
+      {/* Apply / Remove / Delete confirmation */}
       {pending && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/40 p-4">
-          <div className="w-full max-w-md rounded-brand border border-champagne-beige bg-cream p-6">
-            <h3 className="mb-3 font-heading text-lg font-semibold text-charcoal">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/40 p-4"
+          onClick={() => !actioning && setPending(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="campaign-confirm-title"
+            className="w-full max-w-md rounded-brand border border-champagne-beige bg-cream p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3
+              id="campaign-confirm-title"
+              className="mb-3 font-heading text-lg font-semibold text-charcoal"
+            >
               {pending.type === "apply"
                 ? t("promotions.confirmApplyTitle")
-                : t("promotions.confirmRemoveTitle")}
+                : pending.type === "remove"
+                  ? t("promotions.confirmRemoveTitle")
+                  : t("promotions.confirmDeleteTitle")}
             </h3>
             <p className="mb-4 text-sm text-soft-brown">
               {pending.type === "apply"
@@ -225,14 +246,25 @@ export function CampaignsPanel() {
                     percent: pending.campaign.discount_percent,
                     count: pending.campaign.target_count,
                   })
-                : t("promotions.confirmRemoveBody")}
+                : pending.type === "remove"
+                  ? t("promotions.confirmRemoveBody")
+                  : t("promotions.confirmDelete", { name: pending.campaign.name })}
             </p>
             <div className="flex justify-end gap-3">
-              <Button variant="secondary" onClick={() => setPending(null)} disabled={actioning}>
+              <Button
+                variant="secondary"
+                onClick={() => setPending(null)}
+                disabled={actioning}
+                autoFocus
+              >
                 {tCommon("cancel")}
               </Button>
               <Button onClick={confirmAction} isLoading={actioning}>
-                {pending.type === "apply" ? t("promotions.apply") : t("promotions.removeDiscount")}
+                {pending.type === "apply"
+                  ? t("promotions.apply")
+                  : pending.type === "remove"
+                    ? t("promotions.removeDiscount")
+                    : tCommon("delete")}
               </Button>
             </div>
           </div>

@@ -72,11 +72,21 @@ export function ProductBulkDiscountBar({ selectedIds, onDone }: ProductBulkDisco
         </span>
         <div className="flex gap-2 text-sm">
           <label className="flex items-center gap-1.5">
-            <input type="radio" checked={mode === "apply"} onChange={() => setMode("apply")} />
+            <input
+              type="radio"
+              name="bulk-mode"
+              checked={mode === "apply"}
+              onChange={() => setMode("apply")}
+            />
             {t("promotions.applyDiscount")}
           </label>
           <label className="flex items-center gap-1.5">
-            <input type="radio" checked={mode === "remove"} onChange={() => setMode("remove")} />
+            <input
+              type="radio"
+              name="bulk-mode"
+              checked={mode === "remove"}
+              onChange={() => setMode("remove")}
+            />
             {t("promotions.clearDiscount")}
           </label>
         </div>

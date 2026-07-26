@@ -242,6 +242,7 @@ CREATE TABLE IF NOT EXISTS promotion_campaigns (
     target_filter TEXT,   -- JSON filter descriptor when target_type = 'filter'
     applied_at    TEXT,   -- NULL until first applied
     removed_at    TEXT,   -- NULL unless discount has been removed
+    last_result   TEXT,   -- JSON summary of the most recent apply/remove result
     created_at    TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -606,6 +607,16 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
         _add_column_if_missing(conn, "orders", order_columns, "tracking_url", "tracking_url TEXT")
         _add_column_if_missing(
             conn, "orders", order_columns, "locale", "locale TEXT NOT NULL DEFAULT 'en'"
+        )
+
+    if _table_exists(conn, "promotion_campaigns"):
+        campaign_columns = _table_columns(conn, "promotion_campaigns")
+        _add_column_if_missing(
+            conn,
+            "promotion_campaigns",
+            campaign_columns,
+            "last_result",
+            "last_result TEXT",
         )
 
 

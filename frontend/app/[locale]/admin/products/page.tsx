@@ -25,6 +25,7 @@ export default function AdminProductsPage() {
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const selectAllRef = useRef<HTMLInputElement>(null);
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Show success banner from query param
@@ -117,6 +118,12 @@ export default function AdminProductsPage() {
 
   const allSelected = products.length > 0 && selectedIds.size === products.length;
 
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = selectedIds.size > 0 && !allSelected;
+    }
+  }, [selectedIds, allSelected]);
+
   return (
     <div>
       <div className="mb-8 flex items-center justify-between">
@@ -170,6 +177,7 @@ export default function AdminProductsPage() {
             <tr className="border-b border-champagne-beige bg-champagne-beige/30">
               <th className="px-4 py-3">
                 <input
+                  ref={selectAllRef}
                   type="checkbox"
                   checked={allSelected}
                   onChange={toggleSelectAll}

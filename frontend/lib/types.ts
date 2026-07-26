@@ -329,6 +329,8 @@ export interface CampaignResponse {
   discount_ends_at: string | null;
   target_type: "ids" | "filter";
   target_count: number;
+  target_ids: string[] | null;
+  target_filter: ProductFilter | null;
   status: CampaignStatus;
   applied_at: string | null;
   removed_at: string | null;

@@ -40,15 +40,28 @@ export function CampaignForm({ campaign, onSaved, onCancel }: CampaignFormProps)
   const [targetMode, setTargetMode] = useState<TargetMode>(campaign?.target_type ?? "ids");
 
   // Explicit-IDs target: a client-side selected-ID set that survives paging.
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Pre-seed from the campaign so editing metadata doesn't wipe the target.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(
+    () => new Set(campaign?.target_ids ?? [])
+  );
   const [products, setProducts] = useState<AdminProductResponse[]>([]);
   const [productSearch, setProductSearch] = useState("");
 
-  // Filter target descriptor.
-  const [filterQ, setFilterQ] = useState("");
-  const [filterCategory, setFilterCategory] = useState("");
-  const [filterActive, setFilterActive] = useState<"all" | "active" | "inactive">("all");
-  const [filterInStock, setFilterInStock] = useState(false);
+  // Filter target descriptor (pre-seeded from the campaign's stored filter).
+  const [filterQ, setFilterQ] = useState(campaign?.target_filter?.q ?? "");
+  const [filterCategory, setFilterCategory] = useState(campaign?.target_filter?.category ?? "");
+  const [filterActive, setFilterActive] = useState<"all" | "active" | "inactive">(
+    campaign?.target_filter?.is_active == null
+      ? "all"
+      : campaign.target_filter.is_active
+        ? "active"
+        : "inactive"
+  );
+  const [filterInStock, setFilterInStock] = useState(campaign?.target_filter?.in_stock ?? false);
+  const [targetDirty, setTargetDirty] = useState(false);
+  // Discount fields are only sent on edit when actually changed, so a metadata
+  // edit of a live campaign doesn't trip the backend's discount-edit guard.
+  const [discountDirty, setDiscountDirty] = useState(false);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -68,6 +81,7 @@ export function CampaignForm({ campaign, onSaved, onCancel }: CampaignFormProps)
   }, [loadProducts]);
 
   function toggleId(id: string) {
+    setTargetDirty(true);
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -85,6 +99,17 @@ export function CampaignForm({ campaign, onSaved, onCancel }: CampaignFormProps)
     return filter;
   }
 
+  function buildTarget(): Pick<CampaignCreateRequest, "product_ids" | "filter"> {
+    return targetMode === "ids"
+      ? { product_ids: Array.from(selectedIds), filter: null }
+      : { product_ids: null, filter: buildFilter() };
+  }
+
+  function handleTargetModeChange(mode: TargetMode) {
+    if (mode !== targetMode) setTargetDirty(true);
+    setTargetMode(mode);
+  }
+
   function validate(): boolean {
     const next: Record<string, string> = {};
     if (!name.trim()) next.name = t("promotions.nameRequired");
@@ -95,8 +120,15 @@ export function CampaignForm({ campaign, onSaved, onCancel }: CampaignFormProps)
     if (start && end && new Date(start) >= new Date(end)) {
       next.window = t("promotions.windowInvalid");
     }
-    if (targetMode === "ids" && selectedIds.size === 0) {
+    if ((!isEdit || targetDirty) && targetMode === "ids" && selectedIds.size === 0) {
       next.target = t("promotions.targetRequired");
+    }
+    if (
+      (!isEdit || targetDirty) &&
+      targetMode === "filter" &&
+      Object.keys(buildFilter()).length === 0
+    ) {
+      next.target = t("promotions.filterRequired");
     }
     setErrors(next);
     return Object.keys(next).length === 0;
@@ -112,10 +144,7 @@ export function CampaignForm({ campaign, onSaved, onCancel }: CampaignFormProps)
       discount_starts_at: localInputToUtcIso(start),
       discount_ends_at: localInputToUtcIso(end),
     };
-    const target =
-      targetMode === "ids"
-        ? { product_ids: Array.from(selectedIds), filter: null }
-        : { product_ids: null, filter: buildFilter() };
+    const target = buildTarget();
 
     setSubmitting(true);
     try {
@@ -123,8 +152,8 @@ export function CampaignForm({ campaign, onSaved, onCancel }: CampaignFormProps)
         const payload: CampaignUpdateRequest = {
           name: name.trim(),
           note: note.trim() || null,
-          ...discountFields,
-          ...target,
+          ...(discountDirty ? discountFields : {}),
+          ...(targetDirty ? target : {}),
         };
         await updateCampaign(campaign.id, payload);
       } else {
@@ -188,7 +217,10 @@ export function CampaignForm({ campaign, onSaved, onCancel }: CampaignFormProps)
         min={1}
         max={99}
         value={percent}
-        onChange={(e) => setPercent(e.target.value)}
+        onChange={(e) => {
+          setDiscountDirty(true);
+          setPercent(e.target.value);
+        }}
         error={errors.percent}
       />
 
@@ -201,7 +233,10 @@ export function CampaignForm({ campaign, onSaved, onCancel }: CampaignFormProps)
             id="campaign-start"
             type="datetime-local"
             value={start}
-            onChange={(e) => setStart(e.target.value)}
+            onChange={(e) => {
+              setDiscountDirty(true);
+              setStart(e.target.value);
+            }}
             className="h-10 w-full rounded-brand border border-champagne-beige bg-cream px-3 text-soft-brown"
           />
         </div>
@@ -213,7 +248,10 @@ export function CampaignForm({ campaign, onSaved, onCancel }: CampaignFormProps)
             id="campaign-end"
             type="datetime-local"
             value={end}
-            onChange={(e) => setEnd(e.target.value)}
+            onChange={(e) => {
+              setDiscountDirty(true);
+              setEnd(e.target.value);
+            }}
             className="h-10 w-full rounded-brand border border-champagne-beige bg-cream px-3 text-soft-brown"
           />
         </div>
@@ -231,7 +269,7 @@ export function CampaignForm({ campaign, onSaved, onCancel }: CampaignFormProps)
               type="radio"
               name="target-mode"
               checked={targetMode === "ids"}
-              onChange={() => setTargetMode("ids")}
+              onChange={() => handleTargetModeChange("ids")}
             />
             {t("promotions.targetExplicit")}
           </label>
@@ -240,7 +278,7 @@ export function CampaignForm({ campaign, onSaved, onCancel }: CampaignFormProps)
               type="radio"
               name="target-mode"
               checked={targetMode === "filter"}
-              onChange={() => setTargetMode("filter")}
+              onChange={() => handleTargetModeChange("filter")}
             />
             {t("promotions.targetFilter")}
           </label>
@@ -287,12 +325,18 @@ export function CampaignForm({ campaign, onSaved, onCancel }: CampaignFormProps)
             <Input
               label={t("promotions.filterSearch")}
               value={filterQ}
-              onChange={(e) => setFilterQ(e.target.value)}
+              onChange={(e) => {
+                setTargetDirty(true);
+                setFilterQ(e.target.value);
+              }}
             />
             <Input
               label={t("category")}
               value={filterCategory}
-              onChange={(e) => setFilterCategory(e.target.value)}
+              onChange={(e) => {
+                setTargetDirty(true);
+                setFilterCategory(e.target.value);
+              }}
             />
             <div>
               <label htmlFor="filter-active" className="mb-1.5 block text-sm font-medium text-soft-brown">
@@ -301,7 +345,10 @@ export function CampaignForm({ campaign, onSaved, onCancel }: CampaignFormProps)
               <select
                 id="filter-active"
                 value={filterActive}
-                onChange={(e) => setFilterActive(e.target.value as typeof filterActive)}
+                onChange={(e) => {
+                  setTargetDirty(true);
+                  setFilterActive(e.target.value as typeof filterActive);
+                }}
                 className="h-10 w-full rounded-brand border border-champagne-beige bg-cream px-3 text-soft-brown"
               >
                 <option value="all">{t("all")}</option>
@@ -313,13 +360,19 @@ export function CampaignForm({ campaign, onSaved, onCancel }: CampaignFormProps)
               <input
                 type="checkbox"
                 checked={filterInStock}
-                onChange={(e) => setFilterInStock(e.target.checked)}
+                onChange={(e) => {
+                  setTargetDirty(true);
+                  setFilterInStock(e.target.checked);
+                }}
               />
               {t("promotions.inStockOnly")}
             </label>
             <p className="col-span-full text-xs text-soft-brown/70">
               {t("promotions.filterCountNote")}
             </p>
+            {errors.target && (
+              <p className="col-span-full text-sm text-red-700">{errors.target}</p>
+            )}
           </div>
         )}
       </fieldset>

@@ -97,6 +97,11 @@ async def admin_update_campaign(
         )
     except promotion_service.CampaignNotFoundError:
         return _campaign_not_found()
+    except promotion_service.CampaignStateError as e:
+        return JSONResponse(
+            status_code=409,
+            content={"error": {"code": "CAMPAIGN_STATE", "message": str(e)}},
+        )
     except DiscountValidationError as e:
         return JSONResponse(
             status_code=422,

@@ -14,10 +14,18 @@ export function toDatetimeLocal(d: Date): string {
   )}:${pad(d.getMinutes())}`;
 }
 
-/** Stored UTC text (`YYYY-MM-DD HH:MM:SS`) → `datetime-local` value in local time. */
+/**
+ * Stored datetime → `datetime-local` value in local time.
+ *
+ * Accepts the real API's canonical `YYYY-MM-DD HH:MM:SS` (UTC by convention) and
+ * also already-ISO strings with `T`/`Z`/offset (as the mock stores), so editing
+ * never silently drops a date regardless of which backend produced it.
+ */
 export function storedUtcToLocalInput(utc: string | null): string {
   if (!utc) return "";
-  const d = new Date(utc.replace(" ", "T") + "Z");
+  const hasTz = /[zZ]|[+-]\d{2}:?\d{2}$/.test(utc);
+  const iso = utc.includes("T") ? utc : utc.replace(" ", "T");
+  const d = new Date(hasTz ? iso : iso + "Z");
   return isNaN(d.getTime()) ? "" : toDatetimeLocal(d);
 }
 

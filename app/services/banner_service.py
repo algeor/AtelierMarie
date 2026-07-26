@@ -5,10 +5,13 @@ content or schedule changes, so the public dismiss key changes and a user who
 dismissed old copy sees the new banner (see site-banner spec).
 """
 
+import sqlite3
+
 import structlog
 
 from app.database import get_db
 from app.services import pricing
+from app.utils.sanitize import is_safe_http_or_relative_url
 
 logger = structlog.get_logger(__name__)
 
@@ -27,7 +30,7 @@ _VERSIONED_FIELDS = (
 )
 
 
-def _row_to_admin(row) -> dict:
+def _row_to_admin(row: sqlite3.Row) -> dict:
     return {
         "message_en": row["message_en"],
         "message_bg": row["message_bg"],
@@ -42,10 +45,14 @@ def _row_to_admin(row) -> dict:
     }
 
 
-def _get_row(conn):
+def _get_row(conn: sqlite3.Connection) -> sqlite3.Row:
+    """Read the singleton banner, seeding a disabled placeholder if absent.
+
+    Used by the admin (read/write) paths only. The public read path must NOT
+    seed — see `get_public_banner`.
+    """
     row = conn.execute("SELECT * FROM site_banners WHERE id = ?", (_BANNER_ID,)).fetchone()
     if row is None:
-        # Defensive: seed a disabled placeholder if the singleton is missing.
         conn.execute(
             "INSERT OR IGNORE INTO site_banners (id, is_enabled, version, updated_at) "
             "VALUES (?, 0, 1, ?)",
@@ -63,7 +70,12 @@ def get_banner_admin() -> dict:
 
 
 def update_banner(data: dict) -> dict:
-    """Update the managed banner. Bumps version when visible content changes."""
+    """Update the managed banner. Bumps version when visible content changes.
+
+    The version increment is expressed as `version + 1` in SQL so a concurrent
+    save cannot lose an increment (which would otherwise fail to invalidate
+    dismissals of stale copy).
+    """
     now = pricing.now_utc()
     with get_db() as conn:
         row = _get_row(conn)
@@ -82,12 +94,12 @@ def update_banner(data: dict) -> dict:
         content_changed = any(
             _normalize(new_values[f]) != _normalize(row[f]) for f in _VERSIONED_FIELDS
         )
-        new_version = row["version"] + 1 if content_changed else row["version"]
+        version_sql = "version + 1" if content_changed else "version"
 
         conn.execute(
             "UPDATE site_banners SET message_en = ?, message_bg = ?, link_label_en = ?, "
             "link_label_bg = ?, link_url = ?, is_enabled = ?, starts_at = ?, ends_at = ?, "
-            "version = ?, updated_at = ? WHERE id = ?",
+            f"version = {version_sql}, updated_at = ? WHERE id = ?",  # noqa: S608 - literal only
             (
                 new_values["message_en"],
                 new_values["message_bg"],
@@ -97,7 +109,6 @@ def update_banner(data: dict) -> dict:
                 new_values["is_enabled"],
                 new_values["starts_at"],
                 new_values["ends_at"],
-                new_version,
                 now,
                 _BANNER_ID,
             ),
@@ -108,25 +119,26 @@ def update_banner(data: dict) -> dict:
     return _row_to_admin(row)
 
 
-def _normalize(value) -> str:
-    """Normalize a value for change comparison (int flag vs bool, None → '')."""
+def _normalize(value: object) -> str:
+    """Normalize a value for change comparison (bool→flag, None→'', strings stripped)."""
     if value is None:
         return ""
     if isinstance(value, bool):
         return "1" if value else "0"
-    return str(value)
+    return str(value).strip()
 
 
 def get_public_banner(locale: str = "en") -> dict | None:
     """Return the active localized banner, or None when no banner is visible.
 
     Visible iff enabled and the current server time is within the (inclusive)
-    active window. Never exposes future/expired/disabled banner content.
+    active window. Never exposes future/expired/disabled banner content. This
+    public read never writes: a missing singleton is treated as "no banner".
     """
     with get_db() as conn:
-        row = _get_row(conn)
+        row = conn.execute("SELECT * FROM site_banners WHERE id = ?", (_BANNER_ID,)).fetchone()
 
-    if not row["is_enabled"]:
+    if row is None or not row["is_enabled"]:
         return None
 
     now = pricing.now_utc()
@@ -140,15 +152,16 @@ def get_public_banner(locale: str = "en") -> dict | None:
         return None
 
     link_label = _localized(row, "link_label", locale)
+    link_url = row["link_url"]
     return {
         "message": message,
         "link_label": link_label,
-        "link_url": row["link_url"],
+        "link_url": link_url if link_url and is_safe_http_or_relative_url(link_url) else None,
         "dismiss_key": f"{_BANNER_ID}:v{row['version']}",
     }
 
 
-def _localized(row, prefix: str, locale: str) -> str | None:
+def _localized(row: sqlite3.Row, prefix: str, locale: str) -> str | None:
     """Return the locale field with fallback from BG to EN."""
     if locale == "bg":
         value = row[f"{prefix}_bg"]

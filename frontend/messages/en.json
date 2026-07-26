@@ -447,7 +447,9 @@
         "active": "Active",
         "ended": "Ended",
         "removed": "Removed"
-      }
+      },
+      "confirmDeleteTitle": "Delete campaign?",
+      "filterRequired": "Select at least one filter criterion."
     }
   },
   "locale": {
@@ -475,6 +477,8 @@
     "BAD_REQUEST": "Please check your request and try again",
     "INVALID_CONTENT_TYPE": "Please check your request and try again",
     "VALIDATION_ERROR": "Please check your input and try again",
+    "CAMPAIGN_STATE": "This campaign is live. Remove its discount before editing the discount or target, then re-apply.",
+    "BULK_TARGET_LIMIT_EXCEEDED": "This target matches too many products (limit is 500). Narrow the filter or selection.",
     "DUPLICATE": "This item already exists",
     "INVALID_CSV": "The CSV file could not be imported",
     "INVALID_STATUS": "Invalid status",

@@ -4,7 +4,12 @@ Covers tasks 9.1–9.7: campaign CRUD/apply/remove, bulk discount validation and
 partial failure, and the admin/public banner APIs.
 """
 
+import sqlite3
+from pathlib import Path
+
 import pytest
+
+from app.database import init_db
 
 
 def _make_product(product_id: str, **overrides) -> None:
@@ -86,8 +91,11 @@ class TestCampaignCrud:
             },
         )
         assert response.status_code == 201
-        # Not applied yet — status is draft until applied, even if scheduled window.
-        assert response.json()["status"] == "draft"
+        body = response.json()
+        # Spec: a created campaign with a future start reads as `scheduled`.
+        assert body["status"] == "scheduled"
+        assert body["discount_starts_at"] == "2999-01-01 00:00:00"
+        assert body["discount_ends_at"] == "2999-02-01 00:00:00"
 
     @pytest.mark.asyncio
     async def test_reject_zero_percent(self, admin_client):
@@ -479,6 +487,18 @@ class TestBannerAdmin:
         )
         assert response.status_code == 422
 
+    @pytest.mark.asyncio
+    async def test_reject_unsafe_link_url(self, admin_client):
+        response = await admin_client.put(
+            "/v1/admin/promotions/banner",
+            json={
+                "message_en": "Sale",
+                "link_url": "javascript:alert(1)",
+                "is_enabled": True,
+            },
+        )
+        assert response.status_code == 422
+
 
 # ---------------------------------------------------------------------------
 # 9.7 Public banner API
@@ -565,3 +585,244 @@ class TestPublicBanner:
         banner = (await client.get("/v1/promotions/banner")).json()["banner"]
         assert banner["link_url"] == "/products"
         assert banner["link_label"] == "Shop now"
+
+    @pytest.mark.asyncio
+    async def test_legacy_unsafe_link_not_served(self, client, db):
+        db.execute(
+            """
+            UPDATE site_banners
+            SET message_en = ?, link_label_en = ?, link_url = ?, is_enabled = 1, version = 2
+            WHERE id = 'default'
+            """,
+            ("Sale", "Shop now", "javascript:alert(1)"),
+        )
+        db.commit()
+
+        banner = (await client.get("/v1/promotions/banner")).json()["banner"]
+        assert banner["message"] == "Sale"
+        assert banner["link_label"] == "Shop now"
+        assert banner["link_url"] is None
+
+
+# ---------------------------------------------------------------------------
+# Review follow-ups: status derivation, atomic/conservative edges, guards
+# ---------------------------------------------------------------------------
+
+
+async def _create_campaign(admin_client, **body) -> dict:
+    body.setdefault("name", "C")
+    body.setdefault("discount_percent", 20)
+    body.setdefault("product_ids", ["a-candle"])
+    return (await admin_client.post("/v1/admin/promotions/campaigns", json=body)).json()
+
+
+class TestStatusDerivation:
+    @pytest.mark.asyncio
+    async def test_applied_within_window_is_active(self, admin_client):
+        _make_product("a-candle")
+        c = await _create_campaign(admin_client)
+        await admin_client.post(f"/v1/admin/promotions/campaigns/{c['id']}/apply")
+        detail = (await admin_client.get(f"/v1/admin/promotions/campaigns/{c['id']}")).json()
+        assert detail["status"] == "active"
+
+    @pytest.mark.asyncio
+    async def test_applied_past_end_is_ended(self, admin_client):
+        _make_product("a-candle")
+        c = await _create_campaign(
+            admin_client,
+            discount_starts_at="2000-01-01 00:00:00",
+            discount_ends_at="2000-02-01 00:00:00",
+        )
+        await admin_client.post(f"/v1/admin/promotions/campaigns/{c['id']}/apply")
+        detail = (await admin_client.get(f"/v1/admin/promotions/campaigns/{c['id']}")).json()
+        assert detail["status"] == "ended"
+
+
+class TestCampaignUpdateEdges:
+    @pytest.mark.asyncio
+    async def test_switch_ids_to_filter(self, admin_client):
+        _make_product("a-candle", category="spring")
+        _make_product("b-candle", category="spring")
+        c = await _create_campaign(admin_client, product_ids=["a-candle"])
+        resp = await admin_client.patch(
+            f"/v1/admin/promotions/campaigns/{c['id']}",
+            json={"filter": {"category": "spring"}},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["target_type"] == "filter"
+        assert body["target_count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_update_invalid_window_422(self, admin_client):
+        _make_product("a-candle")
+        c = await _create_campaign(
+            admin_client,
+            discount_starts_at="2999-01-01 00:00:00",
+            discount_ends_at="2999-02-01 00:00:00",
+        )
+        resp = await admin_client.patch(
+            f"/v1/admin/promotions/campaigns/{c['id']}",
+            json={"discount_starts_at": "2999-03-01 00:00:00"},
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_reject_empty_filter_on_create(self, admin_client):
+        resp = await admin_client.post(
+            "/v1/admin/promotions/campaigns",
+            json={"name": "All", "discount_percent": 10, "filter": {}},
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_edit_discount_on_applied_campaign_blocked(self, admin_client):
+        _make_product("a-candle")
+        c = await _create_campaign(admin_client)
+        await admin_client.post(f"/v1/admin/promotions/campaigns/{c['id']}/apply")
+        # Applied (active) campaign: changing the discount must be rejected.
+        resp = await admin_client.patch(
+            f"/v1/admin/promotions/campaigns/{c['id']}",
+            json={"discount_percent": 50},
+        )
+        assert resp.status_code == 409
+        # Renaming an applied campaign is still allowed.
+        resp2 = await admin_client.patch(
+            f"/v1/admin/promotions/campaigns/{c['id']}",
+            json={"name": "Renamed"},
+        )
+        assert resp2.status_code == 200
+
+
+class TestApplyRemoveEdges:
+    @pytest.mark.asyncio
+    async def test_apply_over_limit_route(self, admin_client, monkeypatch):
+        from app.services import product_service
+
+        monkeypatch.setattr(product_service, "BULK_DISCOUNT_TARGET_LIMIT", 1)
+        _make_product("spring-1", category="spring")
+        _make_product("spring-2", category="spring")
+        c = await _create_campaign(admin_client, product_ids=None, filter={"category": "spring"})
+        resp = await admin_client.post(f"/v1/admin/promotions/campaigns/{c['id']}/apply")
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "BULK_TARGET_LIMIT_EXCEEDED"
+        # No partial apply: campaign stays draft.
+        detail = (await admin_client.get(f"/v1/admin/promotions/campaigns/{c['id']}")).json()
+        assert detail["status"] == "draft"
+
+    @pytest.mark.asyncio
+    async def test_remove_after_product_deleted(self, admin_client, db):
+        _make_product("a-candle")
+        c = await _create_campaign(admin_client)
+        await admin_client.post(f"/v1/admin/promotions/campaigns/{c['id']}/apply")
+        await admin_client.delete("/v1/admin/products/a-candle")  # soft-delete keeps the row
+        # Hard-delete the product row to hit the "product gone" branch.
+        db.execute("DELETE FROM products WHERE id = 'a-candle'")
+        db.commit()
+        resp = await admin_client.post(f"/v1/admin/promotions/campaigns/{c['id']}/remove")
+        assert resp.status_code == 200
+        assert resp.json()["results"][0]["status"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_delete_applied_campaign_preserves_discount(self, admin_client, db):
+        _make_product("a-candle")
+        c = await _create_campaign(admin_client)
+        await admin_client.post(f"/v1/admin/promotions/campaigns/{c['id']}/apply")
+        assert _get_discount(db, "a-candle")["percent"] == 20
+        await admin_client.delete(f"/v1/admin/promotions/campaigns/{c['id']}")
+        # Deleting the campaign record leaves the product discount untouched.
+        assert _get_discount(db, "a-candle")["percent"] == 20
+
+    @pytest.mark.asyncio
+    async def test_last_result_persisted_in_detail(self, admin_client):
+        _make_product("a-candle")
+        c = await _create_campaign(admin_client)
+        await admin_client.post(f"/v1/admin/promotions/campaigns/{c['id']}/apply")
+        detail = (await admin_client.get(f"/v1/admin/promotions/campaigns/{c['id']}")).json()
+        assert detail["last_result"]["success_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_remove_all_skipped_marks_campaign_removed(self, admin_client, db):
+        _make_product("a-candle")
+        c = await _create_campaign(admin_client)
+        await admin_client.post(f"/v1/admin/promotions/campaigns/{c['id']}/apply")
+        await admin_client.patch("/v1/admin/products/a-candle", json={"discount_percent": 50})
+
+        resp = await admin_client.post(f"/v1/admin/promotions/campaigns/{c['id']}/remove")
+        assert resp.status_code == 200
+        assert resp.json()["results"][0]["status"] == "skipped"
+        assert _get_discount(db, "a-candle")["percent"] == 50
+
+        detail = (await admin_client.get(f"/v1/admin/promotions/campaigns/{c['id']}")).json()
+        assert detail["status"] == "removed"
+
+
+class TestPromotionSchemaMigration:
+    def test_existing_campaign_table_gets_last_result_column(self, db_path):
+        Path(db_path).unlink(missing_ok=True)
+        conn = sqlite3.connect(db_path)
+        conn.executescript(
+            """
+            CREATE TABLE promotion_campaigns (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                note TEXT,
+                discount_percent INTEGER NOT NULL,
+                discount_starts_at TEXT,
+                discount_ends_at TEXT,
+                target_type TEXT NOT NULL,
+                target_ids TEXT,
+                target_filter TEXT,
+                applied_at TEXT,
+                removed_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            INSERT INTO promotion_campaigns (
+                id, name, discount_percent, target_type, target_ids, created_at, updated_at
+            ) VALUES (
+                'legacy-campaign', 'Legacy', 20, 'ids', '["a-candle"]',
+                '2026-01-01 00:00:00', '2026-01-01 00:00:00'
+            );
+            """
+        )
+        conn.close()
+
+        init_db(db_path)
+
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(promotion_campaigns)")}
+        row = conn.execute(
+            "SELECT last_result FROM promotion_campaigns WHERE id = ?",
+            ("legacy-campaign",),
+        ).fetchone()
+        conn.close()
+
+        assert "last_result" in columns
+        assert row["last_result"] is None
+
+
+class TestBannerEdges:
+    @pytest.mark.asyncio
+    async def test_version_not_bumped_on_noop_save(self, admin_client):
+        first = (
+            await admin_client.put(
+                "/v1/admin/promotions/banner",
+                json={"message_en": "Same", "is_enabled": True},
+            )
+        ).json()
+        second = (
+            await admin_client.put(
+                "/v1/admin/promotions/banner",
+                json={"message_en": "Same", "is_enabled": True},
+            )
+        ).json()
+        assert second["version"] == first["version"]
+
+    @pytest.mark.asyncio
+    async def test_default_seeded_banner_is_visible(self, client):
+        # Between tests the singleton is reset to the seeded (enabled) default.
+        banner = (await client.get("/v1/promotions/banner")).json()["banner"]
+        assert banner is not None
+        assert "shipping" in banner["message"].lower()

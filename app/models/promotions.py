@@ -11,6 +11,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.services.pricing import normalize_discount_datetime
+from app.utils.sanitize import is_safe_http_or_relative_url
 
 CampaignStatus = Literal["draft", "scheduled", "active", "ended", "removed"]
 BulkOperation = Literal["apply", "remove"]
@@ -24,6 +25,22 @@ class ProductFilter(BaseModel):
     category: str | None = Field(default=None, max_length=100)
     is_active: bool | None = None
     in_stock: bool | None = None
+
+    def has_criteria(self) -> bool:
+        """True if at least one *effective* filter criterion is set.
+
+        Must agree with `product_service._resolve_filter_target_ids`, which
+        ignores a blank/whitespace `q` and treats `in_stock=False` as no
+        constraint. Counting those as criteria would let an all-catalog filter
+        slip past the guard. `is_active=False` IS a real criterion (it narrows to
+        inactive products), so it is checked with `is not None`.
+        """
+        return bool(
+            (self.q and self.q.strip())
+            or self.category
+            or self.is_active is not None
+            or self.in_stock
+        )
 
 
 def _validate_discount_window(
@@ -65,6 +82,9 @@ class BulkDiscountRequest(BaseModel):
             raise ValueError(msg)
         if has_ids and len(self.product_ids) == 0:
             msg = "product_ids must not be empty"
+            raise ValueError(msg)
+        if has_filter and not self.filter.has_criteria():
+            msg = "filter must specify at least one criterion"
             raise ValueError(msg)
         if self.operation == "apply":
             if self.discount_percent is None:
@@ -119,6 +139,9 @@ class CampaignCreateRequest(BaseModel):
         if has_ids and len(self.product_ids) == 0:
             msg = "product_ids must not be empty"
             raise ValueError(msg)
+        if has_filter and not self.filter.has_criteria():
+            msg = "filter must specify at least one criterion"
+            raise ValueError(msg)
         _validate_discount_window(
             self.discount_percent, self.discount_starts_at, self.discount_ends_at
         )
@@ -149,6 +172,9 @@ class CampaignUpdateRequest(BaseModel):
         if self.product_ids is not None and len(self.product_ids) == 0:
             msg = "product_ids must not be empty"
             raise ValueError(msg)
+        if self.filter is not None and not self.filter.has_criteria():
+            msg = "filter must specify at least one criterion"
+            raise ValueError(msg)
         # Window sanity when both dates present (percent merge validated in service).
         if (
             self.discount_starts_at is not None
@@ -169,6 +195,10 @@ class CampaignResponse(BaseModel):
     discount_ends_at: str | None = None
     target_type: Literal["ids", "filter"]
     target_count: int
+    # Concrete target definition, so the edit form can pre-populate the selection
+    # instead of starting empty (which would silently replace the target on save).
+    target_ids: list[str] | None = None
+    target_filter: ProductFilter | None = None
     status: CampaignStatus
     applied_at: str | None = None
     removed_at: str | None = None
@@ -201,6 +231,19 @@ class BannerUpdateRequest(BaseModel):
     @classmethod
     def _normalize_dt(cls, v: str | None) -> str | None:
         return normalize_discount_datetime(v)
+
+    @field_validator("link_url")
+    @classmethod
+    def _validate_link_url(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        stripped = v.strip()
+        if not stripped:
+            return None
+        if not is_safe_http_or_relative_url(stripped):
+            msg = "link_url must be http(s) or a relative URL"
+            raise ValueError(msg)
+        return stripped
 
     @model_validator(mode="after")
     def _validate(self) -> "BannerUpdateRequest":

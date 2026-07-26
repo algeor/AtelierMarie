@@ -53,6 +53,11 @@ export function BannerPanel() {
     load();
   }, [load]);
 
+  // Clear the "saved" confirmation once the admin edits any field again.
+  useEffect(() => {
+    setSuccess(false);
+  }, [messageEn, messageBg, linkLabelEn, linkLabelBg, linkUrl, enabled, start, end]);
+
   function validate(): boolean {
     const next: Record<string, string> = {};
     if (enabled && !messageEn.trim()) next.messageEn = t("promotions.bannerMessageRequired");

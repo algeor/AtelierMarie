@@ -11,6 +11,20 @@ import type { PublicBanner } from "@/lib/types";
 // dismissal of older copy.
 const STORAGE_KEY = "announcement_dismissed_key";
 
+function getSafeBannerLinkUrl(linkUrl: string | null): string | null {
+  if (!linkUrl) return null;
+  const trimmed = linkUrl.trim();
+  if (!trimmed || trimmed.startsWith("//") || trimmed.includes("\\")) return null;
+  if ([...trimmed].some((ch) => ch.charCodeAt(0) < 32)) return null;
+
+  try {
+    const parsed = new URL(trimmed, "https://ateliermarie.local");
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
 export function AnnouncementBar() {
   const t = useTranslations("announcement");
   const locale = useLocale() as Locale;
@@ -47,18 +61,20 @@ export function AnnouncementBar() {
     setDismissed(true);
   }
 
+  const safeLinkUrl = getSafeBannerLinkUrl(banner.link_url);
+
   return (
     <div className="relative bg-muted-gold/20 px-10 py-2 text-center text-sm text-charcoal">
       <p className="font-medium">
         {banner.message}
-        {banner.link_url && (
+        {safeLinkUrl && (
           <>
             {" "}
             <a
-              href={banner.link_url}
+              href={safeLinkUrl}
               className="underline underline-offset-2 hover:text-charcoal/80"
             >
-              {banner.link_label ?? banner.link_url}
+              {banner.link_label ?? safeLinkUrl}
             </a>
           </>
         )}
