@@ -14,7 +14,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
 import { getDeliveryCities, getDeliveryOffices } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type {
@@ -26,6 +26,7 @@ import type {
   OfficeResponse,
   OfficeType,
 } from "@/lib/types";
+import type { Locale } from "@/i18n/routing";
 
 const PHONE_REGEX = /^\+?[0-9]{8,15}$/;
 
@@ -163,9 +164,10 @@ interface OfficePickerProps {
   selectedOffice: OfficeResponse | null;
   onSelect: (office: OfficeResponse) => void;
   error?: string;
+  locale: Locale;
 }
 
-function OfficePicker({ courier, selectedOffice, onSelect, error }: OfficePickerProps) {
+function OfficePicker({ courier, selectedOffice, onSelect, error, locale }: OfficePickerProps) {
   const t = useTranslations("checkout.delivery.office");
   const tType = useTranslations("checkout.delivery.officeType");
 
@@ -195,7 +197,7 @@ function OfficePicker({ courier, selectedOffice, onSelect, error }: OfficePicker
     let cancelled = false;
     const t = setTimeout(async () => {
       try {
-        const results = await getDeliveryCities(courier, city);
+        const results = await getDeliveryCities(courier, city, locale);
         if (!cancelled) setCitySuggestions(results.slice(0, 10));
       } catch {
         if (!cancelled) setCitySuggestions([]);
@@ -205,7 +207,7 @@ function OfficePicker({ courier, selectedOffice, onSelect, error }: OfficePicker
       cancelled = true;
       clearTimeout(t);
     };
-  }, [city, courier, confirmedCity]);
+  }, [city, courier, confirmedCity, locale]);
 
   // Load offices when a city is confirmed
   useEffect(() => {
@@ -215,7 +217,7 @@ function OfficePicker({ courier, selectedOffice, onSelect, error }: OfficePicker
     }
     let cancelled = false;
     setLoading(true);
-    getDeliveryOffices(courier, confirmedCity)
+    getDeliveryOffices(courier, confirmedCity, undefined, locale)
       .then((res) => {
         if (!cancelled) setOffices(res);
       })
@@ -228,7 +230,7 @@ function OfficePicker({ courier, selectedOffice, onSelect, error }: OfficePicker
     return () => {
       cancelled = true;
     };
-  }, [confirmedCity, courier]);
+  }, [confirmedCity, courier, locale]);
 
   const confirmCity = useCallback((c: string) => {
     setCity(c);
@@ -494,6 +496,7 @@ function PhoneField({ value, onChange, error }: PhoneFieldProps) {
 
 export function DeliverySection({ value, onChange, errors = {} }: DeliverySectionProps) {
   const t = useTranslations("checkout.delivery");
+  const locale = useLocale() as Locale;
   const method = value.method;
   const office = value.office ?? undefined;
   const door = value.door ?? undefined;
@@ -602,6 +605,7 @@ export function DeliverySection({ value, onChange, errors = {} }: DeliverySectio
           selectedOffice={selectedOffice}
           onSelect={selectOffice}
           error={errors.office}
+          locale={locale}
         />
       )}
 

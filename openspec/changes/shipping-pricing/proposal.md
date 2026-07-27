@@ -8,19 +8,22 @@ Splitting this off lets the delivery picker ship as soon as it's built (customer
 
 ## What Changes
 
-> **Note:** The per-product `weight_grams` **data half** (DB column, admin models, admin form field, CSV import column) is delivered by the **`product-mgmt-completeness`** change and is no longer in scope here. `shipping-pricing` only **consumes** the field for cost calculation. One deviation from the parent Decision 13: `product-mgmt-completeness` deliberately does **not** add `weight_grams` to the public `ProductResponse` — the shipping calculator reads weight server-side from the DB instead.
+> **Phase A of a phased rollout.** This change delivers **live courier pricing + flat fallback + price provenance**. The shaped snapshot-table fallback (Phase B) and quoted-vs-invoice reconciliation (Phase C) are follow-on changes — see `design.md` → Phasing. Provenance is captured now so B/C need no schema change.
+
+> **Note:** The per-product `weight_grams` **data half** (DB column, product models, admin form field, CSV import column) is delivered by the **`product-mgmt-completeness`** change and is no longer in scope here — it is already in the codebase. `shipping-pricing` only **consumes** the field for cost calculation, reading each line item's weight server-side from the DB.
 
 - Add per-product weight for shipping calculation: ~~new `weight_grams` column on `products` (default 300g), `ProductResponse.weight_grams`, optional CSV import column, admin product form field~~ — **delivered by `product-mgmt-completeness`; consumed here only**
 - Add packaging weight buffer as a config constant (`PACKAGING_WEIGHT_GRAMS = 200`)
 - New backend endpoint: `POST /v1/delivery/calculate` — accepts courier(s), method, destination (city for approximate, office_id / full address for exact), cart weight; returns price per courier
 - Real-time courier API integration: Speedy `/calculate`, Econt Shipments service
 - Two-phase pricing UX in checkout: approximate prices after city selection (both couriers, for comparison) → exact price after specific office/address
-- Free shipping threshold: `items_total_cents >= 5000` (€50) → `shipping_cents = 0` (server-enforced)
-- Fallback flat rate (`FALLBACK_SHIPPING_CENTS = 500`) when a courier's calculation API times out or errors
-- `shipping_cents` column on `orders` table; `total_cents = items_total_cents + shipping_cents`
+- Free shipping threshold: `items_total_cents >= 5000` (€50) → `shipping_cents = 0` (server-enforced), short-circuits pricing before any fallback
+- Tiered fallback (Phase A: flat `FALLBACK_SHIPPING_CENTS = 500` when a courier API times out or errors; the shaped snapshot tier is Phase B)
+- **Price provenance**: each quote and each order records `price_source` (`live`/`table`/`flat`), `is_fallback`, `quoted_at` — auditable, and the basis for the phased evidence loop
+- `shipping_cents` + provenance columns on `orders`; `total_cents = items_total_cents + shipping_cents`
 - Server-side validation of `shipping_cents` from checkout payload (bounded range check, per parent design Decision 16)
-- New frontend components: `CourierComparison` (prices side-by-side), `ShippingPriceSummary` (final price + free-shipping progress)
-- Admin order view: shipping breakdown (items subtotal + shipping)
+- New frontend components: `CourierComparison` (prices side-by-side, disclaimer only on non-live prices), `ShippingPriceSummary` (final price + free-shipping progress)
+- Admin order view: shipping breakdown (items subtotal + shipping) + fallback indicator
 - New env config: `SPEEDY_API_USERNAME`, `SPEEDY_API_PASSWORD`, `SPEEDY_SENDER_OFFICE_ID`, `ECONT_API_USERNAME`, `ECONT_API_PASSWORD`, `ECONT_SENDER_OFFICE_ID`
 
 ## Depends On
@@ -40,11 +43,11 @@ Splitting this off lets the delivery picker ship as soon as it's built (customer
 
 ## Impact
 
-- **Backend**: New `app/services/shipping_service.py` (courier API clients, calculate orchestration, fallback), new `/v1/delivery/calculate` route, `orders.shipping_cents` column, `products.weight_grams` column, order_service checkout accepts and validates `shipping_cents`
-- **Frontend**: `CourierComparison` and `ShippingPriceSummary` components, checkout state machine extended for two-phase pricing, mock-api gains `/delivery/calculate` mock, admin order view + product form updates
+- **Backend**: New `app/services/shipping_service.py` (courier API clients, calculate orchestration, tiered fallback, provenance tagging), new `/v1/delivery/calculate` route, `orders.shipping_cents` + provenance columns (`shipping_price_source`, `shipping_is_fallback`, `shipping_quoted_at`), order_service checkout accepts/validates `shipping_cents` and persists provenance. Consumes existing `products.weight_grams`.
+- **Frontend**: `CourierComparison` and `ShippingPriceSummary` components, checkout state machine extended for two-phase pricing, mock-api gains `/delivery/calculate` mock, admin order view (breakdown + fallback indicator)
 - **External dependencies**: Live Speedy and Econt API accounts with production credentials
 - **Config**: 6 new env vars (2 courier accounts × username/password/sender_office_id)
-- **Non-goal for MVP**: Signed price tokens, cached prices per city, live label/tracking integration — see design decisions to be captured in `design.md`
+- **Deferred to later phases**: Shaped snapshot-table fallback + fetch script (Phase B), quoted-vs-invoice reconciliation view (Phase C), signed price tokens
 
 ## Open Questions (Draft)
 

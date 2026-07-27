@@ -84,17 +84,37 @@ def create_order(
     try:
         with get_db() as conn:
             row = conn.execute(
-                "SELECT user_id, preferred_locale FROM sessions WHERE id = ?", (session_id,)
+                "SELECT s.user_id, s.preferred_locale, u.email AS user_email "
+                "FROM sessions s LEFT JOIN users u ON u.id = s.user_id "
+                "WHERE s.id = ?",
+                (session_id,),
             ).fetchone()
             user_id = row["user_id"] if row else None
             locale = (
                 row["preferred_locale"] if row and row["preferred_locale"] in {"en", "bg"} else "en"
             )
 
+            # Resolve the order's contact email. A logged-in user may omit it and
+            # fall back to their account email; anyone may supply a different one
+            # (gift, work address). Anonymous checkout with neither is rejected.
+            resolved_email = (
+                str(body.customer_email)
+                if body.customer_email
+                else (row["user_email"] if row else None)
+            )
+            if not resolved_email:
+                return JSONResponse(
+                    status_code=422,
+                    content={"error": {
+                        "code": "EMAIL_REQUIRED",
+                        "message": "An email is required to place an order",
+                    }},
+                )
+
             order_data = checkout(
                 conn=conn,
                 session_id=session_id,
-                customer_email=str(body.customer_email),
+                customer_email=resolved_email,
                 delivery=body.delivery,
                 customer_name=body.customer_name,
                 notes=body.notes,

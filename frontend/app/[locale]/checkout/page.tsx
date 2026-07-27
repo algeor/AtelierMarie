@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import { useCart } from "@/contexts/CartContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { createOrder } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
@@ -28,6 +29,7 @@ export default function CheckoutPage() {
   const getLocalizedError = useLocalizedError();
   const router = useRouter();
   const { items, total_cents, isLoading, refreshCart } = useCart();
+  const { user } = useAuth();
 
   // Form state
   const [email, setEmail] = useState("");
@@ -47,6 +49,17 @@ export default function CheckoutPage() {
     refreshCart();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Pre-fill the email for logged-in users. Only seed when the field is still
+  // empty so we never clobber a value the customer has started typing (e.g. a
+  // different address than their account email).
+  const hasPrefilledEmail = useRef(false);
+  useEffect(() => {
+    if (user?.email && !hasPrefilledEmail.current) {
+      hasPrefilledEmail.current = true;
+      setEmail((current) => (current.trim() ? current : user.email));
+    }
+  }, [user]);
 
   useEffect(() => {
     if (!isLoading && items.length === 0 && !hasRedirected.current) {

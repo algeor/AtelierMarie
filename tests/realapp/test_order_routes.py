@@ -168,6 +168,76 @@ class TestCreateOrder:
         )
         assert resp.status_code == 422
 
+    # customer_email fallback to the logged-in user's account email.
+    async def test_logged_in_omitted_email_uses_account_email(self, app, db_path):
+        """A logged-in user who omits customer_email gets their account email snapshotted."""
+        uid = str(uuid.uuid4())
+        sid = str(uuid.uuid4())
+        now = datetime.now(UTC)
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT INTO users (id, google_id, email) VALUES (?, ?, ?)",
+            (uid, "g-" + uid, "account@example.com"),
+        )
+        conn.execute(
+            "INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            (sid, uid, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
+        )
+        conn.execute(
+            "INSERT INTO cart_items (session_id, product_id, quantity) "
+            "VALUES (?, 'lavender-dream', 1)",
+            (sid,),
+        )
+        conn.commit()
+        conn.close()
+
+        settings = get_settings()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            c.cookies.set(settings.session_cookie_name, sid)
+            resp = await c.post("/v1/orders", json={"delivery": DELIVERY_OFFICE_ECONT})
+        assert resp.status_code == 201
+        assert resp.json()["customer_email"] == "account@example.com"
+
+    async def test_logged_in_supplied_email_overrides_account_email(self, app, db_path):
+        """An explicit customer_email wins over the account email (gift/work address)."""
+        uid = str(uuid.uuid4())
+        sid = str(uuid.uuid4())
+        now = datetime.now(UTC)
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT INTO users (id, google_id, email) VALUES (?, ?, ?)",
+            (uid, "g-" + uid, "account@example.com"),
+        )
+        conn.execute(
+            "INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            (sid, uid, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
+        )
+        conn.execute(
+            "INSERT INTO cart_items (session_id, product_id, quantity) "
+            "VALUES (?, 'lavender-dream', 1)",
+            (sid,),
+        )
+        conn.commit()
+        conn.close()
+
+        settings = get_settings()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            c.cookies.set(settings.session_cookie_name, sid)
+            resp = await c.post(
+                "/v1/orders",
+                json={"customer_email": "gift@example.com", "delivery": DELIVERY_OFFICE_ECONT},
+            )
+        assert resp.status_code == 201
+        assert resp.json()["customer_email"] == "gift@example.com"
+
+    async def test_anonymous_omitted_email_422_email_required(self, order_client):
+        """Anonymous checkout with no email is rejected with EMAIL_REQUIRED."""
+        resp = await order_client.post("/v1/orders", json={"delivery": DELIVERY_OFFICE_ECONT})
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "EMAIL_REQUIRED"
+
     async def test_overly_long_customer_name_422(self, order_client):
         resp = await order_client.post(
             "/v1/orders",

@@ -145,21 +145,25 @@ export async function createStripeRetrySession(
 export async function getDeliveryOffices(
   courier: Courier,
   city: string,
-  type?: OfficeType
+  type?: OfficeType,
+  locale?: Locale
 ): Promise<OfficeResponse[]> {
   if (USE_MOCK) return (await getMock()).getDeliveryOffices(courier, city, type);
   const params = new URLSearchParams({ courier, city });
   if (type) params.set("type", type);
+  if (locale) params.set("locale", locale);
   return apiClient.get<OfficeResponse[]>(`/v1/delivery/offices?${params}`);
 }
 
 export async function getDeliveryCities(
   courier: Courier,
-  query?: string
+  query?: string,
+  locale?: Locale
 ): Promise<string[]> {
   if (USE_MOCK) return (await getMock()).getDeliveryCities(courier, query);
   const params = new URLSearchParams({ courier });
   if (query) params.set("q", query);
+  if (locale) params.set("locale", locale);
   return apiClient.get<string[]>(`/v1/delivery/cities?${params}`);
 }
 

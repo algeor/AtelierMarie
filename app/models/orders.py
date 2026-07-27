@@ -67,9 +67,14 @@ class CreateOrderRequest(BaseModel):
 
     Delivery is a structured object (method + courier + sub-object). See
     openspec change `shipping-courier-integration` Decision 1.
+
+    `customer_email` is optional: when omitted by a logged-in user, the route
+    falls back to the account email. Anonymous checkout must still supply it
+    (the route returns EMAIL_REQUIRED otherwise). The order snapshots whichever
+    value is resolved — it is a fact of the order, not a live user lookup.
     """
 
-    customer_email: EmailStr = Field(..., max_length=320)
+    customer_email: EmailStr | None = Field(default=None, max_length=320)
     customer_name: str | None = Field(default=None, min_length=1, max_length=200)
     delivery: DeliveryInfo
     notes: str | None = Field(default=None, max_length=2000)

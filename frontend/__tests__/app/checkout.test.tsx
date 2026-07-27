@@ -44,6 +44,10 @@ vi.mock("@/contexts/CartContext", () => ({
   useCart: () => mockCartState,
 }));
 
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => ({ user: null, isLoading: false, error: null }),
+}));
+
 vi.mock("@/lib/api", () => ({
   createOrder: vi.fn(),
 }));
