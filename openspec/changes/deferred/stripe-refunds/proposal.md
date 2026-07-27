@@ -1,5 +1,12 @@
 # Stripe Refunds - Deferred Proposal
 
+> **SUPERSEDED (2026-07-27) by `openspec/changes/product-returns/`.** Automated Stripe
+> refunds are delivered there as the refund-execution half of the product-return flow
+> (card auto-refund, partial refunds by returned items, refund webhook confirmation).
+> The open questions below are resolved in that change's `design.md` ("Supersedes"
+> section). This deferred proposal is kept for history only — do not implement it
+> standalone.
+
 ## Motivation
 
 Stripe refunds should eventually be manageable from the admin panel so payment
