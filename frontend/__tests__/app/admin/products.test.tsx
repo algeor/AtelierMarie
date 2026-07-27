@@ -546,6 +546,9 @@ describe("Admin Product Form Validation", () => {
     fireEvent.change(screen.getByLabelText("Name (English)"), {
       target: { value: "Weighted Product" },
     });
+    fireEvent.change(screen.getByLabelText("Product type"), {
+      target: { value: "candles" },
+    });
     fireEvent.change(screen.getByLabelText("Category"), {
       target: { value: "Floral" },
     });
@@ -619,6 +622,9 @@ describe("Admin Product Form Validation", () => {
     });
     fireEvent.change(screen.getByLabelText("Name (English)"), {
       target: { value: "Default Active" },
+    });
+    fireEvent.change(screen.getByLabelText("Product type"), {
+      target: { value: "candles" },
     });
     fireEvent.change(screen.getByLabelText("Category"), { target: { value: "Floral" } });
     const priceInput = screen.getByLabelText("Price (EUR)");
