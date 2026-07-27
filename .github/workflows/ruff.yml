@@ -26,4 +26,3 @@ jobs:
 
       - name: Run backend Ruff linting
         run: make lint-backend
-      
