@@ -21,6 +21,10 @@ class TestProductModels:
             price_cents=3200,
             effective_price_cents=3200,
             category="Floral",
+            category_name="Floral",
+            product_type="candles",
+            product_type_name="Candles",
+            labels=[],
             images=[
                 {
                     "id": "image-1",
@@ -51,6 +55,10 @@ class TestProductModels:
             price_cents=1000,
             effective_price_cents=1000,
             category=None,
+            category_name=None,
+            product_type="candles",
+            product_type_name="Candles",
+            labels=[],
             stock=0,
             is_active=True,
             is_featured=False,

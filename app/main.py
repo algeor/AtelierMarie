@@ -29,6 +29,7 @@ from app.routes import (
     products,
     promotions,
     reactions,
+    taxonomy,
     webhooks,
 )
 from app.services.contact_service import cleanup_old_contact_messages, drain_contact_message_emails
@@ -267,6 +268,8 @@ def create_app() -> FastAPI:
     application.include_router(orders.router, prefix="/v1/orders", tags=["orders"])
     application.include_router(auth.router, prefix="/v1/auth", tags=["auth"])
     application.include_router(admin.router, prefix="/v1/admin", tags=["admin"])
+    application.include_router(taxonomy.public_router, prefix="/v1/taxonomy", tags=["taxonomy"])
+    application.include_router(taxonomy.admin_router, prefix="/v1/admin/taxonomy", tags=["admin"])
     application.include_router(
         promotions.admin_router, prefix="/v1/admin/promotions", tags=["admin-promotions"]
     )

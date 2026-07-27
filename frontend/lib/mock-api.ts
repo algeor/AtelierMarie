@@ -7,6 +7,7 @@ import type {
   AdminProductListResponse,
   AdminProductResponse,
   AdminStats,
+  AdminTaxonomyTerm,
   AuthTokenResponse,
   BannerAdminResponse,
   BannerUpdateRequest,
@@ -28,6 +29,7 @@ import type {
   Courier,
   CreateOrderRequest,
   CreateProductRequest,
+  CreateTaxonomyTermRequest,
   ImageUploadResponse,
   OfficeResponse,
   OfficeType,
@@ -41,7 +43,10 @@ import type {
   ReactionCountsResponse,
   ReactionToggleRequest,
   ReactionToggleResponse,
+  TaxonomyKind,
+  TaxonomyResponse,
   UpdateProductRequest,
+  UpdateTaxonomyTermRequest,
   UserResponse,
 } from "./types";
 import { ApiError } from "./api-client";
@@ -132,7 +137,11 @@ const MOCK_PRODUCTS: MockProduct[] = [
     discount_active: true,
     discount_starts_at: null,
     discount_ends_at: null,
-    category: "Floral",
+    category: "medium",
+    category_name: "Medium",
+    product_type: "candles",
+    product_type_name: "Candles",
+    labels: [{ slug: "floral", name: "Floral" }],
     images: [mockProductImage("lavender-dreams-300ml")],
     primary_image_url: "/static/products/lavender-dreams-300ml.webp",
     primary_thumbnail_url: "/static/products/lavender-dreams-300ml_thumb.webp",
@@ -155,7 +164,14 @@ const MOCK_PRODUCTS: MockProduct[] = [
     discount_active: false,
     discount_starts_at: null,
     discount_ends_at: null,
-    category: "Woody",
+    category: "premium",
+    category_name: "Premium",
+    product_type: "candles",
+    product_type_name: "Candles",
+    labels: [
+      { slug: "woody", name: "Woody" },
+      { slug: "gift", name: "Gift" },
+    ],
     images: [mockProductImage("midnight-amber-300ml")],
     primary_image_url: "/static/products/midnight-amber-300ml.webp",
     primary_thumbnail_url: "/static/products/midnight-amber-300ml_thumb.webp",
@@ -178,7 +194,14 @@ const MOCK_PRODUCTS: MockProduct[] = [
     discount_active: false,
     discount_starts_at: null,
     discount_ends_at: null,
-    category: "Fresh",
+    category: "small",
+    category_name: "Small",
+    product_type: "candles",
+    product_type_name: "Candles",
+    labels: [
+      { slug: "fresh", name: "Fresh" },
+      { slug: "citrus", name: "Citrus" },
+    ],
     images: [],
     primary_image_url: null,
     primary_thumbnail_url: null,
@@ -201,7 +224,11 @@ const MOCK_PRODUCTS: MockProduct[] = [
     discount_active: false,
     discount_starts_at: null,
     discount_ends_at: null,
-    category: "Gourmand",
+    category: null,
+    category_name: null,
+    product_type: "candles",
+    product_type_name: "Candles",
+    labels: [{ slug: "gourmand", name: "Gourmand" }],
     images: [mockProductImage("vanilla-bourbon-300ml")],
     primary_image_url: "/static/products/vanilla-bourbon-300ml.webp",
     primary_thumbnail_url: "/static/products/vanilla-bourbon-300ml_thumb.webp",
@@ -213,6 +240,48 @@ const MOCK_PRODUCTS: MockProduct[] = [
     updated_at: "2024-06-05T08:00:00Z",
   },
 ];
+
+// --- In-Memory Taxonomy State (mock) ---
+
+interface MockTerm {
+  slug: string;
+  name_en: string;
+  name_bg: string | null;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+function mockTerm(slug: string, name_en: string, name_bg: string, sort_order: number): MockTerm {
+  return {
+    slug,
+    name_en,
+    name_bg,
+    sort_order,
+    is_active: true,
+    created_at: "2024-06-01T10:00:00Z",
+    updated_at: "2024-06-01T10:00:00Z",
+  };
+}
+
+const MOCK_TAXONOMY: Record<TaxonomyKind, MockTerm[]> = {
+  "product-types": [mockTerm("candles", "Candles", "Свещи", 0), mockTerm("boxes", "Boxes", "Кутии", 1)],
+  categories: [
+    mockTerm("small", "Small", "Малка", 0),
+    mockTerm("medium", "Medium", "Средна", 1),
+    mockTerm("premium", "Premium", "Премиум", 2),
+  ],
+  labels: [
+    mockTerm("floral", "Floral", "Флорални", 0),
+    mockTerm("woody", "Woody", "Дървесни", 1),
+    mockTerm("fresh", "Fresh", "Свежи", 2),
+    mockTerm("gourmand", "Gourmand", "Гурме", 3),
+    mockTerm("citrus", "Citrus", "Цитрусови", 4),
+    mockTerm("winter", "Winter", "Зима", 5),
+    mockTerm("gift", "Gift", "Подарък", 6),
+  ],
+};
 
 const MOCK_USER: UserResponse = {
   id: "user-001",
@@ -686,6 +755,8 @@ function toAdminProduct(product: MockProduct): AdminProductResponse {
     effective_price_cents: product.effective_price_cents,
     discount_active: product.discount_active,
     category: product.category,
+    product_type: product.product_type,
+    labels: product.labels.map((l) => l.slug),
     images: product.images,
     primary_image_url: product.primary_image_url,
     primary_thumbnail_url: product.primary_thumbnail_url,
@@ -722,6 +793,19 @@ export async function getAdminProduct(productId: string): Promise<AdminProductRe
   return toAdminProduct(product);
 }
 
+function mockTermName(kind: TaxonomyKind, slug: string | null): string | null {
+  if (!slug) return null;
+  const term = MOCK_TAXONOMY[kind].find((t) => t.slug === slug);
+  return term ? term.name_en : slug;
+}
+
+function mockLabelRefs(slugs: string[] | undefined): { slug: string; name: string }[] {
+  return (slugs ?? []).map((slug) => ({
+    slug,
+    name: mockTermName("labels", slug) ?? slug,
+  }));
+}
+
 export async function createProduct(data: CreateProductRequest): Promise<AdminProductResponse> {
   await delay();
   const existing = MOCK_PRODUCTS.find((p) => p.id === data.id);
@@ -734,12 +818,19 @@ export async function createProduct(data: CreateProductRequest): Promise<AdminPr
     materials: data.materials ?? null,
     days_to_craft: data.days_to_craft ?? null,
     price_cents: data.price_cents,
+    price_cents: data.price_cents,
     effective_price_cents: data.price_cents,
     discount_percent: data.discount_percent ?? null,
     discount_active: false,
     discount_starts_at: data.discount_starts_at ?? null,
     discount_ends_at: data.discount_ends_at ?? null,
-    category: data.category,
+    category: data.category ?? null,
+    category_name: mockTermName("categories", data.category ?? null),
+    product_type: data.product_type ?? "candles",
+    product_type_name:
+      mockTermName("product-types", data.product_type ?? "candles") ??
+      (data.product_type ?? "candles"),
+    labels: mockLabelRefs(data.labels),
     images: [],
     primary_image_url: null,
     primary_thumbnail_url: null,
@@ -768,7 +859,15 @@ export async function updateProduct(
   if (data.materials !== undefined) product.materials = data.materials;
   if (data.days_to_craft !== undefined) product.days_to_craft = data.days_to_craft;
   if (data.price_cents !== undefined) product.price_cents = data.price_cents;
-  if (data.category !== undefined) product.category = data.category;
+  if (data.category !== undefined) {
+    product.category = data.category;
+    product.category_name = mockTermName("categories", data.category);
+  }
+  if (data.product_type !== undefined) {
+    product.product_type = data.product_type;
+    product.product_type_name = mockTermName("product-types", data.product_type) ?? data.product_type;
+  }
+  if (data.labels !== undefined) product.labels = mockLabelRefs(data.labels);
   if (data.stock !== undefined) product.stock = data.stock;
   if (data.weight_grams !== undefined) product.weight_grams = data.weight_grams;
   if (data.is_active !== undefined) product.is_active = data.is_active;
@@ -1035,6 +1134,109 @@ export async function getComments(
   const start = (page - 1) * limit;
   const items = sorted.slice(start, start + limit);
   return { items, total: mockComments.length, page, limit };
+}
+
+// --- Taxonomy Mock ---
+
+function localizedName(term: MockTerm, locale?: string): string {
+  return locale === "bg" ? term.name_bg ?? term.name_en : term.name_en;
+}
+
+export async function getTaxonomy(locale?: string): Promise<TaxonomyResponse> {
+  await delay();
+  const active = (kind: TaxonomyKind) =>
+    MOCK_TAXONOMY[kind]
+      .filter((t) => t.is_active)
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((t) => ({ slug: t.slug, name: localizedName(t, locale), sort_order: t.sort_order }));
+  return {
+    product_types: active("product-types"),
+    categories: active("categories"),
+    labels: active("labels"),
+  };
+}
+
+function termProductCount(kind: TaxonomyKind, slug: string): number {
+  if (kind === "product-types") {
+    return MOCK_PRODUCTS.filter((p) => p.product_type === slug).length;
+  }
+  if (kind === "categories") {
+    return MOCK_PRODUCTS.filter((p) => p.category === slug).length;
+  }
+  return MOCK_PRODUCTS.filter((p) => p.labels.some((l) => l.slug === slug)).length;
+}
+
+function toAdminTerm(kind: TaxonomyKind, term: MockTerm): AdminTaxonomyTerm {
+  return {
+    slug: term.slug,
+    name_en: term.name_en,
+    name_bg: term.name_bg,
+    sort_order: term.sort_order,
+    is_active: term.is_active,
+    product_count: termProductCount(kind, term.slug),
+    created_at: term.created_at,
+    updated_at: term.updated_at,
+  };
+}
+
+export async function getAdminTaxonomy(kind: TaxonomyKind): Promise<AdminTaxonomyTerm[]> {
+  await delay();
+  return [...MOCK_TAXONOMY[kind]]
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((t) => toAdminTerm(kind, t));
+}
+
+function mockSlugify(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "item";
+}
+
+export async function createTaxonomyTerm(
+  kind: TaxonomyKind,
+  data: CreateTaxonomyTermRequest
+): Promise<AdminTaxonomyTerm> {
+  await delay();
+  const existing = new Set(MOCK_TAXONOMY[kind].map((t) => t.slug));
+  let slug = mockSlugify(data.name_en);
+  let n = 2;
+  while (existing.has(slug)) slug = `${mockSlugify(data.name_en)}-${n++}`;
+  const now = new Date().toISOString();
+  const term: MockTerm = {
+    slug,
+    name_en: data.name_en,
+    name_bg: data.name_bg ?? null,
+    sort_order: data.sort_order ?? 0,
+    is_active: true,
+    created_at: now,
+    updated_at: now,
+  };
+  MOCK_TAXONOMY[kind].push(term);
+  return toAdminTerm(kind, term);
+}
+
+export async function updateTaxonomyTerm(
+  kind: TaxonomyKind,
+  slug: string,
+  data: UpdateTaxonomyTermRequest
+): Promise<AdminTaxonomyTerm> {
+  await delay();
+  const term = MOCK_TAXONOMY[kind].find((t) => t.slug === slug);
+  if (!term) mockError("NOT_FOUND", `${kind} ${slug} not found`);
+  if (data.name_en !== undefined) term.name_en = data.name_en;
+  if (data.name_bg !== undefined) term.name_bg = data.name_bg;
+  if (data.sort_order !== undefined) term.sort_order = data.sort_order;
+  if (data.is_active !== undefined) term.is_active = data.is_active;
+  term.updated_at = new Date().toISOString();
+  return toAdminTerm(kind, term);
+}
+
+export async function deleteTaxonomyTerm(kind: TaxonomyKind, slug: string): Promise<void> {
+  await delay();
+  const term = MOCK_TAXONOMY[kind].find((t) => t.slug === slug);
+  if (!term) mockError("NOT_FOUND", `${kind} ${slug} not found`);
+  if (termProductCount(kind, slug) > 0) {
+    mockError("TAXONOMY_IN_USE", `${kind} '${slug}' is in use; reassign or deactivate it first`);
+  }
+  MOCK_TAXONOMY[kind] = MOCK_TAXONOMY[kind].filter((t) => t.slug !== slug);
 }
 
 // --- Promotions (campaigns, bulk discount, managed banner) ---

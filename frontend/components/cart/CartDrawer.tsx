@@ -120,7 +120,7 @@ export function CartDrawer() {
         role="dialog"
         aria-modal="true"
         aria-label={t("title")}
-        inert={!isDrawerOpen ? ("" as unknown as boolean) : undefined}
+        inert={!isDrawerOpen}
         onKeyDown={handleKeyDown}
         className={cn(
           "fixed top-0 right-0 h-full w-full max-w-md bg-warm-ivory shadow-xl flex flex-col",

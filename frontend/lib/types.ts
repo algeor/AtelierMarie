@@ -40,6 +40,11 @@ export interface ProductImage {
   is_primary: boolean;
 }
 
+export interface ProductLabelRef {
+  slug: string;
+  name: string;
+}
+
 export interface ProductResponse {
   id: string;
   name: string;
@@ -54,6 +59,10 @@ export interface ProductResponse {
   discount_percent: number | null;
   discount_active: boolean;
   category: string | null;
+  category_name: string | null;
+  product_type: string;
+  product_type_name: string;
+  labels: ProductLabelRef[];
   images: ProductImage[];
   primary_image_url: string | null;
   primary_thumbnail_url: string | null;
@@ -69,6 +78,46 @@ export interface ProductListResponse {
   total: number;
   page: number;
   limit: number;
+}
+
+// --- Taxonomy ---
+
+export type TaxonomyKind = "product-types" | "categories" | "labels";
+
+export interface TaxonomyTerm {
+  slug: string;
+  name: string;
+  sort_order: number;
+}
+
+export interface TaxonomyResponse {
+  product_types: TaxonomyTerm[];
+  categories: TaxonomyTerm[];
+  labels: TaxonomyTerm[];
+}
+
+export interface AdminTaxonomyTerm {
+  slug: string;
+  name_en: string;
+  name_bg: string | null;
+  sort_order: number;
+  is_active: boolean;
+  product_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateTaxonomyTermRequest {
+  name_en: string;
+  name_bg?: string | null;
+  sort_order?: number;
+}
+
+export interface UpdateTaxonomyTermRequest {
+  name_en?: string;
+  name_bg?: string | null;
+  sort_order?: number;
+  is_active?: boolean;
 }
 
 // --- Cart ---
@@ -231,6 +280,8 @@ export interface AdminProductResponse {
   effective_price_cents: number;
   discount_active: boolean;
   category: string | null;
+  product_type: string;
+  labels: string[];
   images: ProductImage[];
   primary_image_url: string | null;
   primary_thumbnail_url: string | null;
@@ -260,7 +311,9 @@ export interface CreateProductRequest {
   materials?: string | null;
   days_to_craft?: number | null;
   price_cents: number;
-  category: string;
+  category?: string | null;
+  product_type: string;
+  labels?: string[];
   stock: number;
   weight_grams?: number;
   is_active?: boolean;
@@ -278,7 +331,9 @@ export interface UpdateProductRequest {
   materials?: string | null;
   days_to_craft?: number | null;
   price_cents?: number;
-  category?: string;
+  category?: string | null;
+  product_type?: string;
+  labels?: string[];
   stock?: number;
   weight_grams?: number;
   is_active?: boolean;

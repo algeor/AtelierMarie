@@ -7,6 +7,8 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
+from app.utils.slugify import slugify, unique_slug
+
 _SCHEMA_SQL = """\
 CREATE TABLE IF NOT EXISTS products (
     id          TEXT PRIMARY KEY,
@@ -17,7 +19,12 @@ CREATE TABLE IF NOT EXISTS products (
     materials   TEXT,
     days_to_craft INTEGER,
     price_cents INTEGER NOT NULL CHECK (price_cents > 0),
+    -- Legacy free-text category. Superseded by managed taxonomy (product_type_slug,
+    -- category_slug, product_label_assignments). Kept for migration compatibility.
     category    TEXT,
+    -- Managed taxonomy references (dynamic-categories). Slugs, not display names.
+    product_type_slug TEXT NOT NULL DEFAULT 'candles',
+    category_slug     TEXT,
     discount_percent INTEGER CHECK (discount_percent IS NULL OR discount_percent BETWEEN 1 AND 99),
     discount_starts_at TEXT,
     discount_ends_at TEXT,
@@ -29,6 +36,66 @@ CREATE TABLE IF NOT EXISTS products (
     translation_stale_en INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Managed product taxonomy (dynamic-categories). Three independent facets:
+-- product type (candles/boxes), category/tier (small/medium/premium), and
+-- multi-select labels (winter/gift/floral/...). Slugs are immutable keys;
+-- name_en/name_bg are display data. is_active hides a term from new-assignment
+-- controls and public filters without deleting referencing products.
+CREATE TABLE IF NOT EXISTS product_types (
+    slug        TEXT PRIMARY KEY,
+    name_en     TEXT NOT NULL,
+    name_bg     TEXT,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    is_active   INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS product_categories (
+    slug        TEXT PRIMARY KEY,
+    name_en     TEXT NOT NULL,
+    name_bg     TEXT,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    is_active   INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS product_labels (
+    slug        TEXT PRIMARY KEY,
+    name_en     TEXT NOT NULL,
+    name_bg     TEXT,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    is_active   INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS product_label_assignments (
+    product_id  TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    label_slug  TEXT NOT NULL REFERENCES product_labels(slug) ON DELETE RESTRICT,
+    PRIMARY KEY (product_id, label_slug)
+);
+
+CREATE INDEX IF NOT EXISTS idx_label_assignments_label
+    ON product_label_assignments(label_slug);
+CREATE INDEX IF NOT EXISTS idx_products_type_slug ON products(product_type_slug);
+CREATE INDEX IF NOT EXISTS idx_products_category_slug ON products(category_slug);
+
+-- Lightweight migration marker table (dynamic-categories). A row per applied
+-- one-shot data migration makes marker-guarded backfills idempotent.
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    name        TEXT PRIMARY KEY,
+    applied_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Records how each distinct legacy products.category value maps to a label slug,
+-- so the exact original-value-to-label assignment is auditable and repeatable.
+CREATE TABLE IF NOT EXISTS taxonomy_category_migration (
+    original_value TEXT PRIMARY KEY,
+    label_slug     TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS product_images (
@@ -311,11 +378,13 @@ BEGIN
     UPDATE orders SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
 END;
 
--- Full-text search for products — English index (content-backed via triggers)
+-- Full-text search for products — English index (content-backed via triggers).
+-- Indexes name + description only; the legacy `category` column is no longer
+-- written (taxonomy moved to product_type_slug/category_slug/labels), so it was
+-- dropped from the index to keep search coverage consistent across all products.
 CREATE VIRTUAL TABLE IF NOT EXISTS products_fts_en USING fts5(
     name_en,
     description_en,
-    category,
     content='products',
     content_rowid='rowid'
 );
@@ -324,7 +393,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS products_fts_en USING fts5(
 CREATE VIRTUAL TABLE IF NOT EXISTS products_fts_bg USING fts5(
     name_bg,
     description_bg,
-    category,
     content='products',
     content_rowid='rowid'
 );
@@ -332,49 +400,43 @@ CREATE VIRTUAL TABLE IF NOT EXISTS products_fts_bg USING fts5(
 -- Sync triggers: keep English FTS index in sync with products table
 CREATE TRIGGER IF NOT EXISTS products_fts_en_insert AFTER INSERT ON products
 BEGIN
-    INSERT INTO products_fts_en(rowid, name_en, description_en, category)
-    VALUES (NEW.rowid, NEW.name_en, COALESCE(NEW.description_en, ''), COALESCE(NEW.category, ''));
+    INSERT INTO products_fts_en(rowid, name_en, description_en)
+    VALUES (NEW.rowid, NEW.name_en, COALESCE(NEW.description_en, ''));
 END;
 
 CREATE TRIGGER IF NOT EXISTS products_fts_en_delete BEFORE DELETE ON products
 BEGIN
-    INSERT INTO products_fts_en(products_fts_en, rowid, name_en, description_en, category)
-    VALUES ('delete', OLD.rowid, OLD.name_en,
-            COALESCE(OLD.description_en, ''), COALESCE(OLD.category, ''));
+    INSERT INTO products_fts_en(products_fts_en, rowid, name_en, description_en)
+    VALUES ('delete', OLD.rowid, OLD.name_en, COALESCE(OLD.description_en, ''));
 END;
 
 CREATE TRIGGER IF NOT EXISTS products_fts_en_update AFTER UPDATE ON products
 BEGIN
-    INSERT INTO products_fts_en(products_fts_en, rowid, name_en, description_en, category)
-    VALUES ('delete', OLD.rowid, OLD.name_en,
-            COALESCE(OLD.description_en, ''), COALESCE(OLD.category, ''));
-    INSERT INTO products_fts_en(rowid, name_en, description_en, category)
-    VALUES (NEW.rowid, NEW.name_en, COALESCE(NEW.description_en, ''), COALESCE(NEW.category, ''));
+    INSERT INTO products_fts_en(products_fts_en, rowid, name_en, description_en)
+    VALUES ('delete', OLD.rowid, OLD.name_en, COALESCE(OLD.description_en, ''));
+    INSERT INTO products_fts_en(rowid, name_en, description_en)
+    VALUES (NEW.rowid, NEW.name_en, COALESCE(NEW.description_en, ''));
 END;
 
 -- Sync triggers: keep Bulgarian FTS index in sync with products table
 CREATE TRIGGER IF NOT EXISTS products_fts_bg_insert AFTER INSERT ON products
 BEGIN
-    INSERT INTO products_fts_bg(rowid, name_bg, description_bg, category)
-    VALUES (NEW.rowid, COALESCE(NEW.name_bg, ''),
-            COALESCE(NEW.description_bg, ''), COALESCE(NEW.category, ''));
+    INSERT INTO products_fts_bg(rowid, name_bg, description_bg)
+    VALUES (NEW.rowid, COALESCE(NEW.name_bg, ''), COALESCE(NEW.description_bg, ''));
 END;
 
 CREATE TRIGGER IF NOT EXISTS products_fts_bg_delete BEFORE DELETE ON products
 BEGIN
-    INSERT INTO products_fts_bg(products_fts_bg, rowid, name_bg, description_bg, category)
-    VALUES ('delete', OLD.rowid, COALESCE(OLD.name_bg, ''),
-            COALESCE(OLD.description_bg, ''), COALESCE(OLD.category, ''));
+    INSERT INTO products_fts_bg(products_fts_bg, rowid, name_bg, description_bg)
+    VALUES ('delete', OLD.rowid, COALESCE(OLD.name_bg, ''), COALESCE(OLD.description_bg, ''));
 END;
 
 CREATE TRIGGER IF NOT EXISTS products_fts_bg_update AFTER UPDATE ON products
 BEGIN
-    INSERT INTO products_fts_bg(products_fts_bg, rowid, name_bg, description_bg, category)
-    VALUES ('delete', OLD.rowid, COALESCE(OLD.name_bg, ''),
-            COALESCE(OLD.description_bg, ''), COALESCE(OLD.category, ''));
-    INSERT INTO products_fts_bg(rowid, name_bg, description_bg, category)
-    VALUES (NEW.rowid, COALESCE(NEW.name_bg, ''),
-            COALESCE(NEW.description_bg, ''), COALESCE(NEW.category, ''));
+    INSERT INTO products_fts_bg(products_fts_bg, rowid, name_bg, description_bg)
+    VALUES ('delete', OLD.rowid, COALESCE(OLD.name_bg, ''), COALESCE(OLD.description_bg, ''));
+    INSERT INTO products_fts_bg(rowid, name_bg, description_bg)
+    VALUES (NEW.rowid, COALESCE(NEW.name_bg, ''), COALESCE(NEW.description_bg, ''));
 END;
 """
 
@@ -389,6 +451,8 @@ CREATE TABLE products_new (
     days_to_craft INTEGER,
     price_cents INTEGER NOT NULL CHECK (price_cents > 0),
     category    TEXT,
+    product_type_slug TEXT NOT NULL DEFAULT 'candles',
+    category_slug     TEXT,
     discount_percent INTEGER CHECK (discount_percent IS NULL OR discount_percent BETWEEN 1 AND 99),
     discount_starts_at TEXT,
     discount_ends_at TEXT,
@@ -430,6 +494,8 @@ _PRODUCT_COLUMNS = (
     "days_to_craft",
     "price_cents",
     "category",
+    "product_type_slug",
+    "category_slug",
     "discount_percent",
     "discount_starts_at",
     "discount_ends_at",
@@ -477,6 +543,8 @@ def init_db(path: str) -> None:
         conn.execute("PRAGMA foreign_keys=ON")
         _migrate_existing_schema(conn)
         conn.executescript(_SCHEMA_SQL)
+        _migrate_taxonomy(conn)
+        _migrate_product_label_assignments_table(conn)
         _seed_site_banner(conn)
         _rebuild_product_fts(conn)
         conn.commit()
@@ -696,6 +764,8 @@ def _migrate_products_table(conn: sqlite3.Connection) -> None:
         _column_expr(columns, "days_to_craft"),
         price_expr,
         _column_expr(columns, "category"),
+        _column_expr(columns, "product_type_slug", "'candles'"),
+        _column_expr(columns, "category_slug"),
         _column_expr(columns, "discount_percent"),
         _column_expr(columns, "discount_starts_at"),
         _column_expr(columns, "discount_ends_at"),
@@ -721,7 +791,53 @@ def _migrate_products_table(conn: sqlite3.Connection) -> None:
         conn.execute("DROP TABLE products")
         conn.execute("ALTER TABLE products_new RENAME TO products")
     finally:
+        # Commit first: PRAGMA foreign_keys is a no-op inside an open transaction,
+        # so re-enabling enforcement only takes effect once the rebuild is committed.
+        conn.commit()
         conn.execute("PRAGMA foreign_keys=ON")
+
+
+def _migrate_product_label_assignments_table(conn: sqlite3.Connection) -> None:
+    """Add the product_labels FK to existing label assignment tables.
+
+    SQLite cannot add foreign keys with ALTER TABLE. Older dynamic-categories DBs
+    created product_label_assignments without a label_slug FK, so rebuild the
+    table once and copy only assignments that still reference real products and
+    labels.
+    """
+    if not _table_exists(conn, "product_label_assignments"):
+        return
+
+    fks = conn.execute("PRAGMA foreign_key_list(product_label_assignments)").fetchall()
+    has_label_fk = any(row[2] == "product_labels" and row[3] == "label_slug" for row in fks)
+    if has_label_fk:
+        return
+
+    conn.execute("DROP TABLE IF EXISTS product_label_assignments_new")
+    conn.execute(
+        """
+        CREATE TABLE product_label_assignments_new (
+            product_id  TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            label_slug  TEXT NOT NULL REFERENCES product_labels(slug) ON DELETE RESTRICT,
+            PRIMARY KEY (product_id, label_slug)
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO product_label_assignments_new (product_id, label_slug)
+        SELECT pla.product_id, pla.label_slug
+        FROM product_label_assignments pla
+        JOIN products p ON p.id = pla.product_id
+        JOIN product_labels pl ON pl.slug = pla.label_slug
+        """
+    )
+    conn.execute("DROP TABLE product_label_assignments")
+    conn.execute("ALTER TABLE product_label_assignments_new RENAME TO product_label_assignments")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_label_assignments_label "
+        "ON product_label_assignments(label_slug)"
+    )
 
 
 def _rebuild_product_fts(conn: sqlite3.Connection) -> None:
@@ -729,6 +845,151 @@ def _rebuild_product_fts(conn: sqlite3.Connection) -> None:
         return
     conn.execute("INSERT INTO products_fts_en(products_fts_en) VALUES ('rebuild')")
     conn.execute("INSERT INTO products_fts_bg(products_fts_bg) VALUES ('rebuild')")
+
+
+# ---------------------------------------------------------------------------
+# Managed product taxonomy migration (dynamic-categories)
+# ---------------------------------------------------------------------------
+
+# Starter taxonomy so a fresh shop is usable. These are startup seed data only —
+# they do NOT replace admin management and must not be duplicated as frontend
+# constants. Each entry: (slug, name_en, name_bg, sort_order).
+_SEED_PRODUCT_TYPES = [
+    ("candles", "Candles", "Свещи", 0),
+    ("boxes", "Boxes", "Кутии", 1),
+]
+_SEED_CATEGORIES = [
+    ("small", "Small", "Малка", 0),
+    ("medium", "Medium", "Средна", 1),
+    ("premium", "Premium", "Премиум", 2),
+]
+_SEED_LABELS = [
+    ("floral", "Floral", "Флорални", 0),
+    ("woody", "Woody", "Дървесни", 1),
+    ("fresh", "Fresh", "Свежи", 2),
+    ("gourmand", "Gourmand", "Гурме", 3),
+    ("spicy", "Spicy", "Пикантни", 4),
+    ("citrus", "Citrus", "Цитрусови", 5),
+    ("winter", "Winter", "Зима", 6),
+    ("gift", "Gift", "Подарък", 7),
+    ("christmas", "Christmas", "Коледа", 8),
+]
+
+_TAXONOMY_MIGRATION_MARKER = "product_taxonomy_v1"
+
+
+def _seed_taxonomy_table(
+    conn: sqlite3.Connection,
+    table: str,
+    rows: list[tuple[str, str, str | None, int]],
+) -> None:
+    """Insert seed terms if absent. Idempotent (INSERT OR IGNORE by slug)."""
+    conn.executemany(
+        f"INSERT OR IGNORE INTO {table} "  # noqa: S608 — table is a module constant
+        "(slug, name_en, name_bg, sort_order) VALUES (?, ?, ?, ?)",
+        rows,
+    )
+
+
+def _migration_applied(conn: sqlite3.Connection, name: str) -> bool:
+    row = conn.execute("SELECT 1 FROM schema_migrations WHERE name = ?", (name,)).fetchone()
+    return row is not None
+
+
+def _backfill_legacy_categories(conn: sqlite3.Connection) -> None:
+    """Convert distinct legacy products.category values into managed labels.
+
+    Reads each distinct non-null value BEFORE any rewrite, creates or reuses a
+    label slug, records the exact original-value-to-slug mapping, and assigns
+    the label to products holding that exact original value. Distinct values
+    that slugify to the same base get deterministic suffixes.
+    """
+    rows = conn.execute(
+        "SELECT DISTINCT category FROM products "
+        "WHERE category IS NOT NULL AND TRIM(category) != '' "
+        "ORDER BY category"
+    ).fetchall()
+    if not rows:
+        return
+
+    # Existing label slugs — includes seeds inserted earlier this run.
+    existing = {r["slug"] for r in conn.execute("SELECT slug FROM product_labels")}
+    # Slugs claimed by a distinct original value during this backfill; used to
+    # force suffixing when two distinct originals collide on the same base.
+    claimed: set[str] = set()
+    next_sort = 100  # place migrated labels after seed labels
+
+    for row in rows:
+        original = row["category"]
+        base = slugify(original)
+
+        if base in existing and base not in claimed:
+            # Reuse an existing label (seed or prior) for this base.
+            slug = base
+        else:
+            slug = unique_slug(base, existing | claimed)
+            conn.execute(
+                "INSERT INTO product_labels (slug, name_en, name_bg, sort_order) "
+                "VALUES (?, ?, ?, ?)",
+                (slug, original.strip(), None, next_sort),
+            )
+            existing.add(slug)
+            next_sort += 1
+
+        claimed.add(slug)
+        conn.execute(
+            "INSERT OR IGNORE INTO taxonomy_category_migration "
+            "(original_value, label_slug) VALUES (?, ?)",
+            (original, slug),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO product_label_assignments (product_id, label_slug) "
+            "SELECT id, ? FROM products WHERE category = ?",
+            (slug, original),
+        )
+
+
+def _migrate_taxonomy(conn: sqlite3.Connection) -> None:
+    """Seed starter taxonomy and (once) backfill labels from legacy categories.
+
+    The seed + backfill + marker write run inside a single BEGIN IMMEDIATE
+    transaction so concurrent uvicorn workers can't both execute the one-shot
+    backfill on first boot: the second worker blocks on the write lock, then
+    re-checks the marker inside the lock and no-ops. The marker (not "seeds
+    present") is the gate, so re-runs are a no-op even when seeds already exist.
+    """
+    # Fast path: already applied — avoid taking the write lock on every startup.
+    if _migration_applied(conn, _TAXONOMY_MIGRATION_MARKER):
+        return
+
+    if conn.in_transaction:
+        conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        # Re-check under the lock: another worker may have applied it while we
+        # waited to acquire the write lock.
+        if _migration_applied(conn, _TAXONOMY_MIGRATION_MARKER):
+            conn.execute("ROLLBACK")
+            return
+
+        _seed_taxonomy_table(conn, "product_types", _SEED_PRODUCT_TYPES)
+        _seed_taxonomy_table(conn, "product_categories", _SEED_CATEGORIES)
+        _seed_taxonomy_table(conn, "product_labels", _SEED_LABELS)
+
+        _backfill_legacy_categories(conn)
+        # Default any product missing a product type to candles; leave category NULL.
+        conn.execute(
+            "UPDATE products SET product_type_slug = 'candles' "
+            "WHERE product_type_slug IS NULL OR product_type_slug = ''"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)",
+            (_TAXONOMY_MIGRATION_MARKER,),
+        )
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
 
 
 @contextmanager

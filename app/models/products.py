@@ -27,6 +27,13 @@ MAX_IMAGE_URL_LENGTH = 500
 Locale = Literal["en", "bg"]
 
 
+class ProductLabelRef(BaseModel):
+    """A label assigned to a product: slug for filtering, localized name for display."""
+
+    slug: str
+    name: str
+
+
 class ProductResponse(BaseModel):
     """Public product representation (locale-resolved name/description)."""
 
@@ -44,7 +51,12 @@ class ProductResponse(BaseModel):
     effective_price_cents: int
     discount_percent: int | None = None
     discount_active: bool = False
-    category: str | None = None
+    # `category` now carries the managed category/tier slug (was legacy free text).
+    category: str | None
+    category_name: str | None
+    product_type: str
+    product_type_name: str
+    labels: list[ProductLabelRef]
     images: list["ProductImage"] = Field(default_factory=list)
     primary_image_url: str | None = None
     primary_thumbnail_url: str | None = None
@@ -73,7 +85,10 @@ class ProductAdminResponse(BaseModel):
     discount_ends_at: str | None = None
     effective_price_cents: int
     discount_active: bool = False
+    # Managed taxonomy slugs for prefilling admin form controls.
     category: str | None = None
+    product_type: str = "candles"
+    labels: list[str] = Field(default_factory=list)
     images: list["ProductImage"] = Field(default_factory=list)
     primary_image_url: str | None = None
     primary_thumbnail_url: str | None = None
@@ -133,6 +148,10 @@ class CreateProductRequest(BaseModel):
     days_to_craft: int | None = Field(default=None, ge=0, le=MAX_DAYS_TO_CRAFT)
     price_cents: int = Field(..., gt=0, le=99_999_99)
     category: str | None = Field(default=None, max_length=MAX_CATEGORY_LENGTH)
+    # Optional: when omitted, the service assigns the default active product type
+    # (lowest sort_order) rather than a hardcoded slug.
+    product_type: str | None = Field(default=None, min_length=1, max_length=100)
+    labels: list[str] = Field(default_factory=list, max_length=50)
     discount_percent: int | None = Field(default=None, ge=1, le=99)
     discount_starts_at: str | None = None
     discount_ends_at: str | None = None
@@ -208,6 +227,8 @@ class UpdateProductRequest(BaseModel):
     days_to_craft: int | None = Field(default=None, ge=0, le=MAX_DAYS_TO_CRAFT)
     price_cents: int | None = Field(default=None, gt=0, le=99_999_99)
     category: str | None = Field(default=None, max_length=MAX_CATEGORY_LENGTH)
+    product_type: str | None = Field(default=None, min_length=1, max_length=100)
+    labels: list[str] | None = Field(default=None, max_length=50)
     discount_percent: int | None = Field(default=None, ge=1, le=99)
     discount_starts_at: str | None = None
     discount_ends_at: str | None = None
