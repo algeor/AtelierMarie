@@ -52,6 +52,12 @@ export interface ProductResponse {
   materials: string | null;
   days_to_craft: number | null;
   price_cents: number;
+  // Discount display fields. effective_price_cents == price_cents when no
+  // discount is active; discount_percent is the active display percent or null.
+  // Window timestamps are never exposed publicly.
+  effective_price_cents: number;
+  discount_percent: number | null;
+  discount_active: boolean;
   category: string | null;
   category_name: string | null;
   product_type: string;
@@ -260,6 +266,12 @@ export interface AdminProductResponse {
   materials: string | null;
   days_to_craft: number | null;
   price_cents: number;
+  // Raw discount config + computed preview (effective_price_cents/discount_active).
+  discount_percent: number | null;
+  discount_starts_at: string | null;
+  discount_ends_at: string | null;
+  effective_price_cents: number;
+  discount_active: boolean;
   category: string | null;
   product_type: string;
   labels: string[];
@@ -267,6 +279,7 @@ export interface AdminProductResponse {
   primary_image_url: string | null;
   primary_thumbnail_url: string | null;
   stock: number;
+  weight_grams: number;
   is_active: boolean;
   is_featured: boolean;
   translation_stale_bg: boolean;
@@ -295,7 +308,12 @@ export interface CreateProductRequest {
   product_type: string;
   labels?: string[];
   stock: number;
+  weight_grams?: number;
+  is_active?: boolean;
   is_featured?: boolean;
+  discount_percent?: number | null;
+  discount_starts_at?: string | null;
+  discount_ends_at?: string | null;
 }
 
 export interface UpdateProductRequest {
@@ -310,11 +328,136 @@ export interface UpdateProductRequest {
   product_type?: string;
   labels?: string[];
   stock?: number;
+  weight_grams?: number;
   is_active?: boolean;
   is_featured?: boolean;
+  discount_percent?: number | null;
+  discount_starts_at?: string | null;
+  discount_ends_at?: string | null;
 }
 
 export type ImageUploadResponse = ProductImage;
+
+// --- Promotions (campaigns, bulk discount, managed banner) ---
+
+/** Admin product-list filter descriptor used as a bulk/campaign target. */
+export interface ProductFilter {
+  q?: string | null;
+  category?: string | null;
+  is_active?: boolean | null;
+  in_stock?: boolean | null;
+}
+
+export type BulkOperation = "apply" | "remove";
+export type BulkItemStatus = "updated" | "skipped" | "failed";
+
+export interface BulkResultItem {
+  id: string;
+  status: BulkItemStatus;
+  error?: string | null;
+}
+
+export interface BulkDiscountResponse {
+  success_count: number;
+  failure_count: number;
+  results: BulkResultItem[];
+}
+
+export interface BulkDiscountRequest {
+  operation: BulkOperation;
+  product_ids?: string[] | null;
+  filter?: ProductFilter | null;
+  discount_percent?: number | null;
+  discount_starts_at?: string | null;
+  discount_ends_at?: string | null;
+}
+
+export type CampaignStatus =
+  | "draft"
+  | "scheduled"
+  | "active"
+  | "ended"
+  | "removed";
+
+export interface CampaignResponse {
+  id: string;
+  name: string;
+  note: string | null;
+  discount_percent: number;
+  discount_starts_at: string | null;
+  discount_ends_at: string | null;
+  target_type: "ids" | "filter";
+  target_count: number;
+  target_ids: string[] | null;
+  target_filter: ProductFilter | null;
+  status: CampaignStatus;
+  applied_at: string | null;
+  removed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  last_result: BulkDiscountResponse | null;
+}
+
+export interface CampaignListResponse {
+  items: CampaignResponse[];
+  total: number;
+}
+
+export interface CampaignCreateRequest {
+  name: string;
+  note?: string | null;
+  discount_percent: number;
+  discount_starts_at?: string | null;
+  discount_ends_at?: string | null;
+  product_ids?: string[] | null;
+  filter?: ProductFilter | null;
+}
+
+export interface CampaignUpdateRequest {
+  name?: string | null;
+  note?: string | null;
+  discount_percent?: number | null;
+  discount_starts_at?: string | null;
+  discount_ends_at?: string | null;
+  product_ids?: string[] | null;
+  filter?: ProductFilter | null;
+}
+
+export interface BannerAdminResponse {
+  message_en: string | null;
+  message_bg: string | null;
+  link_label_en: string | null;
+  link_label_bg: string | null;
+  link_url: string | null;
+  is_enabled: boolean;
+  starts_at: string | null;
+  ends_at: string | null;
+  version: number;
+  updated_at: string;
+}
+
+export interface BannerUpdateRequest {
+  message_en?: string | null;
+  message_bg?: string | null;
+  link_label_en?: string | null;
+  link_label_bg?: string | null;
+  link_url?: string | null;
+  is_enabled: boolean;
+  starts_at?: string | null;
+  ends_at?: string | null;
+}
+
+/** The single active banner, localized for the requested locale. */
+export interface PublicBanner {
+  message: string;
+  link_label: string | null;
+  link_url: string | null;
+  dismiss_key: string;
+}
+
+export interface PublicBannerResponse {
+  banner: PublicBanner | null;
+}
 
 // --- Reactions ---
 

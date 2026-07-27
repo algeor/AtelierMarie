@@ -15,6 +15,7 @@ import structlog
 from app.constants import MAX_LIMIT, MAX_PAGE, STATUS_TO_EMAIL_EVENT, tracking_url_for
 from app.models.delivery import DeliveryInfo
 from app.models.orders import OrderStatus
+from app.services import pricing
 
 logger = structlog.get_logger(__name__)
 
@@ -194,7 +195,9 @@ def checkout(
         # 1. Fetch cart items with product info
         cart_rows = conn.execute(
             f"""
-            SELECT ci.product_id, ci.quantity, {name_expr}, p.price_cents, p.stock, p.is_active
+            SELECT ci.product_id, ci.quantity, {name_expr}, p.price_cents,
+                   p.discount_percent, p.discount_starts_at, p.discount_ends_at,
+                   p.stock, p.is_active
             FROM cart_items ci
             JOIN products p ON p.id = ci.product_id
             WHERE ci.session_id = ?
@@ -235,7 +238,26 @@ def checkout(
         # 3. Create order
         order_id = str(uuid.uuid4())
         now = datetime.now(UTC).strftime(_DT_FMT)
-        items_total_cents = sum(row["price_cents"] * row["quantity"] for row in cart_rows)
+        # Effective (discounted) price per row, computed once from a single `now`
+        # so the total, the snapshot, and the returned items cannot disagree.
+        # The customer is charged this amount; the floor clamp (>= 1 cent) keeps
+        # order_items CHECK (price_cents > 0) satisfied.
+        effective_prices = {
+            row["product_id"]: pricing.effective_price_cents(
+                row["price_cents"],
+                row["discount_percent"],
+                pricing.discount_is_active(
+                    row["discount_percent"],
+                    row["discount_starts_at"],
+                    row["discount_ends_at"],
+                    now,
+                ),
+            )
+            for row in cart_rows
+        }
+        items_total_cents = sum(
+            effective_prices[row["product_id"]] * row["quantity"] for row in cart_rows
+        )
         # shipping_cents is a placeholder in this change — the shipping-pricing
         # follow-on adds real courier calculation + free-shipping threshold.
         shipping_cents = 0
@@ -266,21 +288,22 @@ def checkout(
             ),
         )
 
-        # 4. Insert order items (snapshot prices and names)
+        # 4. Insert order items (snapshot effective prices and names)
         items: list[OrderItemData] = []
         for row in cart_rows:
+            snapshot_price = effective_prices[row["product_id"]]
             conn.execute(
                 """
                 INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                (order_id, row["product_id"], row["name"], row["price_cents"], row["quantity"]),
+                (order_id, row["product_id"], row["name"], snapshot_price, row["quantity"]),
             )
             items.append(
                 OrderItemData(
                     product_id=row["product_id"],
                     product_name=row["name"],
-                    price_cents=row["price_cents"],
+                    price_cents=snapshot_price,
                     quantity=row["quantity"],
                 )
             )

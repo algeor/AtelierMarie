@@ -4,6 +4,8 @@ Follow-on to `shipping-courier-integration` (parent), which delivers the structu
 
 Refer to the parent's `design.md` decisions 10–14 (real-time calculation, free shipping, fallback, per-product weight, `shipping_cents` column) and decision 16 (server-side validation via range check) — those are hereby adopted as the design of this change. The sections below capture only what's new or specific to the pricing layer.
 
+> **Weight data half extracted:** Decision 13's `weight_grams` data model (DB column + `DEFAULT 300`, admin models, admin form field, CSV import column) is delivered by the **`product-mgmt-completeness`** change. This change only **consumes** `weight_grams` when computing cart weight. Note that `product-mgmt-completeness` deviates from Decision 13 by **not** exposing `weight_grams` on the public `ProductResponse`; the calculation endpoint reads weights server-side from the DB, so nothing here depends on the public field.
+
 ## Goals / Non-Goals
 
 **Goals:**

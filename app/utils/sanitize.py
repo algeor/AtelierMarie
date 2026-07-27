@@ -6,6 +6,7 @@ rendering contexts and combined with React's default escaping for defense-in-dep
 
 import html
 import re
+from urllib.parse import urlsplit
 
 from app.utils.blocklist import BLOCKED_WORDS
 
@@ -37,3 +38,23 @@ def contains_blocked_word(text: str) -> bool:
     """
     lowered = text.lower()
     return any(word in lowered for word in BLOCKED_WORDS)
+
+
+def is_safe_http_or_relative_url(value: str) -> bool:
+    """Return True for http(s) URLs and same-site relative URLs only."""
+    stripped = value.strip()
+    if (
+        not stripped
+        or stripped.startswith("//")
+        or "\\" in stripped
+        or any(ord(ch) < 32 for ch in stripped)
+    ):
+        return False
+
+    parsed = urlsplit(stripped)
+    if parsed.scheme:
+        return parsed.scheme.lower() in {"http", "https"}
+
+    # Allow normal relative paths such as `/products`, `products`, `./sale`,
+    # and `#sale`.
+    return not parsed.netloc

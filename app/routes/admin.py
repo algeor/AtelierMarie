@@ -2,17 +2,19 @@
 
 import csv
 import io
+import re
 import sqlite3
 from typing import get_args
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.responses import JSONResponse, Response
 
-from app.constants import MAX_PRICE_CENTS, MAX_STOCK
+from app.constants import MAX_CSV_ROWS, MAX_CSV_UPLOAD_BYTES, MAX_PRICE_CENTS, MAX_STOCK
 from app.database import get_db
 from app.dependencies.auth import require_admin
 from app.models.admin import DashboardResponse, LowStockProductsResponse
 from app.models.comments import AdminCommentListResponse, AdminCommentResponse
+from app.models.common import PRODUCT_ID_PATTERN
 from app.models.orders import (
     OrderEmailAudit,
     OrderEmailAuditResponse,
@@ -22,6 +24,13 @@ from app.models.orders import (
     UpdateOrderStatusRequest,
 )
 from app.models.products import (
+    MAX_CATEGORY_LENGTH,
+    MAX_DAYS_TO_CRAFT,
+    MAX_DESCRIPTION_LENGTH,
+    MAX_IMAGE_URL_LENGTH,
+    MAX_MATERIALS_LENGTH,
+    MAX_NAME_LENGTH,
+    MAX_WEIGHT_GRAMS,
     CreateProductRequest,
     CSVImportError,
     CSVImportResponse,
@@ -31,6 +40,7 @@ from app.models.products import (
     ReorderProductImagesRequest,
     UpdateProductRequest,
 )
+from app.models.promotions import BulkDiscountRequest, BulkDiscountResponse
 from app.services import admin_service, product_image_service, product_service
 from app.services.auth_service import get_oauth_circuit_breaker
 from app.services.comment_service import CommentNotFoundError, list_all_comments
@@ -49,7 +59,12 @@ from app.services.order_service import (
     list_orders_admin,
     update_status,
 )
-from app.services.product_service import DuplicateError, NotFoundError
+from app.services.product_service import (
+    BulkTargetLimitError,
+    DiscountValidationError,
+    DuplicateError,
+    NotFoundError,
+)
 from app.services.taxonomy_service import TaxonomyValidationError
 
 router = APIRouter(dependencies=[Depends(require_admin)])
@@ -129,6 +144,51 @@ async def admin_list_low_stock_products(
     )
 
 
+@router.patch(
+    "/products/bulk-discount",
+    response_model=BulkDiscountResponse,
+    summary="Bulk apply/remove product discount",
+    description="Apply or clear the discount on many products at once, targeted by "
+    "explicit product IDs or an admin product-list filter. Capped at 500 resolved "
+    "targets. Returns per-product results with success/failure counts.",
+    responses={
+        422: {"description": "Validation error or target set exceeds the 500-product cap"},
+    },
+)
+async def admin_bulk_discount(body: BulkDiscountRequest) -> BulkDiscountResponse | JSONResponse:
+    """Apply or clear a discount across many products via the shared bulk logic."""
+    try:
+        target_ids = product_service.resolve_bulk_target(
+            product_ids=body.product_ids,
+            filter=body.filter.model_dump() if body.filter is not None else None,
+        )
+    except BulkTargetLimitError as e:
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "BULK_TARGET_LIMIT_EXCEEDED", "message": str(e)}},
+        )
+
+    if not target_ids:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "target resolves to no products",
+                }
+            },
+        )
+
+    result = product_service.bulk_update_discount(
+        operation=body.operation,
+        product_ids=target_ids,
+        discount_percent=body.discount_percent,
+        discount_starts_at=body.discount_starts_at,
+        discount_ends_at=body.discount_ends_at,
+    )
+    return BulkDiscountResponse(**result)
+
+
 @router.get(
     "/products/{product_id}",
     response_model=ProductAdminResponse,
@@ -189,6 +249,11 @@ async def admin_update_product(
             status_code=422,
             content={"error": {"code": "INVALID_TAXONOMY", "message": str(e)}},
         )
+    except DiscountValidationError as e:
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "VALIDATION_ERROR", "message": str(e)}},
+        )
 
     return ProductAdminResponse(**product)
 
@@ -229,6 +294,25 @@ _OPTIONAL_CSV_HEADERS = {
     "image_url",
 }
 
+# Accepted case-insensitive boolean literals for CSV boolean columns.
+_CSV_BOOL_TRUE = {"true", "1", "yes"}
+_CSV_BOOL_FALSE = {"false", "0", "no"}
+
+
+def _parse_csv_bool(value: str) -> bool:
+    """Parse a CSV boolean cell. Raises ValueError on anything unrecognized.
+
+    Accepts (case-insensitive): true/false, 1/0, yes/no. Rejecting unknown
+    values means a typo can't silently deactivate a product.
+    """
+    normalized = value.strip().lower()
+    if normalized in _CSV_BOOL_TRUE:
+        return True
+    if normalized in _CSV_BOOL_FALSE:
+        return False
+    msg = "must be one of true/false/1/0/yes/no"
+    raise ValueError(msg)
+
 
 def _parse_csv_image_url(value: str) -> str | None:
     """Validate a CSV image URL before any product write happens."""
@@ -251,7 +335,9 @@ def _parse_csv_image_url(value: str) -> str | None:
         "new ones are created. Rows with validation errors are skipped; "
         "results report created/updated counts and per-row errors. "
         "Supports bilingual columns: name_en, name_bg, description_en, description_bg. "
-        "Legacy columns (name, description) are treated as English equivalents."
+        "Legacy columns (name, description) are treated as English equivalents. "
+        "Optional columns: weight_grams, is_active, is_featured (true/false/1/0/yes/no), "
+        "materials, days_to_craft."
     ),
 )
 async def admin_import_products(
@@ -261,7 +347,9 @@ async def admin_import_products(
 
     Required columns: id, name_en (or legacy 'name'), price_cents
     Optional columns: name_bg, description_en (or legacy 'description'),
-                      description_bg, category, product_type, labels, stock, image_url
+                      description_bg, category, product_type, labels, stock,
+                      image_url, weight_grams, is_active, is_featured, materials,
+                      days_to_craft
 
     Taxonomy columns are managed SLUGS, not free text (breaking change from the
     legacy free-text `category`): `product_type` and `category` must be existing
@@ -269,10 +357,24 @@ async def admin_import_products(
     Unknown/inactive slugs surface as per-row errors; taxonomy is never
     auto-created on import.
 
+    weight_grams defaults to 300 for newly-created products when the column
+    is absent; existing products keep their current weight. Boolean columns
+    (is_active, is_featured) accept true/false/1/0/yes/no (case-insensitive).
+
     Rows with validation errors are skipped; valid rows are upserted.
     """
-    # Read file content
+    # Read file content (bounded — avoid buffering an unbounded request body)
     content = await file.read()
+    if len(content) > MAX_CSV_UPLOAD_BYTES:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": {
+                    "code": "INVALID_CSV",
+                    "message": f"CSV file exceeds maximum size ({MAX_CSV_UPLOAD_BYTES} bytes)",
+                }
+            },
+        )
     text = content.decode("utf-8-sig")  # Handle BOM
 
     reader = csv.DictReader(io.StringIO(text))
@@ -317,6 +419,16 @@ async def admin_import_products(
     errors: list[CSVImportError] = []
 
     for row_num, row in enumerate(reader, start=2):  # Row 1 is headers
+        # Cap the number of data rows to bound DB round-trips per upload.
+        if row_num - 1 > MAX_CSV_ROWS:
+            errors.append(
+                CSVImportError(
+                    row=row_num,
+                    message=f"row limit exceeded (max {MAX_CSV_ROWS}); remaining rows skipped",
+                )
+            )
+            break
+
         # Validate required fields have values
         row_errors: list[str] = []
 
@@ -328,8 +440,12 @@ async def admin_import_products(
 
         if not product_id:
             row_errors.append("id is required")
+        elif not re.match(PRODUCT_ID_PATTERN, product_id):
+            row_errors.append("id must be a lowercase slug (letters, digits, hyphens)")
         if not name_en:
             row_errors.append("name_en is required")
+        elif len(name_en) > MAX_NAME_LENGTH:
+            row_errors.append(f"name_en exceeds maximum length ({MAX_NAME_LENGTH})")
 
         price_cents: int | None = None
         if not price_str:
@@ -357,12 +473,69 @@ async def admin_import_products(
             except ValueError:
                 row_errors.append("stock must be an integer")
 
+        # Validate weight_grams if provided (int, 1..MAX_WEIGHT_GRAMS)
+        weight_grams: int | None = None
+        weight_str = (row.get("weight_grams") or "").strip()
+        if weight_str:
+            try:
+                weight_grams = int(weight_str)
+                if weight_grams < 1:
+                    row_errors.append("weight_grams must be at least 1")
+                elif weight_grams > MAX_WEIGHT_GRAMS:
+                    row_errors.append(f"weight_grams exceeds maximum ({MAX_WEIGHT_GRAMS})")
+            except ValueError:
+                row_errors.append("weight_grams must be an integer")
+
+        # Validate days_to_craft if provided (int, 0..MAX_DAYS_TO_CRAFT)
+        days_to_craft: int | None = None
+        days_str = (row.get("days_to_craft") or "").strip()
+        if days_str:
+            try:
+                days_to_craft = int(days_str)
+                if days_to_craft < 0:
+                    row_errors.append("days_to_craft must be non-negative")
+                elif days_to_craft > MAX_DAYS_TO_CRAFT:
+                    row_errors.append(f"days_to_craft exceeds maximum ({MAX_DAYS_TO_CRAFT})")
+            except ValueError:
+                row_errors.append("days_to_craft must be an integer")
+
+        # Validate boolean columns if provided
+        is_active: bool | None = None
+        is_active_str = (row.get("is_active") or "").strip()
+        if is_active_str:
+            try:
+                is_active = _parse_csv_bool(is_active_str)
+            except ValueError as e:
+                row_errors.append(f"is_active {e}")
+
+        is_featured: bool | None = None
+        is_featured_str = (row.get("is_featured") or "").strip()
+        if is_featured_str:
+            try:
+                is_featured = _parse_csv_bool(is_featured_str)
+            except ValueError as e:
+                row_errors.append(f"is_featured {e}")
+
+        # Validate optional string-field lengths (the CSV path bypasses Pydantic,
+        # so mirror the model max_length bounds here).
+        for column, max_length in (
+            ("name_bg", MAX_NAME_LENGTH),
+            ("description_en", MAX_DESCRIPTION_LENGTH),
+            ("description", MAX_DESCRIPTION_LENGTH),
+            ("description_bg", MAX_DESCRIPTION_LENGTH),
+            ("materials", MAX_MATERIALS_LENGTH),
+            ("category", MAX_CATEGORY_LENGTH),
+            ("image_url", MAX_IMAGE_URL_LENGTH),
+        ):
+            if len((row.get(column) or "").strip()) > max_length:
+                row_errors.append(f"{column} exceeds maximum length ({max_length})")
+
         imported_image_url: str | None = None
         if "image_url" in headers and row.get("image_url"):
             try:
                 imported_image_url = _parse_csv_image_url(row["image_url"])
             except ValueError as e:
-                row_errors.append(str(e))
+                row_errors.append(f"image_url {e}")
 
         if row_errors:
             errors.append(CSVImportError(row=row_num, message="; ".join(row_errors)))
@@ -398,6 +571,16 @@ async def admin_import_products(
             data["labels"] = [s.strip() for s in row["labels"].split(",") if s.strip()]
         if stock is not None:
             data["stock"] = stock
+        if weight_grams is not None:
+            data["weight_grams"] = weight_grams
+        if days_to_craft is not None:
+            data["days_to_craft"] = days_to_craft
+        if is_active is not None:
+            data["is_active"] = is_active
+        if is_featured is not None:
+            data["is_featured"] = is_featured
+        if "materials" in headers and row.get("materials"):
+            data["materials"] = row["materials"].strip()
 
         # Check if product exists to track created vs updated (lightweight probe).
         is_existing = product_service.product_exists(product_id)

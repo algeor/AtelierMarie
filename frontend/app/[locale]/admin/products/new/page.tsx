@@ -21,7 +21,12 @@ export default function CreateProductPage() {
       category: data.category || null,
       labels: data.labels,
       stock: data.stock,
+      weight_grams: data.weight_grams,
+      is_active: data.is_active,
       is_featured: data.is_featured,
+      discount_percent: data.discount_percent,
+      discount_starts_at: data.discount_starts_at,
+      discount_ends_at: data.discount_ends_at,
     });
     for (const file of data.image_files) {
       await uploadProductImage(product.id, file);

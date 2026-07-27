@@ -11,6 +11,7 @@ import { formatPrice } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { ProductBulkDiscountBar } from "@/components/admin/promotions/ProductBulkDiscountBar";
 import type { AdminProductResponse } from "@/lib/types";
 
 export default function AdminProductsPage() {
@@ -23,6 +24,8 @@ export default function AdminProductsPage() {
   const [error, setError] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const selectAllRef = useRef<HTMLInputElement>(null);
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Show success banner from query param
@@ -98,6 +101,29 @@ export default function AdminProductsPage() {
     if (successTimerRef.current) clearTimeout(successTimerRef.current);
   }
 
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelectedIds((prev) =>
+      prev.size === products.length ? new Set() : new Set(products.map((p) => p.id))
+    );
+  }
+
+  const allSelected = products.length > 0 && selectedIds.size === products.length;
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = selectedIds.size > 0 && !allSelected;
+    }
+  }, [selectedIds, allSelected]);
+
   return (
     <div>
       <div className="mb-8 flex items-center justify-between">
@@ -136,10 +162,28 @@ export default function AdminProductsPage() {
         </div>
       )}
 
+      {selectedIds.size > 0 && (
+        <ProductBulkDiscountBar
+          selectedIds={Array.from(selectedIds)}
+          onDone={() => {
+            loadProducts();
+          }}
+        />
+      )}
+
       <div className="overflow-x-auto rounded-brand border border-champagne-beige bg-cream">
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="border-b border-champagne-beige bg-champagne-beige/30">
+              <th className="px-4 py-3">
+                <input
+                  ref={selectAllRef}
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleSelectAll}
+                  aria-label={t("promotions.selectAll")}
+                />
+              </th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("name")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("category")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("price")}</th>
@@ -152,6 +196,7 @@ export default function AdminProductsPage() {
             {isLoading ? (
               Array.from({ length: 4 }).map((_, i) => (
                 <tr key={i} className="border-b border-champagne-beige/50">
+                  <td className="px-4 py-3"><Skeleton className="h-4 w-4" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-4 w-32" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-4 w-20" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-4 w-16" /></td>
@@ -162,7 +207,7 @@ export default function AdminProductsPage() {
               ))
             ) : products.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-soft-brown">
+                <td colSpan={7} className="px-4 py-8 text-center text-soft-brown">
                   {t("noProducts")}
                 </td>
               </tr>
@@ -172,6 +217,14 @@ export default function AdminProductsPage() {
                   key={product.id}
                   className="border-b border-champagne-beige/50 last:border-0"
                 >
+                  <td className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(product.id)}
+                      onChange={() => toggleSelected(product.id)}
+                      aria-label={product.name_en}
+                    />
+                  </td>
                   <td className="px-4 py-3 font-medium text-charcoal">
                     {product.name_en}
                   </td>
@@ -234,13 +287,13 @@ export default function AdminProductsPage() {
             <li><code className="text-xs">name_bg</code> - {t("csvColumnNameBg")}</li>
             <li><code className="text-xs">description_en</code> - {t("csvColumnDescriptionEn")}</li>
             <li><code className="text-xs">description_bg</code> - {t("csvColumnDescriptionBg")}</li>
-            <li><code className="text-xs">materials</code>, <code className="text-xs">days_to_craft</code>, <code className="text-xs">image_url</code>, <code className="text-xs">is_featured</code></li>
+            <li><code className="text-xs">materials</code>, <code className="text-xs">days_to_craft</code>, <code className="text-xs">image_url</code>, <code className="text-xs">is_featured</code>, <code className="text-xs">is_active</code>, <code className="text-xs">weight_grams</code></li>
           </ul>
           <p className="mb-2 font-medium text-charcoal">{t("example")}</p>
           <pre className="overflow-x-auto rounded bg-charcoal/5 p-3 text-xs leading-relaxed">
-{`id,name_en,name_bg,description_en,description_bg,price_cents,category,stock
-lavender-dreams-300ml,Lavender Dreams,Лавандулов сън,Hand-poured soy candle,Ръчно излята соева свещ,3200,Floral,24
-midnight-amber-300ml,Midnight Amber,Полунощен кехлибар,Warm amber and sandalwood,Топъл кехлибар и сандалово дърво,4500,Woody,12`}
+{`id,name_en,name_bg,description_en,description_bg,price_cents,category,stock,weight_grams,is_active
+lavender-dreams-300ml,Lavender Dreams,Лавандулов сън,Hand-poured soy candle,Ръчно излята соева свещ,3200,Floral,24,300,true
+midnight-amber-300ml,Midnight Amber,Полунощен кехлибар,Warm amber and sandalwood,Топъл кехлибар и сандалово дърво,4500,Woody,12,450,true`}
           </pre>
           <p className="mt-3 text-xs text-soft-brown/70">
             {t("csvFallbackNote")}

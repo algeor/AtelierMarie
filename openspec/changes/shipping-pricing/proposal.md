@@ -8,7 +8,9 @@ Splitting this off lets the delivery picker ship as soon as it's built (customer
 
 ## What Changes
 
-- Add per-product weight for shipping calculation: new `weight_grams` column on `products` (default 300g), `ProductResponse.weight_grams`, optional CSV import column, admin product form field
+> **Note:** The per-product `weight_grams` **data half** (DB column, admin models, admin form field, CSV import column) is delivered by the **`product-mgmt-completeness`** change and is no longer in scope here. `shipping-pricing` only **consumes** the field for cost calculation. One deviation from the parent Decision 13: `product-mgmt-completeness` deliberately does **not** add `weight_grams` to the public `ProductResponse` — the shipping calculator reads weight server-side from the DB instead.
+
+- Add per-product weight for shipping calculation: ~~new `weight_grams` column on `products` (default 300g), `ProductResponse.weight_grams`, optional CSV import column, admin product form field~~ — **delivered by `product-mgmt-completeness`; consumed here only**
 - Add packaging weight buffer as a config constant (`PACKAGING_WEIGHT_GRAMS = 200`)
 - New backend endpoint: `POST /v1/delivery/calculate` — accepts courier(s), method, destination (city for approximate, office_id / full address for exact), cart weight; returns price per courier
 - Real-time courier API integration: Speedy `/calculate`, Econt Shipments service

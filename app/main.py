@@ -27,6 +27,7 @@ from app.routes import (
     locale,
     orders,
     products,
+    promotions,
     reactions,
     taxonomy,
     webhooks,
@@ -190,7 +191,7 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization"],
         max_age=3600,
     )
@@ -220,6 +221,12 @@ def create_app() -> FastAPI:
     application.include_router(admin.router, prefix="/v1/admin", tags=["admin"])
     application.include_router(taxonomy.public_router, prefix="/v1/taxonomy", tags=["taxonomy"])
     application.include_router(taxonomy.admin_router, prefix="/v1/admin/taxonomy", tags=["admin"])
+    application.include_router(
+        promotions.admin_router, prefix="/v1/admin/promotions", tags=["admin-promotions"]
+    )
+    application.include_router(
+        promotions.public_router, prefix="/v1/promotions", tags=["promotions"]
+    )
     application.include_router(reactions.router, prefix="/v1/products", tags=["reactions"])
     application.include_router(comments.router, prefix="/v1/products", tags=["comments"])
     application.include_router(contact.router, prefix="/v1/contact", tags=["contact"])

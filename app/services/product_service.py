@@ -7,7 +7,7 @@ from typing import Literal
 from app.constants import MAX_LIMIT, MAX_PAGE
 from app.database import get_db
 from app.models.common import calculate_offset
-from app.services import product_image_service, taxonomy_service
+from app.services import pricing, product_image_service, taxonomy_service
 
 Locale = Literal["en", "bg"]
 
@@ -18,6 +18,86 @@ class NotFoundError(Exception):
 
 class DuplicateError(Exception):
     """Raised when attempting to create a product with an ID that already exists."""
+
+
+class DiscountValidationError(Exception):
+    """Raised when a merged discount update fails validation (route → 422).
+
+    Update discount validation lives here (not in the Pydantic model) because it
+    depends on merging the partial patch with the existing persisted row.
+    """
+
+
+class BulkTargetLimitError(Exception):
+    """Raised when a bulk discount target resolves to more than the allowed cap.
+
+    Routes translate this to a 422 with code `BULK_TARGET_LIMIT_EXCEEDED`.
+    """
+
+
+BULK_DISCOUNT_TARGET_LIMIT = 500
+
+
+def _validate_merged_discount(
+    percent: int | None, starts_at: str | None, ends_at: str | None
+) -> None:
+    """Validate the merged discount fields for an update (post-merge)."""
+    if percent is None:
+        # Percent cleared — any residual dates are cleared by the caller.
+        return
+    if not (1 <= percent <= 99):
+        raise DiscountValidationError("discount_percent must be between 1 and 99")
+    if starts_at is not None and ends_at is not None and starts_at >= ends_at:
+        raise DiscountValidationError("discount_starts_at must be earlier than discount_ends_at")
+
+
+def merge_discount_update(existing: dict | sqlite3.Row, data: dict) -> dict:
+    """Merge a partial discount patch with the existing row and validate it.
+
+    Shared by the single-product update path and the bulk discount path so both
+    honor identical rules. Returns the merged, validated
+    `{discount_percent, discount_starts_at, discount_ends_at}`. Passing
+    `discount_percent=None` clears all three together. Raises
+    `DiscountValidationError` on an invalid merged result.
+    """
+    if "discount_percent" in data and data["discount_percent"] is None:
+        # Clearing the discount clears all three fields together.
+        merged_percent = merged_starts = merged_ends = None
+    else:
+        merged_percent = (
+            data["discount_percent"] if "discount_percent" in data else existing["discount_percent"]
+        )
+        merged_starts = (
+            data["discount_starts_at"]
+            if "discount_starts_at" in data
+            else existing["discount_starts_at"]
+        )
+        merged_ends = (
+            data["discount_ends_at"] if "discount_ends_at" in data else existing["discount_ends_at"]
+        )
+        # A date without a resulting percent is invalid.
+        if merged_percent is None and (merged_starts is not None or merged_ends is not None):
+            raise DiscountValidationError(
+                "discount_percent is required when a discount date is set"
+            )
+
+    _validate_merged_discount(merged_percent, merged_starts, merged_ends)
+    return {
+        "discount_percent": merged_percent,
+        "discount_starts_at": merged_starts,
+        "discount_ends_at": merged_ends,
+    }
+
+
+def _annotate_admin_one(product: dict, now: str | None = None) -> dict:
+    """Add admin discount preview fields (raw config + effective price)."""
+    return pricing.annotate_product_pricing(product, now or pricing.now_utc(), public=False)
+
+
+def _annotate_admin(products: list[dict], now: str | None = None) -> list[dict]:
+    """Admin-annotate a list of products with a single shared `now`."""
+    now = now or pricing.now_utc()
+    return [pricing.annotate_product_pricing(p, now, public=False) for p in products]
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
@@ -100,7 +180,8 @@ def list_products(
 
     `category` filters on the managed category/tier slug. `labels` uses AND
     semantics — a product must carry every selected label. Returns (products,
-    total_count) with locale-resolved names and taxonomy display metadata.
+    total_count) with locale-resolved names, taxonomy display metadata, and
+    public discount pricing fields.
     """
     page, limit = _clamp_pagination(page, limit)
 
@@ -133,15 +214,11 @@ def list_products(
 
     where_clause = " AND ".join(conditions)
 
-    # Sort mapping — use locale-appropriate name column for name sort
-    name_col = f"name_{locale}"
-    sort_map = {
-        "price_asc": "price_cents ASC",
-        "price_desc": "price_cents DESC",
-        "name": f"{name_col} ASC",
-        "newest": "created_at DESC",
-    }
-    order_by = sort_map.get(sort or "", "created_at DESC")
+    now = pricing.now_utc()
+    # Price sort must order by the computed effective price, which depends on
+    # `now` and the discount window — it cannot be expressed in SQL. For price
+    # sorts we fetch all matching rows, annotate, sort, then paginate in Python.
+    price_sort = sort in ("price_asc", "price_desc")
 
     offset = (page - 1) * limit
 
@@ -153,14 +230,36 @@ def list_products(
         ).fetchone()
         total = count_row["cnt"]
 
-        # Get page of results
-        rows = conn.execute(
-            f"SELECT * FROM products WHERE {where_clause} ORDER BY {order_by} LIMIT ? OFFSET ?",  # noqa: S608
-            [*params, limit, offset],
-        ).fetchall()
+        if price_sort:
+            rows = conn.execute(
+                f"SELECT * FROM products WHERE {where_clause}",  # noqa: S608
+                params,
+            ).fetchall()
+        else:
+            # Non-price sort — order and paginate in SQL as before.
+            name_col = f"name_{locale}"
+            sort_map = {
+                "name": f"{name_col} ASC",
+                "newest": "created_at DESC",
+            }
+            order_by = sort_map.get(sort or "", "created_at DESC")
+            rows = conn.execute(
+                f"SELECT * FROM products WHERE {where_clause} "  # noqa: S608
+                f"ORDER BY {order_by} LIMIT ? OFFSET ?",
+                [*params, limit, offset],
+            ).fetchall()
 
         products = [_resolve_locale_fields(_row_to_dict(r), locale) for r in rows]
         taxonomy_service.resolve_products_taxonomy(conn, products, locale)
+
+    products = [pricing.annotate_product_pricing(p, now, public=True) for p in products]
+
+    if price_sort:
+        products.sort(
+            key=lambda p: p["effective_price_cents"],
+            reverse=(sort == "price_desc"),
+        )
+        products = products[offset : offset + limit]
 
     products = product_image_service.attach_image_fields(products)
     return products, total
@@ -169,7 +268,7 @@ def list_products(
 def get_product(product_id: str, *, locale: Locale = "en") -> dict:
     """Get a single active product by ID. Raises NotFoundError if missing or inactive.
 
-    Returns locale-resolved name/description plus taxonomy display metadata.
+    Returns locale-resolved name/description with fallback.
     """
     with get_db() as conn:
         row = conn.execute(
@@ -183,6 +282,7 @@ def get_product(product_id: str, *, locale: Locale = "en") -> dict:
         product = _resolve_locale_fields(_row_to_dict(row), locale)
         taxonomy_service.resolve_products_taxonomy(conn, [product], locale)
 
+    product = pricing.annotate_product_pricing(product, pricing.now_utc(), public=True)
     return product_image_service.attach_image_fields_one(product)
 
 
@@ -204,11 +304,12 @@ def get_product_admin(product_id: str) -> dict:
         product = _row_to_dict(row)
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
 
-    return _flatten_admin_labels(product_image_service.attach_image_fields_one(product))
+    product = _flatten_admin_labels(_annotate_admin_one(product))
+    return product_image_service.attach_image_fields_one(product)
 
 
 def product_exists(product_id: str) -> bool:
-    """Lightweight existence check (no taxonomy/image resolution).
+    """Lightweight existence check (no taxonomy/image/pricing resolution).
 
     For bulk paths like CSV import that only need created-vs-updated, not the
     full product payload.
@@ -240,7 +341,7 @@ def list_products_admin(
         products = [_row_to_dict(r) for r in rows]
         taxonomy_service.resolve_products_taxonomy(conn, products, "en")
 
-    products = [_flatten_admin_labels(p) for p in products]
+    products = [_flatten_admin_labels(p) for p in _annotate_admin(products)]
     return product_image_service.attach_image_fields(products), total
 
 
@@ -249,10 +350,9 @@ def create_product(data: dict) -> dict:
     if the product type / category / labels are unknown or inactive."""
     now = _now_utc()
     product_id = data["id"]
-    # Normalize a blank category to NULL so it never persists as an empty-string
-    # slug (which would show up as a phantom category in counts/resolution).
+    # Normalize a blank category to NULL so it never persists as an empty-string slug.
     category_slug = data.get("category") or None
-    labels = data.get("labels") or []
+    label_slugs = data.get("labels") or []
 
     columns = [
         "id",
@@ -265,7 +365,11 @@ def create_product(data: dict) -> dict:
         "price_cents",
         "product_type_slug",
         "category_slug",
+        "discount_percent",
+        "discount_starts_at",
+        "discount_ends_at",
         "stock",
+        "weight_grams",
         "is_active",
         "is_featured",
         "translation_stale_bg",
@@ -275,14 +379,14 @@ def create_product(data: dict) -> dict:
     ]
 
     with get_db() as conn:
-        # Resolve the default product type (lowest sort_order active) when the
-        # caller omitted one, rather than hardcoding a slug.
+        # Resolve the default product type (lowest sort_order active) when omitted,
+        # rather than hardcoding a slug.
         product_type = data.get("product_type") or taxonomy_service.default_product_type(conn)
 
         # Validate taxonomy assignments against managed active terms before write.
         taxonomy_service.validate_product_type(conn, product_type)
         taxonomy_service.validate_category(conn, category_slug)
-        taxonomy_service.validate_labels(conn, labels)
+        taxonomy_service.validate_labels(conn, label_slugs)
 
         values = [
             product_id,
@@ -295,7 +399,11 @@ def create_product(data: dict) -> dict:
             data["price_cents"],
             product_type,
             category_slug,
+            data.get("discount_percent"),
+            data.get("discount_starts_at"),
+            data.get("discount_ends_at"),
             data.get("stock", 0),
+            data.get("weight_grams", 300),
             1 if data.get("is_active", True) else 0,
             1 if data.get("is_featured", False) else 0,
             0,  # translation_stale_bg
@@ -316,13 +424,14 @@ def create_product(data: dict) -> dict:
                 raise DuplicateError(f"Product with this ID already exists: {product_id}") from e
             raise
 
-        taxonomy_service.replace_product_labels(conn, product_id, labels)
+        taxonomy_service.replace_product_labels(conn, product_id, label_slugs)
 
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
         product = _row_to_dict(row)
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
 
-    return _flatten_admin_labels(product_image_service.attach_image_fields_one(product))
+    product = _flatten_admin_labels(_annotate_admin_one(product))
+    return product_image_service.attach_image_fields_one(product)
 
 
 def upsert_product(product_id: str, data: dict) -> dict:
@@ -368,6 +477,7 @@ def upsert_product(product_id: str, data: dict) -> dict:
             "product_type_slug": product_type_slug,
             "category_slug": (data.get("category") or None),
             "stock": data.get("stock"),
+            "weight_grams": data.get("weight_grams"),
             "is_active": (
                 None if data.get("is_active") is None else (1 if data["is_active"] else 0)
             ),
@@ -407,7 +517,8 @@ def upsert_product(product_id: str, data: dict) -> dict:
         product = _row_to_dict(row)
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
 
-    return _flatten_admin_labels(product_image_service.attach_image_fields_one(product))
+    product = _flatten_admin_labels(_annotate_admin_one(product))
+    return product_image_service.attach_image_fields_one(product)
 
 
 def update_product(product_id: str, data: dict) -> dict:
@@ -417,6 +528,7 @@ def update_product(product_id: str, data: dict) -> dict:
     meaningful. Taxonomy reassignments validate against active terms while
     allowing the product to keep its current (possibly inactive) assignments;
     assigning a *different* inactive term is rejected. Category may be set NULL.
+    Discount fields are merged with the persisted row and validated.
 
     Implements translation staleness logic:
     - If EN content changes, mark BG as stale (unless BG also updated in same request)
@@ -427,7 +539,8 @@ def update_product(product_id: str, data: dict) -> dict:
     """
     with get_db() as conn:
         current = conn.execute(
-            "SELECT product_type_slug, category_slug FROM products WHERE id = ?",
+            "SELECT product_type_slug, category_slug, discount_percent, "
+            "discount_starts_at, discount_ends_at FROM products WHERE id = ?",
             (product_id,),
         ).fetchone()
         if current is None:
@@ -459,6 +572,7 @@ def update_product(product_id: str, data: dict) -> dict:
             "days_to_craft": data.get("days_to_craft"),
             "price_cents": data.get("price_cents"),
             "stock": data.get("stock"),
+            "weight_grams": data.get("weight_grams"),
             "is_active": (
                 None if data.get("is_active") is None else (1 if data["is_active"] else 0)
             ),
@@ -467,6 +581,15 @@ def update_product(product_id: str, data: dict) -> dict:
             ),
         }
         updates = {k: v for k, v in field_map.items() if v is not None}
+
+        # Discount fields need explicit NULL writes (to clear a discount), so they
+        # merge the patch with the persisted row, then validate the merged result.
+        discount_keys = {"discount_percent", "discount_starts_at", "discount_ends_at"}
+        if discount_keys & data.keys():
+            merged = merge_discount_update(current, data)
+            updates["discount_percent"] = merged["discount_percent"]
+            updates["discount_starts_at"] = merged["discount_starts_at"]
+            updates["discount_ends_at"] = merged["discount_ends_at"]
 
         # Taxonomy column updates (category may be explicitly NULL).
         if type_update:
@@ -511,7 +634,8 @@ def update_product(product_id: str, data: dict) -> dict:
         product = _row_to_dict(row)
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
 
-    return _flatten_admin_labels(product_image_service.attach_image_fields_one(product))
+    product = _flatten_admin_labels(_annotate_admin_one(product))
+    return product_image_service.attach_image_fields_one(product)
 
 
 def deactivate_product(product_id: str) -> dict:
@@ -534,7 +658,8 @@ def deactivate_product(product_id: str) -> dict:
         product = _row_to_dict(row)
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
 
-    return _flatten_admin_labels(product_image_service.attach_image_fields_one(product))
+    product = _flatten_admin_labels(_annotate_admin_one(product))
+    return product_image_service.attach_image_fields_one(product)
 
 
 def _build_search_conditions(
@@ -548,8 +673,7 @@ def _build_search_conditions(
 ) -> tuple[list[str], list]:
     """Build the shared WHERE conditions + params for FTS search and its count.
 
-    Returns (conditions, params) where params covers only the WHERE clause
-    (no LIMIT/OFFSET). Callers append pagination as needed.
+    Returns (conditions, params) covering only the WHERE clause (no LIMIT/OFFSET).
     """
     conditions = [f"{fts_table} MATCH ?", "p.is_active = 1"]
     params: list = [sanitized]
@@ -632,13 +756,19 @@ def search_products(
     limit: int = 20,
     offset: int = 0,
     locale: Locale = "en",
+    sort: str | None = None,
 ) -> list[dict]:
     """Full-text search on product name and description using FTS5.
 
     Searches the locale-appropriate FTS index (products_fts_en or products_fts_bg).
-    Returns active products ranked by relevance with locale-resolved content and
-    taxonomy display metadata. Taxonomy filters (product_type, category slug,
-    labels) and in_stock/LIMIT/OFFSET are pushed into SQL.
+    Returns active products ranked by relevance with locale-resolved content,
+    taxonomy display metadata, and public discount pricing fields. Taxonomy
+    filters (product_type, category slug, labels) and in_stock/LIMIT/OFFSET are
+    pushed into SQL.
+
+    When `sort` is an explicit price sort, results are ordered by
+    `effective_price_cents` across ALL matches (not just the current page) before
+    pagination; otherwise FTS5 relevance order is preserved.
     """
     if not query or not query.strip():
         return []
@@ -658,23 +788,47 @@ def search_products(
         in_stock=in_stock,
     )
     where_clause = " AND ".join(conditions)
-    params.extend([limit, offset])
+
+    now = pricing.now_utc()
+    price_sort = sort in ("price_asc", "price_desc")
 
     with get_db() as conn:
-        rows = conn.execute(
-            f"""
-            SELECT p.*
-            FROM {fts_table} fts
-            JOIN products p ON p.rowid = fts.rowid
-            WHERE {where_clause}
-            ORDER BY rank
-            LIMIT ? OFFSET ?
-            """,  # noqa: S608
-            params,
-        ).fetchall()
+        if price_sort:
+            # Fetch all matches; effective-price sort + pagination happen below.
+            rows = conn.execute(
+                f"""
+                SELECT p.*
+                FROM {fts_table} fts
+                JOIN products p ON p.rowid = fts.rowid
+                WHERE {where_clause}
+                ORDER BY rank
+                """,  # noqa: S608
+                params,
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                f"""
+                SELECT p.*
+                FROM {fts_table} fts
+                JOIN products p ON p.rowid = fts.rowid
+                WHERE {where_clause}
+                ORDER BY rank
+                LIMIT ? OFFSET ?
+                """,  # noqa: S608
+                [*params, limit, offset],
+            ).fetchall()
 
         products = [_resolve_locale_fields(_row_to_dict(r), locale) for r in rows]
         taxonomy_service.resolve_products_taxonomy(conn, products, locale)
+
+    products = [pricing.annotate_product_pricing(p, now, public=True) for p in products]
+
+    if price_sort:
+        products.sort(
+            key=lambda p: p["effective_price_cents"],
+            reverse=(sort == "price_desc"),
+        )
+        products = products[offset : offset + limit]
 
     return product_image_service.attach_image_fields(products)
 
@@ -693,5 +847,226 @@ def get_low_stock_products(threshold: int = 5) -> list[dict]:
         ).fetchall()
         products = [_row_to_dict(r) for r in rows]
         taxonomy_service.resolve_products_taxonomy(conn, products, "en")
-    products = [_flatten_admin_labels(p) for p in products]
+    products = [_flatten_admin_labels(p) for p in _annotate_admin(products)]
     return product_image_service.attach_image_fields(products)
+
+
+def _resolve_filter_target_ids(conn: sqlite3.Connection, filt: dict) -> list[str]:
+    """Resolve an admin product-list filter descriptor to product IDs.
+
+    Admin scope: all products (active and inactive) unless `is_active` is set.
+    No pagination — every matching product is returned so a bulk/campaign apply
+    can act on the whole match set (the caller enforces the target cap).
+    """
+    conditions: list[str] = []
+    params: list = []
+
+    q = (filt.get("q") or "").strip()
+    if q:
+        conditions.append(
+            "(name_en LIKE ? ESCAPE '\\' OR name_bg LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')"
+        )
+        # Escape LIKE wildcards so a query like "50%" matches literally.
+        escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{escaped}%"
+        params.extend([like, like, like])
+    if filt.get("category"):
+        conditions.append("category_slug = ?")
+        params.append(filt["category"])
+    if filt.get("is_active") is not None:
+        conditions.append("is_active = ?")
+        params.append(1 if filt["is_active"] else 0)
+    if filt.get("in_stock"):
+        conditions.append("stock > 0")
+
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    rows = conn.execute(
+        f"SELECT id FROM products {where} ORDER BY created_at DESC",  # noqa: S608
+        params,
+    ).fetchall()
+    return [r["id"] for r in rows]
+
+
+def resolve_bulk_target(
+    product_ids: list[str] | None = None,
+    filter: dict | None = None,  # noqa: A002 - matches request field name
+) -> list[str]:
+    """Resolve a bulk/campaign target to a concrete, capped list of product IDs.
+
+    Exactly one of `product_ids` or `filter` must be provided (the request model
+    enforces this; asserted here defensively). Raises `BulkTargetLimitError` if
+    the resolved set exceeds `BULK_DISCOUNT_TARGET_LIMIT` — before any write.
+    """
+    if (product_ids is None) == (filter is None):
+        raise ValueError("exactly one of product_ids or filter must be provided")
+
+    if product_ids is not None:
+        # Preserve order, drop duplicates.
+        resolved = list(dict.fromkeys(product_ids))
+    else:
+        with get_db() as conn:
+            resolved = _resolve_filter_target_ids(conn, filter)
+
+    if len(resolved) > BULK_DISCOUNT_TARGET_LIMIT:
+        raise BulkTargetLimitError(
+            f"target resolves to {len(resolved)} products; limit is {BULK_DISCOUNT_TARGET_LIMIT}"
+        )
+    return resolved
+
+
+def bulk_update_discount(
+    *,
+    operation: Literal["apply", "remove"],
+    product_ids: list[str],
+    discount_percent: int | None = None,
+    discount_starts_at: str | None = None,
+    discount_ends_at: str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> dict:
+    """Apply or clear the discount on a resolved list of products.
+
+    Runs on one connection with a per-product SAVEPOINT so a single product's
+    failure (e.g. missing product) rolls back only that product while the rest
+    commit. Reuses `merge_discount_update` for identical rules to the
+    single-product path. Returns
+    `{success_count, failure_count, results: [{id, status, error?}]}`.
+
+    Callers must resolve/cap the target first via `resolve_bulk_target`. Pass an
+    existing `conn` to run inside a caller-managed transaction (the caller then
+    owns the commit); otherwise a connection is opened and committed here.
+    """
+    if operation == "apply" and discount_percent is None:
+        raise DiscountValidationError("discount_percent is required for operation=apply")
+
+    if operation == "apply":
+        # Pass all three keys so the campaign window fully replaces any prior one.
+        patch = {
+            "discount_percent": discount_percent,
+            "discount_starts_at": discount_starts_at,
+            "discount_ends_at": discount_ends_at,
+        }
+    else:  # remove — clearing percent clears all three together
+        patch = {"discount_percent": None}
+
+    results: list[dict] = []
+    success = 0
+
+    def _run(conn: sqlite3.Connection) -> None:
+        nonlocal success
+        for pid in product_ids:
+            conn.execute("SAVEPOINT bulk_item")
+            try:
+                existing = conn.execute(
+                    "SELECT discount_percent, discount_starts_at, discount_ends_at "
+                    "FROM products WHERE id = ?",
+                    (pid,),
+                ).fetchone()
+                if existing is None:
+                    raise NotFoundError(f"Product not found: {pid}")
+
+                merged = merge_discount_update(existing, patch)
+                conn.execute(
+                    "UPDATE products SET discount_percent = ?, discount_starts_at = ?, "
+                    "discount_ends_at = ? WHERE id = ?",
+                    (
+                        merged["discount_percent"],
+                        merged["discount_starts_at"],
+                        merged["discount_ends_at"],
+                        pid,
+                    ),
+                )
+            except (NotFoundError, DiscountValidationError) as e:
+                conn.execute("ROLLBACK TO bulk_item")
+                conn.execute("RELEASE bulk_item")
+                results.append({"id": pid, "status": "failed", "error": str(e)})
+            else:
+                conn.execute("RELEASE bulk_item")
+                results.append({"id": pid, "status": "updated"})
+                success += 1
+
+    if conn is not None:
+        _run(conn)
+    else:
+        with get_db() as owned:
+            _run(owned)
+
+    return {
+        "success_count": success,
+        "failure_count": len(results) - success,
+        "results": results,
+    }
+
+
+def conservative_clear_discount(
+    targets: list[dict], conn: sqlite3.Connection | None = None
+) -> dict:
+    """Clear a discount only where a product's current fields still match.
+
+    Each target: `{product_id, applied_percent, applied_starts_at, applied_ends_at}`
+    — the values a campaign last wrote. A product is cleared only if its current
+    discount fields still equal those; otherwise it is skipped (it was edited
+    after apply) so a newer manual or campaign discount is never clobbered.
+    Runs with per-product savepoints. Returns the same result shape as
+    `bulk_update_discount`, with `status` in {updated, skipped, failed}. Pass an
+    existing `conn` to run inside a caller-managed transaction.
+    """
+    results: list[dict] = []
+    success = 0
+
+    def _run(conn: sqlite3.Connection) -> None:
+        nonlocal success
+        for t in targets:
+            pid = t["product_id"]
+            conn.execute("SAVEPOINT clear_item")
+            try:
+                row = conn.execute(
+                    "SELECT discount_percent, discount_starts_at, discount_ends_at "
+                    "FROM products WHERE id = ?",
+                    (pid,),
+                ).fetchone()
+                if row is None:
+                    conn.execute("ROLLBACK TO clear_item")
+                    conn.execute("RELEASE clear_item")
+                    results.append({"id": pid, "status": "failed", "error": "Product not found"})
+                    continue
+
+                matches = (
+                    row["discount_percent"] == t["applied_percent"]
+                    and row["discount_starts_at"] == t["applied_starts_at"]
+                    and row["discount_ends_at"] == t["applied_ends_at"]
+                )
+                if not matches:
+                    conn.execute("RELEASE clear_item")
+                    results.append(
+                        {
+                            "id": pid,
+                            "status": "skipped",
+                            "error": "discount changed after campaign apply; left unchanged",
+                        }
+                    )
+                    continue
+
+                conn.execute(
+                    "UPDATE products SET discount_percent = NULL, "
+                    "discount_starts_at = NULL, discount_ends_at = NULL WHERE id = ?",
+                    (pid,),
+                )
+                conn.execute("RELEASE clear_item")
+                results.append({"id": pid, "status": "updated"})
+                success += 1
+            except sqlite3.Error as e:
+                conn.execute("ROLLBACK TO clear_item")
+                conn.execute("RELEASE clear_item")
+                results.append({"id": pid, "status": "failed", "error": str(e)})
+
+    if conn is not None:
+        _run(conn)
+    else:
+        with get_db() as owned:
+            _run(owned)
+
+    return {
+        "success_count": success,
+        "failure_count": len(results) - success,
+        "results": results,
+    }

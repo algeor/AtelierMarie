@@ -21,3 +21,7 @@ dev/
 
 # Logs (dev-server output, e.g. frontend/ds-dev.log)
 *.log
+
+# AI
+.agents
+.claude

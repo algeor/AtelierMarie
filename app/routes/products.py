@@ -81,18 +81,18 @@ async def list_products(
             limit=limit,
             offset=offset,
             locale=locale,
+            sort=sort,
         )
 
-        # Apply sort override if specified (otherwise FTS5 relevance is used).
-        # Note: sort reorders the current page only; relevance drives selection.
-        if sort:
+        # Price sorts are handled inside the service over effective price across
+        # all matches. Name/newest sorts still order the returned page here
+        # (search returns relevance-ordered results otherwise).
+        if sort in ("name", "newest"):
             sort_key_map = {
-                "price_asc": lambda p: p.get("price_cents", 0),
-                "price_desc": lambda p: p.get("price_cents", 0),
                 "name": lambda p: p.get("name", ""),
                 "newest": lambda p: p.get("created_at", ""),
             }
-            reverse = sort in ("price_desc", "newest")
+            reverse = sort == "newest"
             products.sort(key=sort_key_map[sort], reverse=reverse)
 
         # Accurate total across all matches so pagination works on the search path.

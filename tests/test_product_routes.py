@@ -176,6 +176,13 @@ class TestGetProduct:
         assert body["price_cents"] == 3200
 
     @pytest.mark.asyncio
+    async def test_public_response_omits_weight(self, client, _products):
+        """weight_grams is a shipping input, not a customer-facing attribute."""
+        response = await client.get("/v1/products/lavender-dream-300ml")
+        assert response.status_code == 200
+        assert "weight_grams" not in response.json()
+
+    @pytest.mark.asyncio
     async def test_returns_404_for_missing(self, client, _products):
         response = await client.get("/v1/products/no-such-product")
         assert response.status_code == 404

@@ -5,9 +5,23 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.common import PRODUCT_ID_PATTERN
+from app.services.pricing import normalize_discount_datetime
 
 # Maximum stock value — prevents absurd inventory numbers
 MAX_STOCK = 99999
+
+# Maximum shipping weight in grams — 100 kg, generous headroom over the ~800g
+# max real candle. Local to this module, mirroring MAX_STOCK above.
+MAX_WEIGHT_GRAMS = 100_000
+
+# Field bounds shared between the Pydantic models and the CSV import parser
+# (which bypasses Pydantic and must re-apply the same limits manually).
+MAX_NAME_LENGTH = 200
+MAX_MATERIALS_LENGTH = 1000
+MAX_DAYS_TO_CRAFT = 365
+MAX_DESCRIPTION_LENGTH = 5000
+MAX_CATEGORY_LENGTH = 100
+MAX_IMAGE_URL_LENGTH = 500
 
 # Supported locales
 Locale = Literal["en", "bg"]
@@ -29,6 +43,14 @@ class ProductResponse(BaseModel):
     materials: str | None = None
     days_to_craft: int | None = None
     price_cents: int
+    # Discount display fields (computed via the pricing helper):
+    #   effective_price_cents = discounted price (== price_cents when inactive)
+    #   discount_percent       = active display percent, or null when inactive
+    #   discount_active        = whether a discount is currently applied
+    # Discount window timestamps are intentionally NOT exposed publicly.
+    effective_price_cents: int
+    discount_percent: int | None = None
+    discount_active: bool = False
     # `category` now carries the managed category/tier slug (was legacy free text).
     category: str | None
     category_name: str | None
@@ -56,6 +78,13 @@ class ProductAdminResponse(BaseModel):
     materials: str | None = None
     days_to_craft: int | None = None
     price_cents: int
+    # Raw discount configuration (admin sees the full schedule) plus a computed
+    # live preview (effective_price_cents / discount_active) for the sale price.
+    discount_percent: int | None = None
+    discount_starts_at: str | None = None
+    discount_ends_at: str | None = None
+    effective_price_cents: int
+    discount_active: bool = False
     # Managed taxonomy slugs for prefilling admin form controls.
     category: str | None = None
     product_type: str = "candles"
@@ -64,6 +93,7 @@ class ProductAdminResponse(BaseModel):
     primary_image_url: str | None = None
     primary_thumbnail_url: str | None = None
     stock: int
+    weight_grams: int
     is_active: bool
     is_featured: bool
     translation_stale_bg: bool = False
@@ -110,21 +140,52 @@ class CreateProductRequest(BaseModel):
     """Input for creating a new product."""
 
     id: str = Field(..., min_length=1, max_length=100, pattern=PRODUCT_ID_PATTERN)
-    name_en: str = Field(..., min_length=1, max_length=200)
-    name_bg: str | None = Field(default=None, max_length=200)
-    description_en: str | None = Field(default=None, max_length=5000)
-    description_bg: str | None = Field(default=None, max_length=5000)
-    materials: str | None = Field(default=None, max_length=1000)
-    days_to_craft: int | None = Field(default=None, ge=0, le=365)
+    name_en: str = Field(..., min_length=1, max_length=MAX_NAME_LENGTH)
+    name_bg: str | None = Field(default=None, max_length=MAX_NAME_LENGTH)
+    description_en: str | None = Field(default=None, max_length=MAX_DESCRIPTION_LENGTH)
+    description_bg: str | None = Field(default=None, max_length=MAX_DESCRIPTION_LENGTH)
+    materials: str | None = Field(default=None, max_length=MAX_MATERIALS_LENGTH)
+    days_to_craft: int | None = Field(default=None, ge=0, le=MAX_DAYS_TO_CRAFT)
     price_cents: int = Field(..., gt=0, le=99_999_99)
-    category: str | None = Field(default=None, max_length=100)
+    category: str | None = Field(default=None, max_length=MAX_CATEGORY_LENGTH)
     # Optional: when omitted, the service assigns the default active product type
     # (lowest sort_order) rather than a hardcoded slug.
     product_type: str | None = Field(default=None, min_length=1, max_length=100)
     labels: list[str] = Field(default_factory=list, max_length=50)
+    discount_percent: int | None = Field(default=None, ge=1, le=99)
+    discount_starts_at: str | None = None
+    discount_ends_at: str | None = None
     stock: int = Field(..., ge=0, le=MAX_STOCK)
+    weight_grams: int = Field(default=300, ge=1, le=MAX_WEIGHT_GRAMS)
     is_active: bool = True
     is_featured: bool = False
+
+    @field_validator("discount_starts_at", "discount_ends_at")
+    @classmethod
+    def _normalize_discount_datetime(cls, v: str | None) -> str | None:
+        """Normalize datetime input to canonical UTC; reject timezone-less input."""
+        return normalize_discount_datetime(v)
+
+    @model_validator(mode="after")
+    def _validate_discount_window(self) -> "CreateProductRequest":
+        """Self-contained discount validation for a full create payload.
+
+        (Update merge validation lives in the service, which has the existing
+        persisted row to merge against.)
+        """
+        if (
+            self.discount_starts_at is not None or self.discount_ends_at is not None
+        ) and self.discount_percent is None:
+            msg = "discount_percent is required when a discount date is set"
+            raise ValueError(msg)
+        if (
+            self.discount_starts_at is not None
+            and self.discount_ends_at is not None
+            and self.discount_starts_at >= self.discount_ends_at
+        ):
+            msg = "discount_starts_at must be earlier than discount_ends_at"
+            raise ValueError(msg)
+        return self
 
     @field_validator(
         "name_en",
@@ -158,19 +219,33 @@ class UpdateProductRequest(BaseModel):
     'client sent null' from 'client did not send this field'.
     """
 
-    name_en: str | None = Field(default=None, min_length=1, max_length=200)
-    name_bg: str | None = Field(default=None, max_length=200)
-    description_en: str | None = Field(default=None, max_length=5000)
-    description_bg: str | None = Field(default=None, max_length=5000)
-    materials: str | None = Field(default=None, max_length=1000)
-    days_to_craft: int | None = Field(default=None, ge=0, le=365)
+    name_en: str | None = Field(default=None, min_length=1, max_length=MAX_NAME_LENGTH)
+    name_bg: str | None = Field(default=None, max_length=MAX_NAME_LENGTH)
+    description_en: str | None = Field(default=None, max_length=MAX_DESCRIPTION_LENGTH)
+    description_bg: str | None = Field(default=None, max_length=MAX_DESCRIPTION_LENGTH)
+    materials: str | None = Field(default=None, max_length=MAX_MATERIALS_LENGTH)
+    days_to_craft: int | None = Field(default=None, ge=0, le=MAX_DAYS_TO_CRAFT)
     price_cents: int | None = Field(default=None, gt=0, le=99_999_99)
-    category: str | None = Field(default=None, max_length=100)
+    category: str | None = Field(default=None, max_length=MAX_CATEGORY_LENGTH)
     product_type: str | None = Field(default=None, min_length=1, max_length=100)
     labels: list[str] | None = Field(default=None, max_length=50)
+    discount_percent: int | None = Field(default=None, ge=1, le=99)
+    discount_starts_at: str | None = None
+    discount_ends_at: str | None = None
     stock: int | None = Field(default=None, ge=0, le=MAX_STOCK)
+    weight_grams: int | None = Field(default=None, ge=1, le=MAX_WEIGHT_GRAMS)
     is_active: bool | None = None
     is_featured: bool | None = None
+
+    @field_validator("discount_starts_at", "discount_ends_at")
+    @classmethod
+    def _normalize_discount_datetime(cls, v: str | None) -> str | None:
+        """Normalize datetime input to canonical UTC; reject timezone-less input.
+
+        Cross-field validation (percent-required-with-date, start < end) is
+        deferred to the service, which merges this patch with the persisted row.
+        """
+        return normalize_discount_datetime(v)
 
     @model_validator(mode="before")
     @classmethod

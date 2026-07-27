@@ -1,7 +1,7 @@
 import { Link } from "@/i18n/navigation";
 import { ProductImage } from "./ProductImage";
+import { PriceDisplay } from "./PriceDisplay";
 import { AddToCartButton } from "@/components/cart/AddToCartButton";
-import { formatPrice } from "@/lib/utils";
 import type { ProductResponse } from "@/lib/types";
 
 interface ProductCardProps {
@@ -26,7 +26,7 @@ export function ProductCard({ product }: ProductCardProps) {
               {product.name}
             </h3>
             <p className="text-sm font-medium text-soft-brown">
-              {formatPrice(product.price_cents)}
+              <PriceDisplay product={product} />
             </p>
           </div>
         </div>
