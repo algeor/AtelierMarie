@@ -1,5 +1,5 @@
 import React from "react";
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ProductForm } from "@/components/admin/ProductForm";
 import type { AdminProductResponse } from "@/lib/types";
@@ -50,9 +50,9 @@ function sizedImage(size: number): File {
   return file;
 }
 
-function renderForm() {
+function renderForm(onSubmit = vi.fn()) {
   return renderWithIntl(
-    <ProductForm product={product} onSubmit={vi.fn()} submitLabel="Save" />
+    <ProductForm product={product} onSubmit={onSubmit} submitLabel="Save" />
   );
 }
 
@@ -97,5 +97,42 @@ describe("ProductForm image upload size checks", () => {
     expect(screen.getByText("Image must be 25 MB or smaller")).toBeInTheDocument();
     expect(screen.queryByText("1 file(s) selected")).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Large image" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the large-image dialog modal and blocks submit until resolved", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    renderForm(onSubmit);
+
+    const input = screen.getByLabelText("Product images") as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [sizedImage(16 * 1024 * 1024)] } });
+
+    const dialog = screen.getByRole("dialog", { name: "Large image" });
+    const cancel = within(dialog).getByRole("button", { name: "Cancel" });
+    const addAnyway = within(dialog).getByRole("button", { name: "Add anyway" });
+    expect(cancel).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(addAnyway).toHaveFocus();
+
+    fireEvent.submit(screen.getByRole("button", { name: "Save" }).closest("form")!);
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Large image" })).not.toBeInTheDocument();
+
+    fireEvent.change(input, { target: { files: [sizedImage(16 * 1024 * 1024)] } });
+    fireEvent.mouseDown(screen.getByRole("dialog", { name: "Large image" }).parentElement!);
+    expect(screen.queryByRole("dialog", { name: "Large image" })).not.toBeInTheDocument();
+
+    fireEvent.change(input, { target: { files: [sizedImage(16 * 1024 * 1024)] } });
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Large image" })).getByRole("button", {
+        name: "Add anyway",
+      })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][0].image_files).toHaveLength(1);
   });
 });

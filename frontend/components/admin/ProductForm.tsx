@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
@@ -95,6 +95,8 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
   const [images, setImages] = useState<ProductImage[]>(product?.images ?? []);
   const [deletedImageIds, setDeletedImageIds] = useState<string[]>([]);
   const [pendingImageFiles, setPendingImageFiles] = useState<File[] | null>(null);
+  const largeImageDialogRef = useRef<HTMLDivElement>(null);
+  const largeImageCancelRef = useRef<HTMLButtonElement>(null);
 
   // Local string state for price input to avoid cursor jumping
   const [priceDisplay, setPriceDisplay] = useState(
@@ -145,6 +147,45 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
   const translationStaleBg = product?.translation_stale_bg;
   const translationStaleEn = product?.translation_stale_en;
 
+  useEffect(() => {
+    if (!pendingImageFiles) return;
+
+    const previousActiveElement = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    largeImageCancelRef.current?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setPendingImageFiles(null);
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const focusable = Array.from(largeImageDialogRef.current?.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      ) ?? []);
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      previousActiveElement?.focus();
+    };
+  }, [pendingImageFiles]);
+
   function validate(): boolean {
     const newErrors: Record<string, string> = {};
     if (!formData.name_en.trim()) newErrors.name_en = t("validation.nameEnRequired");
@@ -187,6 +228,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (pendingImageFiles) return;
     if (!validate()) return;
 
     setIsSubmitting(true);
@@ -520,8 +562,14 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
             </p>
           )}
           {pendingImageFiles && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/60 p-4">
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/60 p-4"
+              onMouseDown={(event) => {
+                if (event.target === event.currentTarget) setPendingImageFiles(null);
+              }}
+            >
               <div
+                ref={largeImageDialogRef}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="large-image-title"
@@ -537,6 +585,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
                 </p>
                 <div className="mt-5 flex justify-end gap-2">
                   <Button
+                    ref={largeImageCancelRef}
                     type="button"
                     variant="secondary"
                     onClick={() => setPendingImageFiles(null)}
@@ -669,7 +718,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
       </div>
 
       <div className="flex items-center gap-3 border-t border-champagne-beige pt-6">
-        <Button type="submit" isLoading={isSubmitting}>
+        <Button type="submit" isLoading={isSubmitting} disabled={Boolean(pendingImageFiles)}>
           {submitLabel}
         </Button>
         <Button

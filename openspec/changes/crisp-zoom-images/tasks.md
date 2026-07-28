@@ -48,7 +48,7 @@
 
 ## 8. Deploy
 
-- [x] 8.1 Raise Nginx `client_max_body_size` to `25m` (documented in the `image-upload` spec; config not committed in-repo — note in deploy runbook)
+- [x] 8.1 Raise Nginx `client_max_body_size` to `27m` (documented in the `image-upload` spec; config not committed in-repo — note in deploy runbook)
 
 ## 9. Tests
 
