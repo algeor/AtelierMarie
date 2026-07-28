@@ -63,6 +63,46 @@ CARRIER_TRACKING_URL_PATTERNS: dict[str, str] = {
     "fedex": "https://www.fedex.com/fedextrack/?trknbr={num}",
 }
 
+# ---------------------------------------------------------------------------
+# Product video transcoding
+# ---------------------------------------------------------------------------
+
+VIDEO_TRANSCODE_CRF = "20"
+VIDEO_TRANSCODE_PRESET = "slow"
+VIDEO_TRANSCODE_MAX_HEIGHT = 1080
+VIDEO_AUDIO_BITRATE = "128k"
+VIDEO_POSTER_TIMESTAMP_SECONDS = "1"
+VIDEO_SWEEPER_INTERVAL_SECONDS = 15
+VIDEO_TRANSCODE_LEASE_SECONDS = 20 * 60
+VIDEO_FFMPEG_NICE_LEVEL = "10"
+VIDEO_FFMPEG_IONICE_CLASS = "2"
+VIDEO_FFMPEG_IONICE_LEVEL = "7"
+
+VIDEO_TRANSCODE_ARGS = (
+    "-map",
+    "0:v:0",
+    "-map",
+    "0:a?",
+    "-c:v",
+    "libx264",
+    "-profile:v",
+    "high",
+    "-pix_fmt",
+    "yuv420p",
+    "-crf",
+    VIDEO_TRANSCODE_CRF,
+    "-preset",
+    VIDEO_TRANSCODE_PRESET,
+    "-vf",
+    f"scale='min(iw,-2)':min({VIDEO_TRANSCODE_MAX_HEIGHT},ih):force_original_aspect_ratio=decrease",
+    "-c:a",
+    "aac",
+    "-b:a",
+    VIDEO_AUDIO_BITRATE,
+    "-movflags",
+    "+faststart",
+)
+
 
 def tracking_url_for(carrier: str | None, number: str | None) -> str | None:
     """Return the auto-generated tracking URL for a known carrier, else None."""

@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { createProduct, uploadProductImage } from "@/lib/api";
+import { createProduct, updateProductVideoSortOrder, uploadProductImage, uploadProductVideo } from "@/lib/api";
 import { ProductForm, type ProductFormData } from "@/components/admin/ProductForm";
 
 export default function CreateProductPage() {
@@ -28,6 +28,10 @@ export default function CreateProductPage() {
     });
     for (const file of data.image_files) {
       await uploadProductImage(product.id, file);
+    }
+    if (data.video_file) {
+      await uploadProductVideo(product.id, data.video_file);
+      await updateProductVideoSortOrder(product.id, data.video_sort_order);
     }
   }
 

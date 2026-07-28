@@ -7,7 +7,7 @@ from typing import Literal
 from app.constants import MAX_LIMIT, MAX_PAGE
 from app.database import get_db
 from app.models.common import calculate_offset
-from app.services import pricing, product_image_service
+from app.services import pricing, product_image_service, product_video_service
 
 Locale = Literal["en", "bg"]
 
@@ -236,6 +236,7 @@ def list_products(
         products = products[offset : offset + limit]
 
     products = product_image_service.attach_image_fields(products)
+    products = product_video_service.attach_video_fields(products, public_only=True)
     return products, total
 
 
@@ -256,7 +257,8 @@ def get_product(product_id: str, *, locale: Locale = "en") -> dict:
     product = pricing.annotate_product_pricing(
         _resolve_locale_fields(_row_to_dict(row), locale), pricing.now_utc(), public=True
     )
-    return product_image_service.attach_image_fields_one(product)
+    product = product_image_service.attach_image_fields_one(product)
+    return product_video_service.attach_video_fields_one(product, public_only=True)
 
 
 def get_product_admin(product_id: str) -> dict:
@@ -270,7 +272,8 @@ def get_product_admin(product_id: str) -> dict:
     if row is None:
         raise NotFoundError(f"Product not found: {product_id}")
 
-    return product_image_service.attach_image_fields_one(_annotate_admin_one(_row_to_dict(row)))
+    product = product_image_service.attach_image_fields_one(_annotate_admin_one(_row_to_dict(row)))
+    return product_video_service.attach_video_fields_one(product, public_only=False)
 
 
 def list_products_admin(
@@ -291,7 +294,9 @@ def list_products_admin(
         ).fetchall()
 
     products = _annotate_admin([_row_to_dict(r) for r in rows])
-    return product_image_service.attach_image_fields(products), total
+    products = product_image_service.attach_image_fields(products)
+    products = product_video_service.attach_video_fields(products, public_only=False)
+    return products, total
 
 
 def create_product(data: dict) -> dict:
@@ -361,7 +366,8 @@ def create_product(data: dict) -> dict:
 
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
 
-    return product_image_service.attach_image_fields_one(_annotate_admin_one(_row_to_dict(row)))
+    product = product_image_service.attach_image_fields_one(_annotate_admin_one(_row_to_dict(row)))
+    return product_video_service.attach_video_fields_one(product, public_only=False)
 
 
 def upsert_product(product_id: str, data: dict) -> dict:
@@ -417,7 +423,8 @@ def upsert_product(product_id: str, data: dict) -> dict:
         conn.execute(sql, insert_vals)
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
 
-    return product_image_service.attach_image_fields_one(_annotate_admin_one(_row_to_dict(row)))
+    product = product_image_service.attach_image_fields_one(_annotate_admin_one(_row_to_dict(row)))
+    return product_video_service.attach_video_fields_one(product, public_only=False)
 
 
 def update_product(product_id: str, data: dict) -> dict:
@@ -527,7 +534,9 @@ def deactivate_product(product_id: str) -> dict:
 
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
 
-    return product_image_service.attach_image_fields_one(_annotate_admin_one(_row_to_dict(row)))
+    product_video_service.delete_video_if_exists(product_id)
+    product = product_image_service.attach_image_fields_one(_annotate_admin_one(_row_to_dict(row)))
+    return product_video_service.attach_video_fields_one(product, public_only=False)
 
 
 def search_products(
@@ -617,7 +626,8 @@ def search_products(
         )
         products = products[offset : offset + limit]
 
-    return product_image_service.attach_image_fields(products)
+    products = product_image_service.attach_image_fields(products)
+    return product_video_service.attach_video_fields(products, public_only=True)
 
 
 def get_low_stock_products(threshold: int = 5) -> list[dict]:
@@ -633,7 +643,8 @@ def get_low_stock_products(threshold: int = 5) -> list[dict]:
             (threshold,),
         ).fetchall()
     products = _annotate_admin([_row_to_dict(r) for r in rows])
-    return product_image_service.attach_image_fields(products)
+    products = product_image_service.attach_image_fields(products)
+    return product_video_service.attach_video_fields(products, public_only=False)
 
 
 def _resolve_filter_target_ids(conn: sqlite3.Connection, filt: dict) -> list[str]:

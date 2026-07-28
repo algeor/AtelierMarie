@@ -46,6 +46,24 @@ CREATE INDEX IF NOT EXISTS idx_product_images_product
 CREATE UNIQUE INDEX IF NOT EXISTS idx_product_images_one_primary
     ON product_images(product_id) WHERE is_primary = 1;
 
+CREATE TABLE IF NOT EXISTS product_videos (
+    id              TEXT PRIMARY KEY,
+    product_id      TEXT NOT NULL UNIQUE REFERENCES products(id) ON DELETE CASCADE,
+    status          TEXT NOT NULL CHECK (status IN ('queued', 'transcoding', 'ready', 'failed')),
+    source_path     TEXT,
+    video_url       TEXT,
+    poster_url      TEXT,
+    duration_secs   REAL,
+    sort_order      INTEGER NOT NULL DEFAULT 0,
+    failure_reason  TEXT,
+    lease_expires_at TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_videos_status
+    ON product_videos(status);
+
 CREATE TABLE IF NOT EXISTS users (
     id          TEXT PRIMARY KEY,
     google_id   TEXT UNIQUE NOT NULL,
@@ -287,6 +305,11 @@ CREATE TABLE IF NOT EXISTS site_banners (
 CREATE TRIGGER IF NOT EXISTS products_updated_at AFTER UPDATE ON products
 BEGIN
     UPDATE products SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS product_videos_updated_at AFTER UPDATE ON product_videos
+BEGIN
+    UPDATE product_videos SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
 END;
 
 CREATE TRIGGER IF NOT EXISTS orders_updated_at AFTER UPDATE ON orders

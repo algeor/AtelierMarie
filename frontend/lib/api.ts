@@ -40,8 +40,10 @@ import type {
   ReactionToggleRequest,
   ReactionToggleResponse,
   ProductImage,
+  ProductVideo,
   UpdateProductRequest,
   UserResponse,
+  VideoUploadResponse,
 } from "./types";
 
 const USE_MOCK =
@@ -284,6 +286,42 @@ export async function setPrimaryProductImage(
   return apiClient.patch<ProductImage>(
     `/v1/admin/products/${encodeURIComponent(productId)}/images/${encodeURIComponent(imageId)}/primary`,
     {}
+  );
+}
+
+export async function uploadProductVideo(
+  productId: string,
+  file: File
+): Promise<VideoUploadResponse> {
+  if (USE_MOCK) return (await getMock()).uploadProductVideo(productId, file);
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiClient.postForm<VideoUploadResponse>(
+    `/v1/admin/products/${encodeURIComponent(productId)}/video`,
+    formData
+  );
+}
+
+export async function getProductVideo(productId: string): Promise<ProductVideo> {
+  if (USE_MOCK) return (await getMock()).getProductVideo(productId);
+  return apiClient.get<ProductVideo>(
+    `/v1/admin/products/${encodeURIComponent(productId)}/video`
+  );
+}
+
+export async function deleteProductVideo(productId: string): Promise<void> {
+  if (USE_MOCK) return (await getMock()).deleteProductVideo(productId);
+  return apiClient.del<void>(`/v1/admin/products/${encodeURIComponent(productId)}/video`);
+}
+
+export async function updateProductVideoSortOrder(
+  productId: string,
+  sortOrder: number
+): Promise<ProductVideo> {
+  if (USE_MOCK) return (await getMock()).updateProductVideoSortOrder(productId, sortOrder);
+  return apiClient.patch<ProductVideo>(
+    `/v1/admin/products/${encodeURIComponent(productId)}/video`,
+    { sort_order: sortOrder }
   );
 }
 

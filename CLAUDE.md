@@ -103,6 +103,8 @@ app/
 │   └── reactions.py
 ├── services/            # Business logic (testable, no HTTP)
 │   ├── product_service.py
+│   ├── product_video_service.py # Product video queue/status/delete + transcode sweeper
+│   ├── video_service.py     # ffprobe validation, ffmpeg transcode, poster extraction
 │   ├── cart_service.py
 │   ├── order_service.py
 │   ├── auth_service.py

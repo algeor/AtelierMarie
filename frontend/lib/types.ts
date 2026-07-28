@@ -40,6 +40,19 @@ export interface ProductImage {
   is_primary: boolean;
 }
 
+export interface ProductVideo {
+  id: string;
+  product_id: string;
+  status: "queued" | "transcoding" | "ready" | "failed";
+  video_url: string | null;
+  poster_url: string | null;
+  sort_order: number;
+  duration_secs: number | null;
+  failure_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ProductResponse {
   id: string;
   name: string;
@@ -55,6 +68,7 @@ export interface ProductResponse {
   discount_active: boolean;
   category: string | null;
   images: ProductImage[];
+  video?: ProductVideo | null;
   primary_image_url: string | null;
   primary_thumbnail_url: string | null;
   stock: number;
@@ -225,10 +239,11 @@ export interface AdminProductResponse {
   discount_active: boolean;
   category: string | null;
   images: ProductImage[];
+  video?: ProductVideo | null;
   primary_image_url: string | null;
   primary_thumbnail_url: string | null;
   stock: number;
-  weight_grams: number;
+  weight_grams?: number;
   is_active: boolean;
   is_featured: boolean;
   translation_stale_bg: boolean;
@@ -282,6 +297,7 @@ export interface UpdateProductRequest {
 }
 
 export type ImageUploadResponse = ProductImage;
+export type VideoUploadResponse = ProductVideo;
 
 // --- Promotions (campaigns, bulk discount, managed banner) ---
 

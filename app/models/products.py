@@ -1,5 +1,7 @@
 """Product request and response models."""
 
+from __future__ import annotations
+
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -45,7 +47,8 @@ class ProductResponse(BaseModel):
     discount_percent: int | None = None
     discount_active: bool = False
     category: str | None = None
-    images: list["ProductImage"] = Field(default_factory=list)
+    images: list[ProductImage] = Field(default_factory=list)
+    video: ProductVideo | None = None
     primary_image_url: str | None = None
     primary_thumbnail_url: str | None = None
     stock: int
@@ -74,7 +77,8 @@ class ProductAdminResponse(BaseModel):
     effective_price_cents: int
     discount_active: bool = False
     category: str | None = None
-    images: list["ProductImage"] = Field(default_factory=list)
+    images: list[ProductImage] = Field(default_factory=list)
+    video: ProductVideo | None = None
     primary_image_url: str | None = None
     primary_thumbnail_url: str | None = None
     stock: int
@@ -115,6 +119,27 @@ class ProductImage(BaseModel):
     is_primary: bool
 
 
+class ProductVideo(BaseModel):
+    """One video belonging to a product gallery."""
+
+    id: str
+    product_id: str
+    status: Literal["queued", "transcoding", "ready", "failed"]
+    video_url: str | None = None
+    poster_url: str | None = None
+    sort_order: int = 0
+    duration_secs: float | None = None
+    failure_reason: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class UpdateProductVideoRequest(BaseModel):
+    """Input for setting a product video's gallery position."""
+
+    sort_order: int = Field(..., ge=0, le=100)
+
+
 class ReorderProductImagesRequest(BaseModel):
     """Input for replacing a product gallery's display order."""
 
@@ -148,7 +173,7 @@ class CreateProductRequest(BaseModel):
         return normalize_discount_datetime(v)
 
     @model_validator(mode="after")
-    def _validate_discount_window(self) -> "CreateProductRequest":
+    def _validate_discount_window(self) -> CreateProductRequest:
         """Self-contained discount validation for a full create payload.
 
         (Update merge validation lives in the service, which has the existing

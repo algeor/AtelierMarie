@@ -74,6 +74,119 @@ class TestAdminAuth:
         response = await admin_client.get("/v1/admin/products")
         assert response.status_code == 200
 
+    @pytest.mark.asyncio
+    async def test_video_upload_rejects_no_credentials(self, client):
+        response = await client.post(
+            "/v1/admin/products/lavender-dream-300ml/video",
+            files={"file": ("clip.mp4", b"video", "video/mp4")},
+        )
+        assert response.status_code == 401
+
+
+def _video_payload(**overrides):
+    payload = {
+        "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "product_id": "lavender-dream-300ml",
+        "status": "queued",
+        "video_url": None,
+        "poster_url": None,
+        "sort_order": 0,
+        "duration_secs": 10.0,
+        "failure_reason": None,
+        "created_at": "2026-01-01 00:00:00",
+        "updated_at": "2026-01-01 00:00:00",
+    }
+    payload.update(overrides)
+    return payload
+
+
+class TestAdminProductVideoRoutes:
+    """Tests for admin product video endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_upload_returns_202_processing_status(self, admin_client, monkeypatch):
+        captured = {}
+
+        def queue(product_id, file_bytes):
+            captured["product_id"] = product_id
+            captured["file_bytes"] = file_bytes
+            return _video_payload(product_id=product_id)
+
+        monkeypatch.setattr("app.services.product_video_service.queue_video_upload", queue)
+
+        response = await admin_client.post(
+            "/v1/admin/products/lavender-dream-300ml/video",
+            files={"file": ("clip.mp4", b"video-bytes", "video/mp4")},
+        )
+
+        assert response.status_code == 202
+        assert captured == {
+            "product_id": "lavender-dream-300ml",
+            "file_bytes": b"video-bytes",
+        }
+        assert response.json()["status"] == "queued"
+
+    @pytest.mark.asyncio
+    async def test_upload_processing_conflict_maps_to_409(self, admin_client, monkeypatch):
+        from app.services.product_video_service import ProductVideoProcessingConflictError
+
+        def queue(product_id, file_bytes):
+            raise ProductVideoProcessingConflictError("video is still processing")
+
+        monkeypatch.setattr("app.services.product_video_service.queue_video_upload", queue)
+
+        response = await admin_client.post(
+            "/v1/admin/products/lavender-dream-300ml/video",
+            files={"file": ("clip.mp4", b"video", "video/mp4")},
+        )
+
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "video_processing"
+
+    @pytest.mark.asyncio
+    async def test_get_video_status(self, admin_client, monkeypatch):
+        monkeypatch.setattr(
+            "app.services.product_video_service.get_video",
+            lambda product_id: _video_payload(
+                product_id=product_id, status="failed", failure_reason="bad"
+            ),
+        )
+
+        response = await admin_client.get("/v1/admin/products/lavender-dream-300ml/video")
+
+        assert response.status_code == 200
+        assert response.json()["failure_reason"] == "bad"
+
+    @pytest.mark.asyncio
+    async def test_delete_video_returns_204(self, admin_client, monkeypatch):
+        deleted = []
+        monkeypatch.setattr(
+            "app.services.product_video_service.delete_video",
+            lambda product_id: deleted.append(product_id),
+        )
+
+        response = await admin_client.delete("/v1/admin/products/lavender-dream-300ml/video")
+
+        assert response.status_code == 204
+        assert deleted == ["lavender-dream-300ml"]
+
+    @pytest.mark.asyncio
+    async def test_patch_video_sort_order(self, admin_client, monkeypatch):
+        monkeypatch.setattr(
+            "app.services.product_video_service.update_sort_order",
+            lambda product_id, sort_order: _video_payload(
+                product_id=product_id, status="ready", sort_order=sort_order
+            ),
+        )
+
+        response = await admin_client.patch(
+            "/v1/admin/products/lavender-dream-300ml/video",
+            json={"sort_order": 3},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["sort_order"] == 3
+
 
 class TestAdminCreateProduct:
     """Tests for POST /v1/admin/products."""

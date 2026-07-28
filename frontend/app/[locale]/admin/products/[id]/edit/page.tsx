@@ -5,11 +5,14 @@ import { useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import {
   deleteProductImage,
+  deleteProductVideo,
   getAdminProduct,
   reorderProductImages,
   setPrimaryProductImage,
   updateProduct,
+  updateProductVideoSortOrder,
   uploadProductImage,
+  uploadProductVideo,
 } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
@@ -64,6 +67,15 @@ export default function EditProductPage() {
     }
     for (const file of data.image_files) {
       await uploadProductImage(productId, file);
+    }
+    if (data.delete_video && product?.video) {
+      await deleteProductVideo(productId);
+    }
+    if (data.video_file) {
+      await uploadProductVideo(productId, data.video_file);
+      await updateProductVideoSortOrder(productId, data.video_sort_order);
+    } else if (product?.video && !data.delete_video) {
+      await updateProductVideoSortOrder(productId, data.video_sort_order);
     }
   }
 
