@@ -10,6 +10,16 @@ from app.config import get_settings
 from app.database import init_db
 
 
+def test_video_temp_path_must_not_be_inside_static(tmp_path):
+    from app.main import ensure_video_temp_path_is_private
+
+    static_path = tmp_path / "static"
+    temp_path = static_path / "video-temp"
+
+    with pytest.raises(RuntimeError, match="VIDEO_UPLOAD_TEMP_PATH"):
+        ensure_video_temp_path_is_private(static_path, temp_path)
+
+
 @pytest.mark.asyncio
 async def test_lifespan_starts_and_cancels_cleanup_task(tmp_path, monkeypatch):
     """The lifespan context manager starts the cleanup loop and cancels it on shutdown."""

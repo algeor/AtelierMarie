@@ -54,6 +54,7 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
         <ProductGallery
           name={product.name}
           images={product.images}
+          video={product.video}
           primaryImageUrl={product.primary_image_url}
         />
 

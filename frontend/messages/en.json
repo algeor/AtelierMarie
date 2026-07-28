@@ -129,7 +129,10 @@
     "noMatch": "No products match your filters.",
     "discountBadge": "−{percent}%",
     "salePrice": "Sale price",
-    "originalPrice": "Original price"
+    "originalPrice": "Original price",
+    "zoom": "Zoom",
+    "zoomImage": "Zoom image",
+    "closeZoom": "Close zoom"
   },
   "comments": {
     "title": "Comments",
@@ -394,9 +397,24 @@
     "selectCategory": "Select category...",
     "imageUrl": "Image URL",
     "productImage": "Product images",
+    "video": {
+      "title": "Product video",
+      "sortOrder": "Gallery position",
+      "selected": "Selected: {name}",
+      "deleteQueued": "Video will be deleted when you save.",
+      "status": {
+        "queued": "Processing queued",
+        "transcoding": "Processing video",
+        "ready": "Ready",
+        "failed": "Processing failed"
+      }
+    },
     "currentImage": "Current image: {url}",
     "selectedFile": "Selected: {name}",
     "selectedFiles": "{count} file(s) selected",
+    "largeImageTitle": "Large image",
+    "largeImageWarning": "This image is large ({size} MB). Large files can slow your store. Add it anyway?",
+    "addAnyway": "Add anyway",
     "moveUp": "Move up",
     "moveDown": "Move down",
     "setPrimary": "Primary",
@@ -425,7 +443,9 @@
       "stockNonNegative": "Stock cannot be negative",
       "weightRange": "Weight must be between 1 and 100000 grams",
       "imageType": "Image must be a JPEG or PNG file",
-      "imageSize": "Image must be 5MB or smaller",
+"imageSize": "Image must be 25 MB or smaller",
+      "videoType": "Upload a video file",
+      "videoSize": "Video must be 200MB or smaller",
       "maxImages": "A product can have up to 6 images",
       "productTypeRequired": "Product type is required",
       "discountPercentRange": "Discount must be between 1 and 99",

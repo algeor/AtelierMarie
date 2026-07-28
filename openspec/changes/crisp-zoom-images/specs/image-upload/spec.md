@@ -15,9 +15,14 @@ The system SHALL reject uploaded files larger than 25MB before attempting to pro
 - **WHEN** an upload's accumulated bytes exceed 25MB during streaming read in the admin route
 - **THEN** the route stops reading and returns 422 `"file_too_large"` before buffering the whole body
 
-#### Scenario: Nginx rejects oversized upload before it reaches the app
-- **WHEN** a file larger than 25MB is uploaded in production
-- **THEN** Nginx (configured with `client_max_body_size 25m`) rejects the request with 413 before the body reaches FastAPI. The application-level 25MB checks in image_service and the admin route are defense-in-depth fallbacks.
+#### Scenario: Nginx allows exact-limit multipart uploads and caps truly oversized bodies
+- **WHEN** an exact 25MB file is uploaded in production as multipart form data
+- **THEN** Nginx does not reject it solely because of multipart overhead because `client_max_body_size` is configured to `27m`
+- **AND** the application-level 25MB checks in image_service and the admin route remain the source of truth for file-byte validation
+
+#### Scenario: Nginx rejects bodies above the proxy cap
+- **WHEN** an upload request body exceeds `client_max_body_size 27m`
+- **THEN** Nginx rejects the request with 413 before the body reaches FastAPI.
 
 ### Requirement: Image resize preserves aspect ratio
 The system SHALL resize images using "thumbnail" mode (fit within bounding box, never upscale, preserve aspect ratio). Three sizes are produced: thumbnail (400×500), main (2000×2500), and zoom (2400×3000).

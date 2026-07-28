@@ -46,7 +46,7 @@ The zoom view loads a ~2400px q90 WebP derivative, not the uploaded file. This i
 **Trade-off:** true print-resolution download is not supported. If ever needed, add an `original_url` asset later — additive and non-breaking.
 
 ### 3. Upload cap 25MB; pixel cap unchanged (owner decision)
-`MAX_FILE_SIZE` → `25 * 1024 * 1024`. Enforced in **two** backend locations that must stay in sync: `image_service.validate_image_file` and the streaming chunk guard in `app/routes/admin.py` (~line 740, which rejects mid-stream so a huge upload can't exhaust memory). Nginx `client_max_body_size` must also be raised to `25m` at deploy time (defense-in-depth; the spec documents this).
+`MAX_FILE_SIZE` → `25 * 1024 * 1024`. Enforced in **two** backend locations that must stay in sync: `image_service.validate_image_file` and the streaming chunk guard in `app/routes/admin.py` (~line 740, which rejects mid-stream so a huge upload can't exhaust memory). Nginx `client_max_body_size` must be set to `27m` at deploy time so exact 25 MB multipart uploads are not rejected before the app can enforce the file-byte cap.
 
 `MAX_IMAGE_PIXELS = 25_000_000` (25MP) is **left as-is**. A 2400×3000 zoom is only 7.2MP, so processing never approaches it; the cap remains a decompression-bomb guard. Consequence: a >25MP source is still rejected on pixels even under the 25MB byte cap — acceptable and intentional.
 
@@ -79,4 +79,4 @@ The 15MB threshold is advisory only (proceed on confirm); 25MB is the hard clien
 
 - **Storage growth:** three derivatives per image instead of two, and larger main/zoom. For a small candle catalog this is negligible (low hundreds of KB per image).
 - **Zoom dimension tuning:** 2400×3000 is a starting point; if zoom still feels soft on very large monitors it can be raised toward the 25MP pixel ceiling (e.g. 3000×3750 = 11.25MP) without other changes.
-- **Nginx config lives outside the repo** — the deploy step to raise `client_max_body_size` must not be forgotten, or 25MB uploads 413 at the proxy before reaching FastAPI.
+- **Nginx config lives outside the repo** — the deploy step to raise `client_max_body_size` must not be forgotten, and it must include multipart overhead, or exact 25MB uploads can 413 at the proxy before reaching FastAPI.

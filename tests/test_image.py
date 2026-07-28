@@ -68,19 +68,18 @@ class TestValidateImageFile:
         data = _make_png()
         validate_image_file(data, "midnight-amber")  # Should not raise
 
-    def test_exactly_5mb_accepted(self):
-        """File at exactly 5MB boundary is accepted."""
-        # Create a JPEG header followed by padding up to exactly 5MB
+    def test_exactly_25mb_accepted(self):
+        """File at exactly 25MB boundary is accepted."""
+        # Create a JPEG header followed by padding up to exactly 25MB
         img_data = _make_jpeg()
-        # Pad to exactly 5MB
-        padded = img_data + b"\x00" * (5 * 1024 * 1024 - len(img_data))
+        padded = img_data + b"\x00" * (25 * 1024 * 1024 - len(img_data))
         # This will pass size validation (magic bytes are valid)
         validate_image_file(padded, "test-product")
 
-    def test_5mb_plus_one_byte_rejected(self):
-        """File at 5MB + 1 byte is rejected."""
+    def test_25mb_plus_one_byte_rejected(self):
+        """File at 25MB + 1 byte is rejected."""
         img_data = _make_jpeg()
-        oversized = img_data + b"\x00" * (5 * 1024 * 1024 - len(img_data) + 1)
+        oversized = img_data + b"\x00" * (25 * 1024 * 1024 - len(img_data) + 1)
         with pytest.raises(FileTooLargeError):
             validate_image_file(oversized, "test-product")
 
@@ -115,29 +114,34 @@ class TestProcessImage:
     """Task 57: process_image tests."""
 
     def test_landscape_image_resized_within_bounds(self, tmp_path):
-        """Landscape image is resized to fit within 1200x1500 bounding box."""
-        img_data = _make_jpeg(2400, 1600)
+        """Landscape image is resized to fit within configured bounding boxes."""
+        img_data = _make_jpeg(6000, 4000)
         result = process_image(img_data, "landscape-candle", str(tmp_path))
 
         assert result["image_url"] == "/static/products/landscape-candle.webp"
         assert result["thumbnail_url"] == "/static/products/landscape-candle_thumb.webp"
+        assert result["zoom_url"] == "/static/products/landscape-candle_zoom.webp"
 
         # Verify main image dimensions
         main_path = tmp_path / "products" / "landscape-candle.webp"
+        zoom_path = tmp_path / "products" / "landscape-candle_zoom.webp"
         assert main_path.exists()
         with Image.open(main_path) as img:
-            assert img.width <= 1200
-            assert img.height <= 1500
+            assert img.size == (2000, 1333)
+        with Image.open(zoom_path) as img:
+            assert img.size == (2400, 1600)
 
     def test_portrait_image_resized(self, tmp_path):
         """Portrait image fits within bounding box."""
-        img_data = _make_jpeg(1000, 3000)
+        img_data = _make_jpeg(3000, 6000)
         process_image(img_data, "portrait-candle", str(tmp_path))
 
         main_path = tmp_path / "products" / "portrait-candle.webp"
+        zoom_path = tmp_path / "products" / "portrait-candle_zoom.webp"
         with Image.open(main_path) as img:
-            assert img.width <= 1200
-            assert img.height <= 1500
+            assert img.size == (1250, 2500)
+        with Image.open(zoom_path) as img:
+            assert img.size == (1500, 3000)
 
     def test_small_image_no_upscale(self, tmp_path):
         """Small image is NOT upscaled (thumbnail mode)."""
@@ -145,30 +149,42 @@ class TestProcessImage:
         process_image(img_data, "small-candle", str(tmp_path))
 
         main_path = tmp_path / "products" / "small-candle.webp"
+        thumb_path = tmp_path / "products" / "small-candle_thumb.webp"
+        zoom_path = tmp_path / "products" / "small-candle_zoom.webp"
         with Image.open(main_path) as img:
+            assert img.width == 200
+            assert img.height == 150
+        with Image.open(thumb_path) as img:
+            assert img.width == 200
+            assert img.height == 150
+        with Image.open(zoom_path) as img:
             assert img.width == 200
             assert img.height == 150
 
     def test_output_is_webp_format(self, tmp_path):
-        """Both main and thumbnail are saved as WebP."""
+        """Main, thumbnail, and zoom are saved as WebP."""
         img_data = _make_jpeg(800, 600)
         process_image(img_data, "webp-test", str(tmp_path))
 
         main_path = tmp_path / "products" / "webp-test.webp"
         thumb_path = tmp_path / "products" / "webp-test_thumb.webp"
+        zoom_path = tmp_path / "products" / "webp-test_zoom.webp"
 
         with Image.open(main_path) as img:
             assert img.format == "WEBP"
         with Image.open(thumb_path) as img:
             assert img.format == "WEBP"
+        with Image.open(zoom_path) as img:
+            assert img.format == "WEBP"
 
-    def test_both_main_and_thumb_created(self, tmp_path):
-        """Both main and thumbnail files are created."""
+    def test_main_thumb_and_zoom_created(self, tmp_path):
+        """Main, thumbnail, and zoom files are created."""
         img_data = _make_jpeg(800, 600)
         process_image(img_data, "both-test", str(tmp_path))
 
         assert (tmp_path / "products" / "both-test.webp").exists()
         assert (tmp_path / "products" / "both-test_thumb.webp").exists()
+        assert (tmp_path / "products" / "both-test_zoom.webp").exists()
 
     def test_thumbnail_smaller_than_main(self, tmp_path):
         """Thumbnail dimensions are within 400x500."""
@@ -223,7 +239,9 @@ class TestImageUploadRoute:
         assert "id" in body
         assert "image_url" in body
         assert "thumbnail_url" in body
+        assert "zoom_url" in body
         assert body["image_url"].startswith("/static/products/test-candle-img_")
+        assert body["zoom_url"].startswith("/static/products/test-candle-img_")
         assert body["is_primary"] is True
 
     @pytest.mark.asyncio
@@ -258,14 +276,15 @@ class TestImageUploadRoute:
 
     @pytest.mark.asyncio
     async def test_upload_file_too_large(self, admin_client: AsyncClient, _product):
-        """6MB file → 422."""
-        oversized = b"\xff\xd8\xff" + b"\x00" * (6 * 1024 * 1024)
+        """>25MB file → 422."""
+        oversized = b"\xff\xd8\xff" + b"\x00" * (25 * 1024 * 1024 + 1)
         response = await admin_client.post(
             "/v1/admin/products/test-candle-img/images",
             files={"file": ("big.jpg", oversized, "image/jpeg")},
         )
         assert response.status_code == 422
         assert response.json()["error"]["code"] == "file_too_large"
+        assert "25MB" in response.json()["error"]["message"]
 
     @pytest.mark.asyncio
     async def test_upload_inserts_product_image_row(
@@ -290,12 +309,16 @@ class TestImageUploadRoute:
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT image_url, thumbnail_url, is_primary FROM product_images WHERE product_id = ?",
+            (
+                "SELECT image_url, thumbnail_url, zoom_url, is_primary "
+                "FROM product_images WHERE product_id = ?"
+            ),
             ("test-candle-img",),
         ).fetchone()
         conn.close()
         assert row["image_url"].startswith("/static/products/test-candle-img_")
         assert row["thumbnail_url"].startswith("/static/products/test-candle-img_")
+        assert row["zoom_url"].startswith("/static/products/test-candle-img_")
         assert row["is_primary"] == 1
 
 
@@ -335,6 +358,8 @@ class TestImageOverwrite:
         assert result1["image_url"] != result2["image_url"]
         assert (tmp_path / "products" / f"gallery-test_{id1}.webp").exists()
         assert (tmp_path / "products" / f"gallery-test_{id2}.webp").exists()
+        assert (tmp_path / "products" / f"gallery-test_{id1}_zoom.webp").exists()
+        assert (tmp_path / "products" / f"gallery-test_{id2}_zoom.webp").exists()
 
 
 # --- Test directory auto-creation ---
@@ -387,17 +412,23 @@ class TestPixelFlood:
         # Should not raise
         result = process_image(img_data, "large-ok", str(tmp_path))
         assert "image_url" in result
+        assert "zoom_url" in result
 
     def test_over_25m_pixels_rejected(self, tmp_path):
         """5001×5000 > 25M pixels → rejected."""
-        # Temporarily increase MAX_IMAGE_PIXELS to create the test image
+        # Temporarily increase MAX_IMAGE_PIXELS to create the test image. Use
+        # try/finally so a failure mid-creation cannot leave the global disabled
+        # for the rest of this xdist worker (which would silently defeat the
+        # decompression-bomb guard in every subsequent test).
         old_max = Image.MAX_IMAGE_PIXELS
         Image.MAX_IMAGE_PIXELS = None  # Disable for creation
-        img = Image.new("RGB", (5001, 5000), color=(128, 128, 128))
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG")
-        img_data = buf.getvalue()
-        Image.MAX_IMAGE_PIXELS = old_max  # Restore for processing
+        try:
+            img = Image.new("RGB", (5001, 5000), color=(128, 128, 128))
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG")
+            img_data = buf.getvalue()
+        finally:
+            Image.MAX_IMAGE_PIXELS = old_max  # Restore for processing
 
         with pytest.raises(ImageProcessingError, match="image_dimensions_too_large"):
             process_image(img_data, "too-large", str(tmp_path))
