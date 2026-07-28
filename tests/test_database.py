@@ -84,6 +84,13 @@ class TestCleanupExpiredSessions:
         assert count == 0
 
 
+class TestProductImagesSchema:
+    def test_fresh_db_has_zoom_url_column(self, db_conn: sqlite3.Connection):
+        columns = {row[1] for row in db_conn.execute("PRAGMA table_info(product_images)")}
+
+        assert "zoom_url" in columns
+
+
 class TestDatabaseConstraints:
     """Verify CHECK constraints enforce data integrity at the DB level."""
 

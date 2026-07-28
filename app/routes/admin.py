@@ -7,6 +7,7 @@ import sqlite3
 from typing import get_args
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 
 from app.constants import MAX_CSV_ROWS, MAX_CSV_UPLOAD_BYTES, MAX_PRICE_CENTS, MAX_STOCK
@@ -861,7 +862,7 @@ async def _read_upload_with_limit(file: UploadFile) -> bytes:
             break
         chunks.extend(chunk)
         if len(chunks) > MAX_FILE_SIZE:
-            raise FileTooLargeError("File size exceeds maximum of 5MB")
+            raise FileTooLargeError("File size exceeds maximum of 25MB")
     return bytes(chunks)
 
 
@@ -887,7 +888,7 @@ async def admin_append_product_image(
     """Upload and append a processed image to a product gallery.
 
     Validates the file (type, size, slug), processes it (resize, strip EXIF,
-    convert to WebP), saves main + thumbnail, and stores a product_images row.
+    convert to WebP), saves main + thumbnail + zoom, and stores a product_images row.
     """
     # Read file bytes with an application-level limit. Nginx should reject
     # larger production uploads first; this is defense-in-depth for app access.
@@ -899,7 +900,7 @@ async def admin_append_product_image(
             content={
                 "error": {
                     "code": "file_too_large",
-                    "message": "File size exceeds maximum of 5MB",
+                    "message": "File size exceeds maximum of 25MB",
                 }
             },
         )
@@ -923,7 +924,7 @@ async def admin_append_product_image(
             content={
                 "error": {
                     "code": "file_too_large",
-                    "message": "File size exceeds maximum of 5MB",
+                    "message": "File size exceeds maximum of 25MB",
                 }
             },
         )
@@ -939,7 +940,9 @@ async def admin_append_product_image(
         )
 
     try:
-        image = product_image_service.add_image(product_id, file_bytes)
+        # Pillow decode/resize/encode is CPU-bound and blocking; run it off the
+        # event loop so concurrent Layer-1 requests are not stalled by an upload.
+        image = await run_in_threadpool(product_image_service.add_image, product_id, file_bytes)
     except product_image_service.ProductNotFoundError:
         return JSONResponse(
             status_code=404,

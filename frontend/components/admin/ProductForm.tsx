@@ -44,7 +44,9 @@ export interface ProductFormData {
   discount_ends_at: string | null;
 }
 
-const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+const MB = 1024 * 1024;
+const MAX_IMAGE_SIZE = 25 * MB;
+const LARGE_IMAGE_WARNING_SIZE = 15 * MB;
 
 // Mirrors the backend MAX_WEIGHT_GRAMS bound (app/models/products.py).
 const MAX_WEIGHT_GRAMS = 100_000;
@@ -93,6 +95,9 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [images, setImages] = useState<ProductImage[]>(product?.images ?? []);
   const [deletedImageIds, setDeletedImageIds] = useState<string[]>([]);
+  const [pendingImageFiles, setPendingImageFiles] = useState<File[] | null>(null);
+  const largeImageDialogRef = useRef<HTMLDivElement>(null);
+  const largeImageCancelRef = useRef<HTMLButtonElement>(null);
 
   // Local string state for price input to avoid cursor jumping
   const [priceDisplay, setPriceDisplay] = useState(
@@ -185,6 +190,55 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
   const translationStaleBg = product?.translation_stale_bg;
   const translationStaleEn = product?.translation_stale_en;
 
+  useEffect(() => {
+    if (!pendingImageFiles) return;
+
+    const previousActiveElement = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    largeImageCancelRef.current?.focus();
+    document.body.style.overflow = "hidden";
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setPendingImageFiles(null);
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const dialog = largeImageDialogRef.current;
+      if (!dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      ));
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) return;
+      // Re-capture focus if it has escaped the dialog (e.g. onto background content).
+      if (!dialog.contains(document.activeElement)) {
+        event.preventDefault();
+        first.focus();
+        return;
+      }
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "";
+      previousActiveElement?.focus();
+    };
+  }, [pendingImageFiles]);
+
   function validate(): boolean {
     const newErrors: Record<string, string> = {};
     if (!formData.name_en.trim()) newErrors.name_en = t("validation.nameEnRequired");
@@ -227,6 +281,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (pendingImageFiles) return;
     if (!validate()) return;
 
     setIsSubmitting(true);
@@ -283,6 +338,10 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
     return url.startsWith("/static/") ? `${BASE_URL}${url}` : url;
   }
 
+  function formatFileSizeMb(bytes: number): string {
+    return (bytes / MB).toFixed(1);
+  }
+
   function moveImage(index: number, direction: -1 | 1) {
     const nextIndex = index + direction;
     if (nextIndex < 0 || nextIndex >= images.length) return;
@@ -303,11 +362,32 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
     syncImages(images.map((image) => ({ ...image, is_primary: image.id === imageId })));
   }
 
+  function commitFiles(files: File[]) {
+    updateField("image_files", [...formData.image_files, ...files].slice(0, 6 - images.length));
+  }
+
   function addFiles(files: FileList | null) {
     if (!files) return;
-    const nextFiles = [...formData.image_files, ...Array.from(files)].slice(0, 6 - images.length);
-    updateField("image_files", nextFiles);
+    const availableSlots = 6 - images.length - formData.image_files.length;
+    const selectedFiles = Array.from(files).slice(0, availableSlots);
+    if (selectedFiles.length === 0) return;
+
+    if (selectedFiles.some((file) => file.size > MAX_IMAGE_SIZE)) {
+      setErrors((prev) => ({ ...prev, image_files: t("validation.imageSize") }));
+      return;
+    }
+
+    if (selectedFiles.some((file) => file.size >= LARGE_IMAGE_WARNING_SIZE)) {
+      setPendingImageFiles(selectedFiles);
+      return;
+    }
+
+    commitFiles(selectedFiles);
   }
+
+  const pendingLargestImageSize = pendingImageFiles
+    ? Math.max(...pendingImageFiles.map((file) => file.size))
+    : 0;
 
   const percentNum = Number(discountPercent);
   const showDiscountPreview =
@@ -578,7 +658,10 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
             accept="image/jpeg,image/png"
             multiple
             disabled={images.length + formData.image_files.length >= 6}
-            onChange={(e) => addFiles(e.target.files)}
+            onChange={(e) => {
+              addFiles(e.target.files);
+              e.currentTarget.value = "";
+            }}
             className="block w-full rounded-brand border border-champagne-beige bg-cream px-3 py-2 text-sm text-soft-brown file:mr-4 file:rounded-brand file:border-0 file:bg-charcoal file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-warm-ivory hover:file:bg-soft-brown focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
           />
           {errors.image_files && (
@@ -588,6 +671,51 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
             <p className="mt-1.5 text-xs text-soft-brown/70">
               {t("selectedFiles", { count: formData.image_files.length })}
             </p>
+          )}
+          {pendingImageFiles && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/60 p-4"
+              onMouseDown={(event) => {
+                if (event.target === event.currentTarget) setPendingImageFiles(null);
+              }}
+            >
+              <div
+                ref={largeImageDialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="large-image-title"
+                aria-describedby="large-image-desc"
+                className="w-full max-w-md rounded-brand bg-warm-ivory p-5 shadow-lg"
+              >
+                <h2 id="large-image-title" className="font-heading text-lg text-charcoal">
+                  {t("largeImageTitle")}
+                </h2>
+                <p id="large-image-desc" className="mt-2 text-sm text-soft-brown">
+                  {t("largeImageWarning", {
+                    size: formatFileSizeMb(pendingLargestImageSize),
+                  })}
+                </p>
+                <div className="mt-5 flex justify-end gap-2">
+                  <Button
+                    ref={largeImageCancelRef}
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setPendingImageFiles(null)}
+                  >
+                    {tCommon("cancel")}
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      commitFiles(pendingImageFiles);
+                      setPendingImageFiles(null);
+                    }}
+                  >
+                    {t("addAnyway")}
+                  </Button>
+                </div>
+              </div>
+            </div>
           )}
         </div>
         <Input
@@ -702,7 +830,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
       </div>
 
       <div className="flex items-center gap-3 border-t border-champagne-beige pt-6">
-        <Button type="submit" isLoading={isSubmitting}>
+        <Button type="submit" isLoading={isSubmitting} disabled={Boolean(pendingImageFiles)}>
           {submitLabel}
         </Button>
         <Button
