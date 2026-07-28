@@ -24,6 +24,7 @@ from app.routes import (
     comments,
     contact,
     delivery,
+    faq,
     locale,
     orders,
     products,
@@ -86,9 +87,7 @@ def _cancel_abandoned_card_orders() -> int:
             current = order_row["status"]
             if "cancelled" not in VALID_TRANSITIONS.get(current, set()):
                 continue
-            conn.execute(
-                "UPDATE orders SET status = 'cancelled' WHERE id = ?", (order_id,)
-            )
+            conn.execute("UPDATE orders SET status = 'cancelled' WHERE id = ?", (order_id,))
             item_rows = conn.execute(
                 "SELECT product_id, quantity FROM order_items WHERE order_id = ?",
                 (order_id,),
@@ -270,6 +269,8 @@ def create_app() -> FastAPI:
     application.include_router(admin.router, prefix="/v1/admin", tags=["admin"])
     application.include_router(taxonomy.public_router, prefix="/v1/taxonomy", tags=["taxonomy"])
     application.include_router(taxonomy.admin_router, prefix="/v1/admin/taxonomy", tags=["admin"])
+    application.include_router(faq.public_router, prefix="/v1/faq", tags=["faq"])
+    application.include_router(faq.admin_router, prefix="/v1/admin/faq", tags=["admin-faq"])
     application.include_router(
         promotions.admin_router, prefix="/v1/admin/promotions", tags=["admin-promotions"]
     )

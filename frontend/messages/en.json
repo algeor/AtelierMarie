@@ -20,6 +20,7 @@
     "home": "Home",
     "shop": "Shop",
     "about": "About",
+    "faq": "FAQ",
     "contact": "Contact",
     "mainNavigation": "Main navigation",
     "footerNavigation": "Footer navigation"
@@ -63,6 +64,31 @@
     "submitting": "Sending...",
     "success": "Thank you. We will get back to you soon.",
     "genericError": "Something went wrong. Please try again later."
+  },
+  "faq": {
+    "eyebrow": "Atelier Marie",
+    "title": "FAQ",
+    "metaTitle": "FAQ | Atelier Marie",
+    "metaDescription": "Answers about Atelier Marie candles, candle care, custom orders, shipping, and returns.",
+    "subtitle": "Have a question? You may find the answer below. If not, we'd love to hear from you. Simply get in touch through our Contact Form, and we'll be happy to help.",
+    "contactUs": "Contact Us",
+    "footerLink": "FAQ",
+    "bannerTitle": "Still have a question?",
+    "bannerText": "If you couldn't find the answer you were looking for, we're always happy to help. Get in touch through our Contact Form, and we'll get back to you as soon as we can.",
+    "trustCards": [
+      {
+        "title": "Handmade in the atelier",
+        "text": "Every candle is prepared with careful attention to detail, finish, and presentation."
+      },
+      {
+        "title": "Gift-ready packaging",
+        "text": "Orders arrive beautifully presented and ready to give."
+      },
+      {
+        "title": "Personal support",
+        "text": "Custom requests and order questions are answered directly from the atelier."
+      }
+    ]
   },
   "auth": {
     "signIn": "Sign In",
@@ -128,7 +154,12 @@
     "noMatch": "No products match your filters.",
     "discountBadge": "−{percent}%",
     "salePrice": "Sale price",
-    "originalPrice": "Original price"
+    "originalPrice": "Original price",
+    "faqLinksTitle": "Helpful links",
+    "faqCare": "Candle Care",
+    "faqCustom": "Custom Orders",
+    "faqShipping": "Shipping & Returns",
+    "questions": "Questions?"
   },
   "comments": {
     "title": "Comments",
@@ -312,6 +343,7 @@
     "dashboard": "Dashboard",
     "products": "Products",
     "orders": "Orders",
+    "faqNav": "FAQ",
     "manageOrders": "Manage customer orders",
     "manageProducts": "Manage your product catalog",
     "storeOverview": "Overview of your store performance",
@@ -483,6 +515,34 @@
       "renameBgPrompt": "New Bulgarian name (leave blank for none):",
       "deleteConfirm": "Delete \"{name}\"? This cannot be undone.",
       "inUse": "\"{name}\" is still used by products. Reassign or deactivate it instead of deleting."
+    },
+    "faq": {
+      "title": "FAQ",
+      "subtitle": "Edit customer-facing FAQ content in English and Bulgarian.",
+      "loading": "Loading FAQ…",
+      "loadError": "Could not load FAQ.",
+      "saveError": "Could not save FAQ changes.",
+      "createItem": "Create item",
+      "newItem": "New item",
+      "questionEn": "Question (EN)",
+      "questionBg": "Question (BG)",
+      "answerEn": "Answer (EN)",
+      "answerBg": "Answer (BG)",
+      "titleEn": "Title (EN)",
+      "titleBg": "Title (BG)",
+      "icon": "Icon",
+      "published": "Published",
+      "hidden": "Hidden",
+      "show": "Show",
+      "hide": "Hide",
+      "saveItem": "Save item",
+      "saveSection": "Save section",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "deleteItem": "Delete item",
+      "empty": "No FAQ items in this section yet.",
+      "questionEnRequired": "English question is required.",
+      "answerEnRequired": "English answer is required."
     },
     "productType": "Product type",
     "selectProductType": "Select product type...",

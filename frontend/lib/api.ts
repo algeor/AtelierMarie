@@ -30,6 +30,11 @@ import type {
   CreateOrderRequest,
   CreateProductRequest,
   CreateTaxonomyTermRequest,
+  CreateFaqItemRequest,
+  FaqAdminResponse,
+  FaqItemAdminResponse,
+  FaqResponse,
+  FaqSectionAdminResponse,
   ImageUploadResponse,
   OfficeResponse,
   OfficeType,
@@ -44,6 +49,9 @@ import type {
   ProductImage,
   TaxonomyKind,
   TaxonomyResponse,
+  ReorderFaqItemsRequest,
+  UpdateFaqItemRequest,
+  UpdateFaqSectionRequest,
   UpdateProductRequest,
   UpdateTaxonomyTermRequest,
   UserResponse,
@@ -124,6 +132,62 @@ export async function updateTaxonomyTerm(
 export async function deleteTaxonomyTerm(kind: TaxonomyKind, slug: string): Promise<void> {
   if (USE_MOCK) return (await getMock()).deleteTaxonomyTerm(kind, slug);
   return apiClient.del<void>(`/v1/admin/taxonomy/${kind}/${encodeURIComponent(slug)}`);
+}
+
+// --- FAQ ---
+
+export async function getFaq(locale?: Locale): Promise<FaqResponse> {
+  if (USE_MOCK) return (await getMock()).getFaq(locale);
+  const params = new URLSearchParams();
+  if (locale) params.set("locale", locale);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<FaqResponse>(`/v1/faq${query}`);
+}
+
+export async function getAdminFaq(): Promise<FaqAdminResponse> {
+  if (USE_MOCK) return (await getMock()).getAdminFaq();
+  return apiClient.get<FaqAdminResponse>("/v1/admin/faq");
+}
+
+export async function createFaqItem(
+  data: CreateFaqItemRequest
+): Promise<FaqItemAdminResponse> {
+  if (USE_MOCK) return (await getMock()).createFaqItem(data);
+  return apiClient.post<FaqItemAdminResponse>("/v1/admin/faq", data);
+}
+
+export async function updateFaqItem(
+  itemId: number,
+  data: UpdateFaqItemRequest
+): Promise<FaqItemAdminResponse> {
+  if (USE_MOCK) return (await getMock()).updateFaqItem(itemId, data);
+  return apiClient.patch<FaqItemAdminResponse>(
+    `/v1/admin/faq/items/${encodeURIComponent(String(itemId))}`,
+    data
+  );
+}
+
+export async function deleteFaqItem(itemId: number): Promise<void> {
+  if (USE_MOCK) return (await getMock()).deleteFaqItem(itemId);
+  return apiClient.del<void>(`/v1/admin/faq/items/${encodeURIComponent(String(itemId))}`);
+}
+
+export async function reorderFaqItems(
+  data: ReorderFaqItemsRequest
+): Promise<FaqAdminResponse> {
+  if (USE_MOCK) return (await getMock()).reorderFaqItems(data);
+  return apiClient.patch<FaqAdminResponse>("/v1/admin/faq/reorder", data);
+}
+
+export async function updateFaqSection(
+  slug: string,
+  data: UpdateFaqSectionRequest
+): Promise<FaqSectionAdminResponse> {
+  if (USE_MOCK) return (await getMock()).updateFaqSection(slug, data);
+  return apiClient.patch<FaqSectionAdminResponse>(
+    `/v1/admin/faq/sections/${encodeURIComponent(slug)}`,
+    data
+  );
 }
 
 function localeQuery(locale?: Locale): string {
