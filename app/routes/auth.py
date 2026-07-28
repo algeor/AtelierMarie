@@ -56,8 +56,9 @@ async def login(
 async def callback(
     request: Request,
     session_id: Annotated[str, Depends(require_session)],
-    code: str = Query(...),
-    state: str = Query(...),
+    code: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    error: str | None = Query(default=None),
 ) -> Response:
     """Handle Google OAuth callback.
 
@@ -66,6 +67,18 @@ async def callback(
     """
     settings = get_settings()
     frontend_base = settings.frontend_url
+
+    if error:
+        logger.info("OAuth callback returned error %s for session %s", error, session_id[:8])
+        frontend_error = "oauth_cancelled" if error == "access_denied" else "oauth_error"
+        return RedirectResponse(
+            f"{frontend_base}/auth/callback?error={frontend_error}", status_code=302
+        )
+
+    if not code or not state:
+        return RedirectResponse(
+            f"{frontend_base}/auth/callback?error=oauth_missing_params", status_code=302
+        )
 
     try:
         # Validate state (CSRF + session binding)

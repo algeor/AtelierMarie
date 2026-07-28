@@ -423,6 +423,19 @@ class TestCallbackRoute:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("_configure_oauth")
+    async def test_callback_oauth_cancel_redirects_to_frontend(self, auth_client: AsyncClient):
+        """Google cancel sends error=access_denied without code; redirect to frontend."""
+        response = await auth_client.get(
+            "/v1/auth/callback",
+            params={"error": "access_denied", "state": "cancel-state"},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 302
+        assert response.headers["location"].endswith("/auth/callback?error=oauth_cancelled")
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("_configure_oauth")
     async def test_callback_happy_path(self, auth_client: AsyncClient, session_id, db_path):
         """GET /v1/auth/callback with valid state completes the OAuth flow."""
         settings = get_settings()

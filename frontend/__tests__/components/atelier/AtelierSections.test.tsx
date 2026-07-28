@@ -1,7 +1,7 @@
 import React from "react";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { bodyBlocks } from "@/components/atelier/BodyRenderer";
+import { BodyRenderer, bodyBlocks } from "@/components/atelier/BodyRenderer";
 import { renderAtelierSection } from "@/components/atelier/AtelierSections";
 import type { AboutSection } from "@/lib/types";
 
@@ -35,6 +35,23 @@ describe("BodyRenderer", () => {
       { type: "p", text: "Last paragraph." },
     ]);
   });
+
+  it("renders quote lines as pull quotes", () => {
+    expect(bodyBlocks("Intro.\n\n> Beautiful thought.")).toEqual([
+      { type: "p", text: "Intro." },
+      { type: "quote", text: "Beautiful thought." },
+    ]);
+
+    render(<BodyRenderer body={'Intro.\n\n> Beautiful thought.'} />);
+    expect(screen.getByText(/Beautiful thought\./).tagName).toBe("BLOCKQUOTE");
+  });
+
+  it("turns inline emphasized quotes into pull quotes", () => {
+    expect(bodyBlocks('The story began with a thought: *"Beautiful thought."*')).toEqual([
+      { type: "p", text: "The story began with a thought:" },
+      { type: "quote", text: "Beautiful thought." },
+    ]);
+  });
 });
 
 describe("renderAtelierSection", () => {
@@ -43,6 +60,27 @@ describe("renderAtelierSection", () => {
     expect(screen.getByRole("heading", { name: "Our Values" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Craftsmanship" })).toBeInTheDocument();
     expect(container.querySelector("section#values")?.className).toContain("scroll-mt-24");
+  });
+
+  it("normalizes relative CTA hrefs to absolute internal routes", () => {
+    render(
+      <>
+        {renderAtelierSection(
+          section({
+            slug: "custom_cta",
+            type: "cta_band",
+            heading: "Looking for Something Unique?",
+            body: "Create a personalised candle.",
+            cta: { label: "Request a Custom Order", href: "contact" },
+          })
+        )}
+      </>
+    );
+
+    expect(screen.getByRole("link", { name: "Request a Custom Order" })).toHaveAttribute(
+      "href",
+      "/contact"
+    );
   });
 
   it("returns null for unknown types", () => {

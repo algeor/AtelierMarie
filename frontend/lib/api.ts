@@ -472,7 +472,19 @@ export async function submitContact(
 
 export async function getAdminStats(): Promise<AdminStats> {
   if (USE_MOCK) return (await getMock()).getAdminStats();
-  return apiClient.get<AdminStats>("/v1/admin/stats");
+  const stats = await apiClient.get<
+    AdminStats & {
+      products?: { active?: number };
+      orders?: { total?: number; revenue_cents?: number };
+    }
+  >("/v1/admin/dashboard");
+
+  return {
+    orders_today: stats.orders_today ?? stats.orders?.total ?? 0,
+    revenue_this_week_cents:
+      stats.revenue_this_week_cents ?? stats.orders?.revenue_cents ?? 0,
+    active_product_count: stats.active_product_count ?? stats.products?.active ?? 0,
+  };
 }
 
 export async function getAdminProducts(

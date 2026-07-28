@@ -6,7 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { getCurrentUser } from "@/lib/api";
 import { validateRedirectPath } from "@/lib/validateRedirectPath";
 
-type CallbackState = "loading" | "error";
+type CallbackState = "loading" | "error" | "cancelled";
 
 export function CallbackHandler() {
   const searchParams = useSearchParams();
@@ -17,9 +17,9 @@ export function CallbackHandler() {
   useEffect(() => {
     const error = searchParams.get("error");
 
-    // If error param is present, show error immediately without API call
+    // If error param is present, show result immediately without API call
     if (error) {
-      setState("error");
+      setState(error === "oauth_cancelled" ? "cancelled" : "error");
       return;
     }
 
@@ -60,15 +60,18 @@ export function CallbackHandler() {
     };
   }, [searchParams, router, loginComplete]);
 
-  if (state === "error") {
+  if (state === "error" || state === "cancelled") {
+    const isCancelled = state === "cancelled";
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
         <div className="text-center max-w-md mx-auto px-4">
           <h1 className="font-heading text-2xl text-charcoal mb-4">
-            Sign in failed
+            {isCancelled ? "Sign in cancelled" : "Sign in failed"}
           </h1>
           <p className="text-soft-brown mb-6">
-            Something went wrong during sign in. Please try again.
+            {isCancelled
+              ? "No problem. You can keep browsing or try signing in again."
+              : "Something went wrong during sign in. Please try again."}
           </p>
           <button
             onClick={login}
