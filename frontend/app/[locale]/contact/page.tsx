@@ -5,11 +5,12 @@ import { INSTAGRAM_URL, TIKTOK_URL } from "@/lib/social";
 import type { Locale } from "@/i18n/routing";
 
 interface ContactPageProps {
-  params: { locale: Locale };
+  params: Promise<{ locale: Locale }>;
 }
 
 export async function generateMetadata({ params }: ContactPageProps): Promise<Metadata> {
-  const t = await getTranslations({ locale: params.locale, namespace: "contact" });
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "contact" });
   return {
     title: `${t("title")} | Atelier Marie`,
     description: t("intro"),
@@ -17,7 +18,8 @@ export async function generateMetadata({ params }: ContactPageProps): Promise<Me
 }
 
 export default async function ContactPage({ params }: ContactPageProps) {
-  const t = await getTranslations({ locale: params.locale, namespace: "contact" });
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "contact" });
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-12 sm:px-6 lg:px-8 lg:py-16">

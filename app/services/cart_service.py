@@ -6,12 +6,12 @@ No HTTP concerns — testable without FastAPI/Starlette.
 
 import sqlite3
 from dataclasses import dataclass, field
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 import structlog
 
 from app.config import get_settings
-from app.services import pricing
+from app.services import pricing, taxonomy_service
 from app.services.product_image_service import images_for_products, with_image_fields
 
 logger = structlog.get_logger(__name__)
@@ -95,6 +95,12 @@ class ProductDict(TypedDict):
     discount_percent: int | None
     discount_active: bool
     category: str | None
+    category_name: str | None
+    product_type: str
+    product_type_name: str
+    labels: list[dict]
+    product_type_slug: NotRequired[str]
+    category_slug: NotRequired[str | None]
     images: list[dict]
     primary_image_url: str | None
     primary_thumbnail_url: str | None
@@ -157,7 +163,7 @@ def get_cart(conn: sqlite3.Connection, session_id: str, locale: Locale = "en") -
         f"""
         SELECT ci.product_id, ci.quantity, ci.added_at,
                p.id AS p_id, {name_expr}, {description_expr}, p.materials,
-               p.days_to_craft, p.price_cents, p.category,
+               p.days_to_craft, p.price_cents, p.product_type_slug, p.category_slug,
                p.discount_percent, p.discount_starts_at, p.discount_ends_at,
                p.stock, p.is_active, p.is_featured,
                p.created_at, p.updated_at
@@ -178,6 +184,7 @@ def get_cart(conn: sqlite3.Connection, session_id: str, locale: Locale = "en") -
 
     active_product_ids = [row["p_id"] for row in rows if row["p_id"] is not None]
     image_map = images_for_products(conn, active_product_ids)
+    active_entries: list[tuple[sqlite3.Row, dict]] = []
 
     for row in rows:
         if row["p_id"] is None:
@@ -198,41 +205,56 @@ def get_cart(conn: sqlite3.Connection, session_id: str, locale: Locale = "en") -
                 )
             )
         else:
-            product_data = {
-                "id": row["p_id"],
-                "name": row["name"],
-                "description": row["description"],
-                "materials": row["materials"],
-                "days_to_craft": row["days_to_craft"],
-                "price_cents": row["price_cents"],
-                "discount_percent": row["discount_percent"],
-                "discount_starts_at": row["discount_starts_at"],
-                "discount_ends_at": row["discount_ends_at"],
-                "category": row["category"],
-                "stock": row["stock"],
-                "is_active": bool(row["is_active"]),
-                "is_featured": bool(row["is_featured"]),
-                "created_at": row["created_at"],
-                "updated_at": row["updated_at"],
-            }
-            # Public pricing: effective_price_cents + active display percent;
-            # window timestamps are stripped and never returned to the client.
-            product_data = pricing.annotate_product_pricing(product_data, now, public=True)
-            effective_price = product_data["effective_price_cents"]
-            product: ProductDict = with_image_fields(
-                product_data,
-                image_map.get(row["p_id"], []),
-            )
-            items.append(
-                CartItem(
-                    product_id=row["product_id"],
-                    product=product,
-                    quantity=row["quantity"],
-                    added_at=row["added_at"],
+            active_entries.append(
+                (
+                    row,
+                    {
+                        "id": row["p_id"],
+                        "name": row["name"],
+                        "description": row["description"],
+                        "materials": row["materials"],
+                        "days_to_craft": row["days_to_craft"],
+                        "price_cents": row["price_cents"],
+                        "discount_percent": row["discount_percent"],
+                        "discount_starts_at": row["discount_starts_at"],
+                        "discount_ends_at": row["discount_ends_at"],
+                        "product_type_slug": row["product_type_slug"],
+                        "category_slug": row["category_slug"],
+                        "stock": row["stock"],
+                        "is_active": bool(row["is_active"]),
+                        "is_featured": bool(row["is_featured"]),
+                        "created_at": row["created_at"],
+                        "updated_at": row["updated_at"],
+                    },
                 )
             )
-            total_cents += effective_price * row["quantity"]
-            item_count += row["quantity"]
+
+    # Batch-resolve taxonomy display metadata for all active products at once.
+    taxonomy_service.resolve_products_taxonomy(
+        conn,
+        [product_data for _, product_data in active_entries],
+        locale,
+    )
+
+    for row, product_data in active_entries:
+        # Public pricing: effective_price_cents + active display percent;
+        # window timestamps are stripped and never returned to the client.
+        product_data = pricing.annotate_product_pricing(product_data, now, public=True)
+        effective_price = product_data["effective_price_cents"]
+        product: ProductDict = with_image_fields(
+            product_data,
+            image_map.get(row["p_id"], []),
+        )
+        items.append(
+            CartItem(
+                product_id=row["product_id"],
+                product=product,
+                quantity=row["quantity"],
+                added_at=row["added_at"],
+            )
+        )
+        total_cents += effective_price * row["quantity"]
+        item_count += row["quantity"]
 
     return CartData(
         items=items,

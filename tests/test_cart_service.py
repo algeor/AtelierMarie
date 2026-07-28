@@ -95,6 +95,31 @@ class TestGetCart:
         assert cart.total_cents == 10400
         assert cart.item_count == 5  # 2 + 3
 
+    def test_cart_item_product_includes_taxonomy_metadata(self, cart_db: sqlite3.Connection):
+        """Cart product payloads expose managed taxonomy, including labels."""
+        cart_db.execute(
+            "UPDATE products SET product_type_slug = ?, category_slug = ? WHERE id = ?",
+            ("boxes", "premium", "lavender-dream"),
+        )
+        cart_db.execute(
+            "INSERT INTO product_label_assignments (product_id, label_slug) VALUES (?, ?)",
+            ("lavender-dream", "gift"),
+        )
+        cart_db.execute(
+            "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, ?, ?)",
+            (SESSION_ID, "lavender-dream", 1),
+        )
+        cart_db.commit()
+
+        cart = get_cart(cart_db, SESSION_ID)
+
+        product = cart.items[0].product
+        assert product["product_type"] == "boxes"
+        assert product["product_type_name"] == "Boxes"
+        assert product["category"] == "premium"
+        assert product["category_name"] == "Premium"
+        assert product["labels"] == [{"slug": "gift", "name": "Gift"}]
+
     def test_inactive_product_in_unavailable(self, cart_db: sqlite3.Connection):
         """Inactive product appears in unavailable_items with product_name."""
         cart_db.execute(

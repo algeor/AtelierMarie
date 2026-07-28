@@ -26,4 +26,3 @@ jobs:
 
       - name: Run frontend linting
         run: make lint-frontend
-      

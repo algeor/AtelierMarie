@@ -1,17 +1,16 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { ApiError, BASE_URL } from "@/lib/api-client";
-import { formatPrice } from "@/lib/utils";
-import type { AdminProductResponse, ProductImage } from "@/lib/types";
+import { getAdminTaxonomy } from "@/lib/api";
+import { cn, formatPrice } from "@/lib/utils";
+import type { AdminProductResponse, AdminTaxonomyTerm, ProductImage } from "@/lib/types";
 import { useLocalizedError } from "@/lib/useLocalizedError";
-
-const CATEGORIES = ["Floral", "Woody", "Fresh", "Gourmand", "Spicy", "Citrus"];
 
 interface ProductFormProps {
   product?: AdminProductResponse;
@@ -28,7 +27,9 @@ export interface ProductFormData {
   materials: string;
   days_to_craft: number | null;
   price_cents: number;
+  product_type: string;
   category: string;
+  labels: string[];
   image_files: File[];
   video_file: File | null;
   delete_video: boolean;
@@ -130,7 +131,9 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
     materials: product?.materials ?? "",
     days_to_craft: product?.days_to_craft ?? null,
     price_cents: product?.price_cents ?? 0,
+    product_type: product?.product_type ?? "",
     category: product?.category ?? "",
+    labels: product?.labels ?? [],
     image_files: [],
     video_file: null,
     delete_video: false,
@@ -147,6 +150,46 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
     discount_ends_at: product?.discount_ends_at ?? null,
   });
 
+  // Managed taxonomy, fetched from the API (no hardcoded lists).
+  const [productTypes, setProductTypes] = useState<AdminTaxonomyTerm[]>([]);
+  const [categories, setCategories] = useState<AdminTaxonomyTerm[]>([]);
+  const [labelTerms, setLabelTerms] = useState<AdminTaxonomyTerm[]>([]);
+
+  useEffect(() => {
+    Promise.all([
+      getAdminTaxonomy("product-types"),
+      getAdminTaxonomy("categories"),
+      getAdminTaxonomy("labels"),
+    ])
+      .then(([types, cats, labels]) => {
+        setProductTypes(types);
+        setCategories(cats);
+        setLabelTerms(labels);
+      })
+      .catch(() => setError(t("taxonomy.loadError")));
+    // Load taxonomy once on mount; `t` is read only for the error message and
+    // must not re-trigger the fetch if its identity changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /**
+   * Options for a single-select: active terms, plus the product's current term
+   * even if it has been retired (so edits preserve it). Other inactive terms
+   * are not assignable.
+   */
+  function selectOptions(terms: AdminTaxonomyTerm[], current: string) {
+    const options = terms.filter((term) => term.is_active);
+    const currentTerm = terms.find((term) => term.slug === current);
+    if (currentTerm && !currentTerm.is_active) options.push(currentTerm);
+    return options;
+  }
+
+  // Labels: active labels plus any currently-assigned retired labels.
+  const labelOptions = [
+    ...labelTerms.filter((term) => term.is_active),
+    ...labelTerms.filter((term) => !term.is_active && formData.labels.includes(term.slug)),
+  ];
+
   const translationStaleBg = product?.translation_stale_bg;
   const translationStaleEn = product?.translation_stale_en;
 
@@ -158,7 +201,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
       newErrors.id = t("validation.idFormat");
     }
     if (formData.price_cents <= 0) newErrors.price_cents = t("validation.pricePositive");
-    if (!formData.category) newErrors.category = t("validation.categoryRequired");
+    if (!formData.product_type) newErrors.product_type = t("validation.productTypeRequired");
     if (formData.stock < 0) newErrors.stock = t("validation.stockNonNegative");
     if (formData.weight_grams < 1 || formData.weight_grams > MAX_WEIGHT_GRAMS) {
       newErrors.weight_grams = t("validation.weightRange");
@@ -400,6 +443,28 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
       {/* Other fields */}
       <div className="grid gap-6 sm:grid-cols-2">
         <div className="w-full">
+          <label htmlFor="product_type" className="mb-1.5 block text-sm font-medium text-soft-brown">
+            {t("productType")}
+          </label>
+          <select
+            id="product_type"
+            value={formData.product_type}
+            onChange={(e) => updateField("product_type", e.target.value)}
+            className="h-10 w-full rounded-brand border border-champagne-beige bg-cream px-3 text-soft-brown focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
+          >
+            <option value="">{t("selectProductType")}</option>
+            {selectOptions(productTypes, formData.product_type).map((term) => (
+              <option key={term.slug} value={term.slug}>
+                {term.name_en}
+                {!term.is_active ? ` ${t("retiredSuffix")}` : ""}
+              </option>
+            ))}
+          </select>
+          {errors.product_type && (
+            <p className="mt-1.5 text-sm text-red-700">{errors.product_type}</p>
+          )}
+        </div>
+        <div className="w-full">
           <label htmlFor="category" className="mb-1.5 block text-sm font-medium text-soft-brown">
             {t("category")}
           </label>
@@ -409,16 +474,52 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
             onChange={(e) => updateField("category", e.target.value)}
             className="h-10 w-full rounded-brand border border-champagne-beige bg-cream px-3 text-soft-brown focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
           >
-            <option value="">{t("selectCategory")}</option>
-            {CATEGORIES.map((cat) => (
-              <option key={cat} value={cat}>
-                {cat}
+            <option value="">{t("noCategoryOption")}</option>
+            {selectOptions(categories, formData.category).map((term) => (
+              <option key={term.slug} value={term.slug}>
+                {term.name_en}
+                {!term.is_active ? ` ${t("retiredSuffix")}` : ""}
               </option>
             ))}
           </select>
-          {errors.category && (
-            <p className="mt-1.5 text-sm text-red-700">{errors.category}</p>
-          )}
+        </div>
+        <div className="sm:col-span-2">
+          <span className="mb-1.5 block text-sm font-medium text-soft-brown">
+            {t("labelsField")}
+          </span>
+          <p className="mb-2 text-xs text-soft-brown/70">{t("labelsHint")}</p>
+          <div className="flex flex-wrap gap-2">
+            {labelOptions.map((term) => {
+              const checked = formData.labels.includes(term.slug);
+              return (
+                <label
+                  key={term.slug}
+                  className={cn(
+                    "cursor-pointer rounded-pill px-3 py-1.5 text-sm focus-within:ring-2 focus-within:ring-soft-brown focus-within:ring-offset-2",
+                    checked
+                      ? "bg-muted-gold text-charcoal"
+                      : "bg-champagne-beige/50 text-soft-brown hover:bg-champagne-beige"
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    className="sr-only"
+                    checked={checked}
+                    onChange={(e) =>
+                      updateField(
+                        "labels",
+                        e.target.checked
+                          ? [...formData.labels, term.slug]
+                          : formData.labels.filter((s) => s !== term.slug)
+                      )
+                    }
+                  />
+                  {term.name_en}
+                  {!term.is_active ? ` ${t("retiredSuffix")}` : ""}
+                </label>
+              );
+            })}
+          </div>
         </div>
         <div className="sm:col-span-2 space-y-3 rounded-brand border border-champagne-beige p-4">
           <div className="flex items-start justify-between gap-3">

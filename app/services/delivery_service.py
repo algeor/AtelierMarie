@@ -143,8 +143,7 @@ def get_offices(
     matched = [
         o
         for o in offices
-        if o["city"].casefold() == city_folded
-        or (o.get("city_en") or "").casefold() == city_folded
+        if o["city"].casefold() == city_folded or (o.get("city_en") or "").casefold() == city_folded
     ]
 
     if office_type is not None:
@@ -180,8 +179,7 @@ def get_cities(
         if display in seen:
             continue
         if prefix is not None and not (
-            city_bg.casefold().startswith(prefix)
-            or city_en.casefold().startswith(prefix)
+            city_bg.casefold().startswith(prefix) or city_en.casefold().startswith(prefix)
         ):
             continue
         seen.add(display)

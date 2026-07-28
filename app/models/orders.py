@@ -7,6 +7,8 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from app.models.delivery import DeliveryInfo
 
 OrderStatus = Literal["pending", "confirmed", "shipped", "delivered", "cancelled"]
+PaymentMethod = Literal["cod", "card", "bank_transfer"]
+PaymentStatus = Literal["pending", "paid", "cod_pending", "failed", "refunded"]
 
 
 class OrderItemResponse(BaseModel):
@@ -41,6 +43,11 @@ class OrderResponse(BaseModel):
     tracking_carrier: str | None = None
     tracking_url: str | None = None
     notes: str | None = None
+    # Payment fields (payment-integration).
+    payment_method: PaymentMethod = "cod"
+    payment_status: PaymentStatus = "cod_pending"
+    stripe_checkout_session_id: str | None = None
+    stripe_checkout_url: str | None = None
     items: list[OrderItemResponse]
     created_at: str
     updated_at: str
@@ -66,6 +73,7 @@ class CreateOrderRequest(BaseModel):
     customer_name: str | None = Field(default=None, min_length=1, max_length=200)
     delivery: DeliveryInfo
     notes: str | None = Field(default=None, max_length=2000)
+    payment_method: PaymentMethod = "cod"
 
     @field_validator("customer_name", mode="before")
     @classmethod
@@ -80,6 +88,12 @@ class CreateOrderRequest(BaseModel):
             msg = "customer_name must not be blank (whitespace-only)"
             raise ValueError(msg)
         return stripped
+
+
+class MarkPaymentPaidRequest(BaseModel):
+    """Input for admin marking a bank_transfer order as paid."""
+
+    payment_status: Literal["paid"]
 
 
 class UpdateOrderStatusRequest(BaseModel):

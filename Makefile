@@ -72,7 +72,7 @@ dev: ## Start both backend and frontend (requires two terminals — use dev-back
 	@echo "Or: make dev-backend & make dev-frontend"
 
 dev-backend: ## Start FastAPI dev server (port 8000)
-	.venv/bin/uvicorn app.main:app --reload --port 8000
+	.venv/bin/uvicorn app.main:app --reload --port 8000 --reload-exclude '.venv'
 
 dev-frontend: ## Start Next.js dev server (port 3000)
 	cd frontend && npm run dev

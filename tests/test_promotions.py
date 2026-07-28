@@ -13,15 +13,29 @@ from app.database import init_db
 
 
 def _make_product(product_id: str, **overrides) -> None:
+    from app.database import get_db
     from app.services import product_service
+
+    # `category` is now a managed taxonomy slug (post dynamic-categories merge).
+    # Ensure the referenced category term exists so create_product validation
+    # passes and category_slug filtering works, mirroring real admin flow.
+    category = overrides.pop("category", None)
+    if category:
+        with get_db() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO product_categories (slug, name_en, sort_order) "
+                "VALUES (?, ?, 0)",
+                (category, category.replace("-", " ").title()),
+            )
 
     data = {
         "id": product_id,
         "name_en": overrides.pop("name_en", product_id.replace("-", " ").title()),
         "price_cents": overrides.pop("price_cents", 3000),
-        "category": overrides.pop("category", "luxury-jar"),
         "stock": overrides.pop("stock", 10),
     }
+    if category:
+        data["category"] = category
     data.update(overrides)
     product_service.create_product(data)
 

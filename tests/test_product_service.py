@@ -19,7 +19,7 @@ def _seeded_db(db_path):
             "name_en": "Lavender Dream",
             "description_en": "A calming lavender candle",
             "price_cents": 3200,
-            "category": "luxury-jar",
+            "category": "medium",
             "stock": 24,
         }
     )
@@ -29,7 +29,7 @@ def _seeded_db(db_path):
             "name_en": "Midnight Amber",
             "description_en": "Warm amber and sandalwood",
             "price_cents": 4500,
-            "category": "luxury-jar",
+            "category": "medium",
             "stock": 12,
         }
     )
@@ -39,7 +39,7 @@ def _seeded_db(db_path):
             "name_en": "Vanilla Crème Brûlée",
             "description_en": "Rich vanilla custard",
             "price_cents": 2800,
-            "category": "dessert",
+            "category": "small",
             "stock": 0,
         }
     )
@@ -54,9 +54,9 @@ class TestListProducts:
         assert len(products) == 3
 
     def test_filters_by_category(self, _seeded_db):
-        products, total = product_service.list_products(category="luxury-jar")
+        products, total = product_service.list_products(category="medium")
         assert total == 2
-        assert all(p["category"] == "luxury-jar" for p in products)
+        assert all(p["category"] == "medium" for p in products)
 
     def test_filters_in_stock_only(self, _seeded_db):
         products, total = product_service.list_products(in_stock=True)

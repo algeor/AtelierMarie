@@ -9,6 +9,7 @@ import type {
   AdminProductListResponse,
   AdminProductResponse,
   AdminStats,
+  AdminTaxonomyTerm,
   BannerAdminResponse,
   BannerUpdateRequest,
   BulkDiscountRequest,
@@ -28,6 +29,7 @@ import type {
   Courier,
   CreateOrderRequest,
   CreateProductRequest,
+  CreateTaxonomyTermRequest,
   ImageUploadResponse,
   OfficeResponse,
   OfficeType,
@@ -41,7 +43,10 @@ import type {
   ReactionToggleResponse,
   ProductImage,
   ProductVideo,
+  TaxonomyKind,
+  TaxonomyResponse,
   UpdateProductRequest,
+  UpdateTaxonomyTermRequest,
   UserResponse,
   VideoUploadResponse,
 } from "./types";
@@ -81,6 +86,46 @@ export async function getProduct(
 export async function updateLocalePreference(locale: Locale): Promise<{ locale: Locale }> {
   if (USE_MOCK) return { locale };
   return apiClient.patch<{ locale: Locale }>("/v1/locale", { locale });
+}
+
+// --- Taxonomy ---
+
+export async function getTaxonomy(locale?: Locale): Promise<TaxonomyResponse> {
+  if (USE_MOCK) return (await getMock()).getTaxonomy(locale);
+  const params = new URLSearchParams();
+  if (locale) params.set("locale", locale);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<TaxonomyResponse>(`/v1/taxonomy${query}`);
+}
+
+export async function getAdminTaxonomy(kind: TaxonomyKind): Promise<AdminTaxonomyTerm[]> {
+  if (USE_MOCK) return (await getMock()).getAdminTaxonomy(kind);
+  return apiClient.get<AdminTaxonomyTerm[]>(`/v1/admin/taxonomy/${kind}`);
+}
+
+export async function createTaxonomyTerm(
+  kind: TaxonomyKind,
+  data: CreateTaxonomyTermRequest
+): Promise<AdminTaxonomyTerm> {
+  if (USE_MOCK) return (await getMock()).createTaxonomyTerm(kind, data);
+  return apiClient.post<AdminTaxonomyTerm>(`/v1/admin/taxonomy/${kind}`, data);
+}
+
+export async function updateTaxonomyTerm(
+  kind: TaxonomyKind,
+  slug: string,
+  data: UpdateTaxonomyTermRequest
+): Promise<AdminTaxonomyTerm> {
+  if (USE_MOCK) return (await getMock()).updateTaxonomyTerm(kind, slug, data);
+  return apiClient.patch<AdminTaxonomyTerm>(
+    `/v1/admin/taxonomy/${kind}/${encodeURIComponent(slug)}`,
+    data
+  );
+}
+
+export async function deleteTaxonomyTerm(kind: TaxonomyKind, slug: string): Promise<void> {
+  if (USE_MOCK) return (await getMock()).deleteTaxonomyTerm(kind, slug);
+  return apiClient.del<void>(`/v1/admin/taxonomy/${kind}/${encodeURIComponent(slug)}`);
 }
 
 function localeQuery(locale?: Locale): string {
@@ -131,6 +176,15 @@ export async function createOrder(
 ): Promise<OrderResponse> {
   if (USE_MOCK) return (await getMock()).createOrder(data);
   return apiClient.post<OrderResponse>("/v1/orders", data);
+}
+
+export async function createStripeRetrySession(
+  orderId: string
+): Promise<{ stripe_checkout_url: string }> {
+  return apiClient.post<{ stripe_checkout_url: string }>(
+    `/v1/orders/${encodeURIComponent(orderId)}/stripe-session`,
+    {}
+  );
 }
 
 // --- Delivery ---
