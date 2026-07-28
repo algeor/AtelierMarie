@@ -1,0 +1,101 @@
+import React from "react";
+import { fireEvent, screen, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { ProductForm } from "@/components/admin/ProductForm";
+import type { AdminProductResponse } from "@/lib/types";
+import { renderWithIntl } from "../../test-utils";
+
+vi.mock("next/image", () => ({
+  default: ({ src, alt, ...props }: { src: string; alt: string }) => (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={src} alt={alt} {...props} />
+  ),
+}));
+
+vi.mock("@/i18n/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
+const product: AdminProductResponse = {
+  id: "lavender-dreams-300ml",
+  name_en: "Lavender Dreams",
+  name_bg: null,
+  description_en: "Hand-poured soy candle",
+  description_bg: null,
+  materials: "Soy wax",
+  days_to_craft: 3,
+  price_cents: 3200,
+  discount_percent: null,
+  discount_starts_at: null,
+  discount_ends_at: null,
+  effective_price_cents: 3200,
+  discount_active: false,
+  category: "Floral",
+  images: [],
+  primary_image_url: null,
+  primary_thumbnail_url: null,
+  stock: 24,
+  weight_grams: 300,
+  is_active: true,
+  is_featured: false,
+  translation_stale_bg: false,
+  translation_stale_en: false,
+  created_at: "2024-06-01T10:00:00Z",
+  updated_at: "2024-06-01T10:00:00Z",
+};
+
+function sizedImage(size: number): File {
+  const file = new File(["x"], "candle.jpg", { type: "image/jpeg" });
+  Object.defineProperty(file, "size", { value: size });
+  return file;
+}
+
+function renderForm() {
+  return renderWithIntl(
+    <ProductForm product={product} onSubmit={vi.fn()} submitLabel="Save" />
+  );
+}
+
+describe("ProductForm image upload size checks", () => {
+  it("adds a small image without prompting", () => {
+    renderForm();
+
+    const input = screen.getByLabelText("Product images") as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [sizedImage(2 * 1024 * 1024)] } });
+
+    expect(screen.getByText("1 file(s) selected")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Large image" })).not.toBeInTheDocument();
+  });
+
+  it("asks before adding a 15-25MB image", () => {
+    renderForm();
+
+    const input = screen.getByLabelText("Product images") as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [sizedImage(16 * 1024 * 1024)] } });
+
+    const dialog = screen.getByRole("dialog", { name: "Large image" });
+    expect(dialog).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByText("1 file(s) selected")).not.toBeInTheDocument();
+
+    fireEvent.change(input, { target: { files: [sizedImage(16 * 1024 * 1024)] } });
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Large image" })).getByRole("button", {
+        name: "Add anyway",
+      })
+    );
+
+    expect(screen.getByText("1 file(s) selected")).toBeInTheDocument();
+  });
+
+  it("blocks images over 25MB before adding them", () => {
+    renderForm();
+
+    const input = screen.getByLabelText("Product images") as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [sizedImage(26 * 1024 * 1024)] } });
+
+    expect(screen.getByText("Image must be 25 MB or smaller")).toBeInTheDocument();
+    expect(screen.queryByText("1 file(s) selected")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Large image" })).not.toBeInTheDocument();
+  });
+});

@@ -26,6 +26,7 @@ class TestProductModels:
                     "id": "image-1",
                     "image_url": "/static/products/lavender-dream-300ml.webp",
                     "thumbnail_url": "/static/products/lavender-dream-300ml_thumb.webp",
+                    "zoom_url": "/static/products/lavender-dream-300ml_zoom.webp",
                     "sort_order": 0,
                     "is_primary": True,
                 }
@@ -40,6 +41,7 @@ class TestProductModels:
         )
         assert p.price_cents == 3200
         assert p.description == "A lovely candle"
+        assert p.images[0].zoom_url == "/static/products/lavender-dream-300ml_zoom.webp"
 
     def test_product_response_nullable_fields(self):
         p = ProductResponse(

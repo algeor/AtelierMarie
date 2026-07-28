@@ -39,6 +39,20 @@ TLS cert paths, and upstream ports as needed). Reload with:
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
+## Upload body size
+
+Product image uploads are capped at 25 MB by the app. Set the matching Nginx
+limit in the production `server { }` block, or at the exact image-upload
+location if larger upload routes are added later:
+
+```nginx
+client_max_body_size 25m;
+```
+
+Keep this at `25m` for image uploads. If product video uploads need a larger
+limit, set that only on the video-upload location so image uploads still fail
+fast at the proxy.
+
 ## Admin API key
 
 The backend enforces `admin_api_key` >= 32 characters when

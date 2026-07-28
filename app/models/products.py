@@ -111,6 +111,7 @@ class ProductImage(BaseModel):
     id: str
     image_url: str
     thumbnail_url: str
+    zoom_url: str | None = None
     sort_order: int
     is_primary: bool
 
