@@ -62,4 +62,10 @@ describe("Footer", () => {
       "/atelier"
     );
   });
+
+  it("links FAQ from the footer", () => {
+    renderWithIntl(<Footer />);
+
+    expect(screen.getByRole("link", { name: "FAQ" })).toHaveAttribute("href", "/faq");
+  });
 });

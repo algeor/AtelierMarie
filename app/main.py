@@ -26,6 +26,7 @@ from app.routes import (
     comments,
     contact,
     delivery,
+    faq,
     locale,
     orders,
     products,
@@ -312,6 +313,8 @@ def create_app() -> FastAPI:
     application.include_router(about.admin_router, prefix="/v1/admin/about", tags=["admin-about"])
     application.include_router(taxonomy.public_router, prefix="/v1/taxonomy", tags=["taxonomy"])
     application.include_router(taxonomy.admin_router, prefix="/v1/admin/taxonomy", tags=["admin"])
+    application.include_router(faq.public_router, prefix="/v1/faq", tags=["faq"])
+    application.include_router(faq.admin_router, prefix="/v1/admin/faq", tags=["admin-faq"])
     application.include_router(
         promotions.admin_router, prefix="/v1/admin/promotions", tags=["admin-promotions"]
     )
