@@ -1,7 +1,7 @@
 import React from "react";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { bodyBlocks } from "@/components/atelier/BodyRenderer";
+import { BodyRenderer, bodyBlocks } from "@/components/atelier/BodyRenderer";
 import { renderAtelierSection } from "@/components/atelier/AtelierSections";
 import type { AboutSection } from "@/lib/types";
 
@@ -33,6 +33,23 @@ describe("BodyRenderer", () => {
       { type: "p", text: "First paragraph." },
       { type: "ul", items: ["One", "Two"] },
       { type: "p", text: "Last paragraph." },
+    ]);
+  });
+
+  it("renders quote lines as pull quotes", () => {
+    expect(bodyBlocks("Intro.\n\n> Beautiful thought.")).toEqual([
+      { type: "p", text: "Intro." },
+      { type: "quote", text: "Beautiful thought." },
+    ]);
+
+    render(<BodyRenderer body={'Intro.\n\n> Beautiful thought.'} />);
+    expect(screen.getByText(/Beautiful thought\./).tagName).toBe("BLOCKQUOTE");
+  });
+
+  it("turns inline emphasized quotes into pull quotes", () => {
+    expect(bodyBlocks('The story began with a thought: *"Beautiful thought."*')).toEqual([
+      { type: "p", text: "The story began with a thought:" },
+      { type: "quote", text: "Beautiful thought." },
     ]);
   });
 });

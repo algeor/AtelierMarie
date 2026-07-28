@@ -1,6 +1,8 @@
-export function bodyBlocks(body: string | null): Array<{ type: "p"; text: string } | { type: "ul"; items: string[] }> {
+type BodyBlock = { type: "p"; text: string } | { type: "quote"; text: string } | { type: "ul"; items: string[] };
+
+export function bodyBlocks(body: string | null): BodyBlock[] {
   if (!body) return [];
-  const blocks: Array<{ type: "p"; text: string } | { type: "ul"; items: string[] }> = [];
+  const blocks: BodyBlock[] = [];
   let bullets: string[] = [];
 
   for (const rawBlock of body.split(/\n\s*\n/)) {
@@ -11,9 +13,20 @@ export function bodyBlocks(body: string | null): Array<{ type: "p"; text: string
         bullets.push(bullet[1] ?? "");
         continue;
       }
+      const quote = line.match(/^>\s+(.+)/);
       if (bullets.length > 0) {
         blocks.push({ type: "ul", items: bullets });
         bullets = [];
+      }
+      if (quote) {
+        blocks.push({ type: "quote", text: quote[1] ?? "" });
+        continue;
+      }
+      const inlineQuote = line.match(/^(.*?:)\s+\*["“](.+?)["”]\*$/);
+      if (inlineQuote) {
+        blocks.push({ type: "p", text: inlineQuote[1] ?? "" });
+        blocks.push({ type: "quote", text: inlineQuote[2] ?? "" });
+        continue;
       }
       blocks.push({ type: "p", text: line });
     }
@@ -30,6 +43,13 @@ export function BodyRenderer({ body, className = "" }: { body: string | null; cl
       {blocks.map((block, index) =>
         block.type === "p" ? (
           <p key={`${index}-${block.text}`}>{block.text}</p>
+        ) : block.type === "quote" ? (
+          <blockquote
+            key={`${index}-${block.text}`}
+            className="border-l-2 border-muted-gold pl-5 font-heading text-2xl leading-9 text-charcoal sm:text-3xl sm:leading-10"
+          >
+            &ldquo;{block.text}&rdquo;
+          </blockquote>
         ) : (
           <ul key={`${index}-list`} className="list-disc space-y-2 pl-5">
             {block.items.map((item) => (
