@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
@@ -31,6 +31,9 @@ export interface ProductFormData {
   category: string;
   labels: string[];
   image_files: File[];
+  video_file: File | null;
+  delete_video: boolean;
+  video_sort_order: number;
   ordered_image_ids: string[];
   deleted_image_ids: string[];
   primary_image_id: string | null;
@@ -47,6 +50,7 @@ export interface ProductFormData {
 const MB = 1024 * 1024;
 const MAX_IMAGE_SIZE = 25 * MB;
 const LARGE_IMAGE_WARNING_SIZE = 15 * MB;
+const MAX_VIDEO_SIZE = 200 * MB;
 
 // Mirrors the backend MAX_WEIGHT_GRAMS bound (app/models/products.py).
 const MAX_WEIGHT_GRAMS = 100_000;
@@ -95,6 +99,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [images, setImages] = useState<ProductImage[]>(product?.images ?? []);
   const [deletedImageIds, setDeletedImageIds] = useState<string[]>([]);
+  const [videoDeleted, setVideoDeleted] = useState(false);
   const [pendingImageFiles, setPendingImageFiles] = useState<File[] | null>(null);
   const largeImageDialogRef = useRef<HTMLDivElement>(null);
   const largeImageCancelRef = useRef<HTMLButtonElement>(null);
@@ -135,6 +140,9 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
     category: product?.category ?? "",
     labels: product?.labels ?? [],
     image_files: [],
+    video_file: null,
+    delete_video: false,
+    video_sort_order: product?.video?.sort_order ?? 0,
     ordered_image_ids: (product?.images ?? []).map((image) => image.id),
     deleted_image_ids: [],
     primary_image_id: product?.images.find((image) => image.is_primary)?.id ?? null,
@@ -262,6 +270,14 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
         newErrors.image_files = t("validation.imageSize");
       }
     }
+    if (formData.video_file) {
+      if (!formData.video_file.type.startsWith("video/")) {
+        newErrors.video_file = t("validation.videoType");
+      }
+      if (formData.video_file.size > MAX_VIDEO_SIZE) {
+        newErrors.video_file = t("validation.videoSize");
+      }
+    }
     // Discount validation (client-side mirror of the server rules).
     const percentStr = discountPercent.trim();
     if (percentStr) {
@@ -383,6 +399,20 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
     }
 
     commitFiles(selectedFiles);
+  }
+
+  function setVideoFile(file: File | null) {
+    updateField("video_file", file);
+    if (file) {
+      setVideoDeleted(false);
+      updateField("delete_video", false);
+    }
+  }
+
+  function markVideoDeleted() {
+    setVideoDeleted(true);
+    updateField("delete_video", true);
+    updateField("video_file", null);
   }
 
   const pendingLargestImageSize = pendingImageFiles
@@ -570,6 +600,58 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
               );
             })}
           </div>
+        </div>
+        <div className="sm:col-span-2 space-y-3 rounded-brand border border-champagne-beige p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="font-heading text-lg text-charcoal">{t("video.title")}</h2>
+              {product?.video && !videoDeleted && (
+                <p className="mt-1 text-xs text-soft-brown/70">
+                  {t(`video.status.${product.video.status}`)}
+                </p>
+              )}
+              {product?.video?.failure_reason && !videoDeleted && (
+                <p className="mt-1 text-sm text-red-700">{product.video.failure_reason}</p>
+              )}
+            </div>
+            {product?.video && !videoDeleted && (
+              <Button type="button" variant="ghost" onClick={markVideoDeleted}>
+                {tCommon("delete")}
+              </Button>
+            )}
+          </div>
+          {product?.video?.poster_url && !videoDeleted && (
+            <div className="relative aspect-[4/5] w-32 overflow-hidden rounded-brand bg-cream">
+              <Image
+                src={previewUrl(product.video.poster_url)}
+                alt=""
+                fill
+                sizes="128px"
+                className="object-cover"
+              />
+            </div>
+          )}
+          <Input
+            label={t("video.sortOrder")}
+            type="number"
+            min="0"
+            step="1"
+            value={String(formData.video_sort_order)}
+            onChange={(e) => updateField("video_sort_order", Math.max(0, Math.floor(Number(e.target.value) || 0)))}
+          />
+          <input
+            type="file"
+            accept="video/*"
+            onChange={(e) => setVideoFile(e.target.files?.[0] ?? null)}
+            className="block w-full rounded-brand border border-champagne-beige bg-cream px-3 py-2 text-sm text-soft-brown file:mr-4 file:rounded-brand file:border-0 file:bg-charcoal file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-warm-ivory hover:file:bg-soft-brown focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
+          />
+          {errors.video_file && <p className="text-sm text-red-700">{errors.video_file}</p>}
+          {formData.video_file && (
+            <p className="text-xs text-soft-brown/70">
+              {t("video.selected", { name: formData.video_file.name })}
+            </p>
+          )}
+          {videoDeleted && <p className="text-xs text-soft-brown/70">{t("video.deleteQueued")}</p>}
         </div>
         <Input
           label={t("priceEur")}

@@ -7,7 +7,7 @@ from typing import Literal
 from app.constants import MAX_LIMIT, MAX_PAGE
 from app.database import get_db
 from app.models.common import calculate_offset
-from app.services import pricing, product_image_service, taxonomy_service
+from app.services import pricing, product_image_service, product_video_service, taxonomy_service
 
 Locale = Literal["en", "bg"]
 
@@ -262,6 +262,7 @@ def list_products(
         products = products[offset : offset + limit]
 
     products = product_image_service.attach_image_fields(products)
+    products = product_video_service.attach_video_fields(products, public_only=True)
     return products, total
 
 
@@ -283,7 +284,8 @@ def get_product(product_id: str, *, locale: Locale = "en") -> dict:
         taxonomy_service.resolve_products_taxonomy(conn, [product], locale)
 
     product = pricing.annotate_product_pricing(product, pricing.now_utc(), public=True)
-    return product_image_service.attach_image_fields_one(product)
+    product = product_image_service.attach_image_fields_one(product)
+    return product_video_service.attach_video_fields_one(product, public_only=True)
 
 
 def get_product_admin(product_id: str) -> dict:
@@ -305,7 +307,8 @@ def get_product_admin(product_id: str) -> dict:
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
 
     product = _flatten_admin_labels(_annotate_admin_one(product))
-    return product_image_service.attach_image_fields_one(product)
+    product = product_image_service.attach_image_fields_one(product)
+    return product_video_service.attach_video_fields_one(product, public_only=False)
 
 
 def product_exists(product_id: str) -> bool:
@@ -342,7 +345,9 @@ def list_products_admin(
         taxonomy_service.resolve_products_taxonomy(conn, products, "en")
 
     products = [_flatten_admin_labels(p) for p in _annotate_admin(products)]
-    return product_image_service.attach_image_fields(products), total
+    products = product_image_service.attach_image_fields(products)
+    products = product_video_service.attach_video_fields(products, public_only=False)
+    return products, total
 
 
 def create_product(data: dict) -> dict:
@@ -431,7 +436,8 @@ def create_product(data: dict) -> dict:
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
 
     product = _flatten_admin_labels(_annotate_admin_one(product))
-    return product_image_service.attach_image_fields_one(product)
+    product = product_image_service.attach_image_fields_one(product)
+    return product_video_service.attach_video_fields_one(product, public_only=False)
 
 
 def upsert_product(product_id: str, data: dict) -> dict:
@@ -518,7 +524,8 @@ def upsert_product(product_id: str, data: dict) -> dict:
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
 
     product = _flatten_admin_labels(_annotate_admin_one(product))
-    return product_image_service.attach_image_fields_one(product)
+    product = product_image_service.attach_image_fields_one(product)
+    return product_video_service.attach_video_fields_one(product, public_only=False)
 
 
 def update_product(product_id: str, data: dict) -> dict:
@@ -649,6 +656,9 @@ def deactivate_product(product_id: str) -> dict:
         if row is None:
             raise NotFoundError(f"Product not found: {product_id}")
 
+    product_video_service.delete_video_if_exists(product_id)
+
+    with get_db() as conn:
         conn.execute(
             "UPDATE products SET is_active = 0 WHERE id = ?",
             (product_id,),
@@ -659,7 +669,8 @@ def deactivate_product(product_id: str) -> dict:
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
 
     product = _flatten_admin_labels(_annotate_admin_one(product))
-    return product_image_service.attach_image_fields_one(product)
+    product = product_image_service.attach_image_fields_one(product)
+    return product_video_service.attach_video_fields_one(product, public_only=False)
 
 
 def _build_search_conditions(
@@ -830,7 +841,8 @@ def search_products(
         )
         products = products[offset : offset + limit]
 
-    return product_image_service.attach_image_fields(products)
+    products = product_image_service.attach_image_fields(products)
+    return product_video_service.attach_video_fields(products, public_only=True)
 
 
 def get_low_stock_products(threshold: int = 5) -> list[dict]:
@@ -848,7 +860,8 @@ def get_low_stock_products(threshold: int = 5) -> list[dict]:
         products = [_row_to_dict(r) for r in rows]
         taxonomy_service.resolve_products_taxonomy(conn, products, "en")
     products = [_flatten_admin_labels(p) for p in _annotate_admin(products)]
-    return product_image_service.attach_image_fields(products)
+    products = product_image_service.attach_image_fields(products)
+    return product_video_service.attach_video_fields(products, public_only=False)
 
 
 def _resolve_filter_target_ids(conn: sqlite3.Connection, filt: dict) -> list[str]:

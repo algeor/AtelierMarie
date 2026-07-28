@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
+from app.constants import VIDEO_SWEEPER_INTERVAL_SECONDS
 from app.database import cleanup_expired_sessions, get_db, init_db
 from app.exceptions import register_exception_handlers
 from app.logging_config import configure_logging
@@ -34,12 +35,25 @@ from app.routes import (
 )
 from app.services.contact_service import cleanup_old_contact_messages, drain_contact_message_emails
 from app.services.email_service import drain_email_outbox
+from app.services.product_video_service import drain_video_transcodes
 
 logger = structlog.get_logger(__name__)
 SESSION_CLEANUP_INTERVAL_SECONDS = 3600
 # Poll interval for the email outbox sweeper. ~15s keeps "shipped" mail prompt
 # without hammering the DB (design Decision 25); not 60s.
 EMAIL_OUTBOX_INTERVAL_SECONDS = 15
+VIDEO_TRANSCODE_INTERVAL_SECONDS = VIDEO_SWEEPER_INTERVAL_SECONDS
+
+
+def ensure_video_temp_path_is_private(static_path: Path, temp_path: Path) -> None:
+    """Reject raw video staging inside the public /static mount."""
+    static_root = static_path.resolve()
+    temp_root = temp_path.resolve()
+    try:
+        temp_root.relative_to(static_root)
+    except ValueError:
+        return
+    raise RuntimeError("VIDEO_UPLOAD_TEMP_PATH must not be inside STATIC_FILE_PATH")
 
 
 def drain_all_email_outboxes() -> int:
@@ -86,9 +100,7 @@ def _cancel_abandoned_card_orders() -> int:
             current = order_row["status"]
             if "cancelled" not in VALID_TRANSITIONS.get(current, set()):
                 continue
-            conn.execute(
-                "UPDATE orders SET status = 'cancelled' WHERE id = ?", (order_id,)
-            )
+            conn.execute("UPDATE orders SET status = 'cancelled' WHERE id = ?", (order_id,))
             item_rows = conn.execute(
                 "SELECT product_id, quantity FROM order_items WHERE order_id = ?",
                 (order_id,),
@@ -149,6 +161,26 @@ async def email_outbox_loop(
             logger.exception("Email outbox drain failed")
 
 
+async def video_transcode_loop(
+    *,
+    interval_seconds: float = VIDEO_TRANSCODE_INTERVAL_SECONDS,
+    sleep: Callable[[float], Awaitable[object]] | None = None,
+    drain: Callable[[], int] | None = None,
+) -> None:
+    """Drain queued product video transcodes on a fixed tick."""
+    sleep_fn = sleep or asyncio.sleep
+    drain_fn = drain or drain_video_transcodes
+
+    while True:
+        await sleep_fn(interval_seconds)
+        try:
+            count = await asyncio.to_thread(drain_fn)
+            if count:
+                logger.info("Drained product video transcodes", count=count)
+        except Exception:
+            logger.exception("Product video transcode drain failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: initialize database on startup, run background tasks."""
@@ -158,15 +190,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Ensure static file directories exist
     static_path = Path(settings.static_file_path)
+    video_temp_path = Path(settings.video_upload_temp_path)
+    ensure_video_temp_path_is_private(static_path, video_temp_path)
     static_path.mkdir(parents=True, exist_ok=True)
     (static_path / "products").mkdir(exist_ok=True)
+    video_temp_path.mkdir(parents=True, exist_ok=True)
 
     # Background task: clean expired sessions every hour
     task = asyncio.create_task(session_cleanup_loop())
     # Background task: drain the durable email outbox (~15s tick, per worker)
     email_task = asyncio.create_task(email_outbox_loop())
+    video_task = asyncio.create_task(video_transcode_loop())
     yield
-    for background_task in (task, email_task):
+    for background_task in (task, email_task, video_task):
         background_task.cancel()
         try:
             await asyncio.wait_for(background_task, timeout=5.0)
@@ -177,6 +213,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     settings = get_settings()
+    ensure_video_temp_path_is_private(
+        Path(settings.static_file_path), Path(settings.video_upload_temp_path)
+    )
 
     application = FastAPI(
         title="Atelier Marie",

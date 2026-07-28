@@ -80,6 +80,21 @@ Store it in the systemd unit's `Environment=` or an EnvironmentFile — never
 commit it. Rotate on any suspected leak. Comparison uses `hmac.compare_digest`
 in `app/dependencies/auth.py`, so length variations do not leak via timing.
 
+## Product video processing
+
+Product video uploads require `ffmpeg` and `ffprobe` on the backend host:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ffmpeg
+```
+
+If either binary is missing, only video upload/transcode is unavailable; the
+storefront, cart, checkout, and normal product browsing continue to work. Raw
+uploads are staged under `VIDEO_UPLOAD_TEMP_PATH` and normalized MP4/poster
+files are stored under `STATIC_FILE_PATH/products`. Keep
+`MAX_VIDEO_UPLOAD_BYTES` bounded for disk protection; the default is 200 MB.
+
 ## Running behind a reverse proxy / load balancer
 
 If Nginx sits behind another proxy or LB (e.g. Cloudflare, an Oracle Cloud

@@ -22,6 +22,15 @@ from app.services.order_service import (
     OrderNotFoundError,
     TrackingRequiredError,
 )
+from app.services.product_video_service import ProductVideoProcessingConflictError
+from app.services.video_service import (
+    FfmpegUnavailableError,
+    InvalidVideoTypeError,
+    VideoTooLongError,
+)
+from app.services.video_service import (
+    FileTooLargeError as VideoFileTooLargeError,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -237,6 +246,51 @@ def register_exception_handlers(app: FastAPI) -> None:
                     "details": {"missing": exc.missing},
                 }
             },
+        )
+
+    # --- Product video exception handlers ---
+
+    @app.exception_handler(ProductVideoProcessingConflictError)
+    async def product_video_conflict_handler(
+        request: Request, exc: ProductVideoProcessingConflictError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={"error": {"code": "VIDEO_PROCESSING", "message": str(exc), "details": None}},
+        )
+
+    @app.exception_handler(VideoFileTooLargeError)
+    async def video_file_too_large_handler(
+        request: Request, exc: VideoFileTooLargeError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "VIDEO_TOO_LARGE", "message": str(exc), "details": None}},
+        )
+
+    @app.exception_handler(VideoTooLongError)
+    async def video_too_long_handler(request: Request, exc: VideoTooLongError) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "VIDEO_TOO_LONG", "message": str(exc), "details": None}},
+        )
+
+    @app.exception_handler(InvalidVideoTypeError)
+    async def invalid_video_type_handler(
+        request: Request, exc: InvalidVideoTypeError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "INVALID_VIDEO", "message": str(exc), "details": None}},
+        )
+
+    @app.exception_handler(FfmpegUnavailableError)
+    async def ffmpeg_unavailable_handler(
+        request: Request, exc: FfmpegUnavailableError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content={"error": {"code": "VIDEO_UNAVAILABLE", "message": str(exc), "details": None}},
         )
 
     @app.exception_handler(Exception)

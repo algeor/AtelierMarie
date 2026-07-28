@@ -18,7 +18,7 @@ export function ProductCard({ product }: ProductCardProps) {
         <div className="motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-brand motion-safe:group-hover:scale-[1.02]">
           <ProductImage
             name={product.name}
-            imageUrl={product.primary_image_url}
+            imageUrl={product.video?.poster_url ?? product.primary_image_url}
             sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 25vw"
           />
           <div className="mt-3 space-y-1">
