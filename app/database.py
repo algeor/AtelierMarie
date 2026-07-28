@@ -132,6 +132,7 @@ CREATE TABLE IF NOT EXISTS product_images (
     product_id    TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
     image_url     TEXT NOT NULL,
     thumbnail_url TEXT NOT NULL,
+    zoom_url      TEXT,
     sort_order    INTEGER NOT NULL DEFAULT 0,
     is_primary    INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
@@ -141,6 +142,24 @@ CREATE INDEX IF NOT EXISTS idx_product_images_product
     ON product_images(product_id, sort_order);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_product_images_one_primary
     ON product_images(product_id) WHERE is_primary = 1;
+
+CREATE TABLE IF NOT EXISTS product_videos (
+    id              TEXT PRIMARY KEY,
+    product_id      TEXT NOT NULL UNIQUE REFERENCES products(id) ON DELETE CASCADE,
+    status          TEXT NOT NULL CHECK (status IN ('queued', 'transcoding', 'ready', 'failed')),
+    source_path     TEXT,
+    video_url       TEXT,
+    poster_url      TEXT,
+    duration_secs   REAL,
+    sort_order      INTEGER NOT NULL DEFAULT 0,
+    failure_reason  TEXT,
+    lease_expires_at TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_videos_status
+    ON product_videos(status);
 
 CREATE TABLE IF NOT EXISTS users (
     id          TEXT PRIMARY KEY,
@@ -402,6 +421,11 @@ BEGIN
     UPDATE products SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
 END;
 
+CREATE TRIGGER IF NOT EXISTS product_videos_updated_at AFTER UPDATE ON product_videos
+BEGIN
+    UPDATE product_videos SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
 CREATE TRIGGER IF NOT EXISTS orders_updated_at AFTER UPDATE ON orders
 BEGIN
     UPDATE orders SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
@@ -512,6 +536,7 @@ CREATE TABLE IF NOT EXISTS product_images (
     product_id    TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
     image_url     TEXT NOT NULL,
     thumbnail_url TEXT NOT NULL,
+    zoom_url      TEXT,
     sort_order    INTEGER NOT NULL DEFAULT 0,
     is_primary    INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
@@ -699,6 +724,14 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
         legacy_images = _legacy_product_images_from_products(conn)
         _migrate_products_table(conn)
         conn.executescript(_PRODUCT_IMAGES_TABLE_SQL)
+        product_image_columns = _table_columns(conn, "product_images")
+        _add_column_if_missing(
+            conn,
+            "product_images",
+            product_image_columns,
+            "zoom_url",
+            "zoom_url TEXT",
+        )
         _seed_product_images_from_legacy_rows(conn, legacy_images)
 
     if _table_exists(conn, "sessions"):

@@ -5,11 +5,15 @@ import { useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import {
   deleteProductImage,
+  deleteProductVideo,
   getAdminProduct,
+  getProductVideo,
   reorderProductImages,
   setPrimaryProductImage,
   updateProduct,
+  updateProductVideoSortOrder,
   uploadProductImage,
+  uploadProductVideo,
 } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
@@ -34,6 +38,32 @@ export default function EditProductPage() {
       )
       .finally(() => setIsLoading(false));
   }, [productId, getLocalizedError, t]);
+
+  useEffect(() => {
+    const status = product?.video?.status;
+    if (status !== "queued" && status !== "transcoding") return;
+
+    let cancelled = false;
+    async function pollVideo() {
+      try {
+        const video = await getProductVideo(productId);
+        if (!cancelled) {
+          setProduct((current) => (current ? { ...current, video } : current));
+        }
+      } catch (err) {
+        if (!cancelled && err instanceof ApiError && err.code === "video_not_found") {
+          setProduct((current) => (current ? { ...current, video: null } : current));
+        }
+      }
+    }
+
+    void pollVideo();
+    const interval = window.setInterval(() => void pollVideo(), 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [productId, product?.video?.status]);
 
   async function handleSubmit(data: ProductFormData) {
     await updateProduct(productId, {
@@ -66,6 +96,15 @@ export default function EditProductPage() {
     }
     for (const file of data.image_files) {
       await uploadProductImage(productId, file);
+    }
+    if (data.delete_video && product?.video) {
+      await deleteProductVideo(productId);
+    }
+    if (data.video_file) {
+      await uploadProductVideo(productId, data.video_file);
+      await updateProductVideoSortOrder(productId, data.video_sort_order);
+    } else if (product?.video && !data.delete_video) {
+      await updateProductVideoSortOrder(productId, data.video_sort_order);
     }
   }
 

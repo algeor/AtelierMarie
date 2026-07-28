@@ -44,6 +44,7 @@ import type {
   ProductListResponse,
   ProductImage,
   ProductResponse,
+  ProductVideo,
   PublicBannerResponse,
   ReactionCountsResponse,
   ReactionToggleRequest,
@@ -56,6 +57,7 @@ import type {
   UpdateProductRequest,
   UpdateTaxonomyTermRequest,
   UserResponse,
+  VideoUploadResponse,
 } from "./types";
 import { ApiError } from "./api-client";
 import { buildTrackingUrl } from "./tracking";
@@ -104,8 +106,24 @@ function mockProductImage(productId: string, sortOrder = 0, isPrimary = true): P
     id: `${productId}-${sortOrder}`,
     image_url: `/static/products/${productId}.webp`,
     thumbnail_url: `/static/products/${productId}_thumb.webp`,
+    zoom_url: `/static/products/${productId}_zoom.webp`,
     sort_order: sortOrder,
     is_primary: isPrimary,
+  };
+}
+
+function mockProductVideo(productId: string, sortOrder = 1): ProductVideo {
+  return {
+    id: `${productId}-video`,
+    product_id: productId,
+    status: "ready",
+    video_url: `/static/products/${productId}_video.mp4`,
+    poster_url: `/static/products/${productId}_thumb.webp`,
+    sort_order: sortOrder,
+    duration_secs: 18,
+    failure_reason: null,
+    created_at: "2024-06-01T10:00:00Z",
+    updated_at: "2024-06-01T10:00:00Z",
   };
 }
 
@@ -151,6 +169,7 @@ const MOCK_PRODUCTS: MockProduct[] = [
     product_type_name: "Candles",
     labels: [{ slug: "floral", name: "Floral" }],
     images: [mockProductImage("lavender-dreams-300ml")],
+    video: mockProductVideo("lavender-dreams-300ml"),
     primary_image_url: "/static/products/lavender-dreams-300ml.webp",
     primary_thumbnail_url: "/static/products/lavender-dreams-300ml_thumb.webp",
     stock: 24,
@@ -181,6 +200,7 @@ const MOCK_PRODUCTS: MockProduct[] = [
       { slug: "gift", name: "Gift" },
     ],
     images: [mockProductImage("midnight-amber-300ml")],
+    video: null,
     primary_image_url: "/static/products/midnight-amber-300ml.webp",
     primary_thumbnail_url: "/static/products/midnight-amber-300ml_thumb.webp",
     stock: 12,
@@ -211,6 +231,7 @@ const MOCK_PRODUCTS: MockProduct[] = [
       { slug: "citrus", name: "Citrus" },
     ],
     images: [],
+    video: null,
     primary_image_url: null,
     primary_thumbnail_url: null,
     stock: 36,
@@ -238,6 +259,7 @@ const MOCK_PRODUCTS: MockProduct[] = [
     product_type_name: "Candles",
     labels: [{ slug: "gourmand", name: "Gourmand" }],
     images: [mockProductImage("vanilla-bourbon-300ml")],
+    video: null,
     primary_image_url: "/static/products/vanilla-bourbon-300ml.webp",
     primary_thumbnail_url: "/static/products/vanilla-bourbon-300ml_thumb.webp",
     stock: 0,
@@ -881,6 +903,7 @@ function toAdminProduct(product: MockProduct): AdminProductResponse {
     product_type: product.product_type,
     labels: product.labels.map((l) => l.slug),
     images: product.images,
+    video: product.video,
     primary_image_url: product.primary_image_url,
     primary_thumbnail_url: product.primary_thumbnail_url,
     stock: product.stock,
@@ -954,6 +977,7 @@ export async function createProduct(data: CreateProductRequest): Promise<AdminPr
       (data.product_type ?? "candles"),
     labels: mockLabelRefs(data.labels),
     images: [],
+    video: null,
     primary_image_url: null,
     primary_thumbnail_url: null,
     stock: data.stock,
@@ -1029,6 +1053,7 @@ export async function uploadProductImage(
     id: imageId,
     image_url: imageUrl,
     thumbnail_url: `/static/products/${productId}_${imageId}_thumb.webp`,
+    zoom_url: `/static/products/${productId}_${imageId}_zoom.webp`,
     sort_order: product.images.length,
     is_primary: product.images.length === 0,
   };
@@ -1089,6 +1114,61 @@ export async function setPrimaryProductImage(
   product.primary_image_url = primaryImageUrl(product.images);
   product.primary_thumbnail_url = primaryThumbnailUrl(product.images);
   return primary;
+}
+
+export async function uploadProductVideo(
+  productId: string,
+  file: File
+): Promise<VideoUploadResponse> {
+  await delay();
+  const product = MOCK_PRODUCTS.find((p) => p.id === productId);
+  if (!product) mockError("product_not_found", `Product ${productId} not found`);
+  if (!file.type.startsWith("video/")) {
+    mockError("invalid_video", "Upload a valid video file");
+  }
+  const now = new Date().toISOString();
+  const video: ProductVideo = {
+    id: `${productId}-${Date.now()}`,
+    product_id: productId,
+    status: "queued",
+    video_url: null,
+    poster_url: product.primary_thumbnail_url,
+    sort_order: product.video?.sort_order ?? Math.min(1, product.images.length),
+    duration_secs: null,
+    failure_reason: null,
+    created_at: now,
+    updated_at: now,
+  };
+  product.video = video;
+  return video;
+}
+
+export async function getProductVideo(productId: string): Promise<ProductVideo> {
+  await delay();
+  const product = MOCK_PRODUCTS.find((p) => p.id === productId);
+  if (!product) mockError("product_not_found", `Product ${productId} not found`);
+  if (!product.video) mockError("video_not_found", "Product video not found");
+  return product.video;
+}
+
+export async function deleteProductVideo(productId: string): Promise<void> {
+  await delay();
+  const product = MOCK_PRODUCTS.find((p) => p.id === productId);
+  if (!product) mockError("product_not_found", `Product ${productId} not found`);
+  if (!product.video) mockError("video_not_found", "Product video not found");
+  product.video = null;
+}
+
+export async function updateProductVideoSortOrder(
+  productId: string,
+  sortOrder: number
+): Promise<ProductVideo> {
+  await delay();
+  const product = MOCK_PRODUCTS.find((p) => p.id === productId);
+  if (!product) mockError("product_not_found", `Product ${productId} not found`);
+  if (!product.video) mockError("video_not_found", "Product video not found");
+  product.video = { ...product.video, sort_order: sortOrder, updated_at: new Date().toISOString() };
+  return product.video;
 }
 
 export async function getAdminOrders(
