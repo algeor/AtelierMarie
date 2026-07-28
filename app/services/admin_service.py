@@ -27,6 +27,18 @@ def get_dashboard_stats() -> dict:
             "SELECT status, COUNT(*) as count FROM orders GROUP BY status"
         ).fetchall()
 
+        today_row = conn.execute(
+            "SELECT COUNT(*) as count FROM orders WHERE date(created_at) = date('now')"
+        ).fetchone()
+
+        week_revenue_row = conn.execute(
+            """
+            SELECT COALESCE(SUM(total_cents), 0) as revenue_cents
+            FROM orders
+            WHERE created_at >= datetime('now', '-7 days') AND status != 'cancelled'
+            """
+        ).fetchone()
+
         # Low-stock products (active products with stock <= 5)
         low_stock_row = conn.execute(
             "SELECT COUNT(*) as count FROM products WHERE is_active = 1 AND stock <= 5"
@@ -45,4 +57,7 @@ def get_dashboard_stats() -> dict:
             "by_status": orders_by_status,
         },
         "low_stock_count": low_stock_row["count"],
+        "orders_today": today_row["count"],
+        "revenue_this_week_cents": week_revenue_row["revenue_cents"],
+        "active_product_count": product_row["active"] or 0,
     }

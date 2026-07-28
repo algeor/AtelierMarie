@@ -6,6 +6,7 @@ import { getAdminBanner, updateBanner } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
 import { localInputToUtcIso, storedUtcToLocalInput } from "@/lib/datetime";
+import { SaveConfirmation } from "@/components/admin/SaveConfirmation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import type { BannerUpdateRequest } from "@/lib/types";
@@ -110,11 +111,7 @@ export function BannerPanel() {
           {error}
         </div>
       )}
-      {success && (
-        <div className="rounded-brand border border-green-200 bg-green-50 p-3 text-sm text-green-700">
-          {t("promotions.bannerSaved")}
-        </div>
-      )}
+      {success && <SaveConfirmation message={t("promotions.bannerSaved")} />}
 
       {/* Live preview */}
       <div>

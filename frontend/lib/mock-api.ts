@@ -469,7 +469,7 @@ const MOCK_USER: UserResponse = {
 
 // --- In-Memory FAQ State ---
 
-const nowIso = "2024-06-01T10:00:00Z";
+const faqNowIso = "2024-06-01T10:00:00Z";
 
 let mockFaqNextId = 7;
 
@@ -480,8 +480,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
     title_bg: "За нашите свещи",
     icon: "🕯",
     sort_order: 0,
-    created_at: nowIso,
-    updated_at: nowIso,
+    created_at: faqNowIso,
+    updated_at: faqNowIso,
     items: [
       {
         id: 1,
@@ -492,8 +492,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
         answer_bg: "Да. Всяка свещ е изработена с любов на ръка в нашето ателие.",
         sort_order: 0,
         is_published: true,
-        created_at: nowIso,
-        updated_at: nowIso,
+        created_at: faqNowIso,
+        updated_at: faqNowIso,
       },
     ],
   },
@@ -503,8 +503,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
     title_bg: "Грижа и безопасност",
     icon: "✨",
     sort_order: 1,
-    created_at: nowIso,
-    updated_at: nowIso,
+    created_at: faqNowIso,
+    updated_at: faqNowIso,
     items: [
       {
         id: 2,
@@ -517,8 +517,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
           "* Никога не оставяйте горяща свещ без надзор.\n* Дръжте свещите далеч от деца и домашни любимци.",
         sort_order: 0,
         is_published: true,
-        created_at: nowIso,
-        updated_at: nowIso,
+        created_at: faqNowIso,
+        updated_at: faqNowIso,
       },
     ],
   },
@@ -528,8 +528,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
     title_bg: "Поръчки по заявка и подаръци",
     icon: "🎁",
     sort_order: 2,
-    created_at: nowIso,
-    updated_at: nowIso,
+    created_at: faqNowIso,
+    updated_at: faqNowIso,
     items: [
       {
         id: 3,
@@ -540,8 +540,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
         answer_bg: "Да. Обичаме да претворяваме идеите на нашите клиенти.",
         sort_order: 0,
         is_published: true,
-        created_at: nowIso,
-        updated_at: nowIso,
+        created_at: faqNowIso,
+        updated_at: faqNowIso,
       },
     ],
   },
@@ -551,8 +551,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
     title_bg: "Поръчки, доставка и връщане",
     icon: "📦",
     sort_order: 3,
-    created_at: nowIso,
-    updated_at: nowIso,
+    created_at: faqNowIso,
+    updated_at: faqNowIso,
     items: [
       {
         id: 4,
@@ -563,8 +563,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
         answer_bg: "Времето за подготовка варира в зависимост от продукта.",
         sort_order: 0,
         is_published: true,
-        created_at: nowIso,
-        updated_at: nowIso,
+        created_at: faqNowIso,
+        updated_at: faqNowIso,
       },
     ],
   },

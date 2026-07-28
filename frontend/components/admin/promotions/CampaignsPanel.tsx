@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import {
   applyCampaign,
@@ -10,6 +10,7 @@ import {
 } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
+import { SaveConfirmation } from "@/components/admin/SaveConfirmation";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { CampaignForm } from "./CampaignForm";
@@ -43,6 +44,8 @@ export function CampaignsPanel() {
   const [pending, setPending] = useState<PendingAction>(null);
   const [actioning, setActioning] = useState(false);
   const [lastResult, setLastResult] = useState<BulkDiscountResponse | null>(null);
+  const [saveNotice, setSaveNotice] = useState<{ id: number; message: string } | null>(null);
+  const saveNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -59,6 +62,23 @@ export function CampaignsPanel() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    return () => {
+      if (saveNoticeTimerRef.current) clearTimeout(saveNoticeTimerRef.current);
+    };
+  }, []);
+
+  function showSaved(message = tCommon("saved")) {
+    if (saveNoticeTimerRef.current) clearTimeout(saveNoticeTimerRef.current);
+    setSaveNotice((current) => ({
+      id: (current?.id ?? 0) + 1,
+      message,
+    }));
+    saveNoticeTimerRef.current = setTimeout(() => {
+      setSaveNotice(null);
+    }, 3200);
+  }
 
   // Close the confirmation dialog on Escape.
   useEffect(() => {
@@ -116,6 +136,7 @@ export function CampaignsPanel() {
       }
       setPending(null);
       await load();
+      showSaved();
     } catch (err) {
       setError(err instanceof ApiError ? getLocalizedError(err.code) : t("promotions.actionError"));
     } finally {
@@ -135,6 +156,7 @@ export function CampaignsPanel() {
             setShowForm(false);
             setEditing(null);
             load();
+            showSaved();
           }}
           onCancel={() => {
             setShowForm(false);
@@ -166,6 +188,7 @@ export function CampaignsPanel() {
           {error}
         </div>
       )}
+      {saveNotice && <SaveConfirmation key={saveNotice.id} message={saveNotice.message} />}
 
       {lastResult && (
         <div className="mb-4">

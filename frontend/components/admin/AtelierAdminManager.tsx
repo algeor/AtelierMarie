@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { SaveConfirmation } from "@/components/admin/SaveConfirmation";
 import { Button } from "@/components/ui/Button";
 import {
   clearAboutItemImage,
@@ -33,6 +34,8 @@ export function AtelierAdminManager() {
   const [newItems, setNewItems] = useState<Record<string, CreateAboutItemRequest>>({});
   const [error, setError] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [saveNotice, setSaveNotice] = useState<{ id: number; message: string } | null>(null);
+  const saveNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function refresh() {
     const data = await getAdminAbout();
@@ -43,6 +46,23 @@ export function AtelierAdminManager() {
   useEffect(() => {
     refresh().catch(() => setError("Could not load atelier content."));
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (saveNoticeTimerRef.current) clearTimeout(saveNoticeTimerRef.current);
+    };
+  }, []);
+
+  function showSaved(message = "Saved.") {
+    if (saveNoticeTimerRef.current) clearTimeout(saveNoticeTimerRef.current);
+    setSaveNotice((current) => ({
+      id: (current?.id ?? 0) + 1,
+      message,
+    }));
+    saveNoticeTimerRef.current = setTimeout(() => {
+      setSaveNotice(null);
+    }, 3200);
+  }
 
   function draftFor(slug: string) {
     return drafts.find((section) => section.slug === slug);
@@ -65,6 +85,7 @@ export function AtelierAdminManager() {
     try {
       await action();
       await refresh();
+      showSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save atelier content.");
     } finally {
@@ -98,6 +119,7 @@ export function AtelierAdminManager() {
       </div>
 
       {error && <div className="rounded-brand border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+      {saveNotice && <SaveConfirmation key={saveNotice.id} message={saveNotice.message} />}
 
       {sections.map((section, sectionIndex) => {
         const draft = draftFor(section.slug) ?? section;

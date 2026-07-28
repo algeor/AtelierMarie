@@ -1,0 +1,11 @@
+{
+  "name": "atelier-marie-workspace",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix frontend run dev --",
+    "dev:web": "npm --prefix frontend run dev --",
+    "dev:api": ".venv/bin/uvicorn app.main:app --reload --reload-dir app --port 8000",
+    "build": "npm --prefix frontend run build",
+    "test": "npm --prefix frontend run test"
+  }
+}
