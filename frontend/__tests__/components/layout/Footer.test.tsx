@@ -54,6 +54,15 @@ describe("Footer", () => {
     );
   });
 
+  it("links Atelier to the story page", () => {
+    renderWithIntl(<Footer />);
+
+    expect(screen.getByRole("link", { name: "Atelier" })).toHaveAttribute(
+      "href",
+      "/atelier"
+    );
+  });
+
   it("links FAQ from the footer", () => {
     renderWithIntl(<Footer />);
 

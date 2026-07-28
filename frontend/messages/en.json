@@ -19,6 +19,7 @@
   "nav": {
     "home": "Home",
     "shop": "Shop",
+    "atelier": "Atelier",
     "about": "About",
     "faq": "FAQ",
     "contact": "Contact",
@@ -159,7 +160,7 @@
     "faqCare": "Candle Care",
     "faqCustom": "Custom Orders",
     "faqShipping": "Shipping & Returns",
-    "questions": "Questions?"
+    "questions": "Questions?",
     "zoom": "Zoom",
     "zoomImage": "Zoom image",
     "closeZoom": "Close zoom"
@@ -346,6 +347,7 @@
     "dashboard": "Dashboard",
     "products": "Products",
     "orders": "Orders",
+    "atelierNav": "Atelier",
     "faqNav": "FAQ",
     "manageOrders": "Manage customer orders",
     "manageProducts": "Manage your product catalog",

@@ -111,6 +111,112 @@ export interface TaxonomyResponse {
   labels: TaxonomyTerm[];
 }
 
+// --- Atelier Story / About ---
+
+export type AboutSectionType =
+  | "hero"
+  | "text_image"
+  | "text_band"
+  | "cards"
+  | "timeline"
+  | "collections"
+  | "cta_band";
+
+export interface AboutCta {
+  label: string;
+  href: string;
+}
+
+export interface AboutItem {
+  id: number;
+  title: string;
+  text: string | null;
+  image: string | null;
+  link: string | null;
+}
+
+export interface AboutSection {
+  slug: string;
+  type: AboutSectionType;
+  heading: string;
+  subheading: string | null;
+  body: string | null;
+  cta: AboutCta | null;
+  image: string | null;
+  items: AboutItem[];
+}
+
+export interface AboutPublicResponse {
+  sections: AboutSection[];
+}
+
+export interface AboutItemAdmin {
+  id: number;
+  section: string;
+  title_en: string;
+  title_bg: string | null;
+  text_en: string | null;
+  text_bg: string | null;
+  image_id: string | null;
+  image: string | null;
+  link_href: string | null;
+  sort_order: number;
+  is_published: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AboutSectionAdmin {
+  slug: string;
+  type: AboutSectionType;
+  heading_en: string;
+  heading_bg: string | null;
+  subheading_en: string | null;
+  subheading_bg: string | null;
+  body_en: string | null;
+  body_bg: string | null;
+  cta_label_en: string | null;
+  cta_label_bg: string | null;
+  cta_href: string | null;
+  image_id: string | null;
+  image: string | null;
+  sort_order: number;
+  is_published: boolean;
+  created_at: string;
+  updated_at: string;
+  items: AboutItemAdmin[];
+}
+
+export interface AboutAdminResponse {
+  sections: AboutSectionAdmin[];
+}
+
+export type PatchAboutSectionRequest = Partial<
+  Pick<
+    AboutSectionAdmin,
+    | "heading_en"
+    | "heading_bg"
+    | "subheading_en"
+    | "subheading_bg"
+    | "body_en"
+    | "body_bg"
+    | "cta_label_en"
+    | "cta_label_bg"
+    | "cta_href"
+  >
+>;
+
+export interface CreateAboutItemRequest {
+  title_en: string;
+  title_bg?: string | null;
+  text_en?: string | null;
+  text_bg?: string | null;
+  link_href?: string | null;
+  is_published?: boolean;
+}
+
+export type PatchAboutItemRequest = Partial<CreateAboutItemRequest>;
+
 // --- FAQ ---
 
 export interface FaqItemResponse {
