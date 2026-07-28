@@ -66,19 +66,23 @@ def create_order(
     if body.payment_method == "card" and not settings.stripe_secret_key:
         return JSONResponse(
             status_code=422,
-            content={"error": {
-                "code": "PAYMENT_METHOD_UNAVAILABLE",
-                "message": "Card payments are not configured",
-            }},
+            content={
+                "error": {
+                    "code": "PAYMENT_METHOD_UNAVAILABLE",
+                    "message": "Card payments are not configured",
+                }
+            },
         )
     # Validate bank_transfer: IBAN must be configured.
     if body.payment_method == "bank_transfer" and not settings.bank_iban:
         return JSONResponse(
             status_code=422,
-            content={"error": {
-                "code": "PAYMENT_METHOD_UNAVAILABLE",
-                "message": "Bank transfer is not configured",
-            }},
+            content={
+                "error": {
+                    "code": "PAYMENT_METHOD_UNAVAILABLE",
+                    "message": "Bank transfer is not configured",
+                }
+            },
         )
 
     try:
@@ -137,6 +141,7 @@ def create_order(
                 except StripeSessionError as exc:
                     # Order was created; return it without a checkout URL so retry flow works.
                     import structlog
+
                     structlog.get_logger(__name__).error(
                         "stripe_session_create_failed", order_id=order_data["id"], error=str(exc)
                     )
@@ -149,16 +154,24 @@ def create_order(
     except InsufficientStockError as e:
         return JSONResponse(
             status_code=409,
-            content={"error": {
-                "code": "INSUFFICIENT_STOCK", "message": str(e), "details": e.failures,
-            }},
+            content={
+                "error": {
+                    "code": "INSUFFICIENT_STOCK",
+                    "message": str(e),
+                    "details": e.failures,
+                }
+            },
         )
     except ProductUnavailableError as e:
         return JSONResponse(
             status_code=409,
-            content={"error": {
-                "code": "PRODUCT_UNAVAILABLE", "message": str(e), "details": e.failures,
-            }},
+            content={
+                "error": {
+                    "code": "PRODUCT_UNAVAILABLE",
+                    "message": str(e),
+                    "details": e.failures,
+                }
+            },
         )
 
     response = OrderResponse.model_validate(order_data)
@@ -182,10 +195,12 @@ def create_stripe_retry_session(
     if not settings.stripe_secret_key:
         return JSONResponse(
             status_code=422,
-            content={"error": {
-                "code": "PAYMENT_METHOD_UNAVAILABLE",
-                "message": "Card payments are not configured",
-            }},
+            content={
+                "error": {
+                    "code": "PAYMENT_METHOD_UNAVAILABLE",
+                    "message": "Card payments are not configured",
+                }
+            },
         )
 
     with get_db() as conn:
@@ -284,4 +299,3 @@ def get_order_detail(
         )
 
     return OrderResponse.model_validate(order_data)
-

@@ -53,15 +53,15 @@ describe("CartDrawer", () => {
 
   it("is hidden when isDrawerOpen is false", () => {
     mockUseCart.mockReturnValue({ ...baseCartState, isDrawerOpen: false });
-    const { container } = renderWithIntl(<CartDrawer />);
-    const wrapper = container.firstElementChild;
+    renderWithIntl(<CartDrawer />);
+    const wrapper = document.querySelector('[data-testid="cart-drawer-root"]');
     expect(wrapper).toHaveAttribute("aria-hidden", "true");
   });
 
   it("is visible when isDrawerOpen is true", () => {
     mockUseCart.mockReturnValue({ ...baseCartState, isDrawerOpen: true });
-    const { container } = renderWithIntl(<CartDrawer />);
-    const wrapper = container.firstElementChild;
+    renderWithIntl(<CartDrawer />);
+    const wrapper = document.querySelector('[data-testid="cart-drawer-root"]');
     expect(wrapper).toHaveAttribute("aria-hidden", "false");
   });
 

@@ -29,7 +29,7 @@ def _seeded_bilingual(db_path):
             "description_en": "A calming lavender candle",
             "description_bg": "Успокояваща лавандулова свещ",
             "price_cents": 3200,
-            "category": "luxury-jar",
+            "category": "medium",
             "stock": 24,
         }
     )
@@ -41,7 +41,7 @@ def _seeded_bilingual(db_path):
             "description_en": "Warm amber and sandalwood",
             "description_bg": None,
             "price_cents": 4500,
-            "category": "luxury-jar",
+            "category": "medium",
             "stock": 12,
         }
     )
@@ -203,7 +203,7 @@ class TestCSVImportBilingual:
                 "description_en": "English desc",
                 "description_bg": "Описание на БГ",
                 "price_cents": 2500,
-                "category": "Floral",
+                "labels": ["floral"],
                 "stock": 10,
             }
         ]
@@ -221,7 +221,7 @@ class TestCSVImportBilingual:
                 "id": "en-only-product",
                 "name_en": "English Only",
                 "price_cents": 1500,
-                "category": "Fresh",
+                "labels": ["fresh"],
                 "stock": 5,
             }
         )
@@ -339,7 +339,7 @@ class TestBilingualSchemaMigration:
                 "name_en": "New Candle",
                 "name_bg": "Нова свещ",
                 "price_cents": 2500,
-                "category": "Floral",
+                "labels": ["floral"],
                 "stock": 4,
             }
         )

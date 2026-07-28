@@ -5,11 +5,15 @@ import { useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import {
   deleteProductImage,
+  deleteProductVideo,
   getAdminProduct,
+  getProductVideo,
   reorderProductImages,
   setPrimaryProductImage,
   updateProduct,
+  updateProductVideoSortOrder,
   uploadProductImage,
+  uploadProductVideo,
 } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
@@ -35,6 +39,32 @@ export default function EditProductPage() {
       .finally(() => setIsLoading(false));
   }, [productId, getLocalizedError, t]);
 
+  useEffect(() => {
+    const status = product?.video?.status;
+    if (status !== "queued" && status !== "transcoding") return;
+
+    let cancelled = false;
+    async function pollVideo() {
+      try {
+        const video = await getProductVideo(productId);
+        if (!cancelled) {
+          setProduct((current) => (current ? { ...current, video } : current));
+        }
+      } catch (err) {
+        if (!cancelled && err instanceof ApiError && err.code === "video_not_found") {
+          setProduct((current) => (current ? { ...current, video: null } : current));
+        }
+      }
+    }
+
+    void pollVideo();
+    const interval = window.setInterval(() => void pollVideo(), 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [productId, product?.video?.status]);
+
   async function handleSubmit(data: ProductFormData) {
     await updateProduct(productId, {
       name_en: data.name_en,
@@ -44,7 +74,9 @@ export default function EditProductPage() {
       materials: data.materials || null,
       days_to_craft: data.days_to_craft,
       price_cents: data.price_cents,
-      category: data.category,
+      product_type: data.product_type,
+      category: data.category || null,
+      labels: data.labels,
       stock: data.stock,
       weight_grams: data.weight_grams,
       is_active: data.is_active,
@@ -64,6 +96,15 @@ export default function EditProductPage() {
     }
     for (const file of data.image_files) {
       await uploadProductImage(productId, file);
+    }
+    if (data.delete_video && product?.video) {
+      await deleteProductVideo(productId);
+    }
+    if (data.video_file) {
+      await uploadProductVideo(productId, data.video_file);
+      await updateProductVideoSortOrder(productId, data.video_sort_order);
+    } else if (product?.video && !data.delete_video) {
+      await updateProductVideoSortOrder(productId, data.video_sort_order);
     }
   }
 

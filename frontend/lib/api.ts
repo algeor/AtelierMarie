@@ -9,6 +9,7 @@ import type {
   AdminProductListResponse,
   AdminProductResponse,
   AdminStats,
+  AdminTaxonomyTerm,
   BannerAdminResponse,
   BannerUpdateRequest,
   BulkDiscountRequest,
@@ -28,6 +29,12 @@ import type {
   Courier,
   CreateOrderRequest,
   CreateProductRequest,
+  CreateTaxonomyTermRequest,
+  CreateFaqItemRequest,
+  FaqAdminResponse,
+  FaqItemAdminResponse,
+  FaqResponse,
+  FaqSectionAdminResponse,
   ImageUploadResponse,
   OfficeResponse,
   OfficeType,
@@ -40,8 +47,16 @@ import type {
   ReactionToggleRequest,
   ReactionToggleResponse,
   ProductImage,
+  ProductVideo,
+  TaxonomyKind,
+  TaxonomyResponse,
+  ReorderFaqItemsRequest,
+  UpdateFaqItemRequest,
+  UpdateFaqSectionRequest,
   UpdateProductRequest,
+  UpdateTaxonomyTermRequest,
   UserResponse,
+  VideoUploadResponse,
 } from "./types";
 
 const USE_MOCK =
@@ -79,6 +94,102 @@ export async function getProduct(
 export async function updateLocalePreference(locale: Locale): Promise<{ locale: Locale }> {
   if (USE_MOCK) return { locale };
   return apiClient.patch<{ locale: Locale }>("/v1/locale", { locale });
+}
+
+// --- Taxonomy ---
+
+export async function getTaxonomy(locale?: Locale): Promise<TaxonomyResponse> {
+  if (USE_MOCK) return (await getMock()).getTaxonomy(locale);
+  const params = new URLSearchParams();
+  if (locale) params.set("locale", locale);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<TaxonomyResponse>(`/v1/taxonomy${query}`);
+}
+
+export async function getAdminTaxonomy(kind: TaxonomyKind): Promise<AdminTaxonomyTerm[]> {
+  if (USE_MOCK) return (await getMock()).getAdminTaxonomy(kind);
+  return apiClient.get<AdminTaxonomyTerm[]>(`/v1/admin/taxonomy/${kind}`);
+}
+
+export async function createTaxonomyTerm(
+  kind: TaxonomyKind,
+  data: CreateTaxonomyTermRequest
+): Promise<AdminTaxonomyTerm> {
+  if (USE_MOCK) return (await getMock()).createTaxonomyTerm(kind, data);
+  return apiClient.post<AdminTaxonomyTerm>(`/v1/admin/taxonomy/${kind}`, data);
+}
+
+export async function updateTaxonomyTerm(
+  kind: TaxonomyKind,
+  slug: string,
+  data: UpdateTaxonomyTermRequest
+): Promise<AdminTaxonomyTerm> {
+  if (USE_MOCK) return (await getMock()).updateTaxonomyTerm(kind, slug, data);
+  return apiClient.patch<AdminTaxonomyTerm>(
+    `/v1/admin/taxonomy/${kind}/${encodeURIComponent(slug)}`,
+    data
+  );
+}
+
+export async function deleteTaxonomyTerm(kind: TaxonomyKind, slug: string): Promise<void> {
+  if (USE_MOCK) return (await getMock()).deleteTaxonomyTerm(kind, slug);
+  return apiClient.del<void>(`/v1/admin/taxonomy/${kind}/${encodeURIComponent(slug)}`);
+}
+
+// --- FAQ ---
+
+export async function getFaq(locale?: Locale): Promise<FaqResponse> {
+  if (USE_MOCK) return (await getMock()).getFaq(locale);
+  const params = new URLSearchParams();
+  if (locale) params.set("locale", locale);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<FaqResponse>(`/v1/faq${query}`);
+}
+
+export async function getAdminFaq(): Promise<FaqAdminResponse> {
+  if (USE_MOCK) return (await getMock()).getAdminFaq();
+  return apiClient.get<FaqAdminResponse>("/v1/admin/faq");
+}
+
+export async function createFaqItem(
+  data: CreateFaqItemRequest
+): Promise<FaqItemAdminResponse> {
+  if (USE_MOCK) return (await getMock()).createFaqItem(data);
+  return apiClient.post<FaqItemAdminResponse>("/v1/admin/faq", data);
+}
+
+export async function updateFaqItem(
+  itemId: number,
+  data: UpdateFaqItemRequest
+): Promise<FaqItemAdminResponse> {
+  if (USE_MOCK) return (await getMock()).updateFaqItem(itemId, data);
+  return apiClient.patch<FaqItemAdminResponse>(
+    `/v1/admin/faq/items/${encodeURIComponent(String(itemId))}`,
+    data
+  );
+}
+
+export async function deleteFaqItem(itemId: number): Promise<void> {
+  if (USE_MOCK) return (await getMock()).deleteFaqItem(itemId);
+  return apiClient.del<void>(`/v1/admin/faq/items/${encodeURIComponent(String(itemId))}`);
+}
+
+export async function reorderFaqItems(
+  data: ReorderFaqItemsRequest
+): Promise<FaqAdminResponse> {
+  if (USE_MOCK) return (await getMock()).reorderFaqItems(data);
+  return apiClient.patch<FaqAdminResponse>("/v1/admin/faq/reorder", data);
+}
+
+export async function updateFaqSection(
+  slug: string,
+  data: UpdateFaqSectionRequest
+): Promise<FaqSectionAdminResponse> {
+  if (USE_MOCK) return (await getMock()).updateFaqSection(slug, data);
+  return apiClient.patch<FaqSectionAdminResponse>(
+    `/v1/admin/faq/sections/${encodeURIComponent(slug)}`,
+    data
+  );
 }
 
 function localeQuery(locale?: Locale): string {
@@ -297,6 +408,42 @@ export async function setPrimaryProductImage(
   return apiClient.patch<ProductImage>(
     `/v1/admin/products/${encodeURIComponent(productId)}/images/${encodeURIComponent(imageId)}/primary`,
     {}
+  );
+}
+
+export async function uploadProductVideo(
+  productId: string,
+  file: File
+): Promise<VideoUploadResponse> {
+  if (USE_MOCK) return (await getMock()).uploadProductVideo(productId, file);
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiClient.postForm<VideoUploadResponse>(
+    `/v1/admin/products/${encodeURIComponent(productId)}/video`,
+    formData
+  );
+}
+
+export async function getProductVideo(productId: string): Promise<ProductVideo> {
+  if (USE_MOCK) return (await getMock()).getProductVideo(productId);
+  return apiClient.get<ProductVideo>(
+    `/v1/admin/products/${encodeURIComponent(productId)}/video`
+  );
+}
+
+export async function deleteProductVideo(productId: string): Promise<void> {
+  if (USE_MOCK) return (await getMock()).deleteProductVideo(productId);
+  return apiClient.del<void>(`/v1/admin/products/${encodeURIComponent(productId)}/video`);
+}
+
+export async function updateProductVideoSortOrder(
+  productId: string,
+  sortOrder: number
+): Promise<ProductVideo> {
+  if (USE_MOCK) return (await getMock()).updateProductVideoSortOrder(productId, sortOrder);
+  return apiClient.patch<ProductVideo>(
+    `/v1/admin/products/${encodeURIComponent(productId)}/video`,
+    { sort_order: sortOrder }
   );
 }
 

@@ -3,11 +3,15 @@
 import csv
 import io
 import re
+import sqlite3
+from pathlib import Path
 from typing import get_args
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 
+from app.config import get_settings
 from app.constants import MAX_CSV_ROWS, MAX_CSV_UPLOAD_BYTES, MAX_PRICE_CENTS, MAX_STOCK
 from app.database import get_db
 from app.dependencies.auth import require_admin
@@ -37,22 +41,32 @@ from app.models.products import (
     ProductAdminListResponse,
     ProductAdminResponse,
     ProductImage,
+    ProductVideo,
     ReorderProductImagesRequest,
     UpdateProductRequest,
+    UpdateProductVideoRequest,
 )
 from app.models.promotions import BulkDiscountRequest, BulkDiscountResponse
-from app.services import admin_service, product_image_service, product_service
+from app.services import (
+    admin_service,
+    product_image_service,
+    product_service,
+    product_video_service,
+    video_service,
+)
 from app.services.auth_service import get_oauth_circuit_breaker
 from app.services.comment_service import CommentNotFoundError, list_all_comments
 from app.services.comment_service import delete_comment as delete_comment_service
 from app.services.email_service import event_for_status, queue_order_email
 from app.services.image_service import (
     MAX_FILE_SIZE,
-    FileTooLargeError,
     ImageProcessingError,
     InvalidImageTypeError,
     InvalidProductIdError,
     validate_image_file,
+)
+from app.services.image_service import (
+    FileTooLargeError as ImageFileTooLargeError,
 )
 from app.services.order_service import (
     PaymentAlreadyPaidError,
@@ -67,6 +81,19 @@ from app.services.product_service import (
     DiscountValidationError,
     DuplicateError,
     NotFoundError,
+)
+from app.services.taxonomy_service import TaxonomyValidationError
+from app.services.video_service import (
+    FfmpegUnavailableError,
+    InvalidVideoTypeError,
+    VideoProcessingError,
+    VideoTooLongError,
+)
+from app.services.video_service import (
+    FileTooLargeError as VideoFileTooLargeError,
+)
+from app.services.video_service import (
+    InvalidProductIdError as InvalidVideoProductIdError,
 )
 
 router = APIRouter(dependencies=[Depends(require_admin)])
@@ -96,6 +123,11 @@ async def admin_create_product(body: CreateProductRequest) -> ProductAdminRespon
                     "message": "Product with this ID already exists",
                 }
             },
+        )
+    except TaxonomyValidationError as e:
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "INVALID_TAXONOMY", "message": str(e)}},
         )
 
     return ProductAdminResponse(**product)
@@ -241,6 +273,11 @@ async def admin_update_product(
             status_code=404,
             content={"error": {"code": "NOT_FOUND", "message": "Product not found"}},
         )
+    except TaxonomyValidationError as e:
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "INVALID_TAXONOMY", "message": str(e)}},
+        )
     except DiscountValidationError as e:
         return JSONResponse(
             status_code=422,
@@ -271,6 +308,21 @@ async def admin_delete_product(product_id: str) -> ProductAdminResponse | JSONRe
     return ProductAdminResponse(**product)
 
 
+# Required CSV headers — accept both legacy (name/description) and new (name_en/description_en)
+_REQUIRED_CSV_HEADERS_NEW = {"id", "name_en", "price_cents"}
+_REQUIRED_CSV_HEADERS_LEGACY = {"id", "name", "price_cents"}
+_OPTIONAL_CSV_HEADERS = {
+    "description",
+    "description_en",
+    "description_bg",
+    "name_bg",
+    "category",
+    "product_type",
+    "labels",
+    "stock",
+    "image_url",
+}
+
 # Accepted case-insensitive boolean literals for CSV boolean columns.
 _CSV_BOOL_TRUE = {"true", "1", "yes"}
 _CSV_BOOL_FALSE = {"false", "0", "no"}
@@ -289,17 +341,6 @@ def _parse_csv_bool(value: str) -> bool:
         return False
     msg = "must be one of true/false/1/0/yes/no"
     raise ValueError(msg)
-
-
-def _parse_csv_image_url(value: str) -> str | None:
-    """Validate a CSV image URL using the same rule as product request models."""
-    stripped = value.strip()
-    if not stripped:
-        return None
-    if not stripped.startswith(("http://", "https://", "/")):
-        msg = "must be a valid URL (http://, https://, or relative path)"
-        raise ValueError(msg)
-    return stripped
 
 
 def _parse_csv_image_url(value: str) -> str | None:
@@ -335,9 +376,15 @@ async def admin_import_products(
 
     Required columns: id, name_en (or legacy 'name'), price_cents
     Optional columns: name_bg, description_en (or legacy 'description'),
-                      description_bg, category, stock, image_url,
-                      weight_grams, is_active, is_featured, materials,
+                      description_bg, category, product_type, labels, stock,
+                      image_url, weight_grams, is_active, is_featured, materials,
                       days_to_craft
+
+    Taxonomy columns are managed SLUGS, not free text (breaking change from the
+    legacy free-text `category`): `product_type` and `category` must be existing
+    active slugs, and `labels` is a comma-separated list of active label slugs.
+    Unknown/inactive slugs surface as per-row errors; taxonomy is never
+    auto-created on import.
 
     weight_grams defaults to 300 for newly-created products when the column
     is absent; existing products keep their current weight. Boolean columns
@@ -545,6 +592,12 @@ async def admin_import_products(
 
         if "category" in headers and row.get("category"):
             data["category"] = row["category"].strip()
+        # Managed taxonomy columns (slugs). Validated against active terms in the
+        # service; unknown/inactive slugs surface as row-level errors below.
+        if "product_type" in headers and row.get("product_type"):
+            data["product_type"] = row["product_type"].strip()
+        if "labels" in headers and row.get("labels"):
+            data["labels"] = [s.strip() for s in row["labels"].split(",") if s.strip()]
         if stock is not None:
             data["stock"] = stock
         if weight_grams is not None:
@@ -558,12 +611,8 @@ async def admin_import_products(
         if "materials" in headers and row.get("materials"):
             data["materials"] = row["materials"].strip()
 
-        # Check if product exists to track created vs updated
-        try:
-            product_service.get_product_admin(product_id)
-            is_existing = True
-        except NotFoundError:
-            is_existing = False
+        # Check if product exists to track created vs updated (lightweight probe).
+        is_existing = product_service.product_exists(product_id)
 
         try:
             product_service.upsert_product(product_id, data)
@@ -573,7 +622,9 @@ async def admin_import_products(
                 updated += 1
             else:
                 created += 1
-        except Exception as e:
+        except (TaxonomyValidationError, DuplicateError, ValueError, sqlite3.IntegrityError) as e:
+            # Expected per-row data errors are reported and the import continues.
+            # Unexpected exceptions propagate rather than masquerading as row errors.
             errors.append(CSVImportError(row=row_num, message=str(e)))
 
     return CSVImportResponse(created=created, updated=updated, errors=errors)
@@ -826,6 +877,155 @@ async def admin_list_comments(
 # --- Image upload endpoint ---
 
 
+async def _stream_video_upload_with_limit(file: UploadFile, product_id: str) -> Path:
+    """Stream a video UploadFile to private temp storage with a hard size cap."""
+    settings = get_settings()
+    temp_path = product_video_service.reserve_temp_upload(product_id)
+    total = 0
+    try:
+        with temp_path.open("wb") as output:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > settings.max_video_upload_bytes:
+                    raise VideoFileTooLargeError(
+                        f"File size exceeds maximum of {settings.max_video_upload_bytes} bytes"
+                    )
+                output.write(chunk)
+    except Exception:
+        video_service.unlink_video_files(str(temp_path))
+        raise
+    return temp_path
+
+
+def _video_error_response(exc: Exception) -> JSONResponse:
+    if isinstance(exc, product_video_service.ProductNotFoundError):
+        return JSONResponse(
+            status_code=404,
+            content={"error": {"code": "product_not_found", "message": "Product not found"}},
+        )
+    if isinstance(exc, product_video_service.ProductVideoNotFoundError):
+        return JSONResponse(
+            status_code=404,
+            content={"error": {"code": "video_not_found", "message": "Product video not found"}},
+        )
+    if isinstance(exc, product_video_service.ProductVideoProcessingConflictError):
+        return JSONResponse(
+            status_code=409,
+            content={"error": {"code": "video_processing", "message": "video is still processing"}},
+        )
+    if isinstance(exc, InvalidVideoProductIdError):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": {
+                    "code": "invalid_product_id",
+                    "message": "Product ID must be a valid slug (lowercase alphanumeric + hyphens)",
+                }
+            },
+        )
+    if isinstance(exc, VideoFileTooLargeError):
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "file_too_large", "message": str(exc)}},
+        )
+    if isinstance(exc, InvalidVideoTypeError | VideoTooLongError):
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "invalid_video", "message": str(exc)}},
+        )
+    if isinstance(exc, FfmpegUnavailableError):
+        return JSONResponse(
+            status_code=503,
+            content={"error": {"code": "video_unavailable", "message": str(exc)}},
+        )
+    if isinstance(exc, VideoProcessingError):
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "video_processing_failed", "message": str(exc)}},
+        )
+    raise exc
+
+
+@router.post(
+    "/products/{product_id}/video",
+    response_model=ProductVideo,
+    status_code=202,
+    summary="Upload product video",
+    responses={
+        202: {"description": "Video accepted for async processing"},
+        404: {"description": "Product not found"},
+        409: {"description": "Video is still processing"},
+        422: {"description": "Invalid video upload"},
+        503: {"description": "ffmpeg/ffprobe unavailable"},
+    },
+)
+async def admin_upload_product_video(
+    product_id: str,
+    file: UploadFile = File(..., description="Video file to transcode"),
+) -> ProductVideo | JSONResponse:
+    """Upload or replace one product video and queue background transcoding."""
+    try:
+        product_video_service.validate_upload_target(product_id)
+        temp_path = await _stream_video_upload_with_limit(file, product_id)
+        video = product_video_service.queue_video_upload_path(product_id, temp_path)
+    except Exception as exc:
+        return _video_error_response(exc)
+    return ProductVideo(**video)
+
+
+@router.get(
+    "/products/{product_id}/video",
+    response_model=ProductVideo,
+    summary="Get product video status",
+    responses={404: {"description": "Product or video not found"}},
+)
+async def admin_get_product_video(product_id: str) -> ProductVideo | JSONResponse:
+    """Return the product video row, including status and failure reason."""
+    try:
+        video = product_video_service.get_video(product_id)
+    except Exception as exc:
+        return _video_error_response(exc)
+    return ProductVideo(**video)
+
+
+@router.delete(
+    "/products/{product_id}/video",
+    status_code=204,
+    response_class=Response,
+    summary="Delete product video",
+    responses={404: {"description": "Product video not found"}},
+)
+async def admin_delete_product_video(product_id: str) -> Response:
+    """Delete one product video and unlink its files."""
+    try:
+        product_video_service.delete_video(product_id)
+    except Exception as exc:
+        response = _video_error_response(exc)
+        return response
+    return Response(status_code=204)
+
+
+@router.patch(
+    "/products/{product_id}/video",
+    response_model=ProductVideo,
+    summary="Set product video gallery position",
+    responses={404: {"description": "Product video not found"}},
+)
+async def admin_update_product_video(
+    product_id: str,
+    body: UpdateProductVideoRequest,
+) -> ProductVideo | JSONResponse:
+    """Set the product video's insertion index in the image gallery."""
+    try:
+        video = product_video_service.update_sort_order(product_id, body.sort_order)
+    except Exception as exc:
+        return _video_error_response(exc)
+    return ProductVideo(**video)
+
+
 async def _read_upload_with_limit(file: UploadFile) -> bytes:
     """Read an UploadFile without buffering unbounded request bodies."""
     chunks = bytearray()
@@ -835,7 +1035,7 @@ async def _read_upload_with_limit(file: UploadFile) -> bytes:
             break
         chunks.extend(chunk)
         if len(chunks) > MAX_FILE_SIZE:
-            raise FileTooLargeError("File size exceeds maximum of 5MB")
+            raise ImageFileTooLargeError("File size exceeds maximum of 25MB")
     return bytes(chunks)
 
 
@@ -861,19 +1061,19 @@ async def admin_append_product_image(
     """Upload and append a processed image to a product gallery.
 
     Validates the file (type, size, slug), processes it (resize, strip EXIF,
-    convert to WebP), saves main + thumbnail, and stores a product_images row.
+    convert to WebP), saves main + thumbnail + zoom, and stores a product_images row.
     """
     # Read file bytes with an application-level limit. Nginx should reject
     # larger production uploads first; this is defense-in-depth for app access.
     try:
         file_bytes = await _read_upload_with_limit(file)
-    except FileTooLargeError:
+    except ImageFileTooLargeError:
         return JSONResponse(
             status_code=422,
             content={
                 "error": {
                     "code": "file_too_large",
-                    "message": "File size exceeds maximum of 5MB",
+                    "message": "File size exceeds maximum of 25MB",
                 }
             },
         )
@@ -891,13 +1091,13 @@ async def admin_append_product_image(
                 }
             },
         )
-    except FileTooLargeError:
+    except ImageFileTooLargeError:
         return JSONResponse(
             status_code=422,
             content={
                 "error": {
                     "code": "file_too_large",
-                    "message": "File size exceeds maximum of 5MB",
+                    "message": "File size exceeds maximum of 25MB",
                 }
             },
         )
@@ -913,7 +1113,9 @@ async def admin_append_product_image(
         )
 
     try:
-        image = product_image_service.add_image(product_id, file_bytes)
+        # Pillow decode/resize/encode is CPU-bound and blocking; run it off the
+        # event loop so concurrent Layer-1 requests are not stalled by an upload.
+        image = await run_in_threadpool(product_image_service.add_image, product_id, file_bytes)
     except product_image_service.ProductNotFoundError:
         return JSONResponse(
             status_code=404,

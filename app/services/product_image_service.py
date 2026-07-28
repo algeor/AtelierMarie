@@ -45,6 +45,7 @@ def _row_to_image(row: sqlite3.Row) -> dict:
         "id": row["id"],
         "image_url": row["image_url"],
         "thumbnail_url": row["thumbnail_url"],
+        "zoom_url": row["zoom_url"] if "zoom_url" in row.keys() else None,
         "sort_order": row["sort_order"],
         "is_primary": bool(row["is_primary"]),
     }
@@ -75,7 +76,7 @@ def images_for_products(conn: sqlite3.Connection, product_ids: list[str]) -> dic
     placeholders = ", ".join("?" for _ in product_ids)
     rows = conn.execute(
         f"""
-        SELECT id, product_id, image_url, thumbnail_url, sort_order, is_primary
+        SELECT id, product_id, image_url, thumbnail_url, zoom_url, sort_order, is_primary
         FROM product_images
         WHERE product_id IN ({placeholders})
         ORDER BY product_id, sort_order, created_at, id
@@ -134,21 +135,23 @@ def add_image(product_id: str, file_bytes: bytes) -> dict:
         conn.execute(
             """
             INSERT INTO product_images (
-                id, product_id, image_url, thumbnail_url, sort_order, is_primary, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+                id, product_id, image_url, thumbnail_url, zoom_url,
+                sort_order, is_primary, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
             """,
             (
                 image_id,
                 product_id,
                 processed["image_url"],
                 processed["thumbnail_url"],
+                processed["zoom_url"],
                 sort_order,
                 is_primary,
             ),
         )
         row = conn.execute(
             """
-            SELECT id, image_url, thumbnail_url, sort_order, is_primary
+            SELECT id, image_url, thumbnail_url, zoom_url, sort_order, is_primary
             FROM product_images
             WHERE id = ? AND product_id = ?
             """,
@@ -164,7 +167,7 @@ def delete_image(product_id: str, image_id: str) -> None:
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             """
-            SELECT id, image_url, thumbnail_url, is_primary
+            SELECT id, image_url, thumbnail_url, zoom_url, is_primary
             FROM product_images
             WHERE product_id = ? AND id = ?
             """,
@@ -193,7 +196,7 @@ def delete_image(product_id: str, image_id: str) -> None:
                     (product_id, replacement["id"]),
                 )
 
-    _unlink_image_files(row["image_url"], row["thumbnail_url"])
+    _unlink_image_files(row["image_url"], row["thumbnail_url"], row["zoom_url"])
 
 
 def reorder_images(product_id: str, ordered_ids: list[str]) -> list[dict]:
@@ -242,7 +245,7 @@ def set_primary(product_id: str, image_id: str) -> dict:
         )
         result = conn.execute(
             """
-            SELECT id, image_url, thumbnail_url, sort_order, is_primary
+            SELECT id, image_url, thumbnail_url, zoom_url, sort_order, is_primary
             FROM product_images
             WHERE product_id = ? AND id = ?
             """,
@@ -277,21 +280,23 @@ def add_existing_image_url(product_id: str, image_url: str) -> dict | None:
         conn.execute(
             """
             INSERT INTO product_images (
-                id, product_id, image_url, thumbnail_url, sort_order, is_primary, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+                id, product_id, image_url, thumbnail_url, zoom_url,
+                sort_order, is_primary, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
             """,
             (
                 image_id,
                 product_id,
                 image_url,
                 thumbnail_url,
+                None,
                 int(current["max_order"]) + 1,
                 is_primary,
             ),
         )
         row = conn.execute(
             """
-            SELECT id, image_url, thumbnail_url, sort_order, is_primary
+            SELECT id, image_url, thumbnail_url, zoom_url, sort_order, is_primary
             FROM product_images
             WHERE id = ? AND product_id = ?
             """,
@@ -316,11 +321,11 @@ def _derive_thumbnail_url(image_url: str) -> str:
     return urlunsplit((split.scheme, split.netloc, thumb_path, split.query, split.fragment))
 
 
-def _unlink_image_files(*urls: str) -> None:
+def _unlink_image_files(*urls: str | None) -> None:
     settings = get_settings()
     static_root = Path(settings.static_file_path).resolve()
     for url in urls:
-        if not url.startswith("/static/"):
+        if not url or not url.startswith("/static/"):
             continue
         relative = url.removeprefix("/static/").lstrip("/")
         path = (static_root / relative).resolve()

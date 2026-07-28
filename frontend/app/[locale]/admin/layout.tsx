@@ -4,10 +4,11 @@ import { AdminSidebar } from "@/components/admin/AdminSidebar";
 import type { Locale } from "@/i18n/routing";
 import { getLocalizedAlternates } from "@/lib/seo";
 
-export function generateMetadata({ params }: { params: { locale: Locale } }) {
+export async function generateMetadata({ params }: { params: Promise<{ locale: Locale }> }) {
+  const { locale } = await params;
   return {
     title: "Admin | Atelier Marie",
-    alternates: getLocalizedAlternates(params.locale, "/admin"),
+    alternates: getLocalizedAlternates(locale, "/admin"),
   };
 }
 

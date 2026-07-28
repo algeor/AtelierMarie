@@ -16,13 +16,15 @@ MAX_IMAGE_PIXELS = 25_000_000
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
 # Output dimensions (max bounding box, aspect ratio preserved)
-_MAIN_MAX_SIZE = (1200, 1500)
+_MAIN_MAX_SIZE = (2000, 2500)
 _THUMB_MAX_SIZE = (400, 500)
-_MAIN_QUALITY = 85
+_ZOOM_MAX_SIZE = (2400, 3000)
+_MAIN_QUALITY = 88
 _THUMB_QUALITY = 80
+_ZOOM_QUALITY = 90
 
 # File size limit
-MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+MAX_FILE_SIZE = 25 * 1024 * 1024  # 25MB
 
 # Valid magic bytes
 _JPEG_MAGIC = b"\xff\xd8\xff"
@@ -68,12 +70,12 @@ def validate_image_file(file_bytes: bytes, product_id: str) -> None:
 
     Checks:
         - product_id matches slug pattern
-        - File size ≤ 5MB
+        - File size ≤ 25MB
         - Magic bytes indicate JPEG or PNG
 
     Raises:
         InvalidProductIdError: If product_id is not a valid slug.
-        FileTooLargeError: If file exceeds 5MB.
+        FileTooLargeError: If file exceeds 25MB.
         InvalidImageTypeError: If magic bytes don't match JPEG or PNG.
     """
     # Validate product_id slug format first (before any file path construction)
@@ -85,7 +87,7 @@ def validate_image_file(file_bytes: bytes, product_id: str) -> None:
     # Check file size
     if len(file_bytes) > MAX_FILE_SIZE:
         raise FileTooLargeError(
-            f"File size {len(file_bytes)} bytes exceeds maximum of {MAX_FILE_SIZE} bytes (5MB)"
+            f"File size {len(file_bytes)} bytes exceeds maximum of {MAX_FILE_SIZE} bytes (25MB)"
         )
 
     # Check magic bytes
@@ -107,7 +109,7 @@ def process_image(
 ) -> dict:
     """Process an image: validate with Pillow, strip EXIF, resize, save as WebP.
 
-    Creates both a main image and a thumbnail.
+    Creates main, thumbnail, and zoom derivatives.
 
     Args:
         file_bytes: Raw file bytes (already validated by validate_image_file).
@@ -116,7 +118,7 @@ def process_image(
         image_id: Optional UUID hex. When supplied, filenames are unique per image.
 
     Returns:
-        Dict with image_url and thumbnail_url (relative paths for serving).
+        Dict with image_url, thumbnail_url, and zoom_url (relative paths for serving).
 
     Raises:
         ImageProcessingError: If the image is corrupted or dimensions exceed limits.
@@ -141,11 +143,13 @@ def process_image(
     filename_stem = f"{product_id}_{image_id}" if image_id else product_id
     main_path = (base_dir / f"{filename_stem}.webp").resolve()
     thumb_path = (base_dir / f"{filename_stem}_thumb.webp").resolve()
+    zoom_path = (base_dir / f"{filename_stem}_zoom.webp").resolve()
 
     # Path traversal prevention: ensure resolved paths are under base_dir
     try:
         main_path.relative_to(base_dir)
         thumb_path.relative_to(base_dir)
+        zoom_path.relative_to(base_dir)
     except ValueError as e:
         raise ImageProcessingError("Path traversal detected") from e
 
@@ -196,7 +200,13 @@ def process_image(
     thumb_img.thumbnail(_THUMB_MAX_SIZE, Image.LANCZOS)
     thumb_img.save(str(thumb_path), format="WEBP", quality=_THUMB_QUALITY)
 
+    # Create zoom image. It is still a bounded, EXIF-stripped derivative.
+    zoom_img = img.copy()
+    zoom_img.thumbnail(_ZOOM_MAX_SIZE, Image.LANCZOS)
+    zoom_img.save(str(zoom_path), format="WEBP", quality=_ZOOM_QUALITY)
+
     return {
         "image_url": f"/static/products/{filename_stem}.webp",
         "thumbnail_url": f"/static/products/{filename_stem}_thumb.webp",
+        "zoom_url": f"/static/products/{filename_stem}_zoom.webp",
     }

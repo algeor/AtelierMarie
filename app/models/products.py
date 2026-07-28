@@ -1,5 +1,7 @@
 """Product request and response models."""
 
+from __future__ import annotations
+
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -27,6 +29,13 @@ MAX_IMAGE_URL_LENGTH = 500
 Locale = Literal["en", "bg"]
 
 
+class ProductLabelRef(BaseModel):
+    """A label assigned to a product: slug for filtering, localized name for display."""
+
+    slug: str
+    name: str
+
+
 class ProductResponse(BaseModel):
     """Public product representation (locale-resolved name/description)."""
 
@@ -44,8 +53,14 @@ class ProductResponse(BaseModel):
     effective_price_cents: int
     discount_percent: int | None = None
     discount_active: bool = False
-    category: str | None = None
-    images: list["ProductImage"] = Field(default_factory=list)
+    # `category` now carries the managed category/tier slug (was legacy free text).
+    category: str | None
+    category_name: str | None
+    product_type: str
+    product_type_name: str
+    labels: list[ProductLabelRef]
+    images: list[ProductImage] = Field(default_factory=list)
+    video: ProductVideo | None = None
     primary_image_url: str | None = None
     primary_thumbnail_url: str | None = None
     stock: int
@@ -73,8 +88,12 @@ class ProductAdminResponse(BaseModel):
     discount_ends_at: str | None = None
     effective_price_cents: int
     discount_active: bool = False
+    # Managed taxonomy slugs for prefilling admin form controls.
     category: str | None = None
-    images: list["ProductImage"] = Field(default_factory=list)
+    product_type: str = "candles"
+    labels: list[str] = Field(default_factory=list)
+    images: list[ProductImage] = Field(default_factory=list)
+    video: ProductVideo | None = None
     primary_image_url: str | None = None
     primary_thumbnail_url: str | None = None
     stock: int
@@ -111,8 +130,30 @@ class ProductImage(BaseModel):
     id: str
     image_url: str
     thumbnail_url: str
+    zoom_url: str | None = None
     sort_order: int
     is_primary: bool
+
+
+class ProductVideo(BaseModel):
+    """One video belonging to a product gallery."""
+
+    id: str
+    product_id: str
+    status: Literal["queued", "transcoding", "ready", "failed"]
+    video_url: str | None = None
+    poster_url: str | None = None
+    sort_order: int = 0
+    duration_secs: float | None = None
+    failure_reason: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class UpdateProductVideoRequest(BaseModel):
+    """Input for setting a product video's gallery position."""
+
+    sort_order: int = Field(..., ge=0, le=100)
 
 
 class ReorderProductImagesRequest(BaseModel):
@@ -133,6 +174,10 @@ class CreateProductRequest(BaseModel):
     days_to_craft: int | None = Field(default=None, ge=0, le=MAX_DAYS_TO_CRAFT)
     price_cents: int = Field(..., gt=0, le=99_999_99)
     category: str | None = Field(default=None, max_length=MAX_CATEGORY_LENGTH)
+    # Optional: when omitted, the service assigns the default active product type
+    # (lowest sort_order) rather than a hardcoded slug.
+    product_type: str | None = Field(default=None, min_length=1, max_length=100)
+    labels: list[str] = Field(default_factory=list, max_length=50)
     discount_percent: int | None = Field(default=None, ge=1, le=99)
     discount_starts_at: str | None = None
     discount_ends_at: str | None = None
@@ -148,7 +193,7 @@ class CreateProductRequest(BaseModel):
         return normalize_discount_datetime(v)
 
     @model_validator(mode="after")
-    def _validate_discount_window(self) -> "CreateProductRequest":
+    def _validate_discount_window(self) -> CreateProductRequest:
         """Self-contained discount validation for a full create payload.
 
         (Update merge validation lives in the service, which has the existing
@@ -208,6 +253,8 @@ class UpdateProductRequest(BaseModel):
     days_to_craft: int | None = Field(default=None, ge=0, le=MAX_DAYS_TO_CRAFT)
     price_cents: int | None = Field(default=None, gt=0, le=99_999_99)
     category: str | None = Field(default=None, max_length=MAX_CATEGORY_LENGTH)
+    product_type: str | None = Field(default=None, min_length=1, max_length=100)
+    labels: list[str] | None = Field(default=None, max_length=50)
     discount_percent: int | None = Field(default=None, ge=1, le=99)
     discount_starts_at: str | None = None
     discount_ends_at: str | None = None

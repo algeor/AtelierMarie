@@ -36,8 +36,27 @@ export interface ProductImage {
   id: string;
   image_url: string;
   thumbnail_url: string;
+  zoom_url: string | null;
   sort_order: number;
   is_primary: boolean;
+}
+
+export interface ProductVideo {
+  id: string;
+  product_id: string;
+  status: "queued" | "transcoding" | "ready" | "failed";
+  video_url: string | null;
+  poster_url: string | null;
+  sort_order: number;
+  duration_secs: number | null;
+  failure_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductLabelRef {
+  slug: string;
+  name: string;
 }
 
 export interface ProductResponse {
@@ -54,7 +73,12 @@ export interface ProductResponse {
   discount_percent: number | null;
   discount_active: boolean;
   category: string | null;
+  category_name: string | null;
+  product_type: string;
+  product_type_name: string;
+  labels: ProductLabelRef[];
   images: ProductImage[];
+  video?: ProductVideo | null;
   primary_image_url: string | null;
   primary_thumbnail_url: string | null;
   stock: number;
@@ -69,6 +93,124 @@ export interface ProductListResponse {
   total: number;
   page: number;
   limit: number;
+}
+
+// --- Taxonomy ---
+
+export type TaxonomyKind = "product-types" | "categories" | "labels";
+
+export interface TaxonomyTerm {
+  slug: string;
+  name: string;
+  sort_order: number;
+}
+
+export interface TaxonomyResponse {
+  product_types: TaxonomyTerm[];
+  categories: TaxonomyTerm[];
+  labels: TaxonomyTerm[];
+}
+
+// --- FAQ ---
+
+export interface FaqItemResponse {
+  id: number;
+  question: string;
+  answer: string;
+}
+
+export interface FaqSectionResponse {
+  slug: string;
+  title: string;
+  icon: string | null;
+  items: FaqItemResponse[];
+}
+
+export interface FaqResponse {
+  sections: FaqSectionResponse[];
+}
+
+export interface FaqItemAdminResponse {
+  id: number;
+  section: string;
+  question_en: string;
+  question_bg: string | null;
+  answer_en: string;
+  answer_bg: string | null;
+  sort_order: number;
+  is_published: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FaqSectionAdminResponse {
+  slug: string;
+  title_en: string;
+  title_bg: string | null;
+  icon: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+  items: FaqItemAdminResponse[];
+}
+
+export interface FaqAdminResponse {
+  sections: FaqSectionAdminResponse[];
+}
+
+export interface CreateFaqItemRequest {
+  section: string;
+  question_en: string;
+  answer_en: string;
+  question_bg?: string | null;
+  answer_bg?: string | null;
+  sort_order?: number | null;
+}
+
+export interface UpdateFaqItemRequest {
+  section?: string;
+  question_en?: string;
+  question_bg?: string | null;
+  answer_en?: string;
+  answer_bg?: string | null;
+  sort_order?: number;
+  is_published?: boolean;
+}
+
+export interface ReorderFaqItemsRequest {
+  section: string;
+  ordered_ids: number[];
+}
+
+export interface UpdateFaqSectionRequest {
+  title_en?: string;
+  title_bg?: string | null;
+  icon?: string | null;
+  sort_order?: number;
+}
+
+export interface AdminTaxonomyTerm {
+  slug: string;
+  name_en: string;
+  name_bg: string | null;
+  sort_order: number;
+  is_active: boolean;
+  product_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateTaxonomyTermRequest {
+  name_en: string;
+  name_bg?: string | null;
+  sort_order?: number;
+}
+
+export interface UpdateTaxonomyTermRequest {
+  name_en?: string;
+  name_bg?: string | null;
+  sort_order?: number;
+  is_active?: boolean;
 }
 
 // --- Cart ---
@@ -231,11 +373,14 @@ export interface AdminProductResponse {
   effective_price_cents: number;
   discount_active: boolean;
   category: string | null;
+  product_type: string;
+  labels: string[];
   images: ProductImage[];
+  video?: ProductVideo | null;
   primary_image_url: string | null;
   primary_thumbnail_url: string | null;
   stock: number;
-  weight_grams: number;
+  weight_grams?: number;
   is_active: boolean;
   is_featured: boolean;
   translation_stale_bg: boolean;
@@ -260,7 +405,9 @@ export interface CreateProductRequest {
   materials?: string | null;
   days_to_craft?: number | null;
   price_cents: number;
-  category: string;
+  category?: string | null;
+  product_type: string;
+  labels?: string[];
   stock: number;
   weight_grams?: number;
   is_active?: boolean;
@@ -278,7 +425,9 @@ export interface UpdateProductRequest {
   materials?: string | null;
   days_to_craft?: number | null;
   price_cents?: number;
-  category?: string;
+  category?: string | null;
+  product_type?: string;
+  labels?: string[];
   stock?: number;
   weight_grams?: number;
   is_active?: boolean;
@@ -289,6 +438,7 @@ export interface UpdateProductRequest {
 }
 
 export type ImageUploadResponse = ProductImage;
+export type VideoUploadResponse = ProductVideo;
 
 // --- Promotions (campaigns, bulk discount, managed banner) ---
 

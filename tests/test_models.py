@@ -6,7 +6,12 @@ from pydantic import ValidationError
 from app.models.cart import AddToCartRequest, CartResponse, UpdateCartItemRequest
 from app.models.common import ErrorDetail, ErrorResponse, PaginationParams
 from app.models.orders import CreateOrderRequest, UpdateOrderStatusRequest
-from app.models.products import CreateProductRequest, ProductResponse, UpdateProductRequest
+from app.models.products import (
+    CreateProductRequest,
+    ProductImage,
+    ProductResponse,
+    UpdateProductRequest,
+)
 from app.models.users import UserResponse
 
 
@@ -21,11 +26,16 @@ class TestProductModels:
             price_cents=3200,
             effective_price_cents=3200,
             category="Floral",
+            category_name="Floral",
+            product_type="candles",
+            product_type_name="Candles",
+            labels=[],
             images=[
                 {
                     "id": "image-1",
                     "image_url": "/static/products/lavender-dream-300ml.webp",
                     "thumbnail_url": "/static/products/lavender-dream-300ml_thumb.webp",
+                    "zoom_url": "/static/products/lavender-dream-300ml_zoom.webp",
                     "sort_order": 0,
                     "is_primary": True,
                 }
@@ -40,6 +50,18 @@ class TestProductModels:
         )
         assert p.price_cents == 3200
         assert p.description == "A lovely candle"
+        assert p.images[0].zoom_url == "/static/products/lavender-dream-300ml_zoom.webp"
+
+    def test_product_image_zoom_url_defaults_to_none(self):
+        """Externally-sourced/legacy images omit zoom_url; it must default to None."""
+        image = ProductImage(
+            id="image-1",
+            image_url="/static/products/x.webp",
+            thumbnail_url="/static/products/x_thumb.webp",
+            sort_order=0,
+            is_primary=True,
+        )
+        assert image.zoom_url is None
 
     def test_product_response_nullable_fields(self):
         p = ProductResponse(
@@ -51,6 +73,10 @@ class TestProductModels:
             price_cents=1000,
             effective_price_cents=1000,
             category=None,
+            category_name=None,
+            product_type="candles",
+            product_type_name="Candles",
+            labels=[],
             stock=0,
             is_active=True,
             is_featured=False,

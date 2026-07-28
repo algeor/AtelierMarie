@@ -7,6 +7,8 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
+from app.utils.slugify import slugify, unique_slug
+
 _SCHEMA_SQL = """\
 CREATE TABLE IF NOT EXISTS products (
     id          TEXT PRIMARY KEY,
@@ -17,7 +19,12 @@ CREATE TABLE IF NOT EXISTS products (
     materials   TEXT,
     days_to_craft INTEGER,
     price_cents INTEGER NOT NULL CHECK (price_cents > 0),
+    -- Legacy free-text category. Superseded by managed taxonomy (product_type_slug,
+    -- category_slug, product_label_assignments). Kept for migration compatibility.
     category    TEXT,
+    -- Managed taxonomy references (dynamic-categories). Slugs, not display names.
+    product_type_slug TEXT NOT NULL DEFAULT 'candles',
+    category_slug     TEXT,
     discount_percent INTEGER CHECK (discount_percent IS NULL OR discount_percent BETWEEN 1 AND 99),
     discount_starts_at TEXT,
     discount_ends_at TEXT,
@@ -31,11 +38,101 @@ CREATE TABLE IF NOT EXISTS products (
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Managed product taxonomy (dynamic-categories). Three independent facets:
+-- product type (candles/boxes), category/tier (small/medium/premium), and
+-- multi-select labels (winter/gift/floral/...). Slugs are immutable keys;
+-- name_en/name_bg are display data. is_active hides a term from new-assignment
+-- controls and public filters without deleting referencing products.
+CREATE TABLE IF NOT EXISTS product_types (
+    slug        TEXT PRIMARY KEY,
+    name_en     TEXT NOT NULL,
+    name_bg     TEXT,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    is_active   INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS product_categories (
+    slug        TEXT PRIMARY KEY,
+    name_en     TEXT NOT NULL,
+    name_bg     TEXT,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    is_active   INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS product_labels (
+    slug        TEXT PRIMARY KEY,
+    name_en     TEXT NOT NULL,
+    name_bg     TEXT,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    is_active   INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS product_label_assignments (
+    product_id  TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    label_slug  TEXT NOT NULL REFERENCES product_labels(slug) ON DELETE RESTRICT,
+    PRIMARY KEY (product_id, label_slug)
+);
+
+CREATE INDEX IF NOT EXISTS idx_label_assignments_label
+    ON product_label_assignments(label_slug);
+CREATE INDEX IF NOT EXISTS idx_products_type_slug ON products(product_type_slug);
+CREATE INDEX IF NOT EXISTS idx_products_category_slug ON products(category_slug);
+
+-- Lightweight migration marker table (dynamic-categories). A row per applied
+-- one-shot data migration makes marker-guarded backfills idempotent.
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    name        TEXT PRIMARY KEY,
+    applied_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Records how each distinct legacy products.category value maps to a label slug,
+-- so the exact original-value-to-label assignment is auditable and repeatable.
+CREATE TABLE IF NOT EXISTS taxonomy_category_migration (
+    original_value TEXT PRIMARY KEY,
+    label_slug     TEXT NOT NULL
+);
+
+-- Admin-managed FAQ (admin-managed-faq). Two tables mirror the dynamic-categories
+-- bilingual pattern: `_en` required, `_bg` nullable resolved with COALESCE.
+-- Sections carry stable anchor slugs (candles/care/custom/shipping) that product
+-- pages deep-link to, so slugs are immutable; only titles/icon/order are editable.
+CREATE TABLE IF NOT EXISTS faq_sections (
+    slug        TEXT PRIMARY KEY,
+    title_en    TEXT NOT NULL,
+    title_bg    TEXT,
+    icon        TEXT,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS faq_items (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    section      TEXT NOT NULL REFERENCES faq_sections(slug),
+    question_en  TEXT NOT NULL,
+    question_bg  TEXT,
+    answer_en    TEXT NOT NULL,
+    answer_bg    TEXT,
+    sort_order   INTEGER NOT NULL DEFAULT 0,
+    is_published INTEGER NOT NULL DEFAULT 1,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_faq_items_section_order ON faq_items(section, sort_order);
+
 CREATE TABLE IF NOT EXISTS product_images (
     id            TEXT PRIMARY KEY,
     product_id    TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
     image_url     TEXT NOT NULL,
     thumbnail_url TEXT NOT NULL,
+    zoom_url      TEXT,
     sort_order    INTEGER NOT NULL DEFAULT 0,
     is_primary    INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
@@ -45,6 +142,24 @@ CREATE INDEX IF NOT EXISTS idx_product_images_product
     ON product_images(product_id, sort_order);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_product_images_one_primary
     ON product_images(product_id) WHERE is_primary = 1;
+
+CREATE TABLE IF NOT EXISTS product_videos (
+    id              TEXT PRIMARY KEY,
+    product_id      TEXT NOT NULL UNIQUE REFERENCES products(id) ON DELETE CASCADE,
+    status          TEXT NOT NULL CHECK (status IN ('queued', 'transcoding', 'ready', 'failed')),
+    source_path     TEXT,
+    video_url       TEXT,
+    poster_url      TEXT,
+    duration_secs   REAL,
+    sort_order      INTEGER NOT NULL DEFAULT 0,
+    failure_reason  TEXT,
+    lease_expires_at TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_videos_status
+    ON product_videos(status);
 
 CREATE TABLE IF NOT EXISTS users (
     id          TEXT PRIMARY KEY,
@@ -306,16 +421,33 @@ BEGIN
     UPDATE products SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
 END;
 
+CREATE TRIGGER IF NOT EXISTS product_videos_updated_at AFTER UPDATE ON product_videos
+BEGIN
+    UPDATE product_videos SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
 CREATE TRIGGER IF NOT EXISTS orders_updated_at AFTER UPDATE ON orders
 BEGIN
     UPDATE orders SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
 END;
 
--- Full-text search for products — English index (content-backed via triggers)
+CREATE TRIGGER IF NOT EXISTS faq_sections_updated_at AFTER UPDATE ON faq_sections
+BEGIN
+    UPDATE faq_sections SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS faq_items_updated_at AFTER UPDATE ON faq_items
+BEGIN
+    UPDATE faq_items SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+-- Full-text search for products — English index (content-backed via triggers).
+-- Indexes name + description only; the legacy `category` column is no longer
+-- written (taxonomy moved to product_type_slug/category_slug/labels), so it was
+-- dropped from the index to keep search coverage consistent across all products.
 CREATE VIRTUAL TABLE IF NOT EXISTS products_fts_en USING fts5(
     name_en,
     description_en,
-    category,
     content='products',
     content_rowid='rowid'
 );
@@ -324,7 +456,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS products_fts_en USING fts5(
 CREATE VIRTUAL TABLE IF NOT EXISTS products_fts_bg USING fts5(
     name_bg,
     description_bg,
-    category,
     content='products',
     content_rowid='rowid'
 );
@@ -332,49 +463,43 @@ CREATE VIRTUAL TABLE IF NOT EXISTS products_fts_bg USING fts5(
 -- Sync triggers: keep English FTS index in sync with products table
 CREATE TRIGGER IF NOT EXISTS products_fts_en_insert AFTER INSERT ON products
 BEGIN
-    INSERT INTO products_fts_en(rowid, name_en, description_en, category)
-    VALUES (NEW.rowid, NEW.name_en, COALESCE(NEW.description_en, ''), COALESCE(NEW.category, ''));
+    INSERT INTO products_fts_en(rowid, name_en, description_en)
+    VALUES (NEW.rowid, NEW.name_en, COALESCE(NEW.description_en, ''));
 END;
 
 CREATE TRIGGER IF NOT EXISTS products_fts_en_delete BEFORE DELETE ON products
 BEGIN
-    INSERT INTO products_fts_en(products_fts_en, rowid, name_en, description_en, category)
-    VALUES ('delete', OLD.rowid, OLD.name_en,
-            COALESCE(OLD.description_en, ''), COALESCE(OLD.category, ''));
+    INSERT INTO products_fts_en(products_fts_en, rowid, name_en, description_en)
+    VALUES ('delete', OLD.rowid, OLD.name_en, COALESCE(OLD.description_en, ''));
 END;
 
 CREATE TRIGGER IF NOT EXISTS products_fts_en_update AFTER UPDATE ON products
 BEGIN
-    INSERT INTO products_fts_en(products_fts_en, rowid, name_en, description_en, category)
-    VALUES ('delete', OLD.rowid, OLD.name_en,
-            COALESCE(OLD.description_en, ''), COALESCE(OLD.category, ''));
-    INSERT INTO products_fts_en(rowid, name_en, description_en, category)
-    VALUES (NEW.rowid, NEW.name_en, COALESCE(NEW.description_en, ''), COALESCE(NEW.category, ''));
+    INSERT INTO products_fts_en(products_fts_en, rowid, name_en, description_en)
+    VALUES ('delete', OLD.rowid, OLD.name_en, COALESCE(OLD.description_en, ''));
+    INSERT INTO products_fts_en(rowid, name_en, description_en)
+    VALUES (NEW.rowid, NEW.name_en, COALESCE(NEW.description_en, ''));
 END;
 
 -- Sync triggers: keep Bulgarian FTS index in sync with products table
 CREATE TRIGGER IF NOT EXISTS products_fts_bg_insert AFTER INSERT ON products
 BEGIN
-    INSERT INTO products_fts_bg(rowid, name_bg, description_bg, category)
-    VALUES (NEW.rowid, COALESCE(NEW.name_bg, ''),
-            COALESCE(NEW.description_bg, ''), COALESCE(NEW.category, ''));
+    INSERT INTO products_fts_bg(rowid, name_bg, description_bg)
+    VALUES (NEW.rowid, COALESCE(NEW.name_bg, ''), COALESCE(NEW.description_bg, ''));
 END;
 
 CREATE TRIGGER IF NOT EXISTS products_fts_bg_delete BEFORE DELETE ON products
 BEGIN
-    INSERT INTO products_fts_bg(products_fts_bg, rowid, name_bg, description_bg, category)
-    VALUES ('delete', OLD.rowid, COALESCE(OLD.name_bg, ''),
-            COALESCE(OLD.description_bg, ''), COALESCE(OLD.category, ''));
+    INSERT INTO products_fts_bg(products_fts_bg, rowid, name_bg, description_bg)
+    VALUES ('delete', OLD.rowid, COALESCE(OLD.name_bg, ''), COALESCE(OLD.description_bg, ''));
 END;
 
 CREATE TRIGGER IF NOT EXISTS products_fts_bg_update AFTER UPDATE ON products
 BEGIN
-    INSERT INTO products_fts_bg(products_fts_bg, rowid, name_bg, description_bg, category)
-    VALUES ('delete', OLD.rowid, COALESCE(OLD.name_bg, ''),
-            COALESCE(OLD.description_bg, ''), COALESCE(OLD.category, ''));
-    INSERT INTO products_fts_bg(rowid, name_bg, description_bg, category)
-    VALUES (NEW.rowid, COALESCE(NEW.name_bg, ''),
-            COALESCE(NEW.description_bg, ''), COALESCE(NEW.category, ''));
+    INSERT INTO products_fts_bg(products_fts_bg, rowid, name_bg, description_bg)
+    VALUES ('delete', OLD.rowid, COALESCE(OLD.name_bg, ''), COALESCE(OLD.description_bg, ''));
+    INSERT INTO products_fts_bg(rowid, name_bg, description_bg)
+    VALUES (NEW.rowid, COALESCE(NEW.name_bg, ''), COALESCE(NEW.description_bg, ''));
 END;
 """
 
@@ -389,6 +514,8 @@ CREATE TABLE products_new (
     days_to_craft INTEGER,
     price_cents INTEGER NOT NULL CHECK (price_cents > 0),
     category    TEXT,
+    product_type_slug TEXT NOT NULL DEFAULT 'candles',
+    category_slug     TEXT,
     discount_percent INTEGER CHECK (discount_percent IS NULL OR discount_percent BETWEEN 1 AND 99),
     discount_starts_at TEXT,
     discount_ends_at TEXT,
@@ -409,6 +536,7 @@ CREATE TABLE IF NOT EXISTS product_images (
     product_id    TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
     image_url     TEXT NOT NULL,
     thumbnail_url TEXT NOT NULL,
+    zoom_url      TEXT,
     sort_order    INTEGER NOT NULL DEFAULT 0,
     is_primary    INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
@@ -430,6 +558,8 @@ _PRODUCT_COLUMNS = (
     "days_to_craft",
     "price_cents",
     "category",
+    "product_type_slug",
+    "category_slug",
     "discount_percent",
     "discount_starts_at",
     "discount_ends_at",
@@ -477,7 +607,10 @@ def init_db(path: str) -> None:
         conn.execute("PRAGMA foreign_keys=ON")
         _migrate_existing_schema(conn)
         conn.executescript(_SCHEMA_SQL)
+        _migrate_taxonomy(conn)
+        _migrate_product_label_assignments_table(conn)
         _seed_site_banner(conn)
+        _migrate_faq(conn)
         _rebuild_product_fts(conn)
         conn.commit()
     finally:
@@ -591,6 +724,14 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
         legacy_images = _legacy_product_images_from_products(conn)
         _migrate_products_table(conn)
         conn.executescript(_PRODUCT_IMAGES_TABLE_SQL)
+        product_image_columns = _table_columns(conn, "product_images")
+        _add_column_if_missing(
+            conn,
+            "product_images",
+            product_image_columns,
+            "zoom_url",
+            "zoom_url TEXT",
+        )
         _seed_product_images_from_legacy_rows(conn, legacy_images)
 
     if _table_exists(conn, "sessions"):
@@ -646,12 +787,18 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
             "payment_status TEXT NOT NULL DEFAULT 'cod_pending'",
         )
         _add_column_if_missing(
-            conn, "orders", order_columns,
-            "stripe_checkout_session_id", "stripe_checkout_session_id TEXT"
+            conn,
+            "orders",
+            order_columns,
+            "stripe_checkout_session_id",
+            "stripe_checkout_session_id TEXT",
         )
         _add_column_if_missing(
-            conn, "orders", order_columns,
-            "stripe_payment_intent_id", "stripe_payment_intent_id TEXT"
+            conn,
+            "orders",
+            order_columns,
+            "stripe_payment_intent_id",
+            "stripe_payment_intent_id TEXT",
         )
 
     if _table_exists(conn, "promotion_campaigns"):
@@ -696,6 +843,8 @@ def _migrate_products_table(conn: sqlite3.Connection) -> None:
         _column_expr(columns, "days_to_craft"),
         price_expr,
         _column_expr(columns, "category"),
+        _column_expr(columns, "product_type_slug", "'candles'"),
+        _column_expr(columns, "category_slug"),
         _column_expr(columns, "discount_percent"),
         _column_expr(columns, "discount_starts_at"),
         _column_expr(columns, "discount_ends_at"),
@@ -721,7 +870,53 @@ def _migrate_products_table(conn: sqlite3.Connection) -> None:
         conn.execute("DROP TABLE products")
         conn.execute("ALTER TABLE products_new RENAME TO products")
     finally:
+        # Commit first: PRAGMA foreign_keys is a no-op inside an open transaction,
+        # so re-enabling enforcement only takes effect once the rebuild is committed.
+        conn.commit()
         conn.execute("PRAGMA foreign_keys=ON")
+
+
+def _migrate_product_label_assignments_table(conn: sqlite3.Connection) -> None:
+    """Add the product_labels FK to existing label assignment tables.
+
+    SQLite cannot add foreign keys with ALTER TABLE. Older dynamic-categories DBs
+    created product_label_assignments without a label_slug FK, so rebuild the
+    table once and copy only assignments that still reference real products and
+    labels.
+    """
+    if not _table_exists(conn, "product_label_assignments"):
+        return
+
+    fks = conn.execute("PRAGMA foreign_key_list(product_label_assignments)").fetchall()
+    has_label_fk = any(row[2] == "product_labels" and row[3] == "label_slug" for row in fks)
+    if has_label_fk:
+        return
+
+    conn.execute("DROP TABLE IF EXISTS product_label_assignments_new")
+    conn.execute(
+        """
+        CREATE TABLE product_label_assignments_new (
+            product_id  TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            label_slug  TEXT NOT NULL REFERENCES product_labels(slug) ON DELETE RESTRICT,
+            PRIMARY KEY (product_id, label_slug)
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO product_label_assignments_new (product_id, label_slug)
+        SELECT pla.product_id, pla.label_slug
+        FROM product_label_assignments pla
+        JOIN products p ON p.id = pla.product_id
+        JOIN product_labels pl ON pl.slug = pla.label_slug
+        """
+    )
+    conn.execute("DROP TABLE product_label_assignments")
+    conn.execute("ALTER TABLE product_label_assignments_new RENAME TO product_label_assignments")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_label_assignments_label "
+        "ON product_label_assignments(label_slug)"
+    )
 
 
 def _rebuild_product_fts(conn: sqlite3.Connection) -> None:
@@ -729,6 +924,486 @@ def _rebuild_product_fts(conn: sqlite3.Connection) -> None:
         return
     conn.execute("INSERT INTO products_fts_en(products_fts_en) VALUES ('rebuild')")
     conn.execute("INSERT INTO products_fts_bg(products_fts_bg) VALUES ('rebuild')")
+
+
+# ---------------------------------------------------------------------------
+# Managed product taxonomy migration (dynamic-categories)
+# ---------------------------------------------------------------------------
+
+# Starter taxonomy so a fresh shop is usable. These are startup seed data only —
+# they do NOT replace admin management and must not be duplicated as frontend
+# constants. Each entry: (slug, name_en, name_bg, sort_order).
+_SEED_PRODUCT_TYPES = [
+    ("candles", "Candles", "Свещи", 0),
+    ("boxes", "Boxes", "Кутии", 1),
+]
+_SEED_CATEGORIES = [
+    ("small", "Small", "Малка", 0),
+    ("medium", "Medium", "Средна", 1),
+    ("premium", "Premium", "Премиум", 2),
+]
+_SEED_LABELS = [
+    ("floral", "Floral", "Флорални", 0),
+    ("woody", "Woody", "Дървесни", 1),
+    ("fresh", "Fresh", "Свежи", 2),
+    ("gourmand", "Gourmand", "Гурме", 3),
+    ("spicy", "Spicy", "Пикантни", 4),
+    ("citrus", "Citrus", "Цитрусови", 5),
+    ("winter", "Winter", "Зима", 6),
+    ("gift", "Gift", "Подарък", 7),
+    ("christmas", "Christmas", "Коледа", 8),
+]
+
+_TAXONOMY_MIGRATION_MARKER = "product_taxonomy_v1"
+
+
+def _seed_taxonomy_table(
+    conn: sqlite3.Connection,
+    table: str,
+    rows: list[tuple[str, str, str | None, int]],
+) -> None:
+    """Insert seed terms if absent. Idempotent (INSERT OR IGNORE by slug)."""
+    conn.executemany(
+        f"INSERT OR IGNORE INTO {table} "  # noqa: S608 — table is a module constant
+        "(slug, name_en, name_bg, sort_order) VALUES (?, ?, ?, ?)",
+        rows,
+    )
+
+
+def _migration_applied(conn: sqlite3.Connection, name: str) -> bool:
+    row = conn.execute("SELECT 1 FROM schema_migrations WHERE name = ?", (name,)).fetchone()
+    return row is not None
+
+
+def _backfill_legacy_categories(conn: sqlite3.Connection) -> None:
+    """Convert distinct legacy products.category values into managed labels.
+
+    Reads each distinct non-null value BEFORE any rewrite, creates or reuses a
+    label slug, records the exact original-value-to-slug mapping, and assigns
+    the label to products holding that exact original value. Distinct values
+    that slugify to the same base get deterministic suffixes.
+    """
+    rows = conn.execute(
+        "SELECT DISTINCT category FROM products "
+        "WHERE category IS NOT NULL AND TRIM(category) != '' "
+        "ORDER BY category"
+    ).fetchall()
+    if not rows:
+        return
+
+    # Existing label slugs — includes seeds inserted earlier this run.
+    existing = {r["slug"] for r in conn.execute("SELECT slug FROM product_labels")}
+    # Slugs claimed by a distinct original value during this backfill; used to
+    # force suffixing when two distinct originals collide on the same base.
+    claimed: set[str] = set()
+    next_sort = 100  # place migrated labels after seed labels
+
+    for row in rows:
+        original = row["category"]
+        base = slugify(original)
+
+        if base in existing and base not in claimed:
+            # Reuse an existing label (seed or prior) for this base.
+            slug = base
+        else:
+            slug = unique_slug(base, existing | claimed)
+            conn.execute(
+                "INSERT INTO product_labels (slug, name_en, name_bg, sort_order) "
+                "VALUES (?, ?, ?, ?)",
+                (slug, original.strip(), None, next_sort),
+            )
+            existing.add(slug)
+            next_sort += 1
+
+        claimed.add(slug)
+        conn.execute(
+            "INSERT OR IGNORE INTO taxonomy_category_migration "
+            "(original_value, label_slug) VALUES (?, ?)",
+            (original, slug),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO product_label_assignments (product_id, label_slug) "
+            "SELECT id, ? FROM products WHERE category = ?",
+            (slug, original),
+        )
+
+
+def _migrate_taxonomy(conn: sqlite3.Connection) -> None:
+    """Seed starter taxonomy and (once) backfill labels from legacy categories.
+
+    The seed + backfill + marker write run inside a single BEGIN IMMEDIATE
+    transaction so concurrent uvicorn workers can't both execute the one-shot
+    backfill on first boot: the second worker blocks on the write lock, then
+    re-checks the marker inside the lock and no-ops. The marker (not "seeds
+    present") is the gate, so re-runs are a no-op even when seeds already exist.
+    """
+    # Fast path: already applied — avoid taking the write lock on every startup.
+    if _migration_applied(conn, _TAXONOMY_MIGRATION_MARKER):
+        return
+
+    if conn.in_transaction:
+        conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        # Re-check under the lock: another worker may have applied it while we
+        # waited to acquire the write lock.
+        if _migration_applied(conn, _TAXONOMY_MIGRATION_MARKER):
+            conn.execute("ROLLBACK")
+            return
+
+        _seed_taxonomy_table(conn, "product_types", _SEED_PRODUCT_TYPES)
+        _seed_taxonomy_table(conn, "product_categories", _SEED_CATEGORIES)
+        _seed_taxonomy_table(conn, "product_labels", _SEED_LABELS)
+
+        _backfill_legacy_categories(conn)
+        # Default any product missing a product type to candles; leave category NULL.
+        conn.execute(
+            "UPDATE products SET product_type_slug = 'candles' "
+            "WHERE product_type_slug IS NULL OR product_type_slug = ''"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)",
+            (_TAXONOMY_MIGRATION_MARKER,),
+        )
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+
+# ---------------------------------------------------------------------------
+# FAQ content seed migration (admin-managed-faq)
+# ---------------------------------------------------------------------------
+
+# The four stable sections. Slugs are used as public page anchors and product
+# deep-link targets, so they must never change. Each entry:
+# (slug, title_en, title_bg, icon, sort_order).
+_SEED_FAQ_SECTIONS = [
+    ("candles", "About Our Candles", "За нашите свещи", "🕯", 0),
+    ("care", "Candle Care & Safety", "Грижа и безопасност", "✨", 1),
+    ("custom", "Custom Orders & Gifts", "Поръчки по заявка и подаръци", "🎁", 2),
+    ("shipping", "Orders, Shipping & Returns", "Поръчки, доставка и връщане", "📦", 3),
+]
+
+# Bulleted safety answer — raw plain text with `* ` markers and newlines so the
+# frontend renderer emits a <ul>. Stored verbatim (not HTML-escaped).
+_FAQ_SAFETY_EN = (
+    "* Never leave a burning candle unattended.\n"
+    "* Keep candles away from children and pets.\n"
+    "* Always burn candles on a stable, heat-resistant surface.\n"
+    "* Keep away from curtains, furniture, and other flammable materials.\n"
+    "* Never move a candle while it is burning or while the wax is still hot.\n"
+    "* Extinguish the candle before it burns completely."
+)
+_FAQ_SAFETY_BG = (
+    "* Никога не оставяйте горяща свещ без надзор.\n"
+    "* Дръжте свещите далеч от деца и домашни любимци.\n"
+    "* Винаги горете свещите върху стабилна, топлоустойчива повърхност.\n"
+    "* Дръжте далеч от завеси, мебели и други запалими материали.\n"
+    "* Никога не местете свещ, докато гори или докато восъкът е още горещ.\n"
+    "* Изгасете свещта, преди да изгори напълно."
+)
+
+# Every seeded item, in section + display order. Each entry:
+# (section, question_en, question_bg, answer_en, answer_bg).
+_SEED_FAQ_ITEMS = [
+    (
+        "candles",
+        "Are your candles handmade?",
+        "Ръчно изработени ли са вашите свещи?",
+        "Yes. Every candle is lovingly handcrafted in our atelier, making each "
+        "piece truly one of a kind. Because they are made by hand, slight "
+        "variations in colour, finish, or decorative details are part of their "
+        "unique charm.",
+        "Да. Всяка свещ е изработена с любов на ръка в нашето ателие, което прави "
+        "всяко изделие наистина уникално. Тъй като са изработени ръчно, леките "
+        "разлики в цвета, финиша или декоративните детайли са част от техния "
+        "неповторим чар.",
+    ),
+    (
+        "candles",
+        "What wax do you use?",
+        "Какъв восък използвате?",
+        "We carefully select different premium wax blends depending on the "
+        "candle's design and intended performance. The exact wax type used for "
+        "each candle is listed in its individual product description.",
+        "Внимателно подбираме различни висококачествени восъчни смеси в "
+        "зависимост от дизайна и предназначението на свещта. Точният вид восък за "
+        "всяка свещ е посочен в описанието на съответния продукт.",
+    ),
+    (
+        "candles",
+        "What type of wick do you use?",
+        "Какъв вид фитил използвате?",
+        "We use different wick types depending on the candle's size and design to "
+        "ensure the best possible performance. The wick information for each "
+        "candle can be found on its product page.",
+        "Използваме различни видове фитили в зависимост от размера и дизайна на "
+        "свещта, за да осигурим възможно най-добро горене. Информация за фитила на "
+        "всяка свещ можете да намерите на нейната продуктова страница.",
+    ),
+    (
+        "candles",
+        "Where are your candles made?",
+        "Къде се произвеждат вашите свещи?",
+        "All of our candles are handcrafted in our atelier with great attention "
+        "to detail and quality.",
+        "Всички наши свещи са изработени ръчно в нашето ателие с изключително "
+        "внимание към детайла и качеството.",
+    ),
+    (
+        "candles",
+        "What sizes do you offer?",
+        "Какви размери предлагате?",
+        "Our collection includes candles in a variety of sizes. Please refer to "
+        "each product page for the exact dimensions and weight.",
+        "Нашата колекция включва свещи в различни размери. Моля, вижте всяка "
+        "продуктова страница за точните размери и тегло.",
+    ),
+    (
+        "candles",
+        "What makes your candles different?",
+        "Какво отличава вашите свещи?",
+        "Our candles are designed to be more than just home fragrance—they're "
+        "decorative pieces made to elevate your space. Combining handcrafted "
+        "craftsmanship, luxurious fragrances, elegant designs, and premium "
+        "materials, each candle is created to bring beauty and warmth into your "
+        "home. Many of our products can also be customised, making them a "
+        "thoughtful and unique gift.",
+        "Нашите свещи са замислени да бъдат нещо повече от аромат за дома — те са "
+        "декоративни изделия, създадени да облагородят пространството ви. "
+        "Съчетавайки ръчна изработка, изискани аромати, елегантен дизайн и "
+        "първокласни материали, всяка свещ е създадена да внесе красота и топлина "
+        "в дома ви. Много от нашите продукти могат да бъдат персонализирани, "
+        "което ги прави обмислен и уникален подарък.",
+    ),
+    (
+        "care",
+        "Are all of your candles meant to be burned?",
+        "Всички ваши свещи ли са предназначени за горене?",
+        "Not necessarily. Some of our candles are designed primarily as "
+        "decorative pieces, while others are suitable for burning. Please check "
+        "the product description before lighting your candle.",
+        "Не непременно. Някои от нашите свещи са създадени предимно като "
+        "декоративни изделия, докато други са подходящи за горене. Моля, "
+        "проверете описанието на продукта, преди да запалите свещта си.",
+    ),
+    (
+        "care",
+        "Do I need to trim the wick before the first burn?",
+        "Трябва ли да подрязвам фитила преди първото горене?",
+        "No. Every candle arrives with the wick pre-trimmed and ready to light. "
+        "If you burn your candle multiple times, trimming the wick before each "
+        "subsequent burn will help maintain a cleaner flame.",
+        "Не. Всяка свещ пристига с предварително подрязан фитил, готова за палене. "
+        "Ако горите свещта многократно, подрязването на фитила преди всяко "
+        "следващо палене ще помогне за по-чист пламък.",
+    ),
+    (
+        "care",
+        "How long should I burn my candle?",
+        "Колко дълго да горя свещта си?",
+        "Recommended burn times vary depending on the candle's size and design. "
+        "Please refer to the individual product description for guidance.",
+        "Препоръчителното време за горене варира в зависимост от размера и дизайна "
+        "на свещта. Моля, вижте описанието на съответния продукт за насоки.",
+    ),
+    (
+        "care",
+        "Will decorative candles drip?",
+        "Капят ли декоративните свещи?",
+        "Yes. Sculptural candles and decorative designs naturally lose their "
+        "shape as they burn and may drip wax. Always place them on a "
+        "heat-resistant tray or dish large enough to catch any melted wax.",
+        "Да. Скулптурните свещи и декоративните дизайни естествено губят формата "
+        "си при горене и могат да капят восък. Винаги ги поставяйте върху "
+        "топлоустойчива подложка или чиния, достатъчно голяма да събере "
+        "разтопения восък.",
+    ),
+    (
+        "care",
+        "How should I display decorative candles?",
+        "Как да излагам декоративните свещи?",
+        "To preserve their appearance, keep decorative candles away from direct "
+        "sunlight, radiators, or other heat sources. Prolonged exposure may cause "
+        "colours to fade or change over time.",
+        "За да запазите външния им вид, дръжте декоративните свещи далеч от пряка "
+        "слънчева светлина, радиатори и други източници на топлина. Продължителното "
+        "излагане може да доведе до избледняване или промяна на цветовете с "
+        "времето.",
+    ),
+    (
+        "care",
+        "Will my candle look exactly like the photos?",
+        "Ще изглежда ли свещта ми точно като на снимките?",
+        "We do our best to ensure every candle closely matches the product "
+        "photos. Because each piece is handmade, small variations in decorative "
+        "elements—such as fruit toppings or other handcrafted details—may occur. "
+        "These slight differences make every candle unique while maintaining the "
+        "same overall design and colour palette.",
+        "Правим всичко възможно всяка свещ да съответства максимално на "
+        "продуктовите снимки. Тъй като всяко изделие е ръчно изработено, възможни "
+        "са малки разлики в декоративните елементи — като плодови акценти или "
+        "други ръчно изработени детайли. Тези леки разлики правят всяка свещ "
+        "уникална, като запазват същия цялостен дизайн и цветова палитра.",
+    ),
+    (
+        "care",
+        "Candle Safety",
+        "Безопасност при работа със свещи",
+        _FAQ_SAFETY_EN,
+        _FAQ_SAFETY_BG,
+    ),
+    (
+        "custom",
+        "Can I customise my candle?",
+        "Мога ли да персонализирам свещта си?",
+        "Yes. We love bringing our customers' ideas to life. If you have a "
+        "specific design, colour palette, fragrance, or occasion in mind, we'd be "
+        "delighted to discuss a custom order.",
+        "Да. Обичаме да претворяваме идеите на нашите клиенти. Ако имате конкретен "
+        "дизайн, цветова палитра, аромат или повод предвид, с удоволствие ще "
+        "обсъдим поръчка по заявка.",
+    ),
+    (
+        "custom",
+        "Can I request a custom candle bouquet?",
+        "Мога ли да поръчам персонализиран букет от свещи?",
+        "Absolutely. We create personalised candle bouquets and custom colour "
+        "palettes for birthdays, weddings, anniversaries, baby showers, corporate "
+        "gifts, and many other special occasions.",
+        "Разбира се. Създаваме персонализирани букети от свещи и индивидуални "
+        "цветови палитри за рождени дни, сватби, годишнини, бебешки партита, "
+        "корпоративни подаръци и много други специални поводи.",
+    ),
+    (
+        "custom",
+        "Can I include a gift message?",
+        "Мога ли да добавя подаръчно съобщение?",
+        "Of course. Simply leave a note with your order and send your gift "
+        "message through our Contact Form. We'll include it with your order.",
+        "Разбира се. Просто оставете бележка към поръчката си и изпратете "
+        "подаръчното съобщение чрез нашата форма за контакт. Ще го приложим към "
+        "поръчката ви.",
+    ),
+    (
+        "custom",
+        "Are your candles suitable as gifts?",
+        "Подходящи ли са вашите свещи за подарък?",
+        "Yes. Every candle is beautifully presented in our custom gift-ready "
+        "packaging, making it perfect for gifting without the need for additional "
+        "wrapping.",
+        "Да. Всяка свещ е красиво представена в нашата специална подаръчна "
+        "опаковка, което я прави идеална за подарък без нужда от допълнително "
+        "опаковане.",
+    ),
+    (
+        "shipping",
+        "How long does it take to prepare my order?",
+        "Колко време отнема подготовката на поръчката ми?",
+        "Preparation times vary depending on the product and whether it is made "
+        "to order. Estimated processing times are displayed on each product page "
+        "and during checkout.",
+        "Времето за подготовка варира в зависимост от продукта и дали е изработван "
+        "по заявка. Ориентировъчните срокове за обработка са посочени на всяка "
+        "продуктова страница и при плащане.",
+    ),
+    (
+        "shipping",
+        "Can I change or cancel my order?",
+        "Мога ли да променя или отменя поръчката си?",
+        "If your order has not yet entered production or been dispatched, we'll "
+        "do our very best to accommodate your request. Please contact us as soon "
+        "as possible.",
+        "Ако поръчката ви все още не е влязла в производство или не е изпратена, ще "
+        "направим всичко възможно да удовлетворим молбата ви. Моля, свържете се с "
+        "нас възможно най-скоро.",
+    ),
+    (
+        "shipping",
+        "What should I do if my order arrives damaged?",
+        "Какво да направя, ако поръчката ми пристигне повредена?",
+        "We take great care when packaging every order, but if your item arrives "
+        "damaged, please contact us as soon as possible through our Contact Form "
+        "or by email. Include your order number along with clear photos of the "
+        "item and its packaging so we can resolve the issue promptly.",
+        "Опаковаме всяка поръчка с изключително внимание, но ако изделието ви "
+        "пристигне повредено, моля, свържете се с нас възможно най-скоро чрез "
+        "нашата форма за контакт или по имейл. Приложете номера на поръчката си "
+        "заедно с ясни снимки на изделието и опаковката, за да разрешим проблема "
+        "бързо.",
+    ),
+    (
+        "shipping",
+        "Do you accept returns?",
+        "Приемате ли връщания?",
+        "Please refer to our Returns & Refunds Policy for full details regarding "
+        "returns, exchanges, and personalised items.",
+        "Моля, вижте нашата Политика за връщане и възстановяване на суми за пълна "
+        "информация относно връщания, замени и персонализирани изделия.",
+    ),
+    (
+        "shipping",
+        "How can I contact you?",
+        "Как мога да се свържа с вас?",
+        "You can contact us anytime through our Contact Form or by email. We aim "
+        "to respond to all enquiries as quickly as possible.",
+        "Можете да се свържете с нас по всяко време чрез нашата форма за контакт "
+        "или по имейл. Стремим се да отговаряме на всички запитвания възможно "
+        "най-бързо.",
+    ),
+]
+
+_FAQ_SEED_MARKER = "faq_content_v1"
+
+
+def _migrate_faq(conn: sqlite3.Connection) -> None:
+    """Seed the four FAQ sections and their initial items exactly once.
+
+    Marker-guarded (mirrors `_migrate_taxonomy`): the seed + marker write run in
+    one BEGIN IMMEDIATE transaction so concurrent workers can't double-seed, and
+    the marker (not "table empty") is the gate — so once seeded, edits or
+    deletions of seeded rows are never re-created on later startups.
+    """
+    if _migration_applied(conn, _FAQ_SEED_MARKER):
+        return
+
+    if conn.in_transaction:
+        conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if _migration_applied(conn, _FAQ_SEED_MARKER):
+            conn.execute("ROLLBACK")
+            return
+
+        conn.executemany(
+            "INSERT OR IGNORE INTO faq_sections "
+            "(slug, title_en, title_bg, icon, sort_order) VALUES (?, ?, ?, ?, ?)",
+            _SEED_FAQ_SECTIONS,
+        )
+
+        # sort_order is assigned per-section in list order.
+        per_section_order: dict[str, int] = {}
+        item_rows = []
+        for section, question_en, question_bg, answer_en, answer_bg in _SEED_FAQ_ITEMS:
+            order = per_section_order.get(section, 0)
+            per_section_order[section] = order + 1
+            item_rows.append((section, question_en, question_bg, answer_en, answer_bg, order))
+        conn.executemany(
+            "INSERT INTO faq_items "
+            "(section, question_en, question_bg, answer_en, answer_bg, sort_order, "
+            "is_published) VALUES (?, ?, ?, ?, ?, ?, 1)",
+            item_rows,
+        )
+
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)",
+            (_FAQ_SEED_MARKER,),
+        )
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
 
 
 @contextmanager

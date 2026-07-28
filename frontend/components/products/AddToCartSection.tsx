@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import { useCart } from "@/contexts/CartContext";
 import { Button } from "@/components/ui/Button";
 import { QuantitySelector } from "./QuantitySelector";
@@ -59,6 +60,13 @@ export function AddToCartSection({ productId, stock }: AddToCartSectionProps) {
             ? `${t("added")} ✓`
             : t("addToCart")}
       </Button>
+
+      <Link
+        href="/faq#care"
+        className="w-fit text-sm font-medium text-soft-brown underline-offset-4 transition-colors duration-fast hover:text-charcoal hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-muted-gold focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"
+      >
+        {t("questions")}
+      </Link>
 
       {/* Screen reader announcement */}
       <div aria-live="polite" role="status" className="sr-only">

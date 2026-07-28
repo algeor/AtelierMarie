@@ -263,6 +263,7 @@ def _clean_tables(db_path, app):
         "order_items",
         "orders",
         "cart_items",
+        "product_videos",
         "product_images",
         "promotion_campaign_products",
         "promotion_campaigns",

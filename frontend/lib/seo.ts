@@ -3,6 +3,7 @@
  */
 
 import { locales, type Locale } from "@/i18n/routing";
+import type { FaqSectionResponse } from "@/lib/types";
 
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://ateliermarie.com";
 
@@ -35,6 +36,27 @@ export function getLocalizedAlternates(locale: Locale, pathname: string) {
   return {
     languages: getAlternateLanguages(pathname),
     canonical: getCanonicalUrl(locale, pathname),
+  };
+}
+
+export function serializeJsonLd(data: unknown): string {
+  return JSON.stringify(data).replace(/</g, "\\u003c");
+}
+
+export function buildFaqJsonLd(sections: FaqSectionResponse[]) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: sections.flatMap((section) =>
+      section.items.map((item) => ({
+        "@type": "Question",
+        name: item.question,
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: item.answer,
+        },
+      }))
+    ),
   };
 }
 

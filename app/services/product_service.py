@@ -7,7 +7,7 @@ from typing import Literal
 from app.constants import MAX_LIMIT, MAX_PAGE
 from app.database import get_db
 from app.models.common import calculate_offset
-from app.services import pricing, product_image_service
+from app.services import pricing, product_image_service, product_video_service, taxonomy_service
 
 Locale = Literal["en", "bg"]
 
@@ -105,6 +105,12 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     return dict(row)
 
 
+def _flatten_admin_labels(product: dict) -> dict:
+    """Collapse resolved label refs ([{slug, name}]) down to slugs for admin responses."""
+    product["labels"] = [ref["slug"] for ref in product.get("labels", [])]
+    return product
+
+
 def _resolve_locale_fields(product: dict, locale: Locale) -> dict:
     """Resolve locale-specific name/description with fallback to other language.
 
@@ -161,25 +167,47 @@ def _clamp_pagination(page: int, limit: int) -> tuple[int, int]:
 
 def list_products(
     *,
+    product_type: str | None = None,
     category: str | None = None,
+    labels: list[str] | None = None,
     sort: str | None = None,
     in_stock: bool | None = None,
     page: int = 1,
     limit: int = 20,
     locale: Locale = "en",
 ) -> tuple[list[dict], int]:
-    """List active products with optional filtering, sorting, and pagination.
+    """List active products with optional taxonomy filtering, sorting, pagination.
 
-    Returns (products, total_count). Products have locale-resolved name/description.
+    `category` filters on the managed category/tier slug. `labels` uses AND
+    semantics — a product must carry every selected label. Returns (products,
+    total_count) with locale-resolved names, taxonomy display metadata, and
+    public discount pricing fields.
     """
     page, limit = _clamp_pagination(page, limit)
 
     conditions = ["is_active = 1"]
     params: list = []
 
+    if product_type:
+        conditions.append("product_type_slug = ?")
+        params.append(product_type)
+
     if category:
-        conditions.append("category = ?")
+        conditions.append("category_slug = ?")
         params.append(category)
+
+    if labels:
+        # De-duplicate so the HAVING COUNT(DISTINCT) = ? equality holds even if a
+        # caller passes repeated slugs (the route already de-dupes; belt-and-braces).
+        unique_labels = list(dict.fromkeys(labels))
+        placeholders = ", ".join("?" for _ in unique_labels)
+        conditions.append(
+            f"id IN (SELECT product_id FROM product_label_assignments "  # noqa: S608
+            f"WHERE label_slug IN ({placeholders}) "
+            "GROUP BY product_id HAVING COUNT(DISTINCT label_slug) = ?)"
+        )
+        params.extend(unique_labels)
+        params.append(len(unique_labels))
 
     if in_stock:
         conditions.append("stock > 0")
@@ -221,12 +249,10 @@ def list_products(
                 [*params, limit, offset],
             ).fetchall()
 
-    products = [
-        pricing.annotate_product_pricing(
-            _resolve_locale_fields(_row_to_dict(r), locale), now, public=True
-        )
-        for r in rows
-    ]
+        products = [_resolve_locale_fields(_row_to_dict(r), locale) for r in rows]
+        taxonomy_service.resolve_products_taxonomy(conn, products, locale)
+
+    products = [pricing.annotate_product_pricing(p, now, public=True) for p in products]
 
     if price_sort:
         products.sort(
@@ -236,6 +262,7 @@ def list_products(
         products = products[offset : offset + limit]
 
     products = product_image_service.attach_image_fields(products)
+    products = product_video_service.attach_video_fields(products, public_only=True)
     return products, total
 
 
@@ -250,27 +277,51 @@ def get_product(product_id: str, *, locale: Locale = "en") -> dict:
             (product_id,),
         ).fetchone()
 
-    if row is None:
-        raise NotFoundError(f"Product not found: {product_id}")
+        if row is None:
+            raise NotFoundError(f"Product not found: {product_id}")
 
-    product = pricing.annotate_product_pricing(
-        _resolve_locale_fields(_row_to_dict(row), locale), pricing.now_utc(), public=True
-    )
-    return product_image_service.attach_image_fields_one(product)
+        product = _resolve_locale_fields(_row_to_dict(row), locale)
+        taxonomy_service.resolve_products_taxonomy(conn, [product], locale)
+
+    product = pricing.annotate_product_pricing(product, pricing.now_utc(), public=True)
+    product = product_image_service.attach_image_fields_one(product)
+    return product_video_service.attach_video_fields_one(product, public_only=True)
 
 
 def get_product_admin(product_id: str) -> dict:
-    """Get any product (active or inactive) by ID. For admin use."""
+    """Get any product (active or inactive) by ID. For admin use.
+
+    Taxonomy is exposed as slugs (`product_type`, `category`, `labels`) so admin
+    form controls can prefill assignments.
+    """
     with get_db() as conn:
         row = conn.execute(
             "SELECT * FROM products WHERE id = ?",
             (product_id,),
         ).fetchone()
 
-    if row is None:
-        raise NotFoundError(f"Product not found: {product_id}")
+        if row is None:
+            raise NotFoundError(f"Product not found: {product_id}")
 
-    return product_image_service.attach_image_fields_one(_annotate_admin_one(_row_to_dict(row)))
+        product = _row_to_dict(row)
+        taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
+
+    product = _flatten_admin_labels(_annotate_admin_one(product))
+    product = product_image_service.attach_image_fields_one(product)
+    return product_video_service.attach_video_fields_one(product, public_only=False)
+
+
+def product_exists(product_id: str) -> bool:
+    """Lightweight existence check (no taxonomy/image/pricing resolution).
+
+    For bulk paths like CSV import that only need created-vs-updated, not the
+    full product payload.
+    """
+    with get_db() as conn:
+        return (
+            conn.execute("SELECT 1 FROM products WHERE id = ?", (product_id,)).fetchone()
+            is not None
+        )
 
 
 def list_products_admin(
@@ -290,14 +341,23 @@ def list_products_admin(
             (limit, offset),
         ).fetchall()
 
-    products = _annotate_admin([_row_to_dict(r) for r in rows])
-    return product_image_service.attach_image_fields(products), total
+        products = [_row_to_dict(r) for r in rows]
+        taxonomy_service.resolve_products_taxonomy(conn, products, "en")
+
+    products = [_flatten_admin_labels(p) for p in _annotate_admin(products)]
+    products = product_image_service.attach_image_fields(products)
+    products = product_video_service.attach_video_fields(products, public_only=False)
+    return products, total
 
 
 def create_product(data: dict) -> dict:
-    """Create a new product. Raises DuplicateError if ID already exists."""
+    """Create a new product. Raises DuplicateError if ID exists, TaxonomyValidationError
+    if the product type / category / labels are unknown or inactive."""
     now = _now_utc()
     product_id = data["id"]
+    # Normalize a blank category to NULL so it never persists as an empty-string slug.
+    category_slug = data.get("category") or None
+    label_slugs = data.get("labels") or []
 
     columns = [
         "id",
@@ -308,7 +368,8 @@ def create_product(data: dict) -> dict:
         "materials",
         "days_to_craft",
         "price_cents",
-        "category",
+        "product_type_slug",
+        "category_slug",
         "discount_percent",
         "discount_starts_at",
         "discount_ends_at",
@@ -322,33 +383,42 @@ def create_product(data: dict) -> dict:
         "updated_at",
     ]
 
-    values = [
-        product_id,
-        data["name_en"],
-        data.get("name_bg"),
-        data.get("description_en"),
-        data.get("description_bg"),
-        data.get("materials"),
-        data.get("days_to_craft"),
-        data["price_cents"],
-        data.get("category"),
-        data.get("discount_percent"),
-        data.get("discount_starts_at"),
-        data.get("discount_ends_at"),
-        data.get("stock", 0),
-        data.get("weight_grams", 300),
-        1 if data.get("is_active", True) else 0,
-        1 if data.get("is_featured", False) else 0,
-        0,  # translation_stale_bg
-        0,  # translation_stale_en
-        now,
-        now,
-    ]
-
-    placeholders = ", ".join("?" for _ in columns)
-    col_str = ", ".join(columns)
-
     with get_db() as conn:
+        # Resolve the default product type (lowest sort_order active) when omitted,
+        # rather than hardcoding a slug.
+        product_type = data.get("product_type") or taxonomy_service.default_product_type(conn)
+
+        # Validate taxonomy assignments against managed active terms before write.
+        taxonomy_service.validate_product_type(conn, product_type)
+        taxonomy_service.validate_category(conn, category_slug)
+        taxonomy_service.validate_labels(conn, label_slugs)
+
+        values = [
+            product_id,
+            data["name_en"],
+            data.get("name_bg"),
+            data.get("description_en"),
+            data.get("description_bg"),
+            data.get("materials"),
+            data.get("days_to_craft"),
+            data["price_cents"],
+            product_type,
+            category_slug,
+            data.get("discount_percent"),
+            data.get("discount_starts_at"),
+            data.get("discount_ends_at"),
+            data.get("stock", 0),
+            data.get("weight_grams", 300),
+            1 if data.get("is_active", True) else 0,
+            1 if data.get("is_featured", False) else 0,
+            0,  # translation_stale_bg
+            0,  # translation_stale_en
+            now,
+            now,
+        ]
+        placeholders = ", ".join("?" for _ in columns)
+        col_str = ", ".join(columns)
+
         try:
             conn.execute(
                 f"INSERT INTO products ({col_str}) VALUES ({placeholders})",  # noqa: S608
@@ -359,69 +429,113 @@ def create_product(data: dict) -> dict:
                 raise DuplicateError(f"Product with this ID already exists: {product_id}") from e
             raise
 
-        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        taxonomy_service.replace_product_labels(conn, product_id, label_slugs)
 
-    return product_image_service.attach_image_fields_one(_annotate_admin_one(_row_to_dict(row)))
+        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        product = _row_to_dict(row)
+        taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
+
+    product = _flatten_admin_labels(_annotate_admin_one(product))
+    product = product_image_service.attach_image_fields_one(product)
+    return product_video_service.attach_video_fields_one(product, public_only=False)
 
 
 def upsert_product(product_id: str, data: dict) -> dict:
     """Create or update a product using INSERT ... ON CONFLICT DO UPDATE.
 
-    Only non-None fields in data are updated on conflict.
+    Only non-None fields in data are updated on conflict. Taxonomy values, when
+    provided, are validated against existing ACTIVE terms (CSV import never
+    auto-creates taxonomy and never preserves inactive terms).
     """
     now = _now_utc()
-
-    # Fields that can be set on insert/update
-    field_map = {
-        "name_en": data.get("name_en"),
-        "name_bg": data.get("name_bg"),
-        "description_en": data.get("description_en"),
-        "description_bg": data.get("description_bg"),
-        "materials": data.get("materials"),
-        "days_to_craft": data.get("days_to_craft"),
-        "price_cents": data.get("price_cents"),
-        "category": data.get("category"),
-        "stock": data.get("stock"),
-        "weight_grams": data.get("weight_grams"),
-        "is_active": (None if data.get("is_active") is None else (1 if data["is_active"] else 0)),
-        "is_featured": (
-            None if data.get("is_featured") is None else (1 if data["is_featured"] else 0)
-        ),
-    }
-
-    # For INSERT: include all provided fields + id + timestamps
-    insert_cols = ["id", "created_at", "updated_at"]
-    insert_vals: list = [product_id, now, now]
-
-    for col, val in field_map.items():
-        if val is not None:
-            insert_cols.append(col)
-            insert_vals.append(val)
-
-    # For UPDATE: only update provided (non-None) fields + updated_at
-    update_parts = ["updated_at = excluded.updated_at"]
-    for col, val in field_map.items():
-        if val is not None:
-            update_parts.append(f"{col} = excluded.{col}")
-
-    col_str = ", ".join(insert_cols)
-    placeholders = ", ".join("?" for _ in insert_cols)
-    update_str = ", ".join(update_parts)
-
-    sql = (
-        f"INSERT INTO products ({col_str}) VALUES ({placeholders}) "  # noqa: S608
-        f"ON CONFLICT(id) DO UPDATE SET {update_str}"
-    )
+    labels = data.get("labels")  # None → leave assignments untouched
 
     with get_db() as conn:
-        conn.execute(sql, insert_vals)
-        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        # Distinguish insert from update so a new row's product type is resolved
+        # and validated like create_product. An update that omits product_type
+        # must preserve the current (possibly inactive) assignment.
+        is_insert = (
+            conn.execute("SELECT 1 FROM products WHERE id = ?", (product_id,)).fetchone() is None
+        )
+        if data.get("product_type"):
+            taxonomy_service.validate_product_type(conn, data["product_type"])
+            product_type_slug = data["product_type"]
+        elif is_insert:
+            # No type supplied on a new product → assign the default active type.
+            product_type_slug = taxonomy_service.default_product_type(conn)
+        else:
+            product_type_slug = None  # update path: leave the column untouched
+        if data.get("category"):
+            taxonomy_service.validate_category(conn, data["category"])
+        if labels is not None:
+            taxonomy_service.validate_labels(conn, labels)
 
-    return product_image_service.attach_image_fields_one(_annotate_admin_one(_row_to_dict(row)))
+        # Fields that can be set on insert/update (None → not supplied).
+        field_map = {
+            "name_en": data.get("name_en"),
+            "name_bg": data.get("name_bg"),
+            "description_en": data.get("description_en"),
+            "description_bg": data.get("description_bg"),
+            "materials": data.get("materials"),
+            "days_to_craft": data.get("days_to_craft"),
+            "price_cents": data.get("price_cents"),
+            # Taxonomy slugs — only touched when supplied (or defaulted on insert).
+            "product_type_slug": product_type_slug,
+            "category_slug": (data.get("category") or None),
+            "stock": data.get("stock"),
+            "weight_grams": data.get("weight_grams"),
+            "is_active": (
+                None if data.get("is_active") is None else (1 if data["is_active"] else 0)
+            ),
+            "is_featured": (
+                None if data.get("is_featured") is None else (1 if data["is_featured"] else 0)
+            ),
+        }
+
+        # For INSERT: include all provided fields + id + timestamps
+        insert_cols = ["id", "created_at", "updated_at"]
+        insert_vals: list = [product_id, now, now]
+        for col, val in field_map.items():
+            if val is not None:
+                insert_cols.append(col)
+                insert_vals.append(val)
+
+        # For UPDATE: only update provided (non-None) fields + updated_at
+        update_parts = ["updated_at = excluded.updated_at"]
+        for col, val in field_map.items():
+            if val is not None:
+                update_parts.append(f"{col} = excluded.{col}")
+
+        col_str = ", ".join(insert_cols)
+        placeholders = ", ".join("?" for _ in insert_cols)
+        update_str = ", ".join(update_parts)
+        sql = (
+            f"INSERT INTO products ({col_str}) VALUES ({placeholders}) "  # noqa: S608
+            f"ON CONFLICT(id) DO UPDATE SET {update_str}"
+        )
+
+        conn.execute(sql, insert_vals)
+
+        if labels is not None:
+            taxonomy_service.replace_product_labels(conn, product_id, labels)
+
+        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        product = _row_to_dict(row)
+        taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
+
+    product = _flatten_admin_labels(_annotate_admin_one(product))
+    product = product_image_service.attach_image_fields_one(product)
+    return product_video_service.attach_video_fields_one(product, public_only=False)
 
 
 def update_product(product_id: str, data: dict) -> dict:
-    """Partially update a product. Only non-None fields are modified.
+    """Partially update a product. Only provided fields are modified.
+
+    `data` should come from model_dump(exclude_unset=True) so presence is
+    meaningful. Taxonomy reassignments validate against active terms while
+    allowing the product to keep its current (possibly inactive) assignments;
+    assigning a *different* inactive term is rejected. Category may be set NULL.
+    Discount fields are merged with the persisted row and validated.
 
     Implements translation staleness logic:
     - If EN content changes, mark BG as stale (unless BG also updated in same request)
@@ -430,83 +544,105 @@ def update_product(product_id: str, data: dict) -> dict:
 
     Raises NotFoundError if the product does not exist.
     """
-    # Map field names to values, filtering out None
-    field_map = {
-        "name_en": data.get("name_en"),
-        "name_bg": data.get("name_bg"),
-        "description_en": data.get("description_en"),
-        "description_bg": data.get("description_bg"),
-        "materials": data.get("materials"),
-        "days_to_craft": data.get("days_to_craft"),
-        "price_cents": data.get("price_cents"),
-        "category": data.get("category"),
-        "stock": data.get("stock"),
-        "weight_grams": data.get("weight_grams"),
-        "is_active": (None if data.get("is_active") is None else (1 if data["is_active"] else 0)),
-        "is_featured": (
-            None if data.get("is_featured") is None else (1 if data["is_featured"] else 0)
-        ),
-    }
-
-    updates = {k: v for k, v in field_map.items() if v is not None}
-
-    # Discount fields need explicit NULL writes (to clear a discount), so they
-    # can't go through the "non-None means update" field_map. Merge the patch
-    # with the existing persisted row, then validate the merged result.
-    discount_keys = {"discount_percent", "discount_starts_at", "discount_ends_at"}
-    if discount_keys & data.keys():
-        with get_db() as conn:
-            existing = conn.execute(
-                "SELECT discount_percent, discount_starts_at, discount_ends_at "
-                "FROM products WHERE id = ?",
-                (product_id,),
-            ).fetchone()
-        if existing is None:
-            raise NotFoundError(f"Product not found: {product_id}")
-
-        merged = merge_discount_update(existing, data)
-        updates["discount_percent"] = merged["discount_percent"]
-        updates["discount_starts_at"] = merged["discount_starts_at"]
-        updates["discount_ends_at"] = merged["discount_ends_at"]
-
-    if not updates:
-        # Nothing to update, just return the existing product
-        return get_product_admin(product_id)
-
-    # Staleness logic
-    en_fields = {"name_en", "description_en"}
-    bg_fields = {"name_bg", "description_bg"}
-    updated_en = bool(en_fields & updates.keys())
-    updated_bg = bool(bg_fields & updates.keys())
-
-    if updated_en and updated_bg:
-        # Both sides updated together — neither is stale
-        updates["translation_stale_bg"] = 0
-        updates["translation_stale_en"] = 0
-    elif updated_en:
-        # Only EN changed → mark BG as stale, clear EN staleness
-        updates["translation_stale_bg"] = 1
-        updates["translation_stale_en"] = 0
-    elif updated_bg:
-        # Only BG changed → mark EN as stale, clear BG staleness
-        updates["translation_stale_en"] = 1
-        updates["translation_stale_bg"] = 0
-
-    set_parts = [f"{col} = ?" for col in updates]
-    values = list(updates.values())
-
-    set_clause = ", ".join(set_parts)
-    values.append(product_id)
-
     with get_db() as conn:
-        cursor = conn.execute(
-            f"UPDATE products SET {set_clause} WHERE id = ?",  # noqa: S608
-            values,
-        )
-        if cursor.rowcount == 0:
+        current = conn.execute(
+            "SELECT product_type_slug, category_slug, discount_percent, "
+            "discount_starts_at, discount_ends_at FROM products WHERE id = ?",
+            (product_id,),
+        ).fetchone()
+        if current is None:
             raise NotFoundError(f"Product not found: {product_id}")
 
-    return get_product_admin(product_id)
+        current_type = current["product_type_slug"]
+        current_category = current["category_slug"]
+        current_labels = set(taxonomy_service.get_product_label_slugs(conn, product_id))
+
+        # Validate only actual reassignments (preserve-current allowed for inactive).
+        type_update = "product_type" in data and data["product_type"] is not None
+        category_update = "category" in data
+        labels_update = "labels" in data and data["labels"] is not None
+
+        if type_update:
+            taxonomy_service.validate_product_type(conn, data["product_type"], current=current_type)
+        if category_update:
+            taxonomy_service.validate_category(conn, data["category"], current=current_category)
+        if labels_update:
+            taxonomy_service.validate_labels(conn, data["labels"], current=current_labels)
+
+        # Generic scalar fields (None → not provided; filtered out).
+        field_map = {
+            "name_en": data.get("name_en"),
+            "name_bg": data.get("name_bg"),
+            "description_en": data.get("description_en"),
+            "description_bg": data.get("description_bg"),
+            "materials": data.get("materials"),
+            "days_to_craft": data.get("days_to_craft"),
+            "price_cents": data.get("price_cents"),
+            "stock": data.get("stock"),
+            "weight_grams": data.get("weight_grams"),
+            "is_active": (
+                None if data.get("is_active") is None else (1 if data["is_active"] else 0)
+            ),
+            "is_featured": (
+                None if data.get("is_featured") is None else (1 if data["is_featured"] else 0)
+            ),
+        }
+        updates = {k: v for k, v in field_map.items() if v is not None}
+
+        # Discount fields need explicit NULL writes (to clear a discount), so they
+        # merge the patch with the persisted row, then validate the merged result.
+        discount_keys = {"discount_percent", "discount_starts_at", "discount_ends_at"}
+        if discount_keys & data.keys():
+            merged = merge_discount_update(current, data)
+            updates["discount_percent"] = merged["discount_percent"]
+            updates["discount_starts_at"] = merged["discount_starts_at"]
+            updates["discount_ends_at"] = merged["discount_ends_at"]
+
+        # Taxonomy column updates (category may be explicitly NULL).
+        if type_update:
+            updates["product_type_slug"] = data["product_type"]
+        if category_update:
+            # Blank category clears to NULL rather than persisting an empty slug.
+            updates["category_slug"] = data["category"] or None
+
+        # Staleness logic (only name/description fields count).
+        en_fields = {"name_en", "description_en"}
+        bg_fields = {"name_bg", "description_bg"}
+        updated_en = bool(en_fields & updates.keys())
+        updated_bg = bool(bg_fields & updates.keys())
+        if updated_en and updated_bg:
+            updates["translation_stale_bg"] = 0
+            updates["translation_stale_en"] = 0
+        elif updated_en:
+            updates["translation_stale_bg"] = 1
+            updates["translation_stale_en"] = 0
+        elif updated_bg:
+            updates["translation_stale_en"] = 1
+            updates["translation_stale_bg"] = 0
+
+        if updates:
+            set_clause = ", ".join(f"{col} = ?" for col in updates)
+            conn.execute(
+                f"UPDATE products SET {set_clause} WHERE id = ?",  # noqa: S608
+                [*updates.values(), product_id],
+            )
+
+        if labels_update:
+            taxonomy_service.replace_product_labels(conn, product_id, data["labels"])
+            if not updates:
+                # A label-only change still modifies the product; touch the row so
+                # the products_updated_at trigger refreshes updated_at.
+                conn.execute(
+                    "UPDATE products SET updated_at = updated_at WHERE id = ?",
+                    (product_id,),
+                )
+
+        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        product = _row_to_dict(row)
+        taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
+
+    product = _flatten_admin_labels(_annotate_admin_one(product))
+    return product_image_service.attach_image_fields_one(product)
 
 
 def deactivate_product(product_id: str) -> dict:
@@ -520,20 +656,113 @@ def deactivate_product(product_id: str) -> dict:
         if row is None:
             raise NotFoundError(f"Product not found: {product_id}")
 
+    product_video_service.delete_video_if_exists(product_id)
+
+    with get_db() as conn:
         conn.execute(
             "UPDATE products SET is_active = 0 WHERE id = ?",
             (product_id,),
         )
 
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        product = _row_to_dict(row)
+        taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
 
-    return product_image_service.attach_image_fields_one(_annotate_admin_one(_row_to_dict(row)))
+    product = _flatten_admin_labels(_annotate_admin_one(product))
+    product = product_image_service.attach_image_fields_one(product)
+    return product_video_service.attach_video_fields_one(product, public_only=False)
+
+
+def _build_search_conditions(
+    sanitized: str,
+    fts_table: str,
+    *,
+    product_type: str | None,
+    category: str | None,
+    labels: list[str] | None,
+    in_stock: bool | None,
+) -> tuple[list[str], list]:
+    """Build the shared WHERE conditions + params for FTS search and its count.
+
+    Returns (conditions, params) covering only the WHERE clause (no LIMIT/OFFSET).
+    """
+    conditions = [f"{fts_table} MATCH ?", "p.is_active = 1"]
+    params: list = [sanitized]
+
+    if product_type:
+        conditions.append("p.product_type_slug = ?")
+        params.append(product_type)
+
+    if category:
+        conditions.append("p.category_slug = ?")
+        params.append(category)
+
+    if labels:
+        unique_labels = list(dict.fromkeys(labels))
+        placeholders = ", ".join("?" for _ in unique_labels)
+        conditions.append(
+            f"p.id IN (SELECT product_id FROM product_label_assignments "  # noqa: S608
+            f"WHERE label_slug IN ({placeholders}) "
+            "GROUP BY product_id HAVING COUNT(DISTINCT label_slug) = ?)"
+        )
+        params.extend(unique_labels)
+        params.append(len(unique_labels))
+
+    if in_stock:
+        conditions.append("p.stock > 0")
+
+    return conditions, params
+
+
+def count_search_products(
+    query: str,
+    *,
+    product_type: str | None = None,
+    category: str | None = None,
+    labels: list[str] | None = None,
+    in_stock: bool | None = None,
+    locale: Locale = "en",
+) -> int:
+    """Total matches for an FTS search with the same filters as search_products.
+
+    Lets the search route return an accurate paginated `total` instead of the
+    current page size. Returns 0 for empty/blank queries.
+    """
+    if not query or not query.strip():
+        return 0
+    sanitized = _sanitize_fts5_query(query)
+    if not sanitized:
+        return 0
+
+    fts_table = f"products_fts_{locale}"
+    conditions, params = _build_search_conditions(
+        sanitized,
+        fts_table,
+        product_type=product_type,
+        category=category,
+        labels=labels,
+        in_stock=in_stock,
+    )
+    where_clause = " AND ".join(conditions)
+    with get_db() as conn:
+        row = conn.execute(
+            f"""
+            SELECT COUNT(*) AS cnt
+            FROM {fts_table} fts
+            JOIN products p ON p.rowid = fts.rowid
+            WHERE {where_clause}
+            """,  # noqa: S608
+            params,
+        ).fetchone()
+    return row["cnt"]
 
 
 def search_products(
     query: str,
     *,
+    product_type: str | None = None,
     category: str | None = None,
+    labels: list[str] | None = None,
     in_stock: bool | None = None,
     limit: int = 20,
     offset: int = 0,
@@ -543,9 +772,10 @@ def search_products(
     """Full-text search on product name and description using FTS5.
 
     Searches the locale-appropriate FTS index (products_fts_en or products_fts_bg).
-    Returns active products ranked by relevance with locale-resolved content and
-    public discount pricing fields. Filters (category, in_stock) and LIMIT/OFFSET
-    are pushed into SQL rather than applied in Python post-fetch.
+    Returns active products ranked by relevance with locale-resolved content,
+    taxonomy display metadata, and public discount pricing fields. Taxonomy
+    filters (product_type, category slug, labels) and in_stock/LIMIT/OFFSET are
+    pushed into SQL.
 
     When `sort` is an explicit price sort, results are ordered by
     `effective_price_cents` across ALL matches (not just the current page) before
@@ -560,18 +790,14 @@ def search_products(
         return []
 
     fts_table = f"products_fts_{locale}"
-
-    # Build dynamic WHERE conditions pushed into SQL (B.6)
-    conditions = [f"{fts_table} MATCH ?", "p.is_active = 1"]
-    params: list = [sanitized]
-
-    if category:
-        conditions.append("p.category = ?")
-        params.append(category)
-
-    if in_stock:
-        conditions.append("p.stock > 0")
-
+    conditions, params = _build_search_conditions(
+        sanitized,
+        fts_table,
+        product_type=product_type,
+        category=category,
+        labels=labels,
+        in_stock=in_stock,
+    )
     where_clause = " AND ".join(conditions)
 
     now = pricing.now_utc()
@@ -603,12 +829,10 @@ def search_products(
                 [*params, limit, offset],
             ).fetchall()
 
-    products = [
-        pricing.annotate_product_pricing(
-            _resolve_locale_fields(_row_to_dict(r), locale), now, public=True
-        )
-        for r in rows
-    ]
+        products = [_resolve_locale_fields(_row_to_dict(r), locale) for r in rows]
+        taxonomy_service.resolve_products_taxonomy(conn, products, locale)
+
+    products = [pricing.annotate_product_pricing(p, now, public=True) for p in products]
 
     if price_sort:
         products.sort(
@@ -617,7 +841,8 @@ def search_products(
         )
         products = products[offset : offset + limit]
 
-    return product_image_service.attach_image_fields(products)
+    products = product_image_service.attach_image_fields(products)
+    return product_video_service.attach_video_fields(products, public_only=True)
 
 
 def get_low_stock_products(threshold: int = 5) -> list[dict]:
@@ -632,8 +857,11 @@ def get_low_stock_products(threshold: int = 5) -> list[dict]:
             "SELECT * FROM products WHERE stock <= ? AND is_active = 1",
             (threshold,),
         ).fetchall()
-    products = _annotate_admin([_row_to_dict(r) for r in rows])
-    return product_image_service.attach_image_fields(products)
+        products = [_row_to_dict(r) for r in rows]
+        taxonomy_service.resolve_products_taxonomy(conn, products, "en")
+    products = [_flatten_admin_labels(p) for p in _annotate_admin(products)]
+    products = product_image_service.attach_image_fields(products)
+    return product_video_service.attach_video_fields(products, public_only=False)
 
 
 def _resolve_filter_target_ids(conn: sqlite3.Connection, filt: dict) -> list[str]:
@@ -656,7 +884,7 @@ def _resolve_filter_target_ids(conn: sqlite3.Connection, filt: dict) -> list[str
         like = f"%{escaped}%"
         params.extend([like, like, like])
     if filt.get("category"):
-        conditions.append("category = ?")
+        conditions.append("category_slug = ?")
         params.append(filt["category"])
     if filt.get("is_active") is not None:
         conditions.append("is_active = ?")
