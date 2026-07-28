@@ -28,8 +28,13 @@ import type {
   ContactResponse,
   Courier,
   CreateOrderRequest,
+  CreateFaqItemRequest,
   CreateProductRequest,
   CreateTaxonomyTermRequest,
+  FaqAdminResponse,
+  FaqItemAdminResponse,
+  FaqResponse,
+  FaqSectionAdminResponse,
   ImageUploadResponse,
   OfficeResponse,
   OfficeType,
@@ -46,6 +51,9 @@ import type {
   ReactionToggleResponse,
   TaxonomyKind,
   TaxonomyResponse,
+  ReorderFaqItemsRequest,
+  UpdateFaqItemRequest,
+  UpdateFaqSectionRequest,
   UpdateProductRequest,
   UpdateTaxonomyTermRequest,
   UserResponse,
@@ -312,6 +320,121 @@ const MOCK_USER: UserResponse = {
   avatar_url: "https://lh3.googleusercontent.com/example",
   is_admin: true,
 };
+
+// --- In-Memory FAQ State ---
+
+const nowIso = "2024-06-01T10:00:00Z";
+
+let mockFaqNextId = 7;
+
+const mockFaqSections: FaqSectionAdminResponse[] = [
+  {
+    slug: "candles",
+    title_en: "About Our Candles",
+    title_bg: "За нашите свещи",
+    icon: "🕯",
+    sort_order: 0,
+    created_at: nowIso,
+    updated_at: nowIso,
+    items: [
+      {
+        id: 1,
+        section: "candles",
+        question_en: "Are your candles handmade?",
+        question_bg: "Ръчно изработени ли са вашите свещи?",
+        answer_en: "Yes. Every candle is lovingly handcrafted in our atelier.",
+        answer_bg: "Да. Всяка свещ е изработена с любов на ръка в нашето ателие.",
+        sort_order: 0,
+        is_published: true,
+        created_at: nowIso,
+        updated_at: nowIso,
+      },
+    ],
+  },
+  {
+    slug: "care",
+    title_en: "Candle Care & Safety",
+    title_bg: "Грижа и безопасност",
+    icon: "✨",
+    sort_order: 1,
+    created_at: nowIso,
+    updated_at: nowIso,
+    items: [
+      {
+        id: 2,
+        section: "care",
+        question_en: "Candle Safety",
+        question_bg: "Безопасност при работа със свещи",
+        answer_en:
+          "* Never leave a burning candle unattended.\n* Keep candles away from children and pets.",
+        answer_bg:
+          "* Никога не оставяйте горяща свещ без надзор.\n* Дръжте свещите далеч от деца и домашни любимци.",
+        sort_order: 0,
+        is_published: true,
+        created_at: nowIso,
+        updated_at: nowIso,
+      },
+    ],
+  },
+  {
+    slug: "custom",
+    title_en: "Custom Orders & Gifts",
+    title_bg: "Поръчки по заявка и подаръци",
+    icon: "🎁",
+    sort_order: 2,
+    created_at: nowIso,
+    updated_at: nowIso,
+    items: [
+      {
+        id: 3,
+        section: "custom",
+        question_en: "Can I customise my candle?",
+        question_bg: "Мога ли да персонализирам свещта си?",
+        answer_en: "Yes. We love bringing our customers' ideas to life.",
+        answer_bg: "Да. Обичаме да претворяваме идеите на нашите клиенти.",
+        sort_order: 0,
+        is_published: true,
+        created_at: nowIso,
+        updated_at: nowIso,
+      },
+    ],
+  },
+  {
+    slug: "shipping",
+    title_en: "Orders, Shipping & Returns",
+    title_bg: "Поръчки, доставка и връщане",
+    icon: "📦",
+    sort_order: 3,
+    created_at: nowIso,
+    updated_at: nowIso,
+    items: [
+      {
+        id: 4,
+        section: "shipping",
+        question_en: "How long does it take to prepare my order?",
+        question_bg: "Колко време отнема подготовката на поръчката ми?",
+        answer_en: "Preparation times vary depending on the product.",
+        answer_bg: "Времето за подготовка варира в зависимост от продукта.",
+        sort_order: 0,
+        is_published: true,
+        created_at: nowIso,
+        updated_at: nowIso,
+      },
+    ],
+  },
+];
+
+function cloneAdminFaq(): FaqAdminResponse {
+  return { sections: mockFaqSections.map((section) => ({ ...section, items: section.items.map((item) => ({ ...item })) })) };
+}
+
+function findFaqSection(slug: string): FaqSectionAdminResponse | undefined {
+  return mockFaqSections.find((section) => section.slug === slug);
+}
+
+function findFaqItem(itemId: number): FaqItemAdminResponse | undefined {
+  return mockFaqSections.flatMap((section) => section.items).find((item) => item.id === itemId);
+}
 
 // --- In-Memory Cart State ---
 
@@ -1233,6 +1356,125 @@ export async function getTaxonomy(locale?: string): Promise<TaxonomyResponse> {
     categories: active("categories"),
     labels: active("labels"),
   };
+}
+
+// --- FAQ Mock ---
+
+function localizedFaqValue(en: string, bg: string | null, locale?: string): string {
+  return locale === "bg" ? bg ?? en : en;
+}
+
+export async function getFaq(locale?: string): Promise<FaqResponse> {
+  await delay();
+  return {
+    sections: [...mockFaqSections]
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((section) => ({
+        slug: section.slug,
+        title: localizedFaqValue(section.title_en, section.title_bg, locale),
+        icon: section.icon,
+        items: section.items
+          .filter((item) => item.is_published)
+          .sort((a, b) => a.sort_order - b.sort_order)
+          .map((item) => ({
+            id: item.id,
+            question: localizedFaqValue(item.question_en, item.question_bg, locale),
+            answer: localizedFaqValue(item.answer_en, item.answer_bg, locale),
+          })),
+      })),
+  };
+}
+
+export async function getAdminFaq(): Promise<FaqAdminResponse> {
+  await delay();
+  return cloneAdminFaq();
+}
+
+export async function createFaqItem(
+  data: CreateFaqItemRequest
+): Promise<FaqItemAdminResponse> {
+  await delay();
+  const section = findFaqSection(data.section);
+  if (!section) mockError("INVALID_FAQ", `FAQ section not found: ${data.section}`);
+  const now = new Date().toISOString();
+  const item: FaqItemAdminResponse = {
+    id: mockFaqNextId++,
+    section: data.section,
+    question_en: data.question_en,
+    question_bg: data.question_bg ?? null,
+    answer_en: data.answer_en,
+    answer_bg: data.answer_bg ?? null,
+    sort_order: data.sort_order ?? section.items.length,
+    is_published: true,
+    created_at: now,
+    updated_at: now,
+  };
+  section.items.push(item);
+  return { ...item };
+}
+
+export async function updateFaqItem(
+  itemId: number,
+  data: UpdateFaqItemRequest
+): Promise<FaqItemAdminResponse> {
+  await delay();
+  const item = findFaqItem(itemId);
+  if (!item) mockError("NOT_FOUND", `FAQ item ${itemId} not found`);
+  if (data.section !== undefined && data.section !== item.section) {
+    const nextSection = findFaqSection(data.section);
+    const currentSection = findFaqSection(item.section);
+    if (!nextSection || !currentSection) mockError("INVALID_FAQ", "FAQ section not found");
+    currentSection.items = currentSection.items.filter((candidate) => candidate.id !== itemId);
+    nextSection.items.push(item);
+    item.section = data.section;
+  }
+  if (data.question_en !== undefined) item.question_en = data.question_en;
+  if (data.question_bg !== undefined) item.question_bg = data.question_bg;
+  if (data.answer_en !== undefined) item.answer_en = data.answer_en;
+  if (data.answer_bg !== undefined) item.answer_bg = data.answer_bg;
+  if (data.sort_order !== undefined) item.sort_order = data.sort_order;
+  if (data.is_published !== undefined) item.is_published = data.is_published;
+  item.updated_at = new Date().toISOString();
+  return { ...item };
+}
+
+export async function deleteFaqItem(itemId: number): Promise<void> {
+  await delay();
+  const section = mockFaqSections.find((candidate) =>
+    candidate.items.some((item) => item.id === itemId)
+  );
+  if (!section) mockError("NOT_FOUND", `FAQ item ${itemId} not found`);
+  section.items = section.items.filter((item) => item.id !== itemId);
+}
+
+export async function reorderFaqItems(
+  data: ReorderFaqItemsRequest
+): Promise<FaqAdminResponse> {
+  await delay();
+  const section = findFaqSection(data.section);
+  if (!section) mockError("INVALID_FAQ", `FAQ section not found: ${data.section}`);
+  const order = new Map(data.ordered_ids.map((id, index) => [id, index]));
+  section.items.forEach((item) => {
+    const nextOrder = order.get(item.id);
+    if (nextOrder !== undefined) item.sort_order = nextOrder;
+  });
+  section.items.sort((a, b) => a.sort_order - b.sort_order);
+  return cloneAdminFaq();
+}
+
+export async function updateFaqSection(
+  slug: string,
+  data: UpdateFaqSectionRequest
+): Promise<FaqSectionAdminResponse> {
+  await delay();
+  const section = findFaqSection(slug);
+  if (!section) mockError("NOT_FOUND", `FAQ section ${slug} not found`);
+  if (data.title_en !== undefined) section.title_en = data.title_en;
+  if (data.title_bg !== undefined) section.title_bg = data.title_bg;
+  if (data.icon !== undefined) section.icon = data.icon;
+  if (data.sort_order !== undefined) section.sort_order = data.sort_order;
+  section.updated_at = new Date().toISOString();
+  return { ...section, items: section.items.map((item) => ({ ...item })) };
 }
 
 function termProductCount(kind: TaxonomyKind, slug: string): number {
