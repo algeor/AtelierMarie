@@ -92,6 +92,22 @@ def test_validate_video_upload_reports_missing_ffmpeg(tmp_path, monkeypatch):
         video_service.validate_video_upload(source, "valid-product")
 
 
+def test_unlink_video_files_allows_legacy_static_temp_source(tmp_path, monkeypatch):
+    settings = get_settings()
+    static_root = tmp_path / "static"
+    current_temp = tmp_path / "video-temp"
+    legacy_source = static_root / "video-temp" / "source.upload"
+    legacy_source.parent.mkdir(parents=True)
+    current_temp.mkdir()
+    legacy_source.write_bytes(b"raw")
+    monkeypatch.setattr(settings, "static_file_path", str(static_root))
+    monkeypatch.setattr(settings, "video_upload_temp_path", str(current_temp))
+
+    video_service.unlink_video_files(str(legacy_source))
+
+    assert not legacy_source.exists()
+
+
 def test_video_product_id_validator_matches_create_model_slug_pattern():
     video_service.validate_product_id("x")
 

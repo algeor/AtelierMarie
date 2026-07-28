@@ -270,7 +270,7 @@ def delete_video_if_exists(product_id: str) -> None:
     """Best-effort product-delete hook; no-op when the product has no video."""
     try:
         delete_video(product_id)
-    except (ProductVideoNotFoundError, ProductVideoProcessingConflictError):
+    except ProductVideoNotFoundError:
         return
 
 
@@ -350,6 +350,35 @@ def _run_with_lease_refresh(video_id: str, fn, *args):
                 return future.result(timeout=LEASE_REFRESH_INTERVAL_SECONDS)
             except concurrent.futures.TimeoutError:
                 _refresh_lease(video_id)
+
+
+def _update_ready_if_owned(video_id: str, video_url: str, poster_url: str | None) -> bool:
+    with get_db() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE product_videos
+            SET status = 'ready', video_url = ?, poster_url = ?, source_path = NULL,
+                failure_reason = NULL, lease_expires_at = NULL, updated_at = datetime('now')
+            WHERE id = ? AND status = 'transcoding'
+            """,
+            (video_url, poster_url, video_id),
+        )
+    return cursor.rowcount == 1
+
+
+def _update_failed_if_owned(video_id: str, failure_reason: str) -> bool:
+    with get_db() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE product_videos
+            SET status = 'failed', failure_reason = ?, source_path = NULL,
+                lease_expires_at = NULL,
+                updated_at = datetime('now')
+            WHERE id = ? AND status = 'transcoding'
+            """,
+            (failure_reason, video_id),
+        )
+    return cursor.rowcount == 1
 
 
 def _claim_one_queued(conn: sqlite3.Connection) -> sqlite3.Row | None:
@@ -434,33 +463,26 @@ def drain_video_transcodes() -> int:
             with get_db() as conn:
                 poster_url = _primary_thumbnail(conn, claimed["product_id"])
             if poster_url is None:
-                raise video_service.VideoProcessingError(
-                    "poster extraction failed and no product image fallback is available"
-                ) from exc
+                logger.warning(
+                    "product_video_poster_unavailable",
+                    video_id=claimed["id"],
+                    error=str(exc),
+                )
 
-        with get_db() as conn:
-            conn.execute(
-                """
-                UPDATE product_videos
-                SET status = 'ready', video_url = ?, poster_url = ?, source_path = NULL,
-                    failure_reason = NULL, lease_expires_at = NULL, updated_at = datetime('now')
-                WHERE id = ?
-                """,
-                (transcoded["video_url"], poster_url, claimed["id"]),
+        if not _update_ready_if_owned(claimed["id"], transcoded["video_url"], poster_url):
+            logger.warning(
+                "product_video_ready_update_skipped",
+                video_id=claimed["id"],
+                reason="row no longer transcoding",
             )
         video_service.unlink_video_files(claimed["source_path"])
     except Exception as exc:
         logger.warning("product_video_transcode_failed", video_id=claimed["id"], error=str(exc))
         video_service.unlink_video_files(*cleanup_on_failure)
-        with get_db() as conn:
-            conn.execute(
-                """
-                UPDATE product_videos
-                SET status = 'failed', failure_reason = ?, source_path = NULL,
-                    lease_expires_at = NULL,
-                    updated_at = datetime('now')
-                WHERE id = ?
-                """,
-                (str(exc), claimed["id"]),
+        if not _update_failed_if_owned(claimed["id"], str(exc)):
+            logger.warning(
+                "product_video_failed_update_skipped",
+                video_id=claimed["id"],
+                reason="row no longer transcoding",
             )
     return changed + processed

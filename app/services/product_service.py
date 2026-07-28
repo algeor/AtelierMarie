@@ -527,6 +527,9 @@ def deactivate_product(product_id: str) -> dict:
         if row is None:
             raise NotFoundError(f"Product not found: {product_id}")
 
+    product_video_service.delete_video_if_exists(product_id)
+
+    with get_db() as conn:
         conn.execute(
             "UPDATE products SET is_active = 0 WHERE id = ?",
             (product_id,),
@@ -534,7 +537,6 @@ def deactivate_product(product_id: str) -> dict:
 
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
 
-    product_video_service.delete_video_if_exists(product_id)
     product = product_image_service.attach_image_fields_one(_annotate_admin_one(_row_to_dict(row)))
     return product_video_service.attach_video_fields_one(product, public_only=False)
 

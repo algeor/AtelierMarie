@@ -298,6 +298,7 @@ def unlink_video_files(*urls_or_paths: str | None) -> None:
     settings = get_settings()
     static_root = Path(settings.static_file_path).resolve()
     temp_root = Path(settings.video_upload_temp_path).resolve()
+    legacy_temp_root = (static_root / "video-temp").resolve()
     for item in urls_or_paths:
         if not item:
             continue
@@ -307,6 +308,10 @@ def unlink_video_files(*urls_or_paths: str | None) -> None:
         else:
             path = Path(item).resolve()
             root = temp_root
+            try:
+                path.relative_to(root)
+            except ValueError:
+                root = legacy_temp_root
         try:
             path.relative_to(root)
             path.unlink(missing_ok=True)

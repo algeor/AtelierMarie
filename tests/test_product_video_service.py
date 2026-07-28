@@ -187,6 +187,84 @@ def test_drain_video_transcodes_success(_video_product, monkeypatch):
     assert not source.exists()
 
 
+def test_drain_video_transcodes_keeps_ready_when_poster_has_no_fallback(
+    _video_product, monkeypatch
+):
+    source = Path(_video_product / "video-temp" / "source.upload")
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(b"fake")
+    monkeypatch.setattr(
+        "app.services.video_service.transcode",
+        lambda source_path, product_id, video_id: {"video_url": "/static/products/out.mp4"},
+    )
+
+    def fail_poster(source_path, product_id, video_id):
+        raise video_service.VideoProcessingError("poster failed")
+
+    monkeypatch.setattr("app.services.video_service.extract_poster", fail_poster)
+
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO product_videos (id, product_id, status, source_path, duration_secs)
+            VALUES (?, 'video-product', 'queued', ?, 8.0)
+            """,
+            ("abababababababababababababababab", str(source)),
+        )
+
+    assert product_video_service.drain_video_transcodes() == 1
+
+    with get_db() as conn:
+        row = conn.execute("SELECT status, video_url, poster_url FROM product_videos").fetchone()
+    assert row["status"] == "ready"
+    assert row["video_url"] == "/static/products/out.mp4"
+    assert row["poster_url"] is None
+
+
+def test_drain_video_transcodes_does_not_overwrite_row_no_longer_transcoding(
+    _video_product, monkeypatch
+):
+    source = Path(_video_product / "video-temp" / "source.upload")
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(b"fake")
+
+    def transcode(source_path, product_id, video_id):
+        with get_db() as conn:
+            conn.execute(
+                """
+                UPDATE product_videos
+                SET status = 'failed', failure_reason = 'lease stolen'
+                WHERE id = ?
+                """,
+                (video_id,),
+            )
+        return {"video_url": f"/static/products/{product_id}_{video_id}_video.mp4"}
+
+    monkeypatch.setattr("app.services.video_service.transcode", transcode)
+    monkeypatch.setattr(
+        "app.services.video_service.extract_poster",
+        lambda source_path, product_id, video_id: {"poster_url": "/static/products/poster.webp"},
+    )
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO product_videos (id, product_id, status, source_path, duration_secs)
+            VALUES (?, 'video-product', 'queued', ?, 8.0)
+            """,
+            ("cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd", str(source)),
+        )
+
+    assert product_video_service.drain_video_transcodes() == 1
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT status, failure_reason, video_url FROM product_videos"
+        ).fetchone()
+    assert row["status"] == "failed"
+    assert row["failure_reason"] == "lease stolen"
+    assert row["video_url"] is None
+
+
 def test_drain_processes_only_one_queued_video_per_sweep(_video_product, monkeypatch):
     from app.services import product_service
 
@@ -358,6 +436,32 @@ def test_delete_transcoding_video_returns_conflict(_video_product):
 
     with pytest.raises(product_video_service.ProductVideoProcessingConflictError):
         product_video_service.delete_video("video-product")
+
+
+def test_product_deactivate_transcoding_video_returns_conflict_before_deactivate(_video_product):
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO product_videos (id, product_id, status, source_path, duration_secs)
+            VALUES (
+                '34343434343434343434343434343434', 'video-product', 'transcoding',
+                '/tmp/source.upload', 8.0
+            )
+            """
+        )
+
+    with pytest.raises(product_video_service.ProductVideoProcessingConflictError):
+        product_service.deactivate_product("video-product")
+
+    with get_db() as conn:
+        product = conn.execute(
+            "SELECT is_active FROM products WHERE id = 'video-product'"
+        ).fetchone()
+        video = conn.execute(
+            "SELECT status FROM product_videos WHERE product_id = ?", ("video-product",)
+        ).fetchone()
+    assert product["is_active"] == 1
+    assert video["status"] == "transcoding"
 
 
 def test_delete_video_unlinks_files(_video_product, monkeypatch):
