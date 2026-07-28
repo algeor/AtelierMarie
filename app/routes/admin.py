@@ -3,6 +3,7 @@
 import csv
 import io
 import re
+from pathlib import Path
 from typing import get_args
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
@@ -48,6 +49,7 @@ from app.services import (
     product_image_service,
     product_service,
     product_video_service,
+    video_service,
 )
 from app.services.auth_service import get_oauth_circuit_breaker
 from app.services.comment_service import CommentNotFoundError, list_all_comments
@@ -807,20 +809,27 @@ async def admin_list_comments(
 # --- Image upload endpoint ---
 
 
-async def _read_video_upload_with_limit(file: UploadFile) -> bytes:
-    """Read a video UploadFile without buffering unbounded request bodies."""
+async def _stream_video_upload_with_limit(file: UploadFile, product_id: str) -> Path:
+    """Stream a video UploadFile to private temp storage with a hard size cap."""
     settings = get_settings()
-    chunks = bytearray()
-    while True:
-        chunk = await file.read(1024 * 1024)
-        if not chunk:
-            break
-        chunks.extend(chunk)
-        if len(chunks) > settings.max_video_upload_bytes:
-            raise VideoFileTooLargeError(
-                f"File size exceeds maximum of {settings.max_video_upload_bytes} bytes"
-            )
-    return bytes(chunks)
+    temp_path = product_video_service.reserve_temp_upload(product_id)
+    total = 0
+    try:
+        with temp_path.open("wb") as output:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > settings.max_video_upload_bytes:
+                    raise VideoFileTooLargeError(
+                        f"File size exceeds maximum of {settings.max_video_upload_bytes} bytes"
+                    )
+                output.write(chunk)
+    except Exception:
+        video_service.unlink_video_files(str(temp_path))
+        raise
+    return temp_path
 
 
 def _video_error_response(exc: Exception) -> JSONResponse:
@@ -891,8 +900,9 @@ async def admin_upload_product_video(
 ) -> ProductVideo | JSONResponse:
     """Upload or replace one product video and queue background transcoding."""
     try:
-        file_bytes = await _read_video_upload_with_limit(file)
-        video = product_video_service.queue_video_upload(product_id, file_bytes)
+        product_video_service.validate_upload_target(product_id)
+        temp_path = await _stream_video_upload_with_limit(file, product_id)
+        video = product_video_service.queue_video_upload_path(product_id, temp_path)
     except Exception as exc:
         return _video_error_response(exc)
     return ProductVideo(**video)

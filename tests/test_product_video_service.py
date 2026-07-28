@@ -90,6 +90,32 @@ def test_queue_checks_product_before_probe(_video_product, monkeypatch):
     assert not Path(_video_product / "video-temp").exists()
 
 
+def test_queue_path_rejects_processing_before_probe(_video_product, monkeypatch):
+    def fail_validate(source_path, product_id):
+        raise AssertionError("ffprobe should not run while a video is processing")
+
+    monkeypatch.setattr("app.services.video_service.validate_video_upload", fail_validate)
+    temp_path = product_video_service.reserve_temp_upload(
+        "video-product", video_id="eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    )
+    temp_path.write_bytes(b"fake-video")
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO product_videos (id, product_id, status, source_path, duration_secs)
+            VALUES (
+                'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'video-product', 'queued',
+                '/tmp/source.mp4', 10.0
+            )
+            """
+        )
+
+    with pytest.raises(product_video_service.ProductVideoProcessingConflictError):
+        product_video_service.queue_video_upload_path("video-product", temp_path)
+
+    assert not temp_path.exists()
+
+
 def test_queue_rejects_invalid_product_id_before_temp_write(_video_product):
     with pytest.raises(video_service.InvalidProductIdError):
         product_video_service.queue_video_upload("../bad", b"fake-video")
@@ -271,12 +297,27 @@ def test_drain_video_transcodes_failure_is_terminal(_video_product, monkeypatch)
     assert product_video_service.drain_video_transcodes() == 1
 
     with get_db() as conn:
-        row = conn.execute("SELECT status, failure_reason FROM product_videos").fetchone()
+        row = conn.execute(
+            "SELECT status, failure_reason, source_path FROM product_videos"
+        ).fetchone()
     assert row["status"] == "failed"
     assert row["failure_reason"] == "transcode failed: bad source"
+    assert row["source_path"] is None
 
 
 def test_expired_transcode_marked_failed(_video_product):
+    source = Path(_video_product / "video-temp" / "expired.upload")
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(b"raw")
+    partial = Path(
+        _video_product
+        / "static"
+        / "products"
+        / "video-product_ffffffffffffffffffffffffffffffff_video.mp4"
+    )
+    partial.parent.mkdir(parents=True, exist_ok=True)
+    partial.write_bytes(b"partial")
+
     with get_db() as conn:
         conn.execute(
             """
@@ -284,17 +325,39 @@ def test_expired_transcode_marked_failed(_video_product):
                 id, product_id, status, source_path, duration_secs, lease_expires_at
             ) VALUES (
                 'ffffffffffffffffffffffffffffffff', 'video-product', 'transcoding',
-                '/tmp/source.mp4', 8.0, '2000-01-01 00:00:00'
+                ?, 8.0, '2000-01-01 00:00:00'
             )
-            """
+            """,
+            (str(source),),
         )
 
     assert product_video_service.drain_video_transcodes() == 1
 
     with get_db() as conn:
-        row = conn.execute("SELECT status, failure_reason FROM product_videos").fetchone()
+        row = conn.execute(
+            "SELECT status, failure_reason, source_path FROM product_videos"
+        ).fetchone()
     assert row["status"] == "failed"
     assert row["failure_reason"] == "processing interrupted"
+    assert row["source_path"] is None
+    assert not source.exists()
+    assert not partial.exists()
+
+
+def test_delete_transcoding_video_returns_conflict(_video_product):
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO product_videos (id, product_id, status, source_path, duration_secs)
+            VALUES (
+                '12121212121212121212121212121212', 'video-product', 'transcoding',
+                '/tmp/source.upload', 8.0
+            )
+            """
+        )
+
+    with pytest.raises(product_video_service.ProductVideoProcessingConflictError):
+        product_video_service.delete_video("video-product")
 
 
 def test_delete_video_unlinks_files(_video_product, monkeypatch):

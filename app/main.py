@@ -44,6 +44,17 @@ EMAIL_OUTBOX_INTERVAL_SECONDS = 15
 VIDEO_TRANSCODE_INTERVAL_SECONDS = VIDEO_SWEEPER_INTERVAL_SECONDS
 
 
+def ensure_video_temp_path_is_private(static_path: Path, temp_path: Path) -> None:
+    """Reject raw video staging inside the public /static mount."""
+    static_root = static_path.resolve()
+    temp_root = temp_path.resolve()
+    try:
+        temp_root.relative_to(static_root)
+    except ValueError:
+        return
+    raise RuntimeError("VIDEO_UPLOAD_TEMP_PATH must not be inside STATIC_FILE_PATH")
+
+
 def drain_all_email_outboxes() -> int:
     """Drain every durable email queue owned by the app."""
     return drain_email_outbox() + drain_contact_message_emails()
@@ -131,9 +142,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Ensure static file directories exist
     static_path = Path(settings.static_file_path)
+    video_temp_path = Path(settings.video_upload_temp_path)
+    ensure_video_temp_path_is_private(static_path, video_temp_path)
     static_path.mkdir(parents=True, exist_ok=True)
     (static_path / "products").mkdir(exist_ok=True)
-    Path(settings.video_upload_temp_path).mkdir(parents=True, exist_ok=True)
+    video_temp_path.mkdir(parents=True, exist_ok=True)
 
     # Background task: clean expired sessions every hour
     task = asyncio.create_task(session_cleanup_loop())
@@ -152,6 +165,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     settings = get_settings()
+    ensure_video_temp_path_is_private(
+        Path(settings.static_file_path), Path(settings.video_upload_temp_path)
+    )
 
     application = FastAPI(
         title="Atelier Marie",

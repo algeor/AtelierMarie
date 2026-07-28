@@ -104,15 +104,22 @@ class TestAdminProductVideoRoutes:
     """Tests for admin product video endpoints."""
 
     @pytest.mark.asyncio
-    async def test_upload_returns_202_processing_status(self, admin_client, monkeypatch):
+    async def test_upload_returns_202_processing_status(self, admin_client, monkeypatch, tmp_path):
         captured = {}
+        temp_path = tmp_path / "clip.upload"
 
-        def queue(product_id, file_bytes):
+        def queue(product_id, upload_path):
             captured["product_id"] = product_id
-            captured["file_bytes"] = file_bytes
+            captured["file_bytes"] = upload_path.read_bytes()
             return _video_payload(product_id=product_id)
 
-        monkeypatch.setattr("app.services.product_video_service.queue_video_upload", queue)
+        monkeypatch.setattr(
+            "app.services.product_video_service.validate_upload_target", lambda p: None
+        )
+        monkeypatch.setattr(
+            "app.services.product_video_service.reserve_temp_upload", lambda p: temp_path
+        )
+        monkeypatch.setattr("app.services.product_video_service.queue_video_upload_path", queue)
 
         response = await admin_client.post(
             "/v1/admin/products/lavender-dream-300ml/video",
@@ -130,10 +137,10 @@ class TestAdminProductVideoRoutes:
     async def test_upload_processing_conflict_maps_to_409(self, admin_client, monkeypatch):
         from app.services.product_video_service import ProductVideoProcessingConflictError
 
-        def queue(product_id, file_bytes):
+        def reject(product_id):
             raise ProductVideoProcessingConflictError("video is still processing")
 
-        monkeypatch.setattr("app.services.product_video_service.queue_video_upload", queue)
+        monkeypatch.setattr("app.services.product_video_service.validate_upload_target", reject)
 
         response = await admin_client.post(
             "/v1/admin/products/lavender-dream-300ml/video",

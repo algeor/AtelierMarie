@@ -13,13 +13,16 @@ from app.constants import (
     VIDEO_FFMPEG_IONICE_CLASS,
     VIDEO_FFMPEG_IONICE_LEVEL,
     VIDEO_FFMPEG_NICE_LEVEL,
+    VIDEO_FFMPEG_TIMEOUT_SECONDS,
+    VIDEO_FFPROBE_TIMEOUT_SECONDS,
     VIDEO_POSTER_TIMESTAMP_SECONDS,
     VIDEO_TRANSCODE_ARGS,
 )
+from app.models.common import PRODUCT_ID_PATTERN
 
 logger = structlog.get_logger(__name__)
 
-_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*[a-z0-9]$")
+_SLUG_RE = re.compile(PRODUCT_ID_PATTERN)
 _VIDEO_ID_RE = re.compile(r"^[a-f0-9]{32}$")
 _SUPPORTED_VIDEO_CODECS = {"h264", "hevc", "mpeg4", "vp8", "vp9", "av1"}
 
@@ -87,6 +90,11 @@ def _validate_video_id(video_id: str) -> None:
         raise InvalidVideoIdError("Video ID must be a UUID hex string")
 
 
+def validate_video_id(video_id: str) -> None:
+    """Validate a video UUID hex before using it in filesystem paths."""
+    _validate_video_id(video_id)
+
+
 def _static_products_dir(static_path: str | None = None) -> Path:
     settings = get_settings()
     base = Path(static_path or settings.static_file_path).resolve()
@@ -146,24 +154,29 @@ def probe_video(source_path: str | Path) -> dict:
     if not source.exists() or not source.is_file():
         raise InvalidVideoTypeError("file corrupted or unreadable")
 
-    result = subprocess.run(
-        [
-            ffprobe,
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=codec_name,width,height,duration:format=duration",
-            "-of",
-            "json",
-            str(source),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-        shell=False,
-    )
+    try:
+        result = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=codec_name,width,height,duration:format=duration",
+                "-of",
+                "json",
+                str(source),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            shell=False,
+            timeout=VIDEO_FFPROBE_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise InvalidVideoTypeError("file corrupted or unreadable") from exc
+
     if result.returncode != 0:
         raise InvalidVideoTypeError("file corrupted or unreadable")
 
@@ -220,7 +233,18 @@ def transcode(source_path: str | Path, product_id: str, video_id: str) -> dict:
         *VIDEO_TRANSCODE_ARGS,
         str(output_path),
     ]
-    result = subprocess.run(command, capture_output=True, text=True, check=False, shell=False)
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            shell=False,
+            timeout=VIDEO_FFMPEG_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        output_path.unlink(missing_ok=True)
+        raise VideoProcessingError("transcode timed out") from exc
     if result.returncode != 0:
         output_path.unlink(missing_ok=True)
         raise VideoProcessingError(f"transcode failed: {_stderr_tail(result)}")
@@ -251,7 +275,18 @@ def extract_poster(source_path: str | Path, product_id: str, video_id: str) -> d
         "82",
         str(poster_path),
     ]
-    result = subprocess.run(command, capture_output=True, text=True, check=False, shell=False)
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            shell=False,
+            timeout=VIDEO_FFMPEG_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        poster_path.unlink(missing_ok=True)
+        raise VideoProcessingError("poster extraction timed out") from exc
     if result.returncode != 0:
         poster_path.unlink(missing_ok=True)
         raise VideoProcessingError(f"poster extraction failed: {_stderr_tail(result)}")

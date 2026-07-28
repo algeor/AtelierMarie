@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     # Product video processing
     ffmpeg_path: str = "ffmpeg"
     ffprobe_path: str = "ffprobe"
-    video_upload_temp_path: str = "./static/video-temp"
+    video_upload_temp_path: str = "./video-temp"
     max_video_upload_bytes: int = Field(default=200 * 1024 * 1024, gt=0)
     max_video_duration_seconds: int = Field(default=30, gt=0)
 

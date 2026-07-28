@@ -7,6 +7,7 @@ import {
   deleteProductImage,
   deleteProductVideo,
   getAdminProduct,
+  getProductVideo,
   reorderProductImages,
   setPrimaryProductImage,
   updateProduct,
@@ -37,6 +38,32 @@ export default function EditProductPage() {
       )
       .finally(() => setIsLoading(false));
   }, [productId, getLocalizedError, t]);
+
+  useEffect(() => {
+    const status = product?.video?.status;
+    if (status !== "queued" && status !== "transcoding") return;
+
+    let cancelled = false;
+    async function pollVideo() {
+      try {
+        const video = await getProductVideo(productId);
+        if (!cancelled) {
+          setProduct((current) => (current ? { ...current, video } : current));
+        }
+      } catch (err) {
+        if (!cancelled && err instanceof ApiError && err.code === "video_not_found") {
+          setProduct((current) => (current ? { ...current, video: null } : current));
+        }
+      }
+    }
+
+    void pollVideo();
+    const interval = window.setInterval(() => void pollVideo(), 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [productId, product?.video?.status]);
 
   async function handleSubmit(data: ProductFormData) {
     await updateProduct(productId, {

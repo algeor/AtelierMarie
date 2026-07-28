@@ -1,5 +1,6 @@
 """Product video orchestration and async transcode pipeline."""
 
+import concurrent.futures
 import sqlite3
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -29,6 +30,9 @@ class ProductVideoNotFoundError(ProductVideoError):
 
 class ProductVideoProcessingConflictError(ProductVideoError):
     """Raised when upload replacement races with an in-flight transcode."""
+
+
+LEASE_REFRESH_INTERVAL_SECONDS = min(60, max(1, VIDEO_TRANSCODE_LEASE_SECONDS // 3))
 
 
 def _now() -> str:
@@ -66,6 +70,23 @@ def _ensure_product_exists(conn: sqlite3.Connection, product_id: str) -> None:
     row = conn.execute("SELECT 1 FROM products WHERE id = ?", (product_id,)).fetchone()
     if row is None:
         raise ProductNotFoundError(f"Product not found: {product_id}")
+
+
+def _ensure_no_processing_video(conn: sqlite3.Connection, product_id: str) -> None:
+    existing = conn.execute(
+        "SELECT status FROM product_videos WHERE product_id = ?",
+        (product_id,),
+    ).fetchone()
+    if existing is not None and existing["status"] in ("queued", "transcoding"):
+        raise ProductVideoProcessingConflictError("video is still processing")
+
+
+def validate_upload_target(product_id: str) -> None:
+    """Validate product existence and reject uploads that cannot be accepted."""
+    video_service.validate_product_id(product_id)
+    with get_db() as conn:
+        _ensure_product_exists(conn, product_id)
+        _ensure_no_processing_video(conn, product_id)
 
 
 def _video_rows_for_products(
@@ -121,6 +142,16 @@ def _primary_thumbnail(conn: sqlite3.Connection, product_id: str) -> str | None:
 
 
 def _save_temp_upload(file_bytes: bytes, product_id: str, video_id: str) -> Path:
+    temp_path = reserve_temp_upload(product_id, video_id=video_id)
+    temp_path.write_bytes(file_bytes)
+    return temp_path
+
+
+def reserve_temp_upload(product_id: str, *, video_id: str | None = None) -> Path:
+    """Reserve a private temp path for streaming an upload directly to disk."""
+    video_service.validate_product_id(product_id)
+    video_id = video_id or uuid.uuid4().hex
+    video_service.validate_video_id(video_id)
     settings = get_settings()
     temp_root = Path(settings.video_upload_temp_path).resolve()
     temp_root.mkdir(parents=True, exist_ok=True)
@@ -129,19 +160,50 @@ def _save_temp_upload(file_bytes: bytes, product_id: str, video_id: str) -> Path
         temp_path.relative_to(temp_root)
     except ValueError as exc:
         raise video_service.VideoProcessingError("Path traversal detected") from exc
-    temp_path.write_bytes(file_bytes)
     return temp_path
+
+
+def _video_id_from_temp_path(temp_path: Path, product_id: str) -> str:
+    prefix = f"{product_id}_"
+    suffix = ".upload"
+    name = temp_path.name
+    if not name.startswith(prefix) or not name.endswith(suffix):
+        raise video_service.VideoProcessingError("Invalid upload temp path")
+    video_id = name[len(prefix) : -len(suffix)]
+    video_service.validate_video_id(video_id)
+    return video_id
+
+
+def _validate_temp_path(temp_path: str | Path) -> Path:
+    settings = get_settings()
+    temp_root = Path(settings.video_upload_temp_path).resolve()
+    resolved = Path(temp_path).resolve()
+    try:
+        resolved.relative_to(temp_root)
+    except ValueError as exc:
+        raise video_service.VideoProcessingError("Path traversal detected") from exc
+    return resolved
 
 
 def queue_video_upload(product_id: str, file_bytes: bytes) -> dict:
     """Validate a video upload, store the original, and queue async transcode."""
-    video_service.validate_product_id(product_id)
-    with get_db() as conn:
-        _ensure_product_exists(conn, product_id)
+    validate_upload_target(product_id)
 
     video_id = uuid.uuid4().hex
     temp_path = _save_temp_upload(file_bytes, product_id, video_id)
+    return queue_video_upload_path(product_id, temp_path, video_id=video_id)
+
+
+def queue_video_upload_path(
+    product_id: str, temp_path: str | Path, *, video_id: str | None = None
+) -> dict:
+    """Validate a staged upload path and queue async transcode."""
+    video_service.validate_product_id(product_id)
+    temp_path = _validate_temp_path(temp_path)
+    video_id = video_id or _video_id_from_temp_path(temp_path, product_id)
+    video_service.validate_video_id(video_id)
     try:
+        validate_upload_target(product_id)
         probe = video_service.validate_video_upload(temp_path, product_id)
         old_files: tuple[str | None, str | None, str | None] = (None, None, None)
         with get_db() as conn:
@@ -198,6 +260,8 @@ def delete_video(product_id: str) -> None:
         ).fetchone()
         if row is None:
             raise ProductVideoNotFoundError(f"Product video not found: {product_id}")
+        if row["status"] == "transcoding":
+            raise ProductVideoProcessingConflictError("video is still processing")
         conn.execute("DELETE FROM product_videos WHERE product_id = ?", (product_id,))
     video_service.unlink_video_files(row["video_url"], row["poster_url"], row["source_path"])
 
@@ -206,7 +270,7 @@ def delete_video_if_exists(product_id: str) -> None:
     """Best-effort product-delete hook; no-op when the product has no video."""
     try:
         delete_video(product_id)
-    except ProductVideoNotFoundError:
+    except (ProductVideoNotFoundError, ProductVideoProcessingConflictError):
         return
 
 
@@ -231,19 +295,61 @@ def update_sort_order(product_id: str, sort_order: int) -> dict:
     return _row_to_video(row)
 
 
-def _mark_expired_transcodes_failed(conn: sqlite3.Connection) -> int:
-    cursor = conn.execute(
+def _output_urls_for_row(row: sqlite3.Row) -> tuple[str, str]:
+    stem = f"{row['product_id']}_{row['id']}"
+    return (f"/static/products/{stem}_video.mp4", f"/static/products/{stem}_poster.webp")
+
+
+def _mark_expired_transcodes_failed(conn: sqlite3.Connection) -> tuple[int, list[str | None]]:
+    now = _now()
+    expired = conn.execute(
         """
-        UPDATE product_videos
-        SET status = 'failed', failure_reason = 'processing interrupted',
-            lease_expires_at = NULL, updated_at = datetime('now')
+        SELECT *
+        FROM product_videos
         WHERE status = 'transcoding'
           AND lease_expires_at IS NOT NULL
           AND lease_expires_at < ?
         """,
-        (_now(),),
+        (now,),
+    ).fetchall()
+    cursor = conn.execute(
+        """
+        UPDATE product_videos
+        SET status = 'failed', failure_reason = 'processing interrupted',
+            source_path = NULL, lease_expires_at = NULL, updated_at = datetime('now')
+        WHERE status = 'transcoding'
+          AND lease_expires_at IS NOT NULL
+          AND lease_expires_at < ?
+        """,
+        (now,),
     )
-    return cursor.rowcount
+    cleanup: list[str | None] = []
+    for row in expired:
+        video_url, poster_url = _output_urls_for_row(row)
+        cleanup.extend([row["source_path"], video_url, poster_url])
+    return cursor.rowcount, cleanup
+
+
+def _refresh_lease(video_id: str) -> None:
+    with get_db() as conn:
+        conn.execute(
+            """
+            UPDATE product_videos
+            SET lease_expires_at = ?, updated_at = datetime('now')
+            WHERE id = ? AND status = 'transcoding'
+            """,
+            (_lease_deadline(), video_id),
+        )
+
+
+def _run_with_lease_refresh(video_id: str, fn, *args):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(fn, *args)
+        while True:
+            try:
+                return future.result(timeout=LEASE_REFRESH_INTERVAL_SECONDS)
+            except concurrent.futures.TimeoutError:
+                _refresh_lease(video_id)
 
 
 def _claim_one_queued(conn: sqlite3.Connection) -> sqlite3.Row | None:
@@ -289,28 +395,48 @@ def drain_video_transcodes() -> int:
     """Run one video transcode job if available; return changed row count."""
     with get_db() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        changed = _mark_expired_transcodes_failed(conn)
+        changed, cleanup_files = _mark_expired_transcodes_failed(conn)
         claimed = _claim_one_queued(conn)
+
+    if cleanup_files:
+        video_service.unlink_video_files(*cleanup_files)
 
     if claimed is None:
         return changed
 
     processed = 1
+    cleanup_on_failure: list[str | None] = [claimed["source_path"]]
+    output_video_url, output_poster_url = _output_urls_for_row(claimed)
+    cleanup_on_failure.extend([output_video_url, output_poster_url])
     try:
-        transcoded = video_service.transcode(
-            claimed["source_path"], claimed["product_id"], claimed["id"]
+        transcoded = _run_with_lease_refresh(
+            claimed["id"],
+            video_service.transcode,
+            claimed["source_path"],
+            claimed["product_id"],
+            claimed["id"],
         )
         try:
             static_root = Path(get_settings().static_file_path).resolve()
             video_path = (
                 static_root / transcoded["video_url"].removeprefix("/static/").lstrip("/")
             ).resolve()
-            poster = video_service.extract_poster(video_path, claimed["product_id"], claimed["id"])
+            poster = _run_with_lease_refresh(
+                claimed["id"],
+                video_service.extract_poster,
+                video_path,
+                claimed["product_id"],
+                claimed["id"],
+            )
             poster_url = poster["poster_url"]
         except video_service.VideoServiceError as exc:
             logger.warning("product_video_poster_fallback", video_id=claimed["id"], error=str(exc))
             with get_db() as conn:
                 poster_url = _primary_thumbnail(conn, claimed["product_id"])
+            if poster_url is None:
+                raise video_service.VideoProcessingError(
+                    "poster extraction failed and no product image fallback is available"
+                ) from exc
 
         with get_db() as conn:
             conn.execute(
@@ -325,11 +451,13 @@ def drain_video_transcodes() -> int:
         video_service.unlink_video_files(claimed["source_path"])
     except Exception as exc:
         logger.warning("product_video_transcode_failed", video_id=claimed["id"], error=str(exc))
+        video_service.unlink_video_files(*cleanup_on_failure)
         with get_db() as conn:
             conn.execute(
                 """
                 UPDATE product_videos
-                SET status = 'failed', failure_reason = ?, lease_expires_at = NULL,
+                SET status = 'failed', failure_reason = ?, source_path = NULL,
+                    lease_expires_at = NULL,
                     updated_at = datetime('now')
                 WHERE id = ?
                 """,

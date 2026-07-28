@@ -92,6 +92,10 @@ def test_validate_video_upload_reports_missing_ffmpeg(tmp_path, monkeypatch):
         video_service.validate_video_upload(source, "valid-product")
 
 
+def test_video_product_id_validator_matches_create_model_slug_pattern():
+    video_service.validate_product_id("x")
+
+
 def test_transcode_uses_argument_list_and_static_output(tmp_path, monkeypatch):
     source = tmp_path / "source.mp4"
     source.write_bytes(b"video")
