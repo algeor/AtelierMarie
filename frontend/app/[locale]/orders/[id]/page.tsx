@@ -10,12 +10,25 @@ import { StatusTimeline } from "@/components/orders/StatusTimeline";
 import { DeliveryDetails } from "@/components/checkout/DeliveryDetails";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { formatPrice } from "@/lib/utils";
-import type { OrderResponse } from "@/lib/types";
+import type { OrderResponse, PaymentStatus } from "@/lib/types";
+
+const BANK_IBAN = process.env.NEXT_PUBLIC_BANK_IBAN ?? "";
+const BANK_BIC = process.env.NEXT_PUBLIC_BANK_BIC ?? "";
+const BANK_NAME = process.env.NEXT_PUBLIC_BANK_NAME ?? "";
+
+const PAYMENT_STATUS_COLORS: Record<PaymentStatus, string> = {
+  pending: "bg-amber-100 text-amber-800",
+  paid: "bg-green-100 text-green-800",
+  cod_pending: "bg-gray-100 text-gray-700",
+  failed: "bg-red-100 text-red-800",
+  refunded: "bg-blue-100 text-blue-800",
+};
 
 type PageState = "loading" | "success" | "not_found";
 
 export default function OrderDetailPage() {
   const t = useTranslations("orders");
+  const tPayment = useTranslations("orders.payment");
   const locale = useLocale();
   const params = useParams();
   const orderId = params.id as string;
@@ -172,6 +185,42 @@ export default function OrderDetailPage() {
             {t("contact")}
           </h2>
           <p className="text-sm text-soft-brown">{order.customer_email}</p>
+        </div>
+
+        {/* Payment status block */}
+        <div className="mt-6 pt-6 border-t border-champagne-beige">
+          <h2 className="text-sm font-medium text-charcoal mb-3">{tPayment("sectionTitle")}</h2>
+          <div className="flex flex-wrap items-center gap-3 mb-3">
+            <span className="text-sm text-soft-brown">
+              {tPayment(`method.${order.payment_method}` as Parameters<typeof tPayment>[0])}
+            </span>
+            <span className={`inline-flex items-center rounded-pill px-2.5 py-0.5 text-xs font-medium ${PAYMENT_STATUS_COLORS[order.payment_status]}`}>
+              {tPayment(`status.${order.payment_status}` as Parameters<typeof tPayment>[0])}
+            </span>
+          </div>
+
+          {/* Retry payment link for card orders with pending/failed payment */}
+          {order.payment_method === "card" && (order.payment_status === "pending" || order.payment_status === "failed") && (
+            <Link
+              href={`/orders/${order.id}/retry-payment`}
+              className="inline-flex items-center text-sm font-medium text-soft-brown underline underline-offset-2 hover:text-charcoal transition-colors duration-fast"
+            >
+              {tPayment("retryPayment")}
+            </Link>
+          )}
+
+          {/* IBAN instructions for bank transfer orders awaiting payment */}
+          {order.payment_method === "bank_transfer" && order.payment_status === "pending" && BANK_IBAN && (
+            <div className="mt-3 rounded-brand border border-champagne-beige bg-cream p-4 text-sm space-y-1.5">
+              <p className="font-medium text-charcoal mb-2">{tPayment("bankInstructions")}</p>
+              <p className="text-soft-brown"><span className="font-medium text-charcoal">{tPayment("bankName")}:</span> {BANK_NAME}</p>
+              <p className="text-soft-brown font-mono"><span className="font-medium text-charcoal font-sans">{tPayment("bankIban")}:</span> {BANK_IBAN}</p>
+              <p className="text-soft-brown"><span className="font-medium text-charcoal">{tPayment("bankBic")}:</span> {BANK_BIC}</p>
+              <p className="text-soft-brown"><span className="font-medium text-charcoal">{tPayment("bankAmount")}:</span> {formatPrice(order.total_cents)}</p>
+              <p className="text-soft-brown"><span className="font-medium text-charcoal">{tPayment("bankReference")}:</span> {order.id.slice(0, 8)}</p>
+              <p className="mt-2 text-xs text-soft-brown/70">{tPayment("bankNote")}</p>
+            </div>
+          )}
         </div>
 
         {/* Delivery details */}

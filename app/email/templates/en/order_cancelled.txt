@@ -2,9 +2,11 @@ Your Atelier Marie order #{{ order_id_short }} has been cancelled
 
 Hi {{ customer_name | default("there", true) }},
 
-Your order has been cancelled. A refund of {{ total_display }} is being
-processed and will be returned to your original payment method.
-
+Your order has been cancelled.
+{% if payment_method == 'card' and payment_status == 'paid' %}
+A refund of {{ total_display }} is being processed and will be returned to
+your original payment method.
+{% endif %}
 If you have any questions, just reply to this email.
 
 With love,

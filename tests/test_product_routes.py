@@ -14,7 +14,7 @@ def _products(app, db_path):
             "name_en": "Lavender Dream",
             "description_en": "A calming lavender candle",
             "price_cents": 3200,
-            "category": "luxury-jar",
+            "category": "medium",
             "stock": 24,
         }
     )
@@ -24,7 +24,7 @@ def _products(app, db_path):
             "name_en": "Midnight Amber",
             "description_en": "Warm amber and sandalwood",
             "price_cents": 4500,
-            "category": "luxury-jar",
+            "category": "medium",
             "stock": 12,
         }
     )
@@ -34,7 +34,7 @@ def _products(app, db_path):
             "name_en": "Vanilla Crème Brûlée",
             "description_en": "Rich vanilla custard dessert candle",
             "price_cents": 2800,
-            "category": "dessert",
+            "category": "small",
             "stock": 0,
         }
     )
@@ -62,10 +62,10 @@ class TestListProducts:
 
     @pytest.mark.asyncio
     async def test_filter_by_category(self, client, _products):
-        response = await client.get("/v1/products?category=dessert")
+        response = await client.get("/v1/products?category=small")
         body = response.json()
         assert body["total"] == 1
-        assert body["products"][0]["category"] == "dessert"
+        assert body["products"][0]["category"] == "small"
 
     @pytest.mark.asyncio
     async def test_filter_in_stock(self, client, _products):
@@ -91,9 +91,9 @@ class TestListProducts:
     @pytest.mark.asyncio
     async def test_search_with_category_filter(self, client, _products):
         """Search results can be further filtered by category."""
-        response = await client.get("/v1/products?q=candle&category=luxury-jar")
+        response = await client.get("/v1/products?q=candle&category=medium")
         body = response.json()
-        assert all(p["category"] == "luxury-jar" for p in body["products"])
+        assert all(p["category"] == "medium" for p in body["products"])
 
     @pytest.mark.asyncio
     async def test_search_with_in_stock_filter(self, client, _products):

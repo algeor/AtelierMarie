@@ -3,6 +3,7 @@
 import csv
 import io
 import re
+import sqlite3
 from typing import get_args
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
@@ -16,6 +17,7 @@ from app.models.admin import DashboardResponse, LowStockProductsResponse
 from app.models.comments import AdminCommentListResponse, AdminCommentResponse
 from app.models.common import PRODUCT_ID_PATTERN
 from app.models.orders import (
+    MarkPaymentPaidRequest,
     OrderEmailAudit,
     OrderEmailAuditResponse,
     OrderListResponse,
@@ -55,8 +57,11 @@ from app.services.image_service import (
     validate_image_file,
 )
 from app.services.order_service import (
+    PaymentAlreadyPaidError,
+    WrongPaymentMethodError,
     get_order_admin,
     list_orders_admin,
+    mark_bank_transfer_paid,
     update_status,
 )
 from app.services.product_service import (
@@ -65,6 +70,7 @@ from app.services.product_service import (
     DuplicateError,
     NotFoundError,
 )
+from app.services.taxonomy_service import TaxonomyValidationError
 
 router = APIRouter(dependencies=[Depends(require_admin)])
 
@@ -93,6 +99,11 @@ async def admin_create_product(body: CreateProductRequest) -> ProductAdminRespon
                     "message": "Product with this ID already exists",
                 }
             },
+        )
+    except TaxonomyValidationError as e:
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "INVALID_TAXONOMY", "message": str(e)}},
         )
 
     return ProductAdminResponse(**product)
@@ -238,6 +249,11 @@ async def admin_update_product(
             status_code=404,
             content={"error": {"code": "NOT_FOUND", "message": "Product not found"}},
         )
+    except TaxonomyValidationError as e:
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "INVALID_TAXONOMY", "message": str(e)}},
+        )
     except DiscountValidationError as e:
         return JSONResponse(
             status_code=422,
@@ -267,6 +283,21 @@ async def admin_delete_product(product_id: str) -> ProductAdminResponse | JSONRe
 
     return ProductAdminResponse(**product)
 
+
+# Required CSV headers — accept both legacy (name/description) and new (name_en/description_en)
+_REQUIRED_CSV_HEADERS_NEW = {"id", "name_en", "price_cents"}
+_REQUIRED_CSV_HEADERS_LEGACY = {"id", "name", "price_cents"}
+_OPTIONAL_CSV_HEADERS = {
+    "description",
+    "description_en",
+    "description_bg",
+    "name_bg",
+    "category",
+    "product_type",
+    "labels",
+    "stock",
+    "image_url",
+}
 
 # Accepted case-insensitive boolean literals for CSV boolean columns.
 _CSV_BOOL_TRUE = {"true", "1", "yes"}
@@ -321,9 +352,15 @@ async def admin_import_products(
 
     Required columns: id, name_en (or legacy 'name'), price_cents
     Optional columns: name_bg, description_en (or legacy 'description'),
-                      description_bg, category, stock, image_url,
-                      weight_grams, is_active, is_featured, materials,
+                      description_bg, category, product_type, labels, stock,
+                      image_url, weight_grams, is_active, is_featured, materials,
                       days_to_craft
+
+    Taxonomy columns are managed SLUGS, not free text (breaking change from the
+    legacy free-text `category`): `product_type` and `category` must be existing
+    active slugs, and `labels` is a comma-separated list of active label slugs.
+    Unknown/inactive slugs surface as per-row errors; taxonomy is never
+    auto-created on import.
 
     weight_grams defaults to 300 for newly-created products when the column
     is absent; existing products keep their current weight. Boolean columns
@@ -531,6 +568,12 @@ async def admin_import_products(
 
         if "category" in headers and row.get("category"):
             data["category"] = row["category"].strip()
+        # Managed taxonomy columns (slugs). Validated against active terms in the
+        # service; unknown/inactive slugs surface as row-level errors below.
+        if "product_type" in headers and row.get("product_type"):
+            data["product_type"] = row["product_type"].strip()
+        if "labels" in headers and row.get("labels"):
+            data["labels"] = [s.strip() for s in row["labels"].split(",") if s.strip()]
         if stock is not None:
             data["stock"] = stock
         if weight_grams is not None:
@@ -544,12 +587,8 @@ async def admin_import_products(
         if "materials" in headers and row.get("materials"):
             data["materials"] = row["materials"].strip()
 
-        # Check if product exists to track created vs updated
-        try:
-            product_service.get_product_admin(product_id)
-            is_existing = True
-        except NotFoundError:
-            is_existing = False
+        # Check if product exists to track created vs updated (lightweight probe).
+        is_existing = product_service.product_exists(product_id)
 
         try:
             product_service.upsert_product(product_id, data)
@@ -559,7 +598,9 @@ async def admin_import_products(
                 updated += 1
             else:
                 created += 1
-        except Exception as e:
+        except (TaxonomyValidationError, DuplicateError, ValueError, sqlite3.IntegrityError) as e:
+            # Expected per-row data errors are reported and the import continues.
+            # Unexpected exceptions propagate rather than masquerading as row errors.
             errors.append(CSVImportError(row=row_num, message=str(e)))
 
     return CSVImportResponse(created=created, updated=updated, errors=errors)
@@ -574,11 +615,11 @@ async def admin_import_products(
 )
 def admin_list_orders(
     status: str | None = Query(default=None, description="Filter by order status"),
+    payment_status: str | None = Query(default=None, description="Filter by payment status"),
     page: int = Query(default=1, ge=1, description="Page number"),
     limit: int = Query(default=20, ge=1, le=100, description="Items per page"),
 ) -> OrderListResponse | JSONResponse:
     """List all orders with optional status filter."""
-    # Validate status value against OrderStatus literal
     if status is not None:
         valid_statuses = get_args(OrderStatus)
         if status not in valid_statuses:
@@ -596,7 +637,9 @@ def admin_list_orders(
             )
 
     with get_db() as conn:
-        result = list_orders_admin(conn=conn, status=status, page=page, limit=limit)
+        result = list_orders_admin(
+            conn=conn, status=status, payment_status=payment_status, page=page, limit=limit
+        )
 
     return OrderListResponse(
         items=[OrderResponse.model_validate(o) for o in result["items"]],
@@ -617,6 +660,41 @@ def admin_get_order_detail(order_id: str) -> OrderResponse:
     """Get full order detail for admin (no ownership check)."""
     with get_db() as conn:
         order_data = get_order_admin(conn=conn, order_id=order_id)
+
+    return OrderResponse.model_validate(order_data)
+
+
+@router.patch(
+    "/orders/{order_id}/payment",
+    response_model=OrderResponse,
+    summary="Mark bank transfer payment received (admin)",
+    description="Mark a bank_transfer order's payment as received. "
+    "Only valid when payment_method='bank_transfer' and payment_status='pending'.",
+    responses={
+        404: {"description": "Order not found"},
+        409: {"description": "Already paid or wrong payment method"},
+    },
+)
+def admin_mark_payment_paid(
+    order_id: str,
+    body: MarkPaymentPaidRequest,
+) -> OrderResponse | JSONResponse:
+    """Admin marks bank transfer payment received; queues 'placed' email."""
+    with get_db() as conn:
+        try:
+            order_data = mark_bank_transfer_paid(conn=conn, order_id=order_id)
+        except PaymentAlreadyPaidError:
+            return JSONResponse(
+                status_code=409,
+                content={"error": {"code": "ALREADY_PAID", "message": "Order is already paid"}},
+            )
+        except WrongPaymentMethodError as e:
+            return JSONResponse(
+                status_code=409,
+                content={"error": {"code": "WRONG_PAYMENT_METHOD", "message": str(e)}},
+            )
+        # Queue 'placed' email now that payment is confirmed.
+        queue_order_email(conn, order_id, "placed", order_data["customer_email"])
 
     return OrderResponse.model_validate(order_data)
 

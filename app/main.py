@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
-from app.database import cleanup_expired_sessions, init_db
+from app.database import cleanup_expired_sessions, get_db, init_db
 from app.exceptions import register_exception_handlers
 from app.logging_config import configure_logging
 from app.middleware.request_id import RequestIdMiddleware
@@ -29,6 +29,7 @@ from app.routes import (
     products,
     promotions,
     reactions,
+    taxonomy,
     webhooks,
 )
 from app.services.contact_service import cleanup_old_contact_messages, drain_contact_message_emails
@@ -47,11 +48,60 @@ def drain_all_email_outboxes() -> int:
 
 
 def cleanup_runtime_records() -> int:
-    """Remove expired sessions and aged-out contact inquiries."""
+    """Remove expired sessions, aged-out contact inquiries, and abandoned card orders."""
     settings = get_settings()
-    return cleanup_expired_sessions() + cleanup_old_contact_messages(
+    count = cleanup_expired_sessions() + cleanup_old_contact_messages(
         settings.contact_message_retention_days
     )
+    count += _cancel_abandoned_card_orders()
+    return count
+
+
+def _cancel_abandoned_card_orders() -> int:
+    """Auto-cancel card orders with payment_status in ('pending','failed') older than 24h.
+
+    Restores stock for each cancelled order. Must NOT touch COD or bank_transfer orders.
+    """
+    from app.services.order_service import VALID_TRANSITIONS
+
+    cancelled = 0
+    with get_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT id FROM orders
+            WHERE payment_method = 'card'
+              AND payment_status IN ('pending', 'failed')
+              AND created_at < datetime('now', '-24 hours')
+              AND status NOT IN ('cancelled', 'delivered')
+            """
+        ).fetchall()
+
+        for row in rows:
+            order_id = row["id"]
+            order_row = conn.execute(
+                "SELECT status FROM orders WHERE id = ?", (order_id,)
+            ).fetchone()
+            if not order_row:
+                continue
+            current = order_row["status"]
+            if "cancelled" not in VALID_TRANSITIONS.get(current, set()):
+                continue
+            conn.execute(
+                "UPDATE orders SET status = 'cancelled' WHERE id = ?", (order_id,)
+            )
+            item_rows = conn.execute(
+                "SELECT product_id, quantity FROM order_items WHERE order_id = ?",
+                (order_id,),
+            ).fetchall()
+            for item in item_rows:
+                conn.execute(
+                    "UPDATE products SET stock = stock + ? WHERE id = ?",
+                    (item["quantity"], item["product_id"]),
+                )
+            cancelled += 1
+            logger.info("auto_cancelled_abandoned_card_order", order_id=order_id)
+
+    return cancelled
 
 
 async def session_cleanup_loop(
@@ -218,6 +268,8 @@ def create_app() -> FastAPI:
     application.include_router(orders.router, prefix="/v1/orders", tags=["orders"])
     application.include_router(auth.router, prefix="/v1/auth", tags=["auth"])
     application.include_router(admin.router, prefix="/v1/admin", tags=["admin"])
+    application.include_router(taxonomy.public_router, prefix="/v1/taxonomy", tags=["taxonomy"])
+    application.include_router(taxonomy.admin_router, prefix="/v1/admin/taxonomy", tags=["admin"])
     application.include_router(
         promotions.admin_router, prefix="/v1/admin/promotions", tags=["admin-promotions"]
     )

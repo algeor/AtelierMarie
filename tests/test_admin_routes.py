@@ -14,7 +14,7 @@ def _products(db_path, app):
             "name_en": "Lavender Dream",
             "description_en": "A calming lavender candle",
             "price_cents": 3200,
-            "category": "luxury-jar",
+            "category": "medium",
             "stock": 24,
         }
     )
@@ -24,7 +24,7 @@ def _products(db_path, app):
             "name_en": "Inactive Candle",
             "description_en": "This one is deactivated",
             "price_cents": 1000,
-            "category": "seasonal",
+            "category": "small",
             "stock": 5,
             "is_active": False,
         }
@@ -249,8 +249,8 @@ class TestAdminCSVImport:
     async def test_imports_new_products(self, admin_client):
         csv_content = (
             "id,name,price_cents,stock,category\n"
-            "csv-candle-1,CSV Candle One,2000,10,dessert\n"
-            "csv-candle-2,CSV Candle Two,3000,5,luxury-jar\n"
+            "csv-candle-1,CSV Candle One,2000,10,small\n"
+            "csv-candle-2,CSV Candle Two,3000,5,medium\n"
         )
         response = await admin_client.post(
             "/v1/admin/products/import",

@@ -26,4 +26,3 @@ jobs:
 
       - name: Run frontend unit tests
         run: make test-frontend
-      
