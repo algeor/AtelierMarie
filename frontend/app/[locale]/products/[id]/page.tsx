@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
+import { Link } from "@/i18n/navigation";
 import { getProduct } from "@/lib/api";
 import { ProductGallery } from "@/components/products/ProductGallery";
 import { PriceDisplay } from "@/components/products/PriceDisplay";
@@ -115,6 +116,30 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
             productId={product.id}
             stock={product.stock}
           />
+
+          <div className="rounded-brand border border-champagne-beige bg-cream p-4">
+            <h2 className="text-sm font-medium text-charcoal">{t("faqLinksTitle")}</h2>
+            <div className="mt-3 flex flex-wrap gap-2 text-sm">
+              <Link
+                href="/faq#care"
+                className="rounded-pill bg-white px-3 py-2 text-soft-brown transition-colors duration-fast hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-muted-gold"
+              >
+                {t("faqCare")}
+              </Link>
+              <Link
+                href="/faq#custom"
+                className="rounded-pill bg-white px-3 py-2 text-soft-brown transition-colors duration-fast hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-muted-gold"
+              >
+                {t("faqCustom")}
+              </Link>
+              <Link
+                href="/faq#shipping"
+                className="rounded-pill bg-white px-3 py-2 text-soft-brown transition-colors duration-fast hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-muted-gold"
+              >
+                {t("faqShipping")}
+              </Link>
+            </div>
+          </div>
         </div>
       </div>
 

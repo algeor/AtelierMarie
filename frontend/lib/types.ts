@@ -111,6 +111,84 @@ export interface TaxonomyResponse {
   labels: TaxonomyTerm[];
 }
 
+// --- FAQ ---
+
+export interface FaqItemResponse {
+  id: number;
+  question: string;
+  answer: string;
+}
+
+export interface FaqSectionResponse {
+  slug: string;
+  title: string;
+  icon: string | null;
+  items: FaqItemResponse[];
+}
+
+export interface FaqResponse {
+  sections: FaqSectionResponse[];
+}
+
+export interface FaqItemAdminResponse {
+  id: number;
+  section: string;
+  question_en: string;
+  question_bg: string | null;
+  answer_en: string;
+  answer_bg: string | null;
+  sort_order: number;
+  is_published: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FaqSectionAdminResponse {
+  slug: string;
+  title_en: string;
+  title_bg: string | null;
+  icon: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+  items: FaqItemAdminResponse[];
+}
+
+export interface FaqAdminResponse {
+  sections: FaqSectionAdminResponse[];
+}
+
+export interface CreateFaqItemRequest {
+  section: string;
+  question_en: string;
+  answer_en: string;
+  question_bg?: string | null;
+  answer_bg?: string | null;
+  sort_order?: number | null;
+}
+
+export interface UpdateFaqItemRequest {
+  section?: string;
+  question_en?: string;
+  question_bg?: string | null;
+  answer_en?: string;
+  answer_bg?: string | null;
+  sort_order?: number;
+  is_published?: boolean;
+}
+
+export interface ReorderFaqItemsRequest {
+  section: string;
+  ordered_ids: number[];
+}
+
+export interface UpdateFaqSectionRequest {
+  title_en?: string;
+  title_bg?: string | null;
+  icon?: string | null;
+  sort_order?: number;
+}
+
 export interface AdminTaxonomyTerm {
   slug: string;
   name_en: string;
