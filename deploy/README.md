@@ -39,6 +39,34 @@ TLS cert paths, and upstream ports as needed). Reload with:
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
+## Upload body size
+
+Product image uploads are capped at 25 MB by the app. Set the Nginx request
+body limit slightly higher so multipart form overhead does not make an exact
+25 MB file fail at the proxy. Put this in the production `server { }` block,
+or at the exact image-upload location if larger upload routes are added later:
+
+```nginx
+client_max_body_size 27m;
+```
+
+Keep this at `27m` for image uploads; the app remains the source of truth for
+the 25 MB file cap. If product video uploads need a larger limit, set that only
+on the video-upload location so image uploads still fail fast at the proxy.
+
+### Memory headroom
+
+Each in-flight image upload is memory-heavy: the 25 MB body is buffered in
+memory, then Pillow decodes it (up to the 25-megapixel cap ≈ 75 MB as raw RGB)
+and produces three derivatives (thumbnail, main, zoom). Peak resident memory can
+reach a few hundred MB per concurrent upload. On the single 1 GB Oracle Free
+Tier VPS this is safe for the expected single-admin usage, but a handful of
+overlapping uploads could exhaust RAM. Uploads run off the request event loop
+(`run_in_threadpool`), so customer traffic is not stalled; if concurrent admin
+uploads ever become common, add a small upload concurrency limit rather than
+raising RAM blindly.
+
+
 ## Admin API key
 
 The backend enforces `admin_api_key` >= 32 characters when

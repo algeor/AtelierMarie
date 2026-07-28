@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS product_images (
     product_id    TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
     image_url     TEXT NOT NULL,
     thumbnail_url TEXT NOT NULL,
+    zoom_url      TEXT,
     sort_order    INTEGER NOT NULL DEFAULT 0,
     is_primary    INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
@@ -496,6 +497,7 @@ CREATE TABLE IF NOT EXISTS product_images (
     product_id    TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
     image_url     TEXT NOT NULL,
     thumbnail_url TEXT NOT NULL,
+    zoom_url      TEXT,
     sort_order    INTEGER NOT NULL DEFAULT 0,
     is_primary    INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
@@ -682,6 +684,14 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
         legacy_images = _legacy_product_images_from_products(conn)
         _migrate_products_table(conn)
         conn.executescript(_PRODUCT_IMAGES_TABLE_SQL)
+        product_image_columns = _table_columns(conn, "product_images")
+        _add_column_if_missing(
+            conn,
+            "product_images",
+            product_image_columns,
+            "zoom_url",
+            "zoom_url TEXT",
+        )
         _seed_product_images_from_legacy_rows(conn, legacy_images)
 
     if _table_exists(conn, "sessions"):

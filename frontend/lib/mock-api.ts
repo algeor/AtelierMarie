@@ -98,6 +98,7 @@ function mockProductImage(productId: string, sortOrder = 0, isPrimary = true): P
     id: `${productId}-${sortOrder}`,
     image_url: `/static/products/${productId}.webp`,
     thumbnail_url: `/static/products/${productId}_thumb.webp`,
+    zoom_url: `/static/products/${productId}_zoom.webp`,
     sort_order: sortOrder,
     is_primary: isPrimary,
   };
@@ -929,6 +930,7 @@ export async function uploadProductImage(
     id: imageId,
     image_url: imageUrl,
     thumbnail_url: `/static/products/${productId}_${imageId}_thumb.webp`,
+    zoom_url: `/static/products/${productId}_${imageId}_zoom.webp`,
     sort_order: product.images.length,
     is_primary: product.images.length === 0,
   };

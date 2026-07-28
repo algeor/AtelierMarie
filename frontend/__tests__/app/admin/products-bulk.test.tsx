@@ -58,6 +58,7 @@ function product(id: string, name: string): AdminProductResponse {
     primary_image_url: null,
     primary_thumbnail_url: null,
     stock: 5,
+    weight_grams: 300,
     is_active: true,
     is_featured: false,
     translation_stale_bg: false,

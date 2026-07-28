@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import { useTranslations } from "next-intl";
 import { BASE_URL } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import type { ProductImage as ProductImageModel, ProductVideo } from "@/lib/types";
@@ -24,7 +25,15 @@ function resolveImageUrl(url: string | null): string | null {
 }
 
 export function ProductGallery({ name, images, video, primaryImageUrl }: ProductGalleryProps) {
+  const t = useTranslations("products");
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [lightboxVideo, setLightboxVideo] = useState<ProductVideo | null>(null);
+  const [isZoomOpen, setIsZoomOpen] = useState(false);
+  const [zoomFailed, setZoomFailed] = useState(false);
+  const lightboxRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
   useEffect(() => {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
     setPrefersReducedMotion(query.matches);
@@ -39,6 +48,7 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
     () => [...images].sort((a, b) => a.sort_order - b.sort_order),
     [images]
   );
+
   const galleryItems = useMemo<GalleryItem[]>(() => {
     const items: GalleryItem[] = orderedImages.map((image) => ({
       kind: "image",
@@ -51,20 +61,93 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
     }
     return items;
   }, [orderedImages, video]);
+
   const initialItemId =
     galleryItems.find((item) => item.kind === "image" && item.image.image_url === primaryImageUrl)
       ?.id ??
     galleryItems[0]?.id ??
     null;
-  const [selectedItemId, setSelectedItemId] = useState<string | null>(initialItemId);
-  const [lightboxVideo, setLightboxVideo] = useState<ProductVideo | null>(null);
-  const selectedItem = galleryItems.find((item) => item.id === selectedItemId) ?? galleryItems[0];
+
+  useEffect(() => {
+    if (!selectedItemId && initialItemId) {
+      setSelectedItemId(initialItemId);
+      return;
+    }
+    if (selectedItemId && !galleryItems.some((item) => item.id === selectedItemId)) {
+      setSelectedItemId(initialItemId);
+    }
+  }, [galleryItems, initialItemId, selectedItemId]);
+
+  const selectedItem =
+    galleryItems.find((item) => item.id === selectedItemId) ?? galleryItems[0];
+  const selectedImage = selectedItem?.kind === "image" ? selectedItem.image : null;
+  const selectedVideo = selectedItem?.kind === "video" ? selectedItem.video : null;
+
+  useEffect(() => {
+    if (!isZoomOpen) return;
+
+    const previousActiveElement =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeButtonRef.current?.focus();
+    document.body.style.overflow = "hidden";
+    setZoomFailed(false);
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsZoomOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const dialog = lightboxRef.current;
+      if (!dialog) return;
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      );
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) return;
+      if (!dialog.contains(document.activeElement)) {
+        event.preventDefault();
+        first.focus();
+        return;
+      }
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "";
+      previousActiveElement?.focus();
+    };
+  }, [isZoomOpen]);
 
   if (!selectedItem) {
-    return <ProductImage name={name} imageUrl={null} sizes="(max-width: 1024px) 100vw, 50vw" priority />;
+    return (
+      <ProductImage
+        name={name}
+        imageUrl={null}
+        sizes="(max-width: 1024px) 100vw, 50vw"
+        priority
+      />
+    );
   }
 
-  const selectedVideo = selectedItem.kind === "video" ? selectedItem.video : null;
+  const zoomImageUrl = selectedImage ? selectedImage.zoom_url ?? selectedImage.image_url : null;
+  const resolvedZoomImageUrl = resolveImageUrl(zoomImageUrl);
+  const resolvedMainImageUrl = resolveImageUrl(selectedImage?.image_url ?? null);
+  const zoomDisplayUrl = zoomFailed ? resolvedMainImageUrl : resolvedZoomImageUrl;
 
   return (
     <div className="space-y-3">
@@ -97,14 +180,25 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
             <span className="h-12 w-12 rounded-full bg-warm-ivory/90 shadow-soft after:ml-[18px] after:mt-[13px] after:block after:h-0 after:w-0 after:border-y-[11px] after:border-l-[16px] after:border-y-transparent after:border-l-charcoal" />
           </span>
         </button>
-      ) : selectedItem.kind === "image" ? (
-        <ProductImage
-          name={name}
-          imageUrl={selectedItem.image.image_url}
-          sizes="(max-width: 1024px) 100vw, 50vw"
-          priority
-        />
+      ) : selectedImage ? (
+        <button
+          type="button"
+          aria-label={t("zoomImage")}
+          onClick={() => setIsZoomOpen(true)}
+          className="group relative block w-full rounded-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
+        >
+          <ProductImage
+            name={name}
+            imageUrl={selectedImage.image_url}
+            sizes="(max-width: 1024px) 100vw, 50vw"
+            priority
+          />
+          <span className="absolute right-3 bottom-3 rounded-brand bg-charcoal/85 px-3 py-1.5 text-sm font-medium text-warm-ivory opacity-95 transition group-hover:bg-soft-brown">
+            {t("zoom")}
+          </span>
+        </button>
       ) : null}
+
       {galleryItems.length > 1 && (
         <div className="grid grid-cols-6 gap-2">
           {galleryItems.map((item) => {
@@ -139,6 +233,7 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
           })}
         </div>
       )}
+
       {lightboxVideo?.video_url && (
         <VideoLightbox
           name={name}
@@ -146,6 +241,41 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
           posterUrl={lightboxVideo.poster_url}
           onClose={() => setLightboxVideo(null)}
         />
+      )}
+
+      {isZoomOpen && zoomDisplayUrl && (
+        <div
+          ref={lightboxRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("zoomImage")}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/90 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setIsZoomOpen(false);
+          }}
+        >
+          <button
+            ref={closeButtonRef}
+            type="button"
+            aria-label={t("closeZoom")}
+            onClick={() => setIsZoomOpen(false)}
+            className="absolute right-4 top-4 rounded-brand bg-warm-ivory px-3 py-2 text-sm font-medium text-charcoal shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warm-ivory focus-visible:ring-offset-2 focus-visible:ring-offset-charcoal"
+          >
+            {t("closeZoom")}
+          </button>
+          <div className="relative h-[88vh] w-full max-w-6xl">
+            <Image
+              src={zoomDisplayUrl}
+              alt={name}
+              fill
+              sizes="100vw"
+              className="object-contain"
+              onError={() => {
+                if (!zoomFailed) setZoomFailed(true);
+              }}
+            />
+          </div>
+        </div>
       )}
     </div>
   );
