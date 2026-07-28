@@ -109,7 +109,7 @@ describe("Footer translation rendering", () => {
     expect(screen.getByText("Handcrafted with love")).toBeInTheDocument();
     expect(screen.getByText("Home")).toBeInTheDocument();
     expect(screen.getByText("Shop")).toBeInTheDocument();
-    expect(screen.getByText("About")).toBeInTheDocument();
+    expect(screen.getByText("Atelier")).toBeInTheDocument();
     expect(screen.getByText("Contact")).toBeInTheDocument();
     expect(screen.getByLabelText("Follow Atelier Marie on Instagram")).toHaveAttribute(
       "href",
@@ -126,7 +126,7 @@ describe("Footer translation rendering", () => {
     expect(screen.getByText("Ръчна изработка с любов")).toBeInTheDocument();
     expect(screen.getByText("Начало")).toBeInTheDocument();
     expect(screen.getByText("Магазин")).toBeInTheDocument();
-    expect(screen.getByText("За нас")).toBeInTheDocument();
+    expect(screen.getByText("Ателие")).toBeInTheDocument();
     expect(screen.getByText("Контакт")).toBeInTheDocument();
   });
 

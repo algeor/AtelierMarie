@@ -19,6 +19,7 @@
   "nav": {
     "home": "Home",
     "shop": "Shop",
+    "atelier": "Atelier",
     "about": "About",
     "contact": "Contact",
     "mainNavigation": "Main navigation",
@@ -312,6 +313,7 @@
     "dashboard": "Dashboard",
     "products": "Products",
     "orders": "Orders",
+    "atelierNav": "Atelier",
     "manageOrders": "Manage customer orders",
     "manageProducts": "Manage your product catalog",
     "storeOverview": "Overview of your store performance",

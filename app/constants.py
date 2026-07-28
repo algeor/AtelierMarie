@@ -18,6 +18,37 @@ SESSION_SLIDING_THRESHOLD_DAYS = 7
 MAX_PAGE = 1000
 MAX_LIMIT = 100
 
+# ---------------------------------------------------------------------------
+# Atelier story page (about-management)
+# ---------------------------------------------------------------------------
+
+AboutSectionType = Literal[
+    "hero", "text_image", "text_band", "cards", "timeline", "collections", "cta_band"
+]
+
+ABOUT_SECTION_TYPES: tuple[str, ...] = (
+    "hero",
+    "text_image",
+    "text_band",
+    "cards",
+    "timeline",
+    "collections",
+    "cta_band",
+)
+
+ABOUT_SECTION_SLUGS: tuple[str, ...] = (
+    "hero",
+    "story",
+    "philosophy",
+    "differentiators",
+    "process",
+    "atelier",
+    "values",
+    "collections",
+    "emotional",
+    "custom_cta",
+)
+
 # Product value bounds (for validation in CSV import and admin endpoints)
 MAX_PRICE_CENTS = 99_999_99  # $99,999.99
 # Note: Spec (input-validation) allows up to 1,000,000. We keep the stricter

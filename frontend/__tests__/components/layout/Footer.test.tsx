@@ -53,4 +53,13 @@ describe("Footer", () => {
       "/products"
     );
   });
+
+  it("links Atelier to the story page", () => {
+    renderWithIntl(<Footer />);
+
+    expect(screen.getByRole("link", { name: "Atelier" })).toHaveAttribute(
+      "href",
+      "/atelier"
+    );
+  });
 });

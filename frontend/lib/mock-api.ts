@@ -8,6 +8,10 @@ import type {
   AdminProductResponse,
   AdminStats,
   AdminTaxonomyTerm,
+  AboutAdminResponse,
+  AboutItemAdmin,
+  AboutPublicResponse,
+  AboutSectionAdmin,
   AuthTokenResponse,
   BannerAdminResponse,
   BannerUpdateRequest,
@@ -28,6 +32,7 @@ import type {
   ContactResponse,
   Courier,
   CreateOrderRequest,
+  CreateAboutItemRequest,
   CreateProductRequest,
   CreateTaxonomyTermRequest,
   ImageUploadResponse,
@@ -36,6 +41,8 @@ import type {
   OrderListResponse,
   OrderResponse,
   OrderStatus,
+  PatchAboutItemRequest,
+  PatchAboutSectionRequest,
   ProductListResponse,
   ProductImage,
   ProductResponse,
@@ -240,6 +247,145 @@ const MOCK_PRODUCTS: MockProduct[] = [
     updated_at: "2024-06-05T08:00:00Z",
   },
 ];
+
+const nowIso = () => new Date().toISOString();
+
+let nextAboutItemId = 18;
+
+const MOCK_ABOUT_SECTIONS: AboutSectionAdmin[] = [
+  mockAboutSection("hero", "hero", 0, "The Atelier Marie", "The Atelier Marie", "Handcrafted Elegance for Beautiful Spaces", "Ръчно изработена елегантност за красиви пространства", "At The Atelier Marie, we create handcrafted candles designed to bring beauty, warmth, and a touch of luxury into your home.", "В The Atelier Marie създаваме ръчно изработени свещи, замислени да внесат красота, топлина и лек досег на лукс във вашия дом.", "Explore our collection", "Разгледайте нашата колекция", "/products"),
+  mockAboutSection("story", "text_image", 1, "Our Story", "Нашата история", "From a Creative Idea to a Handmade Atelier", "От творческа идея до ръчно ателие", "The Atelier Marie began with a simple thought: \"I want something this beautiful in my own home.\"", "The Atelier Marie започна с една проста мисъл: „Искам нещо толкова красиво в собствения си дом.“"),
+  mockAboutSection("philosophy", "text_band", 2, "Our Philosophy", "Нашата философия", "Candles Designed to Be Admired", "Свещи, създадени, за да им се възхищавате", "We believe candles can be more than a source of light or fragrance.", "Вярваме, че свещите могат да бъдат повече от източник на светлина или аромат."),
+  mockAboutSection("differentiators", "cards", 3, "What Makes Our Candles Different", "Какво отличава нашите свещи", "More Than a Candle — A Piece of Art for Your Home", "Повече от свещ — произведение на изкуството за вашия дом", null, null),
+  mockAboutSection("process", "timeline", 4, "The Art of Making", "Изкуството на създаването", "Crafted Slowly, Made With Care", "Изработени бавно, създадени с грижа", "Every creation begins with an idea.\n\nBefore a candle reaches your home, it goes through a careful process of design and craftsmanship.", "Всяко творение започва с идея.\n\nПреди една свещ да стигне до вашия дом, тя преминава през внимателен процес на проектиране и изработка."),
+  mockAboutSection("atelier", "text_image", 5, "Inside Our Atelier", "Вътре в нашето ателие", "Where Every Candle Comes to Life", "Където всяка свещ оживява", "Behind every creation are countless small details.", "Зад всяко творение стоят безброй малки детайли."),
+  mockAboutSection("values", "cards", 6, "Our Values", "Нашите ценности", "The Principles Behind Every Creation", "Принципите зад всяко творение", null, null),
+  mockAboutSection("collections", "collections", 7, "Our Collections", "Нашите колекции", "Designed to Suit Every Space and Story", "Създадени да подхождат на всяко пространство и история", null, null),
+  mockAboutSection("emotional", "text_band", 8, "A Little Beauty for Everyday Moments", "Малко красота за ежедневните мигове", "Designed to Become Part of Your Story", "Създадени да станат част от вашата история", "We believe the most beautiful objects are the ones that create a feeling.", "Вярваме, че най-красивите предмети са тези, които създават усещане.", "Discover the collection", "Открийте колекцията", "/products"),
+  mockAboutSection("custom_cta", "cta_band", 9, "Looking for Something Unique?", "Търсите нещо уникално?", null, null, "Create a personalised candle designed especially for you — a bespoke piece for a meaningful moment, or a truly one-of-a-kind gift.", "Създайте персонализирана свещ, замислена специално за вас — изделие по поръчка за значим миг или наистина уникален подарък.", "Request a Custom Order", "Заявете индивидуална поръчка", "/contact"),
+];
+
+MOCK_ABOUT_SECTIONS.find((s) => s.slug === "differentiators")!.items = [
+  mockAboutItem(1, "differentiators", 0, "Handcrafted With Attention to Detail", "Ръчна изработка с внимание към детайла", "Every candle is individually created in our atelier.", "Всяка свещ се създава индивидуално в нашето ателие."),
+  mockAboutItem(2, "differentiators", 1, "Designed as Home Décor", "Замислени като декор за дома", "Our candles are created to complement beautiful interiors.", "Нашите свещи са създадени да допълват красивите интериори."),
+  mockAboutItem(3, "differentiators", 2, "A Luxury Fragrance Experience", "Луксозно ароматно изживяване", "Beautiful design deserves a beautiful scent.", "Красивият дизайн заслужава красив аромат."),
+  mockAboutItem(4, "differentiators", 3, "Personalised Creations", "Персонализирани творения", "Some moments deserve something truly unique.", "Някои мигове заслужават нещо наистина уникално."),
+];
+MOCK_ABOUT_SECTIONS.find((s) => s.slug === "process")!.items = [
+  mockAboutItem(5, "process", 0, "Design", "Дизайн", "Every creation begins with an idea, a shape, and a vision.", "Всяко творение започва с идея, форма и визия."),
+  mockAboutItem(6, "process", 1, "Moulds", "Калъпи", "Each shape is carefully prepared.", "Всяка форма се подготвя грижливо."),
+  mockAboutItem(7, "process", 2, "Colours", "Цветове", "Shades are selected and blended by hand.", "Нюансите се подбират и смесват на ръка."),
+];
+MOCK_ABOUT_SECTIONS.find((s) => s.slug === "values")!.items = [
+  mockAboutItem(11, "values", 0, "Craftsmanship", "Майсторство", "True beauty comes from attention to detail.", "Истинската красота идва от вниманието към детайла."),
+  mockAboutItem(12, "values", 1, "Elegance", "Елегантност", "Our creations are inspired by timeless aesthetics.", "Нашите творения са вдъхновени от вечната естетика."),
+];
+MOCK_ABOUT_SECTIONS.find((s) => s.slug === "collections")!.items = [
+  mockAboutItem(15, "collections", 0, "Floral Collection", "Флорална колекция", "Romantic designs inspired by nature.", "Романтични дизайни, вдъхновени от природата.", "/products?category=floral"),
+  mockAboutItem(16, "collections", 1, "Sculptural Collection", "Скулптурна колекция", "Statement pieces designed to decorate your space.", "Акцентни изделия, създадени да украсят вашето пространство.", "/products?category=sculptural"),
+  mockAboutItem(17, "collections", 2, "Bespoke Collection", "Колекция по поръчка", "Custom creations made for meaningful moments.", "Творения по поръчка за значими мигове.", "/products?category=bespoke"),
+];
+
+function mockAboutSection(
+  slug: AboutSectionAdmin["slug"],
+  type: AboutSectionAdmin["type"],
+  sortOrder: number,
+  headingEn: string,
+  headingBg: string | null,
+  subheadingEn: string | null,
+  subheadingBg: string | null,
+  bodyEn: string | null,
+  bodyBg: string | null,
+  ctaLabelEn: string | null = null,
+  ctaLabelBg: string | null = null,
+  ctaHref: string | null = null
+): AboutSectionAdmin {
+  const timestamp = nowIso();
+  return {
+    slug,
+    type,
+    heading_en: headingEn,
+    heading_bg: headingBg,
+    subheading_en: subheadingEn,
+    subheading_bg: subheadingBg,
+    body_en: bodyEn,
+    body_bg: bodyBg,
+    cta_label_en: ctaLabelEn,
+    cta_label_bg: ctaLabelBg,
+    cta_href: ctaHref,
+    image_id: null,
+    image: null,
+    sort_order: sortOrder,
+    is_published: true,
+    created_at: timestamp,
+    updated_at: timestamp,
+    items: [],
+  };
+}
+
+function mockAboutItem(
+  id: number,
+  section: string,
+  sortOrder: number,
+  titleEn: string,
+  titleBg: string | null,
+  textEn: string | null,
+  textBg: string | null,
+  linkHref: string | null = null
+): AboutItemAdmin {
+  const timestamp = nowIso();
+  return {
+    id,
+    section,
+    title_en: titleEn,
+    title_bg: titleBg,
+    text_en: textEn,
+    text_bg: textBg,
+    image_id: null,
+    image: null,
+    link_href: linkHref,
+    sort_order: sortOrder,
+    is_published: true,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+}
+
+function publicAbout(locale: string = "en"): AboutPublicResponse {
+  return {
+    sections: MOCK_ABOUT_SECTIONS.filter((section) => section.is_published)
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((section) => ({
+        slug: section.slug,
+        type: section.type,
+        heading: locale === "bg" ? section.heading_bg || section.heading_en : section.heading_en,
+        subheading:
+          locale === "bg" ? section.subheading_bg || section.subheading_en : section.subheading_en,
+        body: locale === "bg" ? section.body_bg || section.body_en : section.body_en,
+        cta:
+          section.cta_href && (locale === "bg" ? section.cta_label_bg || section.cta_label_en : section.cta_label_en)
+            ? {
+                label:
+                  (locale === "bg"
+                    ? section.cta_label_bg || section.cta_label_en
+                    : section.cta_label_en) || "",
+                href: section.cta_href,
+              }
+            : null,
+        image: section.image,
+        items: section.items
+          .filter((item) => item.is_published)
+          .sort((a, b) => a.sort_order - b.sort_order)
+          .map((item) => ({
+            id: item.id,
+            title: locale === "bg" ? item.title_bg || item.title_en : item.title_en,
+            text: locale === "bg" ? item.text_bg || item.text_en : item.text_en,
+            image: item.image,
+            link: item.link_href,
+          })),
+      })),
+  };
+}
 
 // --- In-Memory Taxonomy State (mock) ---
 
@@ -818,7 +964,6 @@ export async function createProduct(data: CreateProductRequest): Promise<AdminPr
     materials: data.materials ?? null,
     days_to_craft: data.days_to_craft ?? null,
     price_cents: data.price_cents,
-    price_cents: data.price_cents,
     effective_price_cents: data.price_cents,
     discount_percent: data.discount_percent ?? null,
     discount_active: false,
@@ -1134,6 +1279,170 @@ export async function getComments(
   const start = (page - 1) * limit;
   const items = sorted.slice(start, start + limit);
   return { items, total: mockComments.length, page, limit };
+}
+
+// --- Atelier Story / About Mock ---
+
+export async function getAbout(locale?: string): Promise<AboutPublicResponse> {
+  await delay();
+  return publicAbout(locale);
+}
+
+export async function getAdminAbout(): Promise<AboutAdminResponse> {
+  await delay();
+  return { sections: [...MOCK_ABOUT_SECTIONS].sort((a, b) => a.sort_order - b.sort_order) };
+}
+
+export async function updateAboutSection(
+  slug: string,
+  data: PatchAboutSectionRequest
+): Promise<AboutSectionAdmin> {
+  await delay();
+  const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `About section ${slug} not found`);
+  Object.assign(section, data, { updated_at: nowIso() });
+  return section;
+}
+
+export async function createAboutItem(
+  slug: string,
+  data: CreateAboutItemRequest
+): Promise<AboutItemAdmin> {
+  await delay();
+  const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `About section ${slug} not found`);
+  const item = mockAboutItem(
+    nextAboutItemId++,
+    slug,
+    section.items.length,
+    data.title_en,
+    data.title_bg ?? null,
+    data.text_en ?? null,
+    data.text_bg ?? null,
+    data.link_href ?? null
+  );
+  item.is_published = data.is_published ?? true;
+  section.items.push(item);
+  return item;
+}
+
+export async function updateAboutItem(
+  slug: string,
+  itemId: number,
+  data: PatchAboutItemRequest
+): Promise<AboutItemAdmin> {
+  await delay();
+  const item = findAboutItem(slug, itemId);
+  Object.assign(item, data, { updated_at: nowIso() });
+  return item;
+}
+
+export async function deleteAboutItem(slug: string, itemId: number): Promise<void> {
+  await delay();
+  const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `About section ${slug} not found`);
+  section.items = section.items.filter((item) => item.id !== itemId);
+}
+
+export async function reorderAboutSections(slugs: string[]): Promise<AboutSectionAdmin[]> {
+  await delay();
+  if (new Set(slugs).size !== MOCK_ABOUT_SECTIONS.length) {
+    mockError("INVALID_ORDER", "slugs must match all about sections");
+  }
+  slugs.forEach((slug, index) => {
+    const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
+    if (!section) mockError("INVALID_ORDER", "slugs must match all about sections");
+    section.sort_order = index;
+  });
+  return (await getAdminAbout()).sections;
+}
+
+export async function reorderAboutItems(slug: string, ids: number[]): Promise<AboutItemAdmin[]> {
+  await delay();
+  const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `About section ${slug} not found`);
+  if (new Set(ids).size !== section.items.length) {
+    mockError("INVALID_ORDER", "ids must match all section items");
+  }
+  ids.forEach((id, index) => {
+    const item = section.items.find((i) => i.id === id);
+    if (!item) mockError("INVALID_ORDER", "ids must match all section items");
+    item.sort_order = index;
+  });
+  return [...section.items].sort((a, b) => a.sort_order - b.sort_order);
+}
+
+export async function setAboutSectionPublished(
+  slug: string,
+  isPublished: boolean
+): Promise<AboutSectionAdmin> {
+  await delay();
+  const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `About section ${slug} not found`);
+  section.is_published = isPublished;
+  section.updated_at = nowIso();
+  return section;
+}
+
+export async function setAboutItemPublished(
+  slug: string,
+  itemId: number,
+  isPublished: boolean
+): Promise<AboutItemAdmin> {
+  await delay();
+  const item = findAboutItem(slug, itemId);
+  item.is_published = isPublished;
+  item.updated_at = nowIso();
+  return item;
+}
+
+export async function uploadAboutSectionImage(
+  slug: string,
+  _file: File
+): Promise<AboutSectionAdmin> {
+  await delay();
+  const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `About section ${slug} not found`);
+  section.image_id = `mock-${Date.now()}`;
+  section.image = `/static/products/about-${slug.replace("_", "-")}_${section.image_id}.webp`;
+  return section;
+}
+
+export async function clearAboutSectionImage(slug: string): Promise<AboutSectionAdmin> {
+  await delay();
+  const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `About section ${slug} not found`);
+  section.image_id = null;
+  section.image = null;
+  return section;
+}
+
+export async function uploadAboutItemImage(
+  slug: string,
+  itemId: number,
+  _file: File
+): Promise<AboutItemAdmin> {
+  await delay();
+  const item = findAboutItem(slug, itemId);
+  item.image_id = `mock-${Date.now()}`;
+  item.image = `/static/products/about-item-${itemId}_${item.image_id}.webp`;
+  return item;
+}
+
+export async function clearAboutItemImage(slug: string, itemId: number): Promise<AboutItemAdmin> {
+  await delay();
+  const item = findAboutItem(slug, itemId);
+  item.image_id = null;
+  item.image = null;
+  return item;
+}
+
+function findAboutItem(slug: string, itemId: number): AboutItemAdmin {
+  const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `About section ${slug} not found`);
+  const item = section.items.find((i) => i.id === itemId);
+  if (!item) mockError("NOT_FOUND", `About item ${itemId} not found`);
+  return item;
 }
 
 // --- Taxonomy Mock ---
