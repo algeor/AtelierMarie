@@ -6,6 +6,7 @@ import re
 from typing import get_args
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 
 from app.constants import MAX_CSV_ROWS, MAX_CSV_UPLOAD_BYTES, MAX_PRICE_CENTS, MAX_STOCK
@@ -285,17 +286,6 @@ def _parse_csv_bool(value: str) -> bool:
         return False
     msg = "must be one of true/false/1/0/yes/no"
     raise ValueError(msg)
-
-
-def _parse_csv_image_url(value: str) -> str | None:
-    """Validate a CSV image URL using the same rule as product request models."""
-    stripped = value.strip()
-    if not stripped:
-        return None
-    if not stripped.startswith(("http://", "https://", "/")):
-        msg = "must be a valid URL (http://, https://, or relative path)"
-        raise ValueError(msg)
-    return stripped
 
 
 def _parse_csv_image_url(value: str) -> str | None:
@@ -872,7 +862,9 @@ async def admin_append_product_image(
         )
 
     try:
-        image = product_image_service.add_image(product_id, file_bytes)
+        # Pillow decode/resize/encode is CPU-bound and blocking; run it off the
+        # event loop so concurrent Layer-1 requests are not stalled by an upload.
+        image = await run_in_threadpool(product_image_service.add_image, product_id, file_bytes)
     except product_image_service.ProductNotFoundError:
         return JSONResponse(
             status_code=404,

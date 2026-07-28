@@ -30,6 +30,7 @@ export function ProductGallery({ name, images, primaryImageUrl }: ProductGallery
     null;
   const [selectedImageId, setSelectedImageId] = useState<string | null>(initialImageId);
   const [isZoomOpen, setIsZoomOpen] = useState(false);
+  const [zoomFailed, setZoomFailed] = useState(false);
   const lightboxRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const selectedImage =
@@ -42,6 +43,8 @@ export function ProductGallery({ name, images, primaryImageUrl }: ProductGallery
       ? document.activeElement
       : null;
     closeButtonRef.current?.focus();
+    document.body.style.overflow = "hidden";
+    setZoomFailed(false);
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -50,14 +53,22 @@ export function ProductGallery({ name, images, primaryImageUrl }: ProductGallery
       }
       if (event.key !== "Tab") return;
 
-      const focusable = Array.from(lightboxRef.current?.querySelectorAll<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-      ) ?? []);
+      const dialog = lightboxRef.current;
+      if (!dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      ));
       if (focusable.length === 0) return;
 
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       if (!first || !last) return;
+      // Re-capture focus if it has escaped the dialog (e.g. onto background content).
+      if (!dialog.contains(document.activeElement)) {
+        event.preventDefault();
+        first.focus();
+        return;
+      }
       if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
@@ -70,6 +81,7 @@ export function ProductGallery({ name, images, primaryImageUrl }: ProductGallery
     document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "";
       previousActiveElement?.focus();
     };
   }, [isZoomOpen]);
@@ -80,6 +92,10 @@ export function ProductGallery({ name, images, primaryImageUrl }: ProductGallery
 
   const zoomImageUrl = selectedImage.zoom_url ?? selectedImage.image_url;
   const resolvedZoomImageUrl = resolveImageUrl(zoomImageUrl);
+  const resolvedMainImageUrl = resolveImageUrl(selectedImage.image_url);
+  // If the zoom asset fails to load (e.g. a missing derivative), fall back to
+  // the main image instead of leaving an empty black modal.
+  const zoomDisplayUrl = zoomFailed ? resolvedMainImageUrl : resolvedZoomImageUrl;
 
   return (
     <div className="space-y-3">
@@ -126,7 +142,7 @@ export function ProductGallery({ name, images, primaryImageUrl }: ProductGallery
           })}
         </div>
       )}
-      {isZoomOpen && resolvedZoomImageUrl && (
+      {isZoomOpen && zoomDisplayUrl && (
         <div
           ref={lightboxRef}
           role="dialog"
@@ -148,11 +164,14 @@ export function ProductGallery({ name, images, primaryImageUrl }: ProductGallery
           </button>
           <div className="relative h-[88vh] w-full max-w-6xl">
             <Image
-              src={resolvedZoomImageUrl}
+              src={zoomDisplayUrl}
               alt={name}
               fill
               sizes="100vw"
               className="object-contain"
+              onError={() => {
+                if (!zoomFailed) setZoomFailed(true);
+              }}
             />
           </div>
         </div>

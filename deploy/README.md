@@ -54,6 +54,19 @@ Keep this at `27m` for image uploads; the app remains the source of truth for
 the 25 MB file cap. If product video uploads need a larger limit, set that only
 on the video-upload location so image uploads still fail fast at the proxy.
 
+### Memory headroom
+
+Each in-flight image upload is memory-heavy: the 25 MB body is buffered in
+memory, then Pillow decodes it (up to the 25-megapixel cap ≈ 75 MB as raw RGB)
+and produces three derivatives (thumbnail, main, zoom). Peak resident memory can
+reach a few hundred MB per concurrent upload. On the single 1 GB Oracle Free
+Tier VPS this is safe for the expected single-admin usage, but a handful of
+overlapping uploads could exhaust RAM. Uploads run off the request event loop
+(`run_in_threadpool`), so customer traffic is not stalled; if concurrent admin
+uploads ever become common, add a small upload concurrency limit rather than
+raising RAM blindly.
+
+
 ## Admin API key
 
 The backend enforces `admin_api_key` >= 32 characters when

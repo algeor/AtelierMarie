@@ -99,6 +99,34 @@ describe("ProductForm image upload size checks", () => {
     expect(screen.queryByRole("dialog", { name: "Large image" })).not.toBeInTheDocument();
   });
 
+  it("warns at exactly the 15MB threshold", () => {
+    renderForm();
+
+    const input = screen.getByLabelText("Product images") as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [sizedImage(15 * 1024 * 1024)] } });
+
+    expect(screen.getByRole("dialog", { name: "Large image" })).toBeInTheDocument();
+  });
+
+  it("warns (does not block) at exactly the 25MB cap", () => {
+    renderForm();
+
+    const input = screen.getByLabelText("Product images") as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [sizedImage(25 * 1024 * 1024)] } });
+
+    expect(screen.getByRole("dialog", { name: "Large image" })).toBeInTheDocument();
+    expect(screen.queryByText("Image must be 25 MB or smaller")).not.toBeInTheDocument();
+  });
+
+  it("resets the input value so the same file can be re-selected", () => {
+    renderForm();
+
+    const input = screen.getByLabelText("Product images") as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [sizedImage(2 * 1024 * 1024)] } });
+
+    expect(input.value).toBe("");
+  });
+
   it("keeps the large-image dialog modal and blocks submit until resolved", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     renderForm(onSubmit);
@@ -133,6 +161,6 @@ describe("ProductForm image upload size checks", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
-    expect(onSubmit.mock.calls[0][0].image_files).toHaveLength(1);
+    expect(onSubmit.mock.calls[0]![0].image_files).toHaveLength(1);
   });
 });

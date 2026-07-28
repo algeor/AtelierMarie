@@ -154,6 +154,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
       ? document.activeElement
       : null;
     largeImageCancelRef.current?.focus();
+    document.body.style.overflow = "hidden";
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -162,14 +163,22 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
       }
       if (event.key !== "Tab") return;
 
-      const focusable = Array.from(largeImageDialogRef.current?.querySelectorAll<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-      ) ?? []);
+      const dialog = largeImageDialogRef.current;
+      if (!dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      ));
       if (focusable.length === 0) return;
 
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       if (!first || !last) return;
+      // Re-capture focus if it has escaped the dialog (e.g. onto background content).
+      if (!dialog.contains(document.activeElement)) {
+        event.preventDefault();
+        first.focus();
+        return;
+      }
       if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
@@ -182,6 +191,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
     document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "";
       previousActiveElement?.focus();
     };
   }, [pendingImageFiles]);
@@ -573,12 +583,13 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="large-image-title"
+                aria-describedby="large-image-desc"
                 className="w-full max-w-md rounded-brand bg-warm-ivory p-5 shadow-lg"
               >
                 <h2 id="large-image-title" className="font-heading text-lg text-charcoal">
                   {t("largeImageTitle")}
                 </h2>
-                <p className="mt-2 text-sm text-soft-brown">
+                <p id="large-image-desc" className="mt-2 text-sm text-soft-brown">
                   {t("largeImageWarning", {
                     size: formatFileSizeMb(pendingLargestImageSize),
                   })}

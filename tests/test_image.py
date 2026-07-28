@@ -416,14 +416,19 @@ class TestPixelFlood:
 
     def test_over_25m_pixels_rejected(self, tmp_path):
         """5001×5000 > 25M pixels → rejected."""
-        # Temporarily increase MAX_IMAGE_PIXELS to create the test image
+        # Temporarily increase MAX_IMAGE_PIXELS to create the test image. Use
+        # try/finally so a failure mid-creation cannot leave the global disabled
+        # for the rest of this xdist worker (which would silently defeat the
+        # decompression-bomb guard in every subsequent test).
         old_max = Image.MAX_IMAGE_PIXELS
         Image.MAX_IMAGE_PIXELS = None  # Disable for creation
-        img = Image.new("RGB", (5001, 5000), color=(128, 128, 128))
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG")
-        img_data = buf.getvalue()
-        Image.MAX_IMAGE_PIXELS = old_max  # Restore for processing
+        try:
+            img = Image.new("RGB", (5001, 5000), color=(128, 128, 128))
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG")
+            img_data = buf.getvalue()
+        finally:
+            Image.MAX_IMAGE_PIXELS = old_max  # Restore for processing
 
         with pytest.raises(ImageProcessingError, match="image_dimensions_too_large"):
             process_image(img_data, "too-large", str(tmp_path))

@@ -69,4 +69,48 @@ describe("ProductGallery", () => {
       expect.stringContaining("/static/products/lavender.webp")
     );
   });
+
+  it("closes the zoom via the close button", () => {
+    renderWithIntl(
+      <ProductGallery name="Lavender Dreams" images={[image]} primaryImageUrl={image.image_url} />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Zoom image" }));
+    expect(screen.getByRole("dialog", { name: "Zoom image" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close zoom" }));
+    expect(screen.queryByRole("dialog", { name: "Zoom image" })).not.toBeInTheDocument();
+  });
+
+  it("uses the selected thumbnail's zoom_url when multiple images exist", () => {
+    const second: ProductImage = {
+      id: "image-2",
+      image_url: "/static/products/amber.webp",
+      thumbnail_url: "/static/products/amber_thumb.webp",
+      zoom_url: "/static/products/amber_zoom.webp",
+      sort_order: 1,
+      is_primary: false,
+    };
+    renderWithIntl(
+      <ProductGallery
+        name="Lavender Dreams"
+        images={[image, second]}
+        primaryImageUrl={image.image_url}
+      />
+    );
+
+    // Select the second thumbnail (thumbnail buttons are labelled with the product name),
+    // then open the zoom.
+    const thumbs = screen.getAllByRole("button", { name: "Lavender Dreams" });
+    expect(thumbs).toHaveLength(2);
+    fireEvent.click(thumbs[1]!);
+
+    fireEvent.click(screen.getByRole("button", { name: "Zoom image" }));
+
+    const renderedImages = screen.getAllByAltText("Lavender Dreams");
+    expect(renderedImages[renderedImages.length - 1]).toHaveAttribute(
+      "src",
+      expect.stringContaining("/static/products/amber_zoom.webp")
+    );
+  });
 });
