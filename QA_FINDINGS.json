@@ -25,7 +25,12 @@
       "admin order status/payment-status filter validation",
       "Stripe retry content-type/CSRF validation",
       "admin CSV malformed encoding handling",
-      "admin CSV image max-count behavior"
+      "admin CSV image max-count behavior",
+      "public comment sanitization and React text rendering behavior",
+      "public contact submission and owner-email subject handling",
+      "admin FAQ duplicate reorder handling",
+      "admin-managed atelier content entity rendering",
+      "checkout office-delivery catalogue validation"
     ],
     "areas_not_yet_tested": [
       "database integrity beyond automated tests and video response probe",
@@ -51,12 +56,14 @@
       "admin filter validation may be inconsistent between sibling order filters",
       "state-changing order endpoints may not share the same content-type/CSRF guard",
       "upload parsers may not consistently map malformed input to controlled validation errors",
-      "CSV import may hide secondary image attachment failures"
+      "CSV import may hide secondary image attachment failures",
+      "stored pre-escaped user-generated text may be reused in plain-text React rendering contexts",
+      "public form text accepted by APIs may be reused in email header-like fields without control-character normalization",
+      "ordered-list mutation APIs may not reject duplicate IDs before persisting sort positions",
+      "admin-authored content may be storage-escaped and then rendered as plain React text",
+      "checkout delivery payloads may trust frontend-selected courier office data without server-side catalogue validation"
     ],
-    "unresolved_anomalies": [
-      "bugs/bugs_prompt.md is staged as an empty new file while the worktree contains the QA prompt",
-      "bugs/prompt.txt is untracked and intentionally untouched"
-    ],
+    "unresolved_anomalies": [],
     "test_accounts_data_created": [],
     "services_manipulated": [
       "Next mock dev server on 127.0.0.1:3002"
@@ -66,11 +73,11 @@
     ]
   },
   "summary": {
-    "total_confirmed_bugs": 13,
+    "total_confirmed_bugs": 18,
     "severity_counts": {
       "critical": 0,
       "high": 0,
-      "medium": 11,
+      "medium": 16,
       "low": 2
     }
   },
@@ -229,8 +236,8 @@
         "Render or inspect the checkout order summary in frontend/app/[locale]/checkout/page.tsx.",
         "Compare the line item unit/line total with the subtotal."
       ],
-      "expected_result": "The checkout summary line item uses the same effective discounted price as the cart subtotal, e.g. 1 x €25.60 and subtotal €25.60.",
-      "actual_result": "The line item uses product.price_cents, so it displays 1 x €32.00 and line total €32.00 while the subtotal displays €25.60 from total_cents.",
+      "expected_result": "The checkout summary line item uses the same effective discounted price as the cart subtotal, e.g. 1 x \u20ac25.60 and subtotal \u20ac25.60.",
+      "actual_result": "The line item uses product.price_cents, so it displays 1 x \u20ac32.00 and line total \u20ac32.00 while the subtotal displays \u20ac25.60 from total_cents.",
       "reproduction_rate": "1/1 code-path inspection against the active checkout component plus passing backend discount contract tests",
       "evidence": [
         "frontend/app/[locale]/checkout/page.tsx lines 287 and 291 format item.product.price_cents instead of item.product.effective_price_cents.",
@@ -676,6 +683,255 @@
         "QA-012"
       ],
       "regression_test_recommendation": "Add a CSV import test for an existing product with six images and an image_url, asserting the row reports an error or a skipped-image status and does not claim an unqualified success."
+    },
+    {
+      "bug_id": "QA-014",
+      "title": "Public comments display HTML entities literally for normal punctuation",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "area": "Backend / Frontend / Comments",
+      "environment": "isolated temp SQLite DB, local ASGI client, React server-rendering probe using frontend dependencies",
+      "preconditions": [
+        "an active product exists",
+        "a user posts a comment or display name containing normal escapable characters such as &, <, >, or quotes"
+      ],
+      "reproduction_steps": [
+        "Seed active product entity-candle in an isolated temp SQLite DB.",
+        "POST /v1/products/entity-candle/comments with {\"display_name\":\"Tom & Jerry\",\"body\":\"I use <this> & \\\"that\\\"\"}.",
+        "GET /v1/products/entity-candle/comments and GET /v1/admin/comments.",
+        "Render returned strings as React text children, matching frontend/components/products/CommentCard.tsx."
+      ],
+      "expected_result": "Public and admin comment surfaces display the user's text as entered, for example Tom & Jerry and I use <this> & \"that\", while still preventing HTML execution.",
+      "actual_result": "The API stores and returns escaped entity strings. React escapes those strings again as text children, so the visible UI shows literal entity text such as &amp; instead of &.",
+      "reproduction_rate": "1/1 isolated ASGI probe plus 1/1 React rendering probe",
+      "evidence": [
+        "POST response: 201 {'display_name': 'Tom &amp; Jerry', 'body': 'I use &lt;this&gt; &amp; &quot;that&quot;', ...}.",
+        "Public list response returns the same escaped display_name and body.",
+        "Admin list response returns the same escaped display_name and body.",
+        "DB row: {'display_name': 'Tom &amp; Jerry', 'body': 'I use &lt;this&gt; &amp; &quot;that&quot;'}.",
+        "React rendering probe: renderToStaticMarkup(<p>{'Tom &amp; Jerry'}</p>) produced <p>Tom &amp;amp; Jerry</p>.",
+        "frontend/components/products/CommentCard.tsx renders comment.display_name and comment.body as normal React text children.",
+        "app/services/comment_service.py calls sanitize_text() before insert, and app/utils/sanitize.py implements it with html.escape(text, quote=True)."
+      ],
+      "relevant_logs": [
+        "No backend error; courier office startup logs appeared during local app creation."
+      ],
+      "screenshots_or_artifact_paths": [],
+      "api_requests_responses": [
+        "POST /v1/products/entity-candle/comments with JSON body containing &, <, and quotes -> 201 containing escaped entities",
+        "GET /v1/products/entity-candle/comments -> 200 containing escaped entities",
+        "GET /v1/admin/comments -> 200 containing escaped entities"
+      ],
+      "code_locations": [
+        "app/services/comment_service.py",
+        "app/utils/sanitize.py",
+        "frontend/components/products/CommentCard.tsx"
+      ],
+      "database_state": "comments.display_name and comments.body persist entity-escaped strings rather than the original text",
+      "likely_cause": "The backend uses HTML entity encoding as storage-level sanitization, but the frontend consumes API strings as plain text and relies on React escaping, causing double-escaping at render time.",
+      "current_investigation_status": "Confirmed",
+      "related_bugs": [],
+      "regression_test_recommendation": "Add an API/comment UI integration test that posts text containing &, <, and quotes, then asserts rendered text matches the original plain text while markup remains inert."
+    },
+    {
+      "bug_id": "QA-015",
+      "title": "Contact form newline names create multiline owner-email subjects",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "area": "Backend / Contact / Email Notifications",
+      "environment": "isolated temp SQLite DB, local ASGI client, direct contact email drain with recording provider",
+      "preconditions": [
+        "contact form endpoint is available",
+        "owner contact email drain processes queued contact messages"
+      ],
+      "reproduction_steps": [
+        "Initialize an isolated temp SQLite DB and app.",
+        "POST /v1/contact with {\"name\":\"Ava\\nBcc: victim@example.com\",\"email\":\"ava@example.com\",\"message\":\"Can I order a custom candle?\",\"locale\":\"en\"}.",
+        "Query contact_messages for the stored name and email status.",
+        "Run drain_contact_message_emails() with a recording email provider.",
+        "Inspect the provider call subject."
+      ],
+      "expected_result": "Public contact text that is reused in email header-like fields should reject or normalize line breaks before the message is accepted or before the email subject is rendered.",
+      "actual_result": "The submission is accepted with 201, the name is persisted with an embedded newline, and the owner email subject becomes New contact message from Ava\\nBcc: victim@example.com.",
+      "reproduction_rate": "1/1 isolated ASGI + drain probe",
+      "evidence": [
+        "Contact POST response: 201 {'status': 'received', 'message_id': 1}.",
+        "DB row after POST: {'name': 'Ava\\nBcc: victim@example.com', 'email_status': 'queued'}.",
+        "Drain result: processed 1; contact row changed to email_status='sent', email_attempts=1.",
+        "Recording provider subject: 'New contact message from Ava\\nBcc: victim@example.com'.",
+        "Email body also starts a new line in the Name field: ['Name: Ava', 'Bcc: victim@example.com', ...].",
+        "Python stdlib header check rejects the same value: ValueError Header values may not contain linefeed or carriage return characters.",
+        "app/models/contact.py trims leading/trailing whitespace but does not reject internal CR/LF in name.",
+        "app/email/templates/en/contact_message.txt places {{ submitter_name }} on the subject line."
+      ],
+      "relevant_logs": [
+        "local app startup logged courier office data loads; drain logged contact_email_sent for the contact message"
+      ],
+      "screenshots_or_artifact_paths": [],
+      "api_requests_responses": [
+        "POST /v1/contact with newline-containing name -> 201 and queued contact message"
+      ],
+      "code_locations": [
+        "app/models/contact.py",
+        "app/email/templates/en/contact_message.txt",
+        "app/services/contact_service.py"
+      ],
+      "database_state": "contact_messages.name persists the embedded newline, and the message is marked sent after drain with the malformed subject passed to the provider",
+      "likely_cause": "Contact validation only strips outer whitespace and the plain-text email template renders untrusted submitter_name directly into the first-line subject.",
+      "current_investigation_status": "Confirmed",
+      "related_bugs": [],
+      "regression_test_recommendation": "Add contact route/email rendering coverage for CR/LF in name, asserting the API rejects it with validation or normalizes it before rendering the owner email subject."
+    },
+    {
+      "bug_id": "QA-016",
+      "title": "FAQ reorder accepts duplicate IDs and creates duplicate sort_order values",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "area": "Backend / API / Admin FAQ / Data Integrity",
+      "environment": "isolated temp SQLite DB, local ASGI admin route probe, seeded FAQ data",
+      "preconditions": [
+        "FAQ section care has at least three items",
+        "admin bearer authentication is configured"
+      ],
+      "reproduction_steps": [
+        "Initialize an isolated temp SQLite DB and app.",
+        "GET /v1/admin/faq as admin and collect the first three care item IDs, observed as [7, 8, 9].",
+        "PATCH /v1/admin/faq/reorder with {\"section\":\"care\",\"ordered_ids\":[7,7,8]}.",
+        "Read the response and query faq_items for section=care ordered by sort_order, id."
+      ],
+      "expected_result": "Reorder should reject duplicate item IDs with a validation error and leave existing FAQ order unchanged.",
+      "actual_result": "The route returns 200; item 7 is updated twice and ends at sort_order=1, item 8 gets sort_order=2, and omitted existing item 9 still has sort_order=2, leaving two items in the same section with the same order value.",
+      "reproduction_rate": "1/1 isolated ASGI route probe",
+      "evidence": [
+        "Initial care IDs: [7, 8, 9].",
+        "Reorder response status: 200.",
+        "Response first care items after reorder: [(7, 1), (8, 2), (9, 2), (10, 3), (11, 4)].",
+        "DB first care rows after reorder: [{id: 7, sort_order: 1}, {id: 8, sort_order: 2}, {id: 9, sort_order: 2}, ...].",
+        "Duplicate sort-order query: [{sort_order: 2, c: 2}].",
+        "app/services/faq_service.py checks for missing and wrong-section IDs but does not check ordered_ids uniqueness before enumerating updates.",
+        "app/database.py has only idx_faq_items_section_order on (section, sort_order), not a uniqueness constraint, so duplicate positions persist."
+      ],
+      "relevant_logs": [
+        "No backend error; local app startup logged courier office data loads."
+      ],
+      "screenshots_or_artifact_paths": [],
+      "api_requests_responses": [
+        "PATCH /v1/admin/faq/reorder {\"section\":\"care\",\"ordered_ids\":[7,7,8]} -> 200 with duplicate sort_order values in the returned section"
+      ],
+      "code_locations": [
+        "app/services/faq_service.py",
+        "app/routes/faq.py",
+        "app/database.py:117",
+        "app/database.py:130"
+      ],
+      "database_state": "faq_items for care contains duplicate sort_order=2 after the request",
+      "likely_cause": "reorder_items() treats the input list as trusted after existence checks; duplicate IDs collapse in the found map but still drive multiple update iterations, while omitted items keep their prior sort positions.",
+      "current_investigation_status": "Confirmed",
+      "related_bugs": [],
+      "regression_test_recommendation": "Add an admin FAQ reorder test with duplicate IDs, asserting 422 INVALID_FAQ and no faq_items.sort_order changes."
+    },
+    {
+      "bug_id": "QA-017",
+      "title": "Atelier page renders admin-authored entities literally after text edits",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "area": "Backend / Frontend / Atelier Content",
+      "environment": "isolated temp SQLite DB, local ASGI admin/public route probe, React server-rendering probe using frontend dependencies",
+      "preconditions": [
+        "admin bearer authentication is configured",
+        "the seeded hero atelier section exists"
+      ],
+      "reproduction_steps": [
+        "Initialize an isolated temp SQLite DB and app.",
+        "PATCH /v1/admin/about/sections/hero with {\"heading_en\":\"Ben & Co <Studio>\",\"subheading_en\":\"Handmade \\\"A\\\" & B\"}.",
+        "GET /v1/about?locale=en and inspect the hero section.",
+        "Render the returned heading as a React text child, matching frontend/components/atelier/AtelierSections.tsx."
+      ],
+      "expected_result": "Admin-authored atelier content displays the intended plain text (Ben & Co <Studio>, Handmade \"A\" & B) while remaining safe from markup execution.",
+      "actual_result": "The admin update response, public API response, and database row contain escaped entities. React text rendering escapes those strings again, so the visible page would show literal &amp; and &lt; sequences.",
+      "reproduction_rate": "1/1 isolated ASGI probe plus 1/1 React rendering probe",
+      "evidence": [
+        "PATCH response subset: {'heading_en': 'Ben &amp; Co &lt;Studio&gt;', 'subheading_en': 'Handmade &quot;A&quot; &amp; B'}.",
+        "Public hero response: {'heading': 'Ben &amp; Co &lt;Studio&gt;', 'subheading': 'Handmade &quot;A&quot; &amp; B'}.",
+        "DB row: {'heading_en': 'Ben &amp; Co &lt;Studio&gt;', 'subheading_en': 'Handmade &quot;A&quot; &amp; B'}.",
+        "React rendering probe: renderToStaticMarkup(<h1>{'Ben &amp; Co &lt;Studio&gt;'}</h1>) produced <h1>Ben &amp;amp; Co &amp;lt;Studio&amp;gt;</h1>.",
+        "frontend/components/atelier/AtelierSections.tsx renders section.heading, section.subheading, and item text as normal React text children.",
+        "frontend/components/atelier/BodyRenderer.tsx renders body blocks as normal React text children.",
+        "app/services/about_service.py sanitizes editable text with sanitize_text() before persistence.",
+        "tests/test_about_service.py::test_sanitization_escapes_html_on_write asserts escaped storage but does not verify rendered output."
+      ],
+      "relevant_logs": [
+        "No backend error; local app startup logged courier office data loads."
+      ],
+      "screenshots_or_artifact_paths": [],
+      "api_requests_responses": [
+        "PATCH /v1/admin/about/sections/hero with escapable characters -> 200 containing entity-escaped fields",
+        "GET /v1/about?locale=en -> 200 containing entity-escaped public fields"
+      ],
+      "code_locations": [
+        "app/services/about_service.py",
+        "app/utils/sanitize.py",
+        "frontend/components/atelier/AtelierSections.tsx",
+        "frontend/components/atelier/BodyRenderer.tsx",
+        "tests/test_about_service.py"
+      ],
+      "database_state": "about_sections.heading_en and about_sections.subheading_en persist entity-escaped strings rather than the original admin text",
+      "likely_cause": "The about service uses HTML entity encoding as storage-level sanitization, but the public React page renders API strings as plain text and relies on React's escaping, causing double-escaping at display time.",
+      "current_investigation_status": "Confirmed",
+      "related_bugs": [
+        "QA-014"
+      ],
+      "regression_test_recommendation": "Add an about admin/public rendering test that edits heading/body text containing &, <, and quotes, then asserts the rendered atelier page displays the original characters as inert plain text."
+    },
+    {
+      "bug_id": "QA-018",
+      "title": "Checkout accepts and persists nonexistent courier office IDs",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "area": "Backend / API / Checkout / Delivery",
+      "environment": "isolated temp SQLite DB, local ASGI client, seeded cart and product, courier office catalogue loaded from local JSON",
+      "preconditions": [
+        "session cart contains at least one active product",
+        "customer selects office delivery"
+      ],
+      "reproduction_steps": [
+        "Initialize an isolated temp SQLite DB and app.",
+        "Seed product delivery-test-candle, a session, and one cart item.",
+        "POST /v1/orders with office delivery payload courier=econt, office_id=not-a-real-econt-office, office_name=Injected Office Name, office_type=apt, and a valid phone.",
+        "GET /v1/orders/{order_id} with the same session.",
+        "Query the Econt Sofia office catalogue for not-a-real-econt-office."
+      ],
+      "expected_result": "Checkout should reject an office delivery selection whose office_id does not exist for the selected courier, or at minimum resolve the server-side office record instead of trusting client-supplied office metadata.",
+      "actual_result": "Checkout returns 201, persists the fake office ID/name/type, and the order detail returns the same fake office data. The local Econt Sofia catalogue has 132 offices and does not contain not-a-real-econt-office.",
+      "reproduction_rate": "1/1 isolated ASGI route probe plus 1/1 catalogue check",
+      "evidence": [
+        "Checkout response status: 201.",
+        "Checkout response delivery details: {'courier': 'econt', 'office_id': 'not-a-real-econt-office', 'office_name': 'Injected Office Name', 'office_type': 'apt', 'phone': '+359888123456'}.",
+        "GET order response returns the same delivery_method='office', delivery_courier='econt', and fake delivery_details.",
+        "DB order row stores delivery_details JSON containing not-a-real-econt-office and Injected Office Name.",
+        "Catalogue check: econt_sofia_count 132, fake_id_present False, sample IDs were ['econt-48485', 'econt-1029', 'econt-48128', ...].",
+        "app/models/delivery.py validates only shape/literals/phone for DeliveryOffice; it does not validate office_id against delivery_service data.",
+        "app/services/order_service.py serializes delivery.office.model_dump() directly into orders.delivery_details."
+      ],
+      "relevant_logs": [
+        "No backend error; local app startup logged courier office data loads."
+      ],
+      "screenshots_or_artifact_paths": [],
+      "api_requests_responses": [
+        "POST /v1/orders with fake office delivery -> 201",
+        "GET /v1/orders/{order_id} -> 200 returning the same fake office delivery details"
+      ],
+      "code_locations": [
+        "app/models/delivery.py",
+        "app/services/order_service.py",
+        "app/services/delivery_service.py",
+        "tests/realapp/test_delivery_checkout.py"
+      ],
+      "database_state": "orders.delivery_method='office', orders.delivery_courier='econt', and orders.delivery_details contains client-supplied nonexistent office metadata",
+      "likely_cause": "Checkout treats the frontend's selected office object as trusted input and does not resolve or verify it against the backend courier office catalogue before creating the order.",
+      "current_investigation_status": "Confirmed",
+      "related_bugs": [],
+      "regression_test_recommendation": "Add checkout route coverage for nonexistent and courier-mismatched office_id values, asserting a validation error and no order/cart mutation."
     }
   ]
 }

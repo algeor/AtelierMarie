@@ -7,19 +7,19 @@ Source prompt: `bugs/bugs_prompt.md`
 - Status: Investigating
 - Started: 2026-07-29
 - Environment: local workspace `/Users/I551270/PycharmProjects/AtelierMarie`
-- Areas tested: initial prompt review, backend automated tests, backend lint, frontend lint, frontend unit test suite isolation, isolated cart/order API happy path and stock failure, admin product video update response consistency, route-level API error envelope consistency, backend discount contract tests, frontend checkout discount display consistency, frontend product listing discount sort consistency, auth returning-user profile persistence edge case, auth avatar fallback edge case, auth user-menu accessible-name check, admin bank-transfer payment email outbox idempotency, admin order status/payment-status filter validation, Stripe retry content-type/CSRF validation, admin CSV malformed encoding handling, admin CSV image max-count behavior
+- Areas tested: initial prompt review, backend automated tests, backend lint, frontend lint, frontend unit test suite isolation, isolated cart/order API happy path and stock failure, admin product video update response consistency, route-level API error envelope consistency, backend discount contract tests, frontend checkout discount display consistency, frontend product listing discount sort consistency, auth returning-user profile persistence edge case, auth avatar fallback edge case, auth user-menu accessible-name check, admin bank-transfer payment email outbox idempotency, admin order status/payment-status filter validation, Stripe retry content-type/CSRF validation, admin CSV malformed encoding handling, admin CSV image max-count behavior, public comment sanitization and React text rendering behavior, public contact submission and owner-email subject handling, admin FAQ duplicate reorder handling, admin-managed atelier content entity rendering, checkout office-delivery catalogue validation
 - Areas not yet tested: broader frontend browser workflows, frontend checkout submission in a real browser session, broader backend APIs beyond discount/cart/order and representative admin probes, auth/permissions beyond admin bearer probes and returning-user profile persistence probe, order email sweeper behavior under duplicated queued payment rows, database integrity beyond automated tests and video response probe, accessibility, performance, error handling outside representative route-level API envelope probes, concurrency
-- Active hypotheses: frontend component test harness is missing shared browser and intl providers; admin ProductForm test fixture is stale relative to required product taxonomy fields; product/video attachment is inconsistent across admin product service paths; frontend discount display code may still use base price in cart-adjacent UI; frontend client-side product sorting may diverge from backend effective-price sort semantics; returning OAuth profile updates may clear optional user fields when provider omits them; auth avatar fallback may not normalize blank profile fields; bank-transfer payment confirmation may enqueue duplicate customer email intents; admin filter validation may be inconsistent between sibling order filters; state-changing order endpoints may not share the same content-type/CSRF guard; upload parsers may not consistently map malformed input to controlled validation errors; CSV import may hide secondary image attachment failures
-- Unresolved anomalies: `bugs/bugs_prompt.md` is staged as an empty new file while the worktree contains the QA prompt; `bugs/prompt.txt` is untracked and intentionally untouched
+- Active hypotheses: frontend component test harness is missing shared browser and intl providers; admin ProductForm test fixture is stale relative to required product taxonomy fields; product/video attachment is inconsistent across admin product service paths; frontend discount display code may still use base price in cart-adjacent UI; frontend client-side product sorting may diverge from backend effective-price sort semantics; returning OAuth profile updates may clear optional user fields when provider omits them; auth avatar fallback may not normalize blank profile fields; bank-transfer payment confirmation may enqueue duplicate customer email intents; admin filter validation may be inconsistent between sibling order filters; state-changing order endpoints may not share the same content-type/CSRF guard; upload parsers may not consistently map malformed input to controlled validation errors; CSV import may hide secondary image attachment failures; stored pre-escaped user-generated text may be reused in plain-text React rendering contexts; public form text accepted by APIs may be reused in email header-like fields without control-character normalization; ordered-list mutation APIs may not reject duplicate IDs before persisting sort positions; admin-authored content may be storage-escaped and then rendered as plain React text; checkout delivery payloads may trust frontend-selected courier office data without server-side catalogue validation
+- Unresolved anomalies: none currently
 - Test accounts/data created: none yet
 - Services manipulated: Next mock dev server on `127.0.0.1:3002`
 - Major remaining attack surfaces: full application surface remains open
 
 ## Executive QA Summary
 
-- Total confirmed bugs discovered: 13
-- Severity counts: Critical 0, High 0, Medium 11, Low 2
-- Major risk areas: frontend regression coverage reliability; admin product response consistency; API contract consistency; discount pricing consistency; auth profile persistence; payment email outbox idempotency; admin filter validation consistency; payment retry request-hardening consistency; admin upload validation hardening
+- Total confirmed bugs discovered: 18
+- Severity counts: Critical 0, High 0, Medium 16, Low 2
+- Major risk areas: frontend regression coverage reliability; admin product response consistency; API contract consistency; discount pricing consistency; auth profile persistence; payment email outbox idempotency; admin filter validation consistency; payment retry request-hardening consistency; admin upload validation hardening; user-generated content rendering consistency; public-form email notification hardening; admin ordered-list data integrity; admin content rendering consistency; checkout delivery destination integrity
 - Most fragile workflows: not yet established
 - Systemic patterns: inconsistent reuse of backend/public pricing semantics in frontend UI code; duplicated cross-layer side effects between service and route code
 - Areas that appear robust: none proven yet
@@ -406,18 +406,177 @@ Source prompt: `bugs/bugs_prompt.md`
 - Impact: admins can import a CSV containing image URLs and receive a clean success report even though some images were dropped, leaving product media incomplete without any visible failure signal.
 - Suggested regression test: add a CSV import test for an existing product with six images and an `image_url`, asserting the row reports an error or a skipped-image status and does not claim an unqualified success.
 
+### QA-014 — Public comments display HTML entities literally for normal punctuation
+
+- Severity: Medium
+- Confidence: Confirmed
+- Area: Backend / Frontend / Comments
+- Environment: isolated temp SQLite DB, local ASGI client, React server-rendering probe using frontend dependencies
+- Status: Confirmed
+- Preconditions: an active product exists; a user posts a comment or display name containing normal escapable characters such as `&`, `<`, `>`, or quotes.
+- Reproduction steps:
+  1. Seed active product `entity-candle` in an isolated temp SQLite DB.
+  2. `POST /v1/products/entity-candle/comments` with `{"display_name":"Tom & Jerry","body":"I use <this> & \"that\""}`.
+  3. `GET /v1/products/entity-candle/comments` and `GET /v1/admin/comments`.
+  4. Render returned strings as React text children, matching `frontend/components/products/CommentCard.tsx`.
+- Expected result: public and admin comment surfaces display the user's text as entered, for example `Tom & Jerry` and `I use <this> & "that"`, while still preventing HTML execution.
+- Actual result: the API stores and returns escaped entity strings (`Tom &amp; Jerry`, `I use &lt;this&gt; &amp; &quot;that&quot;`). React escapes those strings again as text children, so the visible UI shows literal entity text such as `&amp;` instead of `&`.
+- Reproduction rate: 1/1 isolated ASGI probe plus 1/1 React rendering probe.
+- Evidence:
+  - POST response: `201 {'display_name': 'Tom &amp; Jerry', 'body': 'I use &lt;this&gt; &amp; &quot;that&quot;', ...}`.
+  - Public list response returns the same escaped `display_name` and `body`.
+  - Admin list response returns the same escaped `display_name` and `body`.
+  - DB row: `{'display_name': 'Tom &amp; Jerry', 'body': 'I use &lt;this&gt; &amp; &quot;that&quot;'}`.
+  - React rendering probe: `renderToStaticMarkup(<p>{'Tom &amp; Jerry'}</p>)` produced `<p>Tom &amp;amp; Jerry</p>`.
+  - `frontend/components/products/CommentCard.tsx` renders `{comment.display_name}` and `{comment.body}` as normal React text children.
+  - `app/services/comment_service.py` calls `sanitize_text()` before insert, and `app/utils/sanitize.py` implements it with `html.escape(text, quote=True)`.
+- API requests/responses: `POST /v1/products/entity-candle/comments` with JSON body above -> `201` containing escaped entities; `GET /v1/products/entity-candle/comments` -> `200` containing escaped entities; `GET /v1/admin/comments` -> `200` containing escaped entities.
+- Database state: `comments.display_name` and `comments.body` persist entity-escaped strings rather than the original text.
+- Relevant logs: no backend error; courier office startup logs appeared during local app creation.
+- Likely cause: the backend uses HTML entity encoding as storage-level sanitization, but the frontend consumes API strings as plain text and relies on React's own escaping, causing double-escaping at render time.
+- Impact: customers and admins see corrupted comment text for common punctuation and names, making the comments feature look broken and reducing trust in submitted user content.
+- Suggested regression test: add an API/comment UI integration test that posts text containing `&`, `<`, and quotes, then asserts the rendered comment displays the original characters as plain text without executing markup.
+
+### QA-015 — Contact form newline names create multiline owner-email subjects
+
+- Severity: Medium
+- Confidence: Confirmed
+- Area: Backend / Contact / Email Notifications
+- Environment: isolated temp SQLite DB, local ASGI client, direct contact email drain with recording provider
+- Status: Confirmed
+- Preconditions: contact form endpoint is available; owner contact email drain processes queued contact messages.
+- Reproduction steps:
+  1. Initialize an isolated temp SQLite DB and app.
+  2. `POST /v1/contact` with `{"name":"Ava\\nBcc: victim@example.com","email":"ava@example.com","message":"Can I order a custom candle?","locale":"en"}`.
+  3. Query `contact_messages` for the stored name and email status.
+  4. Run `drain_contact_message_emails()` with a recording email provider.
+  5. Inspect the provider call subject.
+- Expected result: public contact text that is reused in email header-like fields should reject or normalize line breaks before the message is accepted or before the email subject is rendered.
+- Actual result: the submission is accepted with `201`, the name is persisted with an embedded newline, and the owner email subject becomes `New contact message from Ava\nBcc: victim@example.com`.
+- Reproduction rate: 1/1 isolated ASGI + drain probe.
+- Evidence:
+  - Contact POST response: `201 {'status': 'received', 'message_id': 1}`.
+  - DB row after POST: `{'name': 'Ava\nBcc: victim@example.com', 'email_status': 'queued'}`.
+  - Drain result: `processed 1`; contact row changed to `email_status='sent'`, `email_attempts=1`.
+  - Recording provider subject: `'New contact message from Ava\nBcc: victim@example.com'`.
+  - Email body also starts a new line in the `Name:` field: `['Name: Ava', 'Bcc: victim@example.com', ...]`.
+  - Python stdlib header check rejects the same value: `ValueError Header values may not contain linefeed or carriage return characters`.
+  - `app/models/contact.py` trims leading/trailing whitespace but does not reject internal CR/LF in `name`.
+  - `app/email/templates/en/contact_message.txt` places `{{ submitter_name }}` on the subject line.
+- API requests/responses: `POST /v1/contact` with newline-containing `name` -> `201` and queued contact message.
+- Database state: `contact_messages.name` persists the embedded newline, and the message is marked `sent` after drain with the malformed subject passed to the provider.
+- Relevant logs: local app startup logged courier office data loads; drain logged `contact_email_sent` for the contact message.
+- Likely cause: contact validation only strips outer whitespace and the plain-text email template renders untrusted `submitter_name` directly into the first-line subject.
+- Impact: a public contact submission can produce malformed or header-like owner email subjects; real providers or future SMTP transports may reject the notification, and the displayed subject/body can mislead admins by making injected header-looking lines appear as part of the email metadata.
+- Suggested regression test: add contact route/email rendering coverage for CR/LF in `name`, asserting the API rejects it with validation or normalizes it before rendering the owner email subject.
+
+### QA-016 — FAQ reorder accepts duplicate IDs and creates duplicate sort_order values
+
+- Severity: Medium
+- Confidence: Confirmed
+- Area: Backend / API / Admin FAQ / Data Integrity
+- Environment: isolated temp SQLite DB, local ASGI admin route probe, seeded FAQ data
+- Status: Confirmed
+- Preconditions: FAQ section `care` has at least three items; admin bearer authentication is configured.
+- Reproduction steps:
+  1. Initialize an isolated temp SQLite DB and app.
+  2. `GET /v1/admin/faq` as admin and collect the first three `care` item IDs, observed as `[7, 8, 9]`.
+  3. `PATCH /v1/admin/faq/reorder` with `{"section":"care","ordered_ids":[7,7,8]}`.
+  4. Read the response and query `faq_items` for `section='care'` ordered by `sort_order, id`.
+- Expected result: reorder should reject duplicate item IDs with a validation error and leave existing FAQ order unchanged.
+- Actual result: the route returns `200`; item `7` is updated twice and ends at `sort_order=1`, item `8` gets `sort_order=2`, and the omitted existing item `9` still has `sort_order=2`, leaving two items in the same section with the same order value.
+- Reproduction rate: 1/1 isolated ASGI route probe.
+- Evidence:
+  - Initial care IDs: `[7, 8, 9]`.
+  - Reorder response status: `200`.
+  - Response first care items after reorder: `[(7, 1), (8, 2), (9, 2), (10, 3), (11, 4)]`.
+  - DB first care rows after reorder: `[{id: 7, sort_order: 1}, {id: 8, sort_order: 2}, {id: 9, sort_order: 2}, ...]`.
+  - Duplicate sort-order query: `[{sort_order: 2, c: 2}]`.
+  - `app/services/faq_service.py` checks for missing and wrong-section IDs but does not check `ordered_ids` uniqueness before enumerating updates.
+  - `app/database.py` has only `idx_faq_items_section_order` on `(section, sort_order)`, not a uniqueness constraint, so duplicate positions persist.
+- API requests/responses: `PATCH /v1/admin/faq/reorder {"section":"care","ordered_ids":[7,7,8]}` -> `200` with duplicate `sort_order` values in the returned section.
+- Database state: `faq_items` for `care` contains duplicate `sort_order=2` after the request.
+- Relevant logs: no backend error; local app startup logged courier office data loads.
+- Likely cause: `reorder_items()` treats the input list as trusted after existence checks; duplicate IDs collapse in the `found` map but still drive multiple update iterations, while omitted items keep their prior sort positions.
+- Impact: an admin/API client can corrupt FAQ ordering state with a malformed reorder request; public and admin FAQ ordering then depends on secondary `id` ordering and may not match the intended sequence.
+- Suggested regression test: add an admin FAQ reorder test with duplicate IDs, asserting `422 INVALID_FAQ` and no `faq_items.sort_order` changes.
+
+### QA-017 — Atelier page renders admin-authored entities literally after text edits
+
+- Severity: Medium
+- Confidence: Confirmed
+- Area: Backend / Frontend / Atelier Content
+- Environment: isolated temp SQLite DB, local ASGI admin/public route probe, React server-rendering probe using frontend dependencies
+- Status: Confirmed
+- Preconditions: admin bearer authentication is configured; the seeded `hero` atelier section exists.
+- Reproduction steps:
+  1. Initialize an isolated temp SQLite DB and app.
+  2. `PATCH /v1/admin/about/sections/hero` with `{"heading_en":"Ben & Co <Studio>","subheading_en":"Handmade \"A\" & B"}`.
+  3. `GET /v1/about?locale=en` and inspect the `hero` section.
+  4. Render the returned heading as a React text child, matching `frontend/components/atelier/AtelierSections.tsx`.
+- Expected result: admin-authored atelier content displays the intended plain text (`Ben & Co <Studio>`, `Handmade "A" & B`) while remaining safe from markup execution.
+- Actual result: the admin update response, public API response, and database row contain escaped entities (`Ben &amp; Co &lt;Studio&gt;`, `Handmade &quot;A&quot; &amp; B`). React text rendering escapes those strings again, so the visible page would show literal `&amp;` and `&lt;` sequences.
+- Reproduction rate: 1/1 isolated ASGI probe plus 1/1 React rendering probe.
+- Evidence:
+  - PATCH response subset: `{'heading_en': 'Ben &amp; Co &lt;Studio&gt;', 'subheading_en': 'Handmade &quot;A&quot; &amp; B'}`.
+  - Public hero response: `{'heading': 'Ben &amp; Co &lt;Studio&gt;', 'subheading': 'Handmade &quot;A&quot; &amp; B'}`.
+  - DB row: `{'heading_en': 'Ben &amp; Co &lt;Studio&gt;', 'subheading_en': 'Handmade &quot;A&quot; &amp; B'}`.
+  - React rendering probe: `renderToStaticMarkup(<h1>{'Ben &amp; Co &lt;Studio&gt;'}</h1>)` produced `<h1>Ben &amp;amp; Co &amp;lt;Studio&amp;gt;</h1>`.
+  - `frontend/components/atelier/AtelierSections.tsx` renders `{section.heading}`, `{section.subheading}`, and item text as normal React text children.
+  - `frontend/components/atelier/BodyRenderer.tsx` renders body blocks as normal React text children.
+  - `app/services/about_service.py` sanitizes editable text with `sanitize_text()` before persistence.
+  - Existing service test `tests/test_about_service.py::test_sanitization_escapes_html_on_write` asserts escaped storage but does not verify rendered output.
+- API requests/responses: `PATCH /v1/admin/about/sections/hero` with escapable characters -> `200` containing entity-escaped fields; `GET /v1/about?locale=en` -> `200` containing entity-escaped public fields.
+- Database state: `about_sections.heading_en` and `about_sections.subheading_en` persist entity-escaped strings rather than the original admin text.
+- Relevant logs: no backend error; local app startup logged courier office data loads.
+- Likely cause: the about service uses HTML entity encoding as storage-level sanitization, but the public React page renders API strings as plain text and relies on React's escaping, causing double-escaping at display time.
+- Impact: admins editing atelier page copy can corrupt public page text for normal punctuation and branded names containing ampersands, quotes, or angle brackets; the admin edit response also echoes the corrupted entity text.
+- Suggested regression test: add an about admin/public rendering test that edits heading/body text containing `&`, `<`, and quotes, then asserts the rendered atelier page displays the original characters as inert plain text.
+
+### QA-018 — Checkout accepts and persists nonexistent courier office IDs
+
+- Severity: Medium
+- Confidence: Confirmed
+- Area: Backend / API / Checkout / Delivery
+- Environment: isolated temp SQLite DB, local ASGI client, seeded cart and product, courier office catalogue loaded from local JSON
+- Status: Confirmed
+- Preconditions: session cart contains at least one active product; customer selects office delivery.
+- Reproduction steps:
+  1. Initialize an isolated temp SQLite DB and app.
+  2. Seed product `delivery-test-candle`, a session, and one cart item.
+  3. `POST /v1/orders` with office delivery payload `courier=econt`, `office_id=not-a-real-econt-office`, `office_name=Injected Office Name`, `office_type=apt`, and a valid phone.
+  4. `GET /v1/orders/{order_id}` with the same session.
+  5. Query the Econt Sofia office catalogue for `not-a-real-econt-office`.
+- Expected result: checkout should reject an office delivery selection whose `office_id` does not exist for the selected courier, or at minimum resolve the server-side office record instead of trusting client-supplied office metadata.
+- Actual result: checkout returns `201`, persists the fake office ID/name/type, and the order detail returns the same fake office data. The local Econt Sofia catalogue has 132 offices and does not contain `not-a-real-econt-office`.
+- Reproduction rate: 1/1 isolated ASGI route probe plus 1/1 catalogue check.
+- Evidence:
+  - Checkout response status: `201`.
+  - Checkout response delivery details: `{'courier': 'econt', 'office_id': 'not-a-real-econt-office', 'office_name': 'Injected Office Name', 'office_type': 'apt', 'phone': '+359888123456'}`.
+  - GET order response returns the same `delivery_method='office'`, `delivery_courier='econt'`, and fake `delivery_details`.
+  - DB order row stores `delivery_details` JSON containing `not-a-real-econt-office` and `Injected Office Name`.
+  - Catalogue check: `econt_sofia_count 132`, `fake_id_present False`, sample IDs were `['econt-48485', 'econt-1029', 'econt-48128', ...]`.
+  - `app/models/delivery.py` validates only shape/literals/phone for `DeliveryOffice`; it does not validate `office_id` against `delivery_service` data.
+  - `app/services/order_service.py` serializes `delivery.office.model_dump()` directly into `orders.delivery_details`.
+- API requests/responses: `POST /v1/orders` with fake office delivery -> `201`; `GET /v1/orders/{order_id}` -> `200` returning the same fake office delivery details.
+- Database state: `orders.delivery_method='office'`, `orders.delivery_courier='econt'`, and `orders.delivery_details` contains client-supplied nonexistent office metadata.
+- Relevant logs: no backend error; local app startup logged courier office data loads.
+- Likely cause: checkout treats the frontend's selected office object as trusted input and does not resolve or verify it against the backend courier office catalogue before creating the order.
+- Impact: customers or manipulated clients can place pickup orders to nonexistent or mismatched offices, leaving staff with undeliverable courier details and corrupting order fulfilment data.
+- Suggested regression test: add checkout route coverage for nonexistent and courier-mismatched `office_id` values, asserting a validation error and no order/cart mutation.
+
 ## Coverage Map
 
 | Feature / Area | Status | Notes |
 | --- | --- | --- |
 | Build, lint, type checks, automated tests | Partially tested | Backend pytest passed; backend ruff passed; frontend lint passed with warnings; frontend Vitest fails, see QA-001; Next build passed with existing `<img>` warnings |
-| Public storefront | Partially tested | Discount price sort semantics inspected/probed; broader browser workflows pending |
-| Product detail and gallery | Not tested | Pending frontend/API probing |
-| Cart and checkout | Partially tested | Backend cart/order discount contract passed; frontend checkout discount summary mismatch recorded in QA-004 |
+| Public storefront | Partially tested | Discount price sort semantics and atelier text entity rendering inspected/probed; broader browser workflows pending |
+| Product detail, gallery, and social proof | Partially tested | Comment sanitization/rendering probed, see QA-014; gallery and broader product detail browser behavior pending |
+| Cart and checkout | Partially tested | Backend cart/order discount contract passed; frontend checkout discount summary mismatch recorded in QA-004; office-delivery catalogue validation gap recorded in QA-018 |
 | Orders and payment retry | Partially tested | Admin bank-transfer payment route creates duplicate placed email intents, see QA-007; admin payment-status filter accepts invalid values, see QA-008; Stripe retry accepts form POSTs, see QA-009; frontend payment retry pending |
 | Auth and account | Partially tested | Returning-user OAuth profile persistence probe recorded in QA-006; blank avatar fallback recorded in QA-010; user-menu accessible-name issue recorded in QA-011; broader auth/permissions remain pending |
-| Admin products, uploads, taxonomy, FAQ, promotions, atelier content, orders | Partially tested | Admin product video response, CSV malformed encoding and image max-count behavior, bank-transfer payment route, and order filters probed; uploads/taxonomy/FAQ/promotions/atelier content pending |
-| Backend API validation and error handling | Partially tested | Cart/order happy path, over-stock response, discount pricing contract, admin auth basics, admin product video response consistency, admin CSV malformed encoding/image feedback, admin order filter validation, Stripe retry content-type handling, and representative custom error envelopes probed |
+| Admin products, uploads, taxonomy, FAQ, promotions, atelier content, orders | Partially tested | Admin product video response, CSV malformed encoding and image max-count behavior, bank-transfer payment route, order filters, FAQ duplicate reorder handling, and atelier text rendering probed; taxonomy/promotions deeper flows pending |
+| Backend API validation and error handling | Partially tested | Cart/order happy path, over-stock response, checkout delivery office validation, discount pricing contract, admin auth basics, admin product video response consistency, public comments entity handling, contact newline/header-like input handling, admin CSV malformed encoding/image feedback, admin order filter validation, Stripe retry content-type handling, and representative custom error envelopes probed |
 | Database integrity | Partially tested | CSV image URL partial-success behavior recorded in QA-013; broader schema and persistence probes pending |
 | Accessibility and responsive layout | Partially tested | User-menu accessible name probed, see QA-011; broader browser/screenshot checks pending |
 | Performance and resource behavior | Not tested | Pending after functional surface mapping |
@@ -440,6 +599,11 @@ Source prompt: `bugs/bugs_prompt.md`
 - Ran isolated ASGI Stripe retry route probe showing form-encoded POST creates a new checkout session and mutates `stripe_checkout_session_id`.
 - Ran isolated ASGI CSV import malformed-encoding probe showing invalid UTF-8 upload returns 500 and logs `UnicodeDecodeError`.
 - Ran isolated ASGI CSV import max-images probe showing product fields update while a supplied `image_url` is silently dropped from a full gallery.
+- Ran isolated ASGI comment probe showing comment display names/bodies are stored and returned as HTML entities, then a React rendering probe showing those strings are escaped again in text children.
+- Ran isolated ASGI contact probe with an embedded newline in `name`, then drained the contact email queue with a recording provider and observed a multiline subject.
+- Ran isolated ASGI admin FAQ reorder probe with duplicate IDs and observed a `200` response plus duplicate `sort_order` values in `faq_items`.
+- Ran isolated ASGI atelier admin/public text probe showing edited section fields are stored and returned as HTML entities, then a React rendering probe showing those strings are escaped again in public page text.
+- Ran isolated ASGI checkout probe with a nonexistent Econt office ID and observed a `201` order plus persisted fake delivery metadata; catalogue lookup confirmed the ID is absent.
 
 ## Systemic Findings
 
@@ -454,6 +618,11 @@ Source prompt: `bugs/bugs_prompt.md`
 - State-changing order endpoints do not consistently apply the same content-type/CSRF guard.
 - Upload/parsing paths can bypass row-level validation and fall through to the global 500 handler for malformed input.
 - CSV import separates product upsert from image attachment and can report success even when the secondary image operation is skipped.
+- User-generated text is HTML-escaped before persistence and then rendered as ordinary React text, causing entity double-escaping in comments.
+- Public form fields are reused in email header-like template positions without rejecting internal line breaks.
+- Ordered-list mutations validate item existence but not input-list uniqueness, allowing duplicate persisted positions.
+- Admin-authored text is HTML-escaped before persistence and then rendered as ordinary React text, causing entity double-escaping in atelier page content.
+- Checkout delivery validation trusts client-supplied office IDs/names instead of resolving selected offices server-side from the courier catalogue.
 
 ## Missing Safeguards
 
@@ -474,6 +643,11 @@ None confirmed yet.
 - QA-011: Add `UserMenu` accessibility coverage asserting the account menu trigger has a descriptive accessible name in image and fallback states.
 - QA-012: Add CSV import coverage for invalid UTF-8 uploads, expecting a controlled `400 INVALID_CSV` response.
 - QA-013: Add CSV import coverage for full-gallery products with `image_url`, expecting an explicit row error or skipped-image signal.
+- QA-014: Add comment API/UI coverage for `&`, `<`, and quotes, asserting rendered text matches the user's original plain text while markup remains inert.
+- QA-015: Add contact route/email rendering coverage for CR/LF in `name`, asserting the subject is single-line by validation or normalization.
+- QA-016: Add admin FAQ reorder coverage for duplicate IDs, asserting a validation error and unchanged sort orders.
+- QA-017: Add atelier admin/public rendering coverage for `&`, `<`, and quotes, asserting rendered content matches the original plain text while markup remains inert.
+- QA-018: Add checkout route coverage for nonexistent and courier-mismatched `office_id` values, asserting validation failure and no order/cart mutation.
 
 ## Remaining Attack Surface
 
