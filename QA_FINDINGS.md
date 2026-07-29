@@ -7,9 +7,9 @@ Source prompt: `bugs/bugs_prompt.md`
 - Status: Investigating
 - Started: 2026-07-29
 - Environment: local workspace `/Users/I551270/PycharmProjects/AtelierMarie`
-- Areas tested: initial prompt review, backend automated tests, backend lint, frontend lint, frontend unit test suite isolation, isolated cart/order API happy path and stock failure, admin product video update response consistency, route-level API error envelope consistency, backend discount contract tests, frontend checkout discount display consistency, frontend product listing discount sort consistency, auth returning-user profile persistence edge case, auth avatar fallback edge case, auth user-menu accessible-name check, admin bank-transfer payment email outbox idempotency, admin order status/payment-status filter validation, Stripe retry content-type/CSRF validation, admin CSV malformed encoding handling, admin CSV image max-count behavior, public comment sanitization and React text rendering behavior, public contact submission and owner-email subject handling, admin FAQ duplicate reorder handling, admin-managed atelier content entity rendering, checkout office-delivery catalogue validation
+- Areas tested: initial prompt review, backend automated tests, backend lint, frontend lint, frontend unit test suite isolation, isolated cart/order API happy path and stock failure, admin product video update response consistency, route-level API error envelope consistency, backend discount contract tests, frontend checkout discount display consistency, frontend product listing discount sort consistency, auth returning-user profile persistence edge case, auth avatar fallback edge case, auth user-menu accessible-name check, admin bank-transfer payment email outbox idempotency, admin order status/payment-status filter validation, Stripe retry content-type/CSRF validation, Stripe completed webhook out-of-order cancelled/non-card handling, admin CSV malformed encoding handling, admin CSV image max-count behavior, public comment sanitization and React text rendering behavior, public contact submission and owner-email subject handling, admin FAQ duplicate reorder handling, admin-managed atelier content entity rendering, checkout office-delivery catalogue validation
 - Areas not yet tested: broader frontend browser workflows, frontend checkout submission in a real browser session, broader backend APIs beyond discount/cart/order and representative admin probes, auth/permissions beyond admin bearer probes and returning-user profile persistence probe, order email sweeper behavior under duplicated queued payment rows, database integrity beyond automated tests and video response probe, accessibility, performance, error handling outside representative route-level API envelope probes, concurrency
-- Active hypotheses: frontend component test harness is missing shared browser and intl providers; admin ProductForm test fixture is stale relative to required product taxonomy fields; product/video attachment is inconsistent across admin product service paths; frontend discount display code may still use base price in cart-adjacent UI; frontend client-side product sorting may diverge from backend effective-price sort semantics; returning OAuth profile updates may clear optional user fields when provider omits them; auth avatar fallback may not normalize blank profile fields; bank-transfer payment confirmation may enqueue duplicate customer email intents; admin filter validation may be inconsistent between sibling order filters; state-changing order endpoints may not share the same content-type/CSRF guard; upload parsers may not consistently map malformed input to controlled validation errors; CSV import may hide secondary image attachment failures; stored pre-escaped user-generated text may be reused in plain-text React rendering contexts; public form text accepted by APIs may be reused in email header-like fields without control-character normalization; ordered-list mutation APIs may not reject duplicate IDs before persisting sort positions; admin-authored content may be storage-escaped and then rendered as plain React text; checkout delivery payloads may trust frontend-selected courier office data without server-side catalogue validation
+- Active hypotheses: frontend component test harness is missing shared browser and intl providers; admin ProductForm test fixture is stale relative to required product taxonomy fields; product/video attachment is inconsistent across admin product service paths; frontend discount display code may still use base price in cart-adjacent UI; frontend client-side product sorting may diverge from backend effective-price sort semantics; returning OAuth profile updates may clear optional user fields when provider omits them; auth avatar fallback may not normalize blank profile fields; bank-transfer payment confirmation may enqueue duplicate customer email intents; admin filter validation may be inconsistent between sibling order filters; state-changing order endpoints may not share the same content-type/CSRF guard; Stripe completed webhooks may not guard terminal order states or non-card payment methods; upload parsers may not consistently map malformed input to controlled validation errors; CSV import may hide secondary image attachment failures; stored pre-escaped user-generated text may be reused in plain-text React rendering contexts; public form text accepted by APIs may be reused in email header-like fields without control-character normalization; ordered-list mutation APIs may not reject duplicate IDs before persisting sort positions; admin-authored content may be storage-escaped and then rendered as plain React text; checkout delivery payloads may trust frontend-selected courier office data without server-side catalogue validation
 - Unresolved anomalies: none currently
 - Test accounts/data created: none yet
 - Services manipulated: Next mock dev server on `127.0.0.1:3002`
@@ -17,9 +17,9 @@ Source prompt: `bugs/bugs_prompt.md`
 
 ## Executive QA Summary
 
-- Total confirmed bugs discovered: 18
-- Severity counts: Critical 0, High 0, Medium 16, Low 2
-- Major risk areas: frontend regression coverage reliability; admin product response consistency; API contract consistency; discount pricing consistency; auth profile persistence; payment email outbox idempotency; admin filter validation consistency; payment retry request-hardening consistency; admin upload validation hardening; user-generated content rendering consistency; public-form email notification hardening; admin ordered-list data integrity; admin content rendering consistency; checkout delivery destination integrity
+- Total confirmed bugs discovered: 19
+- Severity counts: Critical 0, High 0, Medium 17, Low 2
+- Major risk areas: frontend regression coverage reliability; admin product response consistency; API contract consistency; discount pricing consistency; auth profile persistence; payment email outbox idempotency; admin filter validation consistency; payment retry request-hardening consistency; payment webhook state ordering; admin upload validation hardening; user-generated content rendering consistency; public-form email notification hardening; admin ordered-list data integrity; admin content rendering consistency; checkout delivery destination integrity
 - Most fragile workflows: not yet established
 - Systemic patterns: inconsistent reuse of backend/public pricing semantics in frontend UI code; duplicated cross-layer side effects between service and route code
 - Areas that appear robust: none proven yet
@@ -565,6 +565,41 @@ Source prompt: `bugs/bugs_prompt.md`
 - Impact: customers or manipulated clients can place pickup orders to nonexistent or mismatched offices, leaving staff with undeliverable courier details and corrupting order fulfilment data.
 - Suggested regression test: add checkout route coverage for nonexistent and courier-mismatched `office_id` values, asserting a validation error and no order/cart mutation.
 
+### QA-019 — Stripe completion trusts order IDs and mutates cancelled or non-card orders
+
+- Severity: Medium
+- Confidence: Confirmed
+- Area: Backend / Payments / Webhooks / Order State
+- Environment: isolated temp SQLite DB, direct payment-service webhook handler probe
+- Status: Confirmed
+- Preconditions: a valid Stripe `checkout.session.completed` webhook references an existing order ID that is not currently payable, such as a cancelled card order or a COD order.
+- Reproduction steps:
+  1. Initialize an isolated temp SQLite DB.
+  2. Insert session `s-card` and order `order-cancelled-card` with `status='cancelled'`, `payment_method='card'`, `payment_status='failed'`, `stripe_checkout_session_id='cs_old'`, and customer email `paid-late@example.com`.
+  3. Call `handle_payment_succeeded(conn, 'evt_cancelled_completed', 'order-cancelled-card', 'pi_cancelled', now)`, matching the service used by `POST /v1/webhooks/stripe` for `checkout.session.completed`.
+  4. Query the order, `order_emails`, and `stripe_events`.
+  5. Repeat with pending COD order `order-cod-stripe` (`payment_method='cod'`, `payment_status='cod_pending'`) and event `evt_cod_completed`.
+- Expected result: a completed payment webhook should only mark an order paid when the order is a payable card order and the event matches the current Stripe checkout session; terminal cancelled orders and non-card orders should not receive Stripe payment success side effects.
+- Actual result: the handler returns `True`, applies `payment_status='paid'`, stores the Stripe payment intent, records the Stripe event, and queues a `placed` customer email for both a cancelled card order and a COD order.
+- Reproduction rate: 2/2 isolated service probes.
+- Evidence:
+  - Before handler: `{'status': 'cancelled', 'payment_method': 'card', 'payment_status': 'failed', 'stripe_payment_intent_id': None}`.
+  - Handler result: `True`.
+  - After handler: `{'status': 'cancelled', 'payment_method': 'card', 'payment_status': 'paid', 'stripe_payment_intent_id': 'pi_cancelled'}`.
+  - Queued emails: `[{'event': 'placed', 'recipient': 'paid-late@example.com', 'status': 'queued'}]`.
+  - Stripe event row: `{'event_id': 'evt_cancelled_completed', 'order_id': 'order-cancelled-card', 'event_type': 'checkout.session.completed'}`.
+  - COD before handler: `{'status': 'pending', 'payment_method': 'cod', 'payment_status': 'cod_pending', 'stripe_payment_intent_id': None}`.
+  - COD after handler: `{'status': 'pending', 'payment_method': 'cod', 'payment_status': 'paid', 'stripe_payment_intent_id': 'pi_cod'}`.
+  - COD queued emails: `[{'event': 'placed', 'recipient': 'cod-stripe@example.com', 'status': 'queued'}]`.
+  - `app/routes/webhooks.py` passes valid `checkout.session.completed` events directly to `handle_payment_succeeded()`.
+  - `app/services/payment_service.py` updates `orders.payment_status='paid'` by `id` only and queues `placed` email when an order row exists; it does not check `orders.status`, previous `payment_status`, `payment_method`, or current `stripe_checkout_session_id`.
+- API requests/responses: route-level path is `POST /v1/webhooks/stripe` with a valid Stripe-signed `checkout.session.completed` event whose `client_reference_id` is the affected order ID; direct service probes exercised the same handler branch without external Stripe signing.
+- Database state: cancelled card probe leaves `orders.status='cancelled'` while changing `orders.payment_status` to `paid`; COD probe leaves `payment_method='cod'` while changing `payment_status` to `paid`; both probes queue `placed` emails and store Stripe events as processed.
+- Relevant logs: service logged `stripe_payment_succeeded event_id=evt_cancelled_completed order_id=order-cancelled-card` and `stripe_payment_succeeded event_id=evt_cod_completed order_id=order-cod-stripe`.
+- Likely cause: `handle_payment_succeeded()` is idempotent by event ID but not state-aware; it applies payment success side effects to any existing order ID regardless of order status, payment method, previous payment status, or matching checkout session.
+- Impact: out-of-order or mismatched Stripe webhooks can produce contradictory order state (`cancelled` but `paid`) or convert COD orders to paid, then send customer placed/thank-you email for an order that should not have been confirmed through Stripe.
+- Suggested regression test: add payment webhook/service coverage for `checkout.session.completed` on cancelled, non-pending, and non-card orders, asserting no paid transition or placed email is queued unless the order is a payable card order and the session ID matches the current checkout session.
+
 ## Coverage Map
 
 | Feature / Area | Status | Notes |
@@ -573,10 +608,10 @@ Source prompt: `bugs/bugs_prompt.md`
 | Public storefront | Partially tested | Discount price sort semantics and atelier text entity rendering inspected/probed; broader browser workflows pending |
 | Product detail, gallery, and social proof | Partially tested | Comment sanitization/rendering probed, see QA-014; gallery and broader product detail browser behavior pending |
 | Cart and checkout | Partially tested | Backend cart/order discount contract passed; frontend checkout discount summary mismatch recorded in QA-004; office-delivery catalogue validation gap recorded in QA-018 |
-| Orders and payment retry | Partially tested | Admin bank-transfer payment route creates duplicate placed email intents, see QA-007; admin payment-status filter accepts invalid values, see QA-008; Stripe retry accepts form POSTs, see QA-009; frontend payment retry pending |
+| Orders and payment retry | Partially tested | Admin bank-transfer payment route creates duplicate placed email intents, see QA-007; admin payment-status filter accepts invalid values, see QA-008; Stripe retry accepts form POSTs, see QA-009; Stripe completion mutates cancelled and COD orders, see QA-019; frontend payment retry pending |
 | Auth and account | Partially tested | Returning-user OAuth profile persistence probe recorded in QA-006; blank avatar fallback recorded in QA-010; user-menu accessible-name issue recorded in QA-011; broader auth/permissions remain pending |
 | Admin products, uploads, taxonomy, FAQ, promotions, atelier content, orders | Partially tested | Admin product video response, CSV malformed encoding and image max-count behavior, bank-transfer payment route, order filters, FAQ duplicate reorder handling, and atelier text rendering probed; taxonomy/promotions deeper flows pending |
-| Backend API validation and error handling | Partially tested | Cart/order happy path, over-stock response, checkout delivery office validation, discount pricing contract, admin auth basics, admin product video response consistency, public comments entity handling, contact newline/header-like input handling, admin CSV malformed encoding/image feedback, admin order filter validation, Stripe retry content-type handling, and representative custom error envelopes probed |
+| Backend API validation and error handling | Partially tested | Cart/order happy path, over-stock response, checkout delivery office validation, discount pricing contract, admin auth basics, admin product video response consistency, public comments entity handling, contact newline/header-like input handling, admin CSV malformed encoding/image feedback, admin order filter validation, Stripe retry content-type handling, Stripe completed webhook state handling, and representative custom error envelopes probed |
 | Database integrity | Partially tested | CSV image URL partial-success behavior recorded in QA-013; broader schema and persistence probes pending |
 | Accessibility and responsive layout | Partially tested | User-menu accessible name probed, see QA-011; broader browser/screenshot checks pending |
 | Performance and resource behavior | Not tested | Pending after functional surface mapping |
@@ -604,6 +639,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Ran isolated ASGI admin FAQ reorder probe with duplicate IDs and observed a `200` response plus duplicate `sort_order` values in `faq_items`.
 - Ran isolated ASGI atelier admin/public text probe showing edited section fields are stored and returned as HTML entities, then a React rendering probe showing those strings are escaped again in public page text.
 - Ran isolated ASGI checkout probe with a nonexistent Econt office ID and observed a `201` order plus persisted fake delivery metadata; catalogue lookup confirmed the ID is absent.
+- Ran isolated payment-service webhook probes showing `handle_payment_succeeded()` changes a cancelled card order to `payment_status='paid'` while leaving `status='cancelled'`, and also changes a COD order from `cod_pending` to `paid`; both queue `placed` email.
 
 ## Systemic Findings
 
@@ -623,10 +659,11 @@ Source prompt: `bugs/bugs_prompt.md`
 - Ordered-list mutations validate item existence but not input-list uniqueness, allowing duplicate persisted positions.
 - Admin-authored text is HTML-escaped before persistence and then rendered as ordinary React text, causing entity double-escaping in atelier page content.
 - Checkout delivery validation trusts client-supplied office IDs/names instead of resolving selected offices server-side from the courier catalogue.
+- Stripe webhook idempotency is event-based but not order-state-aware; completed events can apply payment success side effects to terminal cancelled orders and non-card orders.
 
 ## Missing Safeguards
 
-None confirmed yet.
+- Stripe payment success handling lacks guards for terminal order statuses, non-card payment methods, and current checkout session identity before marking an order paid and queuing placed email.
 
 ## Recommended Regression Tests
 
@@ -648,6 +685,7 @@ None confirmed yet.
 - QA-016: Add admin FAQ reorder coverage for duplicate IDs, asserting a validation error and unchanged sort orders.
 - QA-017: Add atelier admin/public rendering coverage for `&`, `<`, and quotes, asserting rendered content matches the original plain text while markup remains inert.
 - QA-018: Add checkout route coverage for nonexistent and courier-mismatched `office_id` values, asserting validation failure and no order/cart mutation.
+- QA-019: Add Stripe completed webhook coverage for cancelled, non-pending, and non-card orders, asserting no paid transition or placed email unless the order is a payable card order and the session ID matches.
 
 ## Remaining Attack Surface
 

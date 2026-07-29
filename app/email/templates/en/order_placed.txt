@@ -8,7 +8,15 @@ Thank you for your order! Here's what you ordered:
 - {{ item.product_name }} × {{ item.quantity }} — {{ item.line_total_display }}
 {% endfor %}
 
+Subtotal: {{ items_total_display }}
+Delivery: {{ shipping_display }}
 Total: {{ total_display }}
+
+Terms, withdrawal, returns, and refunds: {{ terms_url }}
+Privacy information: {{ privacy_url }}
+Cookie information: {{ cookies_url }}
+Trader contact: {{ trader_name }} — {{ trader_contact_email }}
+Contact page: {{ contact_url }}
 
 We'll send you another email as soon as your order ships.
 

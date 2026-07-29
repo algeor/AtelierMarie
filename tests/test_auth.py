@@ -292,6 +292,41 @@ class TestUpsertUser:
         assert user2.avatar_url == "http://avatar.jpg"
         assert user2.is_admin is True  # Still admin
 
+    def test_blank_profile_fields_are_normalized(self, db_path, app):
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys=ON")
+
+        user = auth_service.upsert_user(conn, "google-blank", "blank@test.com", "   ", "")
+        row = conn.execute(
+            "SELECT name, avatar_url FROM users WHERE google_id = ?", ("google-blank",)
+        ).fetchone()
+        conn.close()
+
+        assert user.name is None
+        assert user.avatar_url is None
+        assert row["name"] is None
+        assert row["avatar_url"] is None
+
+    def test_returning_user_omitted_profile_fields_preserve_existing_values(self, db_path, app):
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys=ON")
+
+        auth_service.upsert_user(
+            conn, "google-1", "a@test.com", "Old Name", "http://old-avatar.jpg"
+        )
+        user = auth_service.upsert_user(conn, "google-1", "a@test.com", "", None)
+        row = conn.execute(
+            "SELECT name, avatar_url FROM users WHERE google_id = ?", ("google-1",)
+        ).fetchone()
+        conn.close()
+
+        assert user.name == "Old Name"
+        assert user.avatar_url == "http://old-avatar.jpg"
+        assert row["name"] == "Old Name"
+        assert row["avatar_url"] == "http://old-avatar.jpg"
+
 
 # --- Route Integration Tests ---
 

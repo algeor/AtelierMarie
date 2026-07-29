@@ -92,28 +92,47 @@ function generateOrderId(): string {
 
 // The mock store carries admin-only fields even though ProductResponse omits them.
 type MockProduct = ProductResponse & {
+  safety_warnings_en: string | null;
+  safety_warnings_bg: string | null;
+  care_instructions_en: string | null;
+  care_instructions_bg: string | null;
   weight_grams: number;
   discount_starts_at: string | null;
   discount_ends_at: string | null;
 };
 
 /** Strip admin-only fields so public responses match the real API. */
-function toPublicProduct(product: MockProduct): ProductResponse {
+function toPublicProduct(product: MockProduct, locale = "en"): ProductResponse {
   const {
+    safety_warnings_en,
+    safety_warnings_bg,
+    care_instructions_en,
+    care_instructions_bg,
     weight_grams: _weight_grams,
     discount_starts_at: _discount_starts_at,
     discount_ends_at: _discount_ends_at,
     ...pub
   } = product;
-  return pub;
+  const preferredWarnings = locale === "bg" ? safety_warnings_bg : safety_warnings_en;
+  const fallbackWarnings = locale === "bg" ? safety_warnings_en : safety_warnings_bg;
+  const preferredCare = locale === "bg" ? care_instructions_bg : care_instructions_en;
+  const fallbackCare = locale === "bg" ? care_instructions_en : care_instructions_bg;
+  return {
+    ...pub,
+    safety_warnings: preferredWarnings ?? fallbackWarnings,
+    care_instructions: preferredCare ?? fallbackCare,
+  };
 }
 
 function mockProductImage(productId: string, sortOrder = 0, isPrimary = true): ProductImage {
+  // Distinct filenames per sort order so a multi-image product yields distinct
+  // slides in the gallery/lightbox.
+  const stem = sortOrder === 0 ? productId : `${productId}-${sortOrder}`;
   return {
     id: `${productId}-${sortOrder}`,
-    image_url: `/static/products/${productId}.webp`,
-    thumbnail_url: `/static/products/${productId}_thumb.webp`,
-    zoom_url: `/static/products/${productId}_zoom.webp`,
+    image_url: `/static/products/${stem}.webp`,
+    thumbnail_url: `/static/products/${stem}_thumb.webp`,
+    zoom_url: `/static/products/${stem}_zoom.webp`,
     sort_order: sortOrder,
     is_primary: isPrimary,
   };
@@ -162,6 +181,12 @@ const MOCK_PRODUCTS: MockProduct[] = [
     id: "lavender-dreams-300ml",
     name: "Lavender Dreams",
     description: "Hand-poured soy candle with French lavender essential oil.",
+    safety_warnings: "Never leave a burning candle unattended. Keep away from children, pets, and flammable materials.",
+    care_instructions: "Burn on a stable, heat-resistant surface. Trim the wick before each use.",
+    safety_warnings_en: "Never leave a burning candle unattended. Keep away from children, pets, and flammable materials.",
+    safety_warnings_bg: "Never leave a burning candle unattended. Keep away from children, pets, and flammable materials.",
+    care_instructions_en: "Burn on a stable, heat-resistant surface. Trim the wick before each use.",
+    care_instructions_bg: "Burn on a stable, heat-resistant surface. Trim the wick before each use.",
     materials: "Soy wax, French lavender essential oil, cotton wick",
     days_to_craft: 3,
     price_cents: 3200,
@@ -175,8 +200,12 @@ const MOCK_PRODUCTS: MockProduct[] = [
     product_type: "candles",
     product_type_name: "Candles",
     labels: [{ slug: "floral", name: "Floral" }],
-    images: [mockProductImage("lavender-dreams-300ml")],
-    video: mockProductVideo("lavender-dreams-300ml"),
+    images: [
+      mockProductImage("lavender-dreams-300ml", 0, true),
+      mockProductImage("lavender-dreams-300ml", 1, false),
+      mockProductImage("lavender-dreams-300ml", 3, false),
+    ],
+    video: mockProductVideo("lavender-dreams-300ml", 2),
     primary_image_url: "/static/products/lavender-dreams-300ml.webp",
     primary_thumbnail_url: "/static/products/lavender-dreams-300ml_thumb.webp",
     stock: 24,
@@ -190,6 +219,12 @@ const MOCK_PRODUCTS: MockProduct[] = [
     id: "midnight-amber-300ml",
     name: "Midnight Amber",
     description: "Warm amber and sandalwood in a black ceramic vessel.",
+    safety_warnings: "Never leave a burning candle unattended. Ceramic vessel may become hot during use.",
+    care_instructions: "Place on a heat-resistant surface and allow wax to cool before handling.",
+    safety_warnings_en: "Never leave a burning candle unattended. Ceramic vessel may become hot during use.",
+    safety_warnings_bg: null,
+    care_instructions_en: "Place on a heat-resistant surface and allow wax to cool before handling.",
+    care_instructions_bg: null,
     materials: "Coconut wax, amber resin, sandalwood oil",
     days_to_craft: 5,
     price_cents: 4500,
@@ -221,6 +256,12 @@ const MOCK_PRODUCTS: MockProduct[] = [
     id: "citrus-garden-200ml",
     name: "Citrus Garden",
     description: "Bright blend of bergamot, lemon, and grapefruit.",
+    safety_warnings: null,
+    care_instructions: null,
+    safety_warnings_en: null,
+    safety_warnings_bg: null,
+    care_instructions_en: null,
+    care_instructions_bg: null,
     materials: null,
     days_to_craft: 2,
     price_cents: 2800,
@@ -252,6 +293,12 @@ const MOCK_PRODUCTS: MockProduct[] = [
     id: "vanilla-bourbon-300ml",
     name: "Vanilla Bourbon",
     description: null,
+    safety_warnings: null,
+    care_instructions: null,
+    safety_warnings_en: null,
+    safety_warnings_bg: null,
+    care_instructions_en: null,
+    care_instructions_bg: null,
     materials: null,
     days_to_craft: null,
     price_cents: 3800,
@@ -640,7 +687,7 @@ export async function getProducts(
   const start = (page - 1) * limit;
   const slice = active.slice(start, start + limit);
   return {
-    products: slice.map(toPublicProduct),
+    products: slice.map((product) => toPublicProduct(product, _locale)),
     total: active.length,
     page,
     limit,
@@ -665,7 +712,7 @@ export async function getProduct(
   await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId && p.is_active);
   if (!product) mockError("NOT_FOUND", `Product ${productId} not found`);
-  return toPublicProduct(product);
+  return toPublicProduct(product, _locale);
 }
 
 export async function getCart(): Promise<CartResponse> {
@@ -1037,6 +1084,10 @@ function toAdminProduct(product: MockProduct): AdminProductResponse {
     name_bg: null,
     description_en: product.description,
     description_bg: null,
+    safety_warnings_en: product.safety_warnings_en,
+    safety_warnings_bg: product.safety_warnings_bg,
+    care_instructions_en: product.care_instructions_en,
+    care_instructions_bg: product.care_instructions_bg,
     materials: product.materials,
     days_to_craft: product.days_to_craft,
     price_cents: product.price_cents,
@@ -1107,6 +1158,12 @@ export async function createProduct(data: CreateProductRequest): Promise<AdminPr
     id: data.id,
     name: data.name_en,
     description: data.description_en ?? null,
+    safety_warnings: data.safety_warnings_en ?? data.safety_warnings_bg ?? null,
+    care_instructions: data.care_instructions_en ?? data.care_instructions_bg ?? null,
+    safety_warnings_en: data.safety_warnings_en ?? null,
+    safety_warnings_bg: data.safety_warnings_bg ?? null,
+    care_instructions_en: data.care_instructions_en ?? null,
+    care_instructions_bg: data.care_instructions_bg ?? null,
     materials: data.materials ?? null,
     days_to_craft: data.days_to_craft ?? null,
     price_cents: data.price_cents,
@@ -1148,6 +1205,12 @@ export async function updateProduct(
   // Map bilingual fields to the mock's single-language store
   if (data.name_en !== undefined) product.name = data.name_en;
   if (data.description_en !== undefined) product.description = data.description_en;
+  if (data.safety_warnings_en !== undefined) product.safety_warnings_en = data.safety_warnings_en;
+  if (data.safety_warnings_bg !== undefined) product.safety_warnings_bg = data.safety_warnings_bg;
+  if (data.care_instructions_en !== undefined) product.care_instructions_en = data.care_instructions_en;
+  if (data.care_instructions_bg !== undefined) product.care_instructions_bg = data.care_instructions_bg;
+  product.safety_warnings = product.safety_warnings_en ?? product.safety_warnings_bg;
+  product.care_instructions = product.care_instructions_en ?? product.care_instructions_bg;
   if (data.materials !== undefined) product.materials = data.materials;
   if (data.days_to_craft !== undefined) product.days_to_craft = data.days_to_craft;
   if (data.price_cents !== undefined) product.price_cents = data.price_cents;

@@ -22,6 +22,7 @@ MAX_NAME_LENGTH = 200
 MAX_MATERIALS_LENGTH = 1000
 MAX_DAYS_TO_CRAFT = 365
 MAX_DESCRIPTION_LENGTH = 5000
+MAX_SAFETY_TEXT_LENGTH = 2000
 MAX_CATEGORY_LENGTH = 100
 MAX_IMAGE_URL_LENGTH = 500
 
@@ -42,6 +43,8 @@ class ProductResponse(BaseModel):
     id: str
     name: str
     description: str | None = None
+    safety_warnings: str | None = None
+    care_instructions: str | None = None
     materials: str | None = None
     days_to_craft: int | None = None
     price_cents: int
@@ -78,6 +81,10 @@ class ProductAdminResponse(BaseModel):
     name_bg: str | None = None
     description_en: str | None = None
     description_bg: str | None = None
+    safety_warnings_en: str | None = None
+    safety_warnings_bg: str | None = None
+    care_instructions_en: str | None = None
+    care_instructions_bg: str | None = None
     materials: str | None = None
     days_to_craft: int | None = None
     price_cents: int
@@ -170,6 +177,10 @@ class CreateProductRequest(BaseModel):
     name_bg: str | None = Field(default=None, max_length=MAX_NAME_LENGTH)
     description_en: str | None = Field(default=None, max_length=MAX_DESCRIPTION_LENGTH)
     description_bg: str | None = Field(default=None, max_length=MAX_DESCRIPTION_LENGTH)
+    safety_warnings_en: str | None = Field(default=None, max_length=MAX_SAFETY_TEXT_LENGTH)
+    safety_warnings_bg: str | None = Field(default=None, max_length=MAX_SAFETY_TEXT_LENGTH)
+    care_instructions_en: str | None = Field(default=None, max_length=MAX_SAFETY_TEXT_LENGTH)
+    care_instructions_bg: str | None = Field(default=None, max_length=MAX_SAFETY_TEXT_LENGTH)
     materials: str | None = Field(default=None, max_length=MAX_MATERIALS_LENGTH)
     days_to_craft: int | None = Field(default=None, ge=0, le=MAX_DAYS_TO_CRAFT)
     price_cents: int = Field(..., gt=0, le=99_999_99)
@@ -218,6 +229,10 @@ class CreateProductRequest(BaseModel):
         "name_bg",
         "description_en",
         "description_bg",
+        "safety_warnings_en",
+        "safety_warnings_bg",
+        "care_instructions_en",
+        "care_instructions_bg",
         "materials",
         "category",
         mode="before",
@@ -249,6 +264,10 @@ class UpdateProductRequest(BaseModel):
     name_bg: str | None = Field(default=None, max_length=MAX_NAME_LENGTH)
     description_en: str | None = Field(default=None, max_length=MAX_DESCRIPTION_LENGTH)
     description_bg: str | None = Field(default=None, max_length=MAX_DESCRIPTION_LENGTH)
+    safety_warnings_en: str | None = Field(default=None, max_length=MAX_SAFETY_TEXT_LENGTH)
+    safety_warnings_bg: str | None = Field(default=None, max_length=MAX_SAFETY_TEXT_LENGTH)
+    care_instructions_en: str | None = Field(default=None, max_length=MAX_SAFETY_TEXT_LENGTH)
+    care_instructions_bg: str | None = Field(default=None, max_length=MAX_SAFETY_TEXT_LENGTH)
     materials: str | None = Field(default=None, max_length=MAX_MATERIALS_LENGTH)
     days_to_craft: int | None = Field(default=None, ge=0, le=MAX_DAYS_TO_CRAFT)
     price_cents: int | None = Field(default=None, gt=0, le=99_999_99)
@@ -287,6 +306,10 @@ class UpdateProductRequest(BaseModel):
         "name_bg",
         "description_en",
         "description_bg",
+        "safety_warnings_en",
+        "safety_warnings_bg",
+        "care_instructions_en",
+        "care_instructions_bg",
         "materials",
         "category",
         mode="before",

@@ -11,6 +11,7 @@ import { getAdminTaxonomy } from "@/lib/api";
 import { cn, formatPrice } from "@/lib/utils";
 import type { AdminProductResponse, AdminTaxonomyTerm, ProductImage } from "@/lib/types";
 import { useLocalizedError } from "@/lib/useLocalizedError";
+import { ImageCropEditor } from "@/components/admin/ImageCropEditor";
 
 interface ProductFormProps {
   product?: AdminProductResponse;
@@ -24,6 +25,10 @@ export interface ProductFormData {
   name_bg: string;
   description_en: string;
   description_bg: string;
+  safety_warnings_en: string;
+  safety_warnings_bg: string;
+  care_instructions_en: string;
+  care_instructions_bg: string;
   materials: string;
   days_to_craft: number | null;
   price_cents: number;
@@ -51,6 +56,7 @@ const MB = 1024 * 1024;
 const MAX_IMAGE_SIZE = 25 * MB;
 const LARGE_IMAGE_WARNING_SIZE = 15 * MB;
 const MAX_VIDEO_SIZE = 200 * MB;
+const MAX_SAFETY_TEXT_LENGTH = 2000;
 
 // Mirrors the backend MAX_WEIGHT_GRAMS bound (app/models/products.py).
 const MAX_WEIGHT_GRAMS = 100_000;
@@ -101,6 +107,11 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
   const [deletedImageIds, setDeletedImageIds] = useState<string[]>([]);
   const [videoDeleted, setVideoDeleted] = useState(false);
   const [pendingImageFiles, setPendingImageFiles] = useState<File[] | null>(null);
+  // Files selected for upload but not yet framed. The editor processes the head
+  // of the queue; framed results accumulate until the queue drains, then run
+  // through the existing size-warning/commit flow.
+  const [cropQueue, setCropQueue] = useState<File[]>([]);
+  const [croppedFiles, setCroppedFiles] = useState<File[]>([]);
   const largeImageDialogRef = useRef<HTMLDivElement>(null);
   const largeImageCancelRef = useRef<HTMLButtonElement>(null);
 
@@ -133,6 +144,10 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
     name_bg: product?.name_bg ?? "",
     description_en: product?.description_en ?? "",
     description_bg: product?.description_bg ?? "",
+    safety_warnings_en: product?.safety_warnings_en ?? "",
+    safety_warnings_bg: product?.safety_warnings_bg ?? "",
+    care_instructions_en: product?.care_instructions_en ?? "",
+    care_instructions_bg: product?.care_instructions_bg ?? "",
     materials: product?.materials ?? "",
     days_to_craft: product?.days_to_craft ?? null,
     price_cents: product?.price_cents ?? 0,
@@ -260,6 +275,16 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
     if (formData.weight_grams < 1 || formData.weight_grams > MAX_WEIGHT_GRAMS) {
       newErrors.weight_grams = t("validation.weightRange");
     }
+    for (const field of [
+      "safety_warnings_en",
+      "safety_warnings_bg",
+      "care_instructions_en",
+      "care_instructions_bg",
+    ] as const) {
+      if (formData[field].length > MAX_SAFETY_TEXT_LENGTH) {
+        newErrors[field] = t("validation.safetyTextTooLong");
+      }
+    }
     if (images.length + formData.image_files.length > 6) {
       newErrors.image_files = t("validation.maxImages");
     }
@@ -297,7 +322,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (pendingImageFiles) return;
+    if (pendingImageFiles || cropQueue.length > 0) return;
     if (!validate()) return;
 
     setIsSubmitting(true);
@@ -388,17 +413,52 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
     const selectedFiles = Array.from(files).slice(0, availableSlots);
     if (selectedFiles.length === 0) return;
 
+    // Reject oversized originals up front, before opening the editor.
     if (selectedFiles.some((file) => file.size > MAX_IMAGE_SIZE)) {
       setErrors((prev) => ({ ...prev, image_files: t("validation.imageSize") }));
       return;
     }
 
-    if (selectedFiles.some((file) => file.size >= LARGE_IMAGE_WARNING_SIZE)) {
-      setPendingImageFiles(selectedFiles);
+    // Open the crop/rotate/zoom editor for each file. The framed results are
+    // size-checked and committed after the queue drains (finalizeCroppedFiles).
+    setCroppedFiles([]);
+    setCropQueue(selectedFiles);
+  }
+
+  /** Framed files done — apply the existing size-warning / commit pipeline. */
+  function finalizeCroppedFiles(files: File[]) {
+    setCropQueue([]);
+    setCroppedFiles([]);
+    if (files.length === 0) return;
+    if (files.some((file) => file.size > MAX_IMAGE_SIZE)) {
+      setErrors((prev) => ({ ...prev, image_files: t("validation.imageSize") }));
       return;
     }
+    if (files.some((file) => file.size >= LARGE_IMAGE_WARNING_SIZE)) {
+      setPendingImageFiles(files);
+      return;
+    }
+    commitFiles(files);
+  }
 
-    commitFiles(selectedFiles);
+  function handleCropConfirm(framed: File) {
+    const nextCropped = [...croppedFiles, framed];
+    const remaining = cropQueue.slice(1);
+    if (remaining.length === 0) {
+      finalizeCroppedFiles(nextCropped);
+    } else {
+      setCroppedFiles(nextCropped);
+      setCropQueue(remaining);
+    }
+  }
+
+  function handleCropCancel() {
+    const remaining = cropQueue.slice(1);
+    if (remaining.length === 0) {
+      finalizeCroppedFiles(croppedFiles);
+    } else {
+      setCropQueue(remaining);
+    }
   }
 
   function setVideoFile(file: File | null) {
@@ -517,6 +577,75 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
               ⚠️
             </span>
           )}
+        </div>
+      </div>
+
+      <div className="space-y-4 rounded-brand border border-champagne-beige p-4">
+        <div>
+          <h2 className="font-heading text-lg text-charcoal">{t("safetySectionTitle")}</h2>
+          <p className="mt-1 text-xs text-soft-brown/70">{t("safetySectionHelp")}</p>
+        </div>
+        <div className="grid gap-6 sm:grid-cols-2">
+          <div>
+            <label htmlFor="safety_warnings_en" className="mb-1.5 block text-sm font-medium text-soft-brown">
+              {t("safetyWarningsEn")}
+            </label>
+            <textarea
+              id="safety_warnings_en"
+              value={formData.safety_warnings_en}
+              onChange={(e) => updateField("safety_warnings_en", e.target.value)}
+              rows={3}
+              maxLength={MAX_SAFETY_TEXT_LENGTH}
+              className="w-full rounded-brand border border-champagne-beige bg-cream px-3 py-2 text-soft-brown placeholder:text-soft-brown/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
+              placeholder={t("safetyWarningsEnPlaceholder")}
+            />
+            {errors.safety_warnings_en && <p className="mt-1.5 text-sm text-red-700">{errors.safety_warnings_en}</p>}
+          </div>
+          <div>
+            <label htmlFor="safety_warnings_bg" className="mb-1.5 block text-sm font-medium text-soft-brown">
+              {t("safetyWarningsBg")}
+            </label>
+            <textarea
+              id="safety_warnings_bg"
+              value={formData.safety_warnings_bg}
+              onChange={(e) => updateField("safety_warnings_bg", e.target.value)}
+              rows={3}
+              maxLength={MAX_SAFETY_TEXT_LENGTH}
+              className="w-full rounded-brand border border-champagne-beige bg-cream px-3 py-2 text-soft-brown placeholder:text-soft-brown/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
+              placeholder={t("safetyWarningsBgPlaceholder")}
+            />
+            {errors.safety_warnings_bg && <p className="mt-1.5 text-sm text-red-700">{errors.safety_warnings_bg}</p>}
+          </div>
+          <div>
+            <label htmlFor="care_instructions_en" className="mb-1.5 block text-sm font-medium text-soft-brown">
+              {t("careInstructionsEn")}
+            </label>
+            <textarea
+              id="care_instructions_en"
+              value={formData.care_instructions_en}
+              onChange={(e) => updateField("care_instructions_en", e.target.value)}
+              rows={3}
+              maxLength={MAX_SAFETY_TEXT_LENGTH}
+              className="w-full rounded-brand border border-champagne-beige bg-cream px-3 py-2 text-soft-brown placeholder:text-soft-brown/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
+              placeholder={t("careInstructionsEnPlaceholder")}
+            />
+            {errors.care_instructions_en && <p className="mt-1.5 text-sm text-red-700">{errors.care_instructions_en}</p>}
+          </div>
+          <div>
+            <label htmlFor="care_instructions_bg" className="mb-1.5 block text-sm font-medium text-soft-brown">
+              {t("careInstructionsBg")}
+            </label>
+            <textarea
+              id="care_instructions_bg"
+              value={formData.care_instructions_bg}
+              onChange={(e) => updateField("care_instructions_bg", e.target.value)}
+              rows={3}
+              maxLength={MAX_SAFETY_TEXT_LENGTH}
+              className="w-full rounded-brand border border-champagne-beige bg-cream px-3 py-2 text-soft-brown placeholder:text-soft-brown/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
+              placeholder={t("careInstructionsBgPlaceholder")}
+            />
+            {errors.care_instructions_bg && <p className="mt-1.5 text-sm text-red-700">{errors.care_instructions_bg}</p>}
+          </div>
         </div>
       </div>
 
@@ -753,6 +882,14 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
             <p className="mt-1.5 text-xs text-soft-brown/70">
               {t("selectedFiles", { count: formData.image_files.length })}
             </p>
+          )}
+          {cropQueue.length > 0 && cropQueue[0] && (
+            <ImageCropEditor
+              key={cropQueue.length}
+              file={cropQueue[0]}
+              onConfirm={handleCropConfirm}
+              onCancel={handleCropCancel}
+            />
           )}
           {pendingImageFiles && (
             <div

@@ -8,6 +8,7 @@ import { getOrder } from "@/lib/api";
 import { useCart } from "@/contexts/CartContext";
 import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
+import { policyPath } from "@/lib/legal";
 import { formatPrice } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -17,6 +18,7 @@ import type { OrderResponse } from "@/lib/types";
 export default function OrderConfirmationPage() {
   const t = useTranslations("orders");
   const tCart = useTranslations("cart");
+  const tLegal = useTranslations("legal");
   const getLocalizedError = useLocalizedError();
   const params = useParams();
   const orderId = params.id as string;
@@ -141,12 +143,36 @@ export default function OrderConfirmationPage() {
         </div>
 
         {/* Order total */}
-        <div className="mb-6 flex items-center justify-between border-t border-champagne-beige pt-4">
-          <span className="font-heading text-xl text-charcoal">{t("total")}</span>
-          <span className="font-heading text-xl text-charcoal">
-            {formatPrice(order.total_cents)}
-          </span>
+        <div className="mb-6 space-y-3 border-t border-champagne-beige pt-4 text-sm">
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-soft-brown">{t("subtotal")}</span>
+            <span className="font-medium text-charcoal">{formatPrice(order.items_total_cents)}</span>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-soft-brown">{t("shipping")}</span>
+            <span className="text-right font-medium text-charcoal">
+              {formatPrice(order.shipping_cents)}
+              {order.shipping_cents === 0 ? ` (${t("shippingZero")})` : ""}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-4 border-t border-champagne-beige pt-3">
+            <span className="font-heading text-xl text-charcoal">{t("total")}</span>
+            <span className="font-heading text-xl text-charcoal">
+              {formatPrice(order.total_cents)}
+            </span>
+          </div>
         </div>
+
+        <p className="mb-6 text-sm leading-6 text-soft-brown">
+          {t("policyNote")} {" "}
+          <Link href={policyPath("terms")} className="font-medium underline underline-offset-4 hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-muted-gold">
+            {tLegal("termsConditions")}
+          </Link>{" "}
+          <span aria-hidden="true">/</span>{" "}
+          <Link href={policyPath("privacy")} className="font-medium underline underline-offset-4 hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-muted-gold">
+            {tLegal("privacyPolicy")}
+          </Link>
+        </p>
 
         {/* Contact note */}
         <p className="mb-8 text-sm text-soft-brown">

@@ -34,6 +34,7 @@ from app.models.products import (
     MAX_IMAGE_URL_LENGTH,
     MAX_MATERIALS_LENGTH,
     MAX_NAME_LENGTH,
+    MAX_SAFETY_TEXT_LENGTH,
     MAX_WEIGHT_GRAMS,
     CreateProductRequest,
     CSVImportError,
@@ -316,6 +317,10 @@ _OPTIONAL_CSV_HEADERS = {
     "description_en",
     "description_bg",
     "name_bg",
+    "safety_warnings_en",
+    "safety_warnings_bg",
+    "care_instructions_en",
+    "care_instructions_bg",
     "category",
     "product_type",
     "labels",
@@ -366,7 +371,8 @@ def _parse_csv_image_url(value: str) -> str | None:
         "Supports bilingual columns: name_en, name_bg, description_en, description_bg. "
         "Legacy columns (name, description) are treated as English equivalents. "
         "Optional columns: weight_grams, is_active, is_featured (true/false/1/0/yes/no), "
-        "materials, days_to_craft."
+        "materials, days_to_craft, safety_warnings_en, safety_warnings_bg, "
+        "care_instructions_en, care_instructions_bg."
     ),
 )
 async def admin_import_products(
@@ -378,7 +384,8 @@ async def admin_import_products(
     Optional columns: name_bg, description_en (or legacy 'description'),
                       description_bg, category, product_type, labels, stock,
                       image_url, weight_grams, is_active, is_featured, materials,
-                      days_to_craft
+                      days_to_craft, safety_warnings_en, safety_warnings_bg,
+                      care_instructions_en, care_instructions_bg
 
     Taxonomy columns are managed SLUGS, not free text (breaking change from the
     legacy free-text `category`): `product_type` and `category` must be existing
@@ -553,6 +560,10 @@ async def admin_import_products(
             ("description", MAX_DESCRIPTION_LENGTH),
             ("description_bg", MAX_DESCRIPTION_LENGTH),
             ("materials", MAX_MATERIALS_LENGTH),
+            ("safety_warnings_en", MAX_SAFETY_TEXT_LENGTH),
+            ("safety_warnings_bg", MAX_SAFETY_TEXT_LENGTH),
+            ("care_instructions_en", MAX_SAFETY_TEXT_LENGTH),
+            ("care_instructions_bg", MAX_SAFETY_TEXT_LENGTH),
             ("category", MAX_CATEGORY_LENGTH),
             ("image_url", MAX_IMAGE_URL_LENGTH),
         ):
@@ -589,6 +600,16 @@ async def admin_import_products(
         description_bg = (row.get("description_bg") or "").strip()
         if description_bg:
             data["description_bg"] = description_bg
+
+        for column in (
+            "safety_warnings_en",
+            "safety_warnings_bg",
+            "care_instructions_en",
+            "care_instructions_bg",
+        ):
+            value = (row.get(column) or "").strip()
+            if value:
+                data[column] = value
 
         if "category" in headers and row.get("category"):
             data["category"] = row["category"].strip()

@@ -1,7 +1,13 @@
 import React from "react";
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import TermsPage from "@/app/[locale]/terms/page";
+
+vi.mock("@/i18n/navigation", () => ({
+  Link: ({ children, href, className }: { children: React.ReactNode; href: string; className?: string }) => (
+    <a href={href} className={className}>{children}</a>
+  ),
+}));
 
 describe("Terms page", () => {
   it("renders English terms content with the returns anchor", async () => {
@@ -23,6 +29,12 @@ describe("Terms page", () => {
     expect(screen.getByText(/photos are not required/i)).toBeInTheDocument();
     expect(container.querySelector(".overflow-x-auto")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Returns" })).toHaveClass("min-h-[48px]");
+    expect(document.getElementById("terms-top")).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "Back to top" })).toHaveLength(9);
+    expect(screen.getAllByRole("link", { name: "Back to top" })[0]).toHaveAttribute(
+      "href",
+      "#terms-top"
+    );
   });
 
   it("renders Bulgarian terms with the same returns anchor and wrapped mobile nav", async () => {
@@ -34,5 +46,6 @@ describe("Terms page", () => {
     expect(screen.getByRole("link", { name: "Връщане" })).toHaveAttribute("href", "#returns");
     expect(container.querySelector(".overflow-x-auto")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Връщане" })).toHaveClass("min-h-[48px]");
+    expect(screen.getAllByRole("link", { name: "Нагоре" })).toHaveLength(9);
   });
 });

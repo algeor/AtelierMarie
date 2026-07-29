@@ -8,7 +8,15 @@
 - {{ item.product_name }} × {{ item.quantity }} — {{ item.line_total_display }}
 {% endfor %}
 
+Междинна сума: {{ items_total_display }}
+Доставка: {{ shipping_display }}
 Общо: {{ total_display }}
+
+Общи условия, отказ, връщане и възстановяване: {{ terms_url }}
+Информация за поверителност: {{ privacy_url }}
+Информация за бисквитки: {{ cookies_url }}
+Контакт с търговеца: {{ trader_name }} — {{ trader_contact_email }}
+Страница за контакт: {{ contact_url }}
 
 Ще Ви изпратим имейл веднага щом поръчката бъде изпратена.
 

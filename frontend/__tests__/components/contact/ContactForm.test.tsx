@@ -1,3 +1,4 @@
+import React from "react";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { ContactForm } from "@/components/contact/ContactForm";
@@ -10,9 +11,25 @@ vi.mock("@/lib/api", () => ({
   submitContact: (...args: unknown[]) => submitContactMock(...args),
 }));
 
+vi.mock("@/i18n/navigation", () => ({
+  Link: ({ children, href, className }: { children: React.ReactNode; href: string; className?: string }) => (
+    <a href={href} className={className}>{children}</a>
+  ),
+}));
+
 describe("ContactForm", () => {
   beforeEach(() => {
     submitContactMock.mockReset();
+  });
+
+  it("shows the privacy notice before submission", () => {
+    renderWithIntl(<ContactForm />);
+
+    expect(screen.getByText(/We use your contact details and message/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute(
+      "href",
+      "/privacy"
+    );
   });
 
   it("shows required validation errors", async () => {

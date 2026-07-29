@@ -18,6 +18,10 @@ CREATE TABLE IF NOT EXISTS products (
     name_bg     TEXT,
     description_en TEXT,
     description_bg TEXT,
+    safety_warnings_en TEXT,
+    safety_warnings_bg TEXT,
+    care_instructions_en TEXT,
+    care_instructions_bg TEXT,
     materials   TEXT,
     days_to_craft INTEGER,
     price_cents INTEGER NOT NULL CHECK (price_cents > 0),
@@ -551,6 +555,10 @@ CREATE TABLE products_new (
     name_bg     TEXT,
     description_en TEXT,
     description_bg TEXT,
+    safety_warnings_en TEXT,
+    safety_warnings_bg TEXT,
+    care_instructions_en TEXT,
+    care_instructions_bg TEXT,
     materials   TEXT,
     days_to_craft INTEGER,
     price_cents INTEGER NOT NULL CHECK (price_cents > 0),
@@ -595,6 +603,10 @@ _PRODUCT_COLUMNS = (
     "name_bg",
     "description_en",
     "description_bg",
+    "safety_warnings_en",
+    "safety_warnings_bg",
+    "care_instructions_en",
+    "care_instructions_bg",
     "materials",
     "days_to_craft",
     "price_cents",
@@ -653,6 +665,7 @@ def init_db(path: str) -> None:
         _seed_site_banner(conn)
         _seed_about_content(conn)
         _migrate_faq(conn)
+        _migrate_faq_returns_policy_reference(conn)
         _rebuild_product_fts(conn)
         conn.commit()
     finally:
@@ -1299,6 +1312,10 @@ def _migrate_products_table(conn: sqlite3.Connection) -> None:
         _column_expr(columns, "name_bg"),
         description_en_expr,
         _column_expr(columns, "description_bg"),
+        _column_expr(columns, "safety_warnings_en"),
+        _column_expr(columns, "safety_warnings_bg"),
+        _column_expr(columns, "care_instructions_en"),
+        _column_expr(columns, "care_instructions_bg"),
         _column_expr(columns, "materials"),
         _column_expr(columns, "days_to_craft"),
         price_expr,
@@ -1797,10 +1814,10 @@ _SEED_FAQ_ITEMS = [
         "shipping",
         "Do you accept returns?",
         "Приемате ли връщания?",
-        "Please refer to our Returns & Refunds Policy for full details regarding "
-        "returns, exchanges, and personalised items.",
-        "Моля, вижте нашата Политика за връщане и възстановяване на суми за пълна "
-        "информация относно връщания, замени и персонализирани изделия.",
+        "Please refer to our Terms & Conditions for full details regarding "
+        "withdrawal rights, returns, exchanges, and personalised items.",
+        "Моля, вижте нашите Общи условия за пълна информация относно правото "
+        "на отказ, връщанията, замените и персонализираните изделия.",
     ),
     (
         "shipping",
@@ -1815,6 +1832,24 @@ _SEED_FAQ_ITEMS = [
 ]
 
 _FAQ_SEED_MARKER = "faq_content_v1"
+_FAQ_RETURNS_POLICY_MARKER = "faq_returns_terms_v1"
+
+_OLD_FAQ_RETURNS_ANSWER_EN = (
+    "Please refer to our Returns & Refunds Policy for full details regarding "
+    "returns, exchanges, and personalised items."
+)
+_OLD_FAQ_RETURNS_ANSWER_BG = (
+    "Моля, вижте нашата Политика за връщане и възстановяване на суми за пълна "
+    "информация относно връщания, замени и персонализирани изделия."
+)
+_NEW_FAQ_RETURNS_ANSWER_EN = (
+    "Please refer to our Terms & Conditions for full details regarding "
+    "withdrawal rights, returns, exchanges, and personalised items."
+)
+_NEW_FAQ_RETURNS_ANSWER_BG = (
+    "Моля, вижте нашите Общи условия за пълна информация относно правото "
+    "на отказ, връщанията, замените и персонализираните изделия."
+)
 
 
 def _migrate_faq(conn: sqlite3.Connection) -> None:
@@ -1859,6 +1894,46 @@ def _migrate_faq(conn: sqlite3.Connection) -> None:
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)",
             (_FAQ_SEED_MARKER,),
+        )
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+
+def _migrate_faq_returns_policy_reference(conn: sqlite3.Connection) -> None:
+    """Point the exact old seeded returns FAQ answer at Terms & Conditions."""
+    if _migration_applied(conn, _FAQ_RETURNS_POLICY_MARKER):
+        return
+
+    if conn.in_transaction:
+        conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if _migration_applied(conn, _FAQ_RETURNS_POLICY_MARKER):
+            conn.execute("ROLLBACK")
+            return
+
+        conn.execute(
+            """
+            UPDATE faq_items
+            SET answer_en = ?, answer_bg = ?
+            WHERE section = 'shipping'
+              AND question_en = 'Do you accept returns?'
+              AND question_bg = 'Приемате ли връщания?'
+              AND answer_en = ?
+              AND answer_bg = ?
+            """,
+            (
+                _NEW_FAQ_RETURNS_ANSWER_EN,
+                _NEW_FAQ_RETURNS_ANSWER_BG,
+                _OLD_FAQ_RETURNS_ANSWER_EN,
+                _OLD_FAQ_RETURNS_ANSWER_BG,
+            ),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)",
+            (_FAQ_RETURNS_POLICY_MARKER,),
         )
         conn.execute("COMMIT")
     except Exception:

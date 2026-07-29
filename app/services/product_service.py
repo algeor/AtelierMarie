@@ -122,10 +122,18 @@ def _resolve_locale_fields(product: dict, locale: Locale) -> dict:
 
     name = product.get(f"name_{locale}") or product.get(f"name_{other}") or ""
     description = product.get(f"description_{locale}") or product.get(f"description_{other}")
+    safety_warnings = product.get(f"safety_warnings_{locale}") or product.get(
+        f"safety_warnings_{other}"
+    )
+    care_instructions = product.get(f"care_instructions_{locale}") or product.get(
+        f"care_instructions_{other}"
+    )
 
     result = dict(product)
     result["name"] = name
     result["description"] = description
+    result["safety_warnings"] = safety_warnings
+    result["care_instructions"] = care_instructions
     return result
 
 
@@ -365,6 +373,10 @@ def create_product(data: dict) -> dict:
         "name_bg",
         "description_en",
         "description_bg",
+        "safety_warnings_en",
+        "safety_warnings_bg",
+        "care_instructions_en",
+        "care_instructions_bg",
         "materials",
         "days_to_craft",
         "price_cents",
@@ -399,6 +411,10 @@ def create_product(data: dict) -> dict:
             data.get("name_bg"),
             data.get("description_en"),
             data.get("description_bg"),
+            data.get("safety_warnings_en"),
+            data.get("safety_warnings_bg"),
+            data.get("care_instructions_en"),
+            data.get("care_instructions_bg"),
             data.get("materials"),
             data.get("days_to_craft"),
             data["price_cents"],
@@ -476,6 +492,10 @@ def upsert_product(product_id: str, data: dict) -> dict:
             "name_bg": data.get("name_bg"),
             "description_en": data.get("description_en"),
             "description_bg": data.get("description_bg"),
+            "safety_warnings_en": data.get("safety_warnings_en"),
+            "safety_warnings_bg": data.get("safety_warnings_bg"),
+            "care_instructions_en": data.get("care_instructions_en"),
+            "care_instructions_bg": data.get("care_instructions_bg"),
             "materials": data.get("materials"),
             "days_to_craft": data.get("days_to_craft"),
             "price_cents": data.get("price_cents"),
@@ -575,6 +595,10 @@ def update_product(product_id: str, data: dict) -> dict:
             "name_bg": data.get("name_bg"),
             "description_en": data.get("description_en"),
             "description_bg": data.get("description_bg"),
+            "safety_warnings_en": data.get("safety_warnings_en"),
+            "safety_warnings_bg": data.get("safety_warnings_bg"),
+            "care_instructions_en": data.get("care_instructions_en"),
+            "care_instructions_bg": data.get("care_instructions_bg"),
             "materials": data.get("materials"),
             "days_to_craft": data.get("days_to_craft"),
             "price_cents": data.get("price_cents"),
@@ -642,7 +666,8 @@ def update_product(product_id: str, data: dict) -> dict:
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
 
     product = _flatten_admin_labels(_annotate_admin_one(product))
-    return product_image_service.attach_image_fields_one(product)
+    product = product_image_service.attach_image_fields_one(product)
+    return product_video_service.attach_video_fields_one(product, public_only=False)
 
 
 def deactivate_product(product_id: str) -> dict:

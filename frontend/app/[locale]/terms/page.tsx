@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import type { Locale } from "@/i18n/routing";
+import { Link } from "@/i18n/navigation";
+import { LEGAL_IDENTITY, policyPath } from "@/lib/legal";
 import { getLocalizedAlternates } from "@/lib/seo";
 import enMessages from "@/messages/en.json";
 import bgMessages from "@/messages/bg.json";
@@ -26,7 +28,12 @@ interface TermsMessages {
   title: string;
   subtitle: string;
   lastUpdated: string;
+  identityIntro: string;
+  policyLinksTitle: string;
+  privacyLink: string;
+  cookiesLink: string;
   navLabel: string;
+  backToTop: string;
   sections: TermSection[];
 }
 
@@ -48,10 +55,11 @@ export async function generateMetadata({ params }: TermsPageProps): Promise<Meta
 export default async function TermsPage({ params }: TermsPageProps) {
   const { locale } = await params;
   const terms = getTermsMessages(locale);
+  const legal = locale === "bg" ? bgMessages.legal : enMessages.legal;
 
   return (
     <main className="overflow-x-hidden bg-warm-ivory">
-      <section className="mx-auto max-w-5xl px-4 pb-8 pt-12 sm:px-6 sm:pt-16 lg:px-8">
+      <section id="terms-top" className="mx-auto max-w-5xl scroll-mt-28 px-4 pb-8 pt-12 sm:px-6 sm:pt-16 lg:px-8">
         <p className="text-sm font-medium uppercase tracking-[0.08em] text-muted-gold">
           {terms.eyebrow}
         </p>
@@ -63,6 +71,9 @@ export default async function TermsPage({ params }: TermsPageProps) {
             {terms.subtitle}
           </p>
           <p className="mt-4 text-sm text-soft-brown/75">{terms.lastUpdated}</p>
+          <p className="mt-4 max-w-full break-words text-sm leading-6 text-soft-brown/80">
+            {terms.identityIntro}
+          </p>
         </div>
       </section>
 
@@ -85,6 +96,31 @@ export default async function TermsPage({ params }: TermsPageProps) {
         </aside>
 
         <article className="min-w-0 space-y-10 sm:space-y-12">
+          <section className="min-w-0 rounded-brand border border-champagne-beige bg-cream p-5">
+            <h2 className="font-heading text-2xl text-charcoal">{legal.identityTitle}</h2>
+            <dl className="mt-4 grid gap-3 text-sm text-soft-brown sm:grid-cols-2">
+              <div><dt className="font-medium text-charcoal">{legal.tradingName}</dt><dd>{LEGAL_IDENTITY.tradingName}</dd></div>
+              <div><dt className="font-medium text-charcoal">{legal.legalName}</dt><dd>{LEGAL_IDENTITY.legalName}</dd></div>
+              <div><dt className="font-medium text-charcoal">{legal.geographicAddress}</dt><dd>{LEGAL_IDENTITY.geographicAddress}</dd></div>
+              <div><dt className="font-medium text-charcoal">{legal.country}</dt><dd>{LEGAL_IDENTITY.country}</dd></div>
+              <div><dt className="font-medium text-charcoal">{legal.contactEmail}</dt><dd>{LEGAL_IDENTITY.contactEmail}</dd></div>
+              <div><dt className="font-medium text-charcoal">{legal.registrationNumber}</dt><dd>{LEGAL_IDENTITY.registrationNumber}</dd></div>
+              <div><dt className="font-medium text-charcoal">{legal.vatNumber}</dt><dd>{LEGAL_IDENTITY.vatNumber}</dd></div>
+            </dl>
+          </section>
+
+          <section className="min-w-0 rounded-brand border border-champagne-beige bg-cream p-5">
+            <h2 className="font-heading text-2xl text-charcoal">{terms.policyLinksTitle}</h2>
+            <div className="mt-4 flex flex-wrap gap-3 text-sm">
+              <Link href={policyPath("privacy")} className="rounded-pill bg-white px-4 py-2 text-soft-brown underline-offset-4 hover:text-charcoal hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-muted-gold">
+                {terms.privacyLink}
+              </Link>
+              <Link href={policyPath("cookies")} className="rounded-pill bg-white px-4 py-2 text-soft-brown underline-offset-4 hover:text-charcoal hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-muted-gold">
+                {terms.cookiesLink}
+              </Link>
+            </div>
+          </section>
+
           {terms.sections.map((section) => (
             <section
               key={section.id}
@@ -122,6 +158,18 @@ export default async function TermsPage({ params }: TermsPageProps) {
                   </div>
                 </div>
               )}
+
+              <div className="mt-6 flex justify-end">
+                <a
+                  href="#terms-top"
+                  aria-label={terms.backToTop}
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-brand border border-champagne-beige bg-cream text-soft-brown transition-colors hover:bg-warm-ivory hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-muted-gold focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"
+                >
+                  <span aria-hidden="true" className="text-xl leading-none">
+                    ↑
+                  </span>
+                </a>
+              </div>
             </section>
           ))}
         </article>

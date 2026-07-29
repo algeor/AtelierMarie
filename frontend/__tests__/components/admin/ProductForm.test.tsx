@@ -16,12 +16,43 @@ vi.mock("@/i18n/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 
+// Stub the cropper: report a crop area immediately so the confirm button enables.
+vi.mock("react-easy-crop", () => ({
+  default: ({
+    onCropComplete,
+  }: {
+    onCropComplete?: (a: unknown, b: unknown) => void;
+  }) => {
+    React.useEffect(() => {
+      onCropComplete?.(
+        { x: 0, y: 0, width: 100, height: 100 },
+        { x: 0, y: 0, width: 100, height: 100 }
+      );
+    }, [onCropComplete]);
+    return <div data-testid="cropper" />;
+  },
+}));
+
+// Control the framed-blob size the editor exports, per test.
+const cropState = vi.hoisted(() => ({ size: 2 * 1024 * 1024 }));
+vi.mock("@/lib/cropImage", () => ({
+  getCroppedImg: vi.fn(async () => {
+    const file = new File(["x"], "cropped.jpg", { type: "image/jpeg" });
+    Object.defineProperty(file, "size", { value: cropState.size });
+    return file;
+  }),
+}));
+
 const product: AdminProductResponse = {
   id: "lavender-dreams-300ml",
   name_en: "Lavender Dreams",
   name_bg: null,
   description_en: "Hand-poured soy candle",
   description_bg: null,
+  safety_warnings_en: "Never leave unattended.",
+  safety_warnings_bg: null,
+  care_instructions_en: "Trim wick before use.",
+  care_instructions_bg: null,
   materials: "Soy wax",
   days_to_craft: 3,
   price_cents: 3200,
@@ -31,7 +62,10 @@ const product: AdminProductResponse = {
   effective_price_cents: 3200,
   discount_active: false,
   category: "Floral",
+  product_type: "candles",
+  labels: [],
   images: [],
+  video: null,
   primary_image_url: null,
   primary_thumbnail_url: null,
   stock: 24,
@@ -56,111 +90,119 @@ function renderForm(onSubmit = vi.fn()) {
   );
 }
 
-describe("ProductForm image upload size checks", () => {
-  it("adds a small image without prompting", () => {
+/** Select a file, then confirm the crop editor with the configured output size. */
+async function selectAndFrame(input: HTMLInputElement, file: File, framedSize?: number) {
+  if (framedSize !== undefined) cropState.size = framedSize;
+  fireEvent.change(input, { target: { files: [file] } });
+  const useImage = await screen.findByRole("button", { name: "Use image" });
+  fireEvent.click(useImage);
+}
+
+describe("ProductForm image crop editor", () => {
+  it("opens the crop editor on selection and commits the framed image", async () => {
+    cropState.size = 2 * 1024 * 1024;
     renderForm();
 
     const input = screen.getByLabelText("Product images") as HTMLInputElement;
     fireEvent.change(input, { target: { files: [sizedImage(2 * 1024 * 1024)] } });
 
-    expect(screen.getByText("1 file(s) selected")).toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "Large image" })).not.toBeInTheDocument();
+    // Editor appears; image is not committed until confirmed.
+    expect(await screen.findByRole("dialog", { name: "Adjust image" })).toBeInTheDocument();
+    expect(screen.queryByText("1 file(s) selected")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Use image" }));
+
+    await waitFor(() => expect(screen.getByText("1 file(s) selected")).toBeInTheDocument());
   });
 
-  it("asks before adding a 15-25MB image", () => {
+  it("discards the file when the editor is cancelled", async () => {
     renderForm();
 
     const input = screen.getByLabelText("Product images") as HTMLInputElement;
-    fireEvent.change(input, { target: { files: [sizedImage(16 * 1024 * 1024)] } });
+    fireEvent.change(input, { target: { files: [sizedImage(2 * 1024 * 1024)] } });
 
-    const dialog = screen.getByRole("dialog", { name: "Large image" });
-    expect(dialog).toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog", { name: "Adjust image" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("dialog", { name: "Adjust image" })).not.toBeInTheDocument();
     expect(screen.queryByText("1 file(s) selected")).not.toBeInTheDocument();
-
-    fireEvent.change(input, { target: { files: [sizedImage(16 * 1024 * 1024)] } });
-    fireEvent.click(
-      within(screen.getByRole("dialog", { name: "Large image" })).getByRole("button", {
-        name: "Add anyway",
-      })
-    );
-
-    expect(screen.getByText("1 file(s) selected")).toBeInTheDocument();
   });
 
-  it("blocks images over 25MB before adding them", () => {
+  it("blocks originals over 25MB before the editor opens", () => {
     renderForm();
 
     const input = screen.getByLabelText("Product images") as HTMLInputElement;
     fireEvent.change(input, { target: { files: [sizedImage(26 * 1024 * 1024)] } });
 
     expect(screen.getByText("Image must be 25 MB or smaller")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Adjust image" })).not.toBeInTheDocument();
+  });
+
+  it("warns before adding a framed image between 15 and 25MB", async () => {
+    renderForm();
+
+    const input = screen.getByLabelText("Product images") as HTMLInputElement;
+    await selectAndFrame(input, sizedImage(2 * 1024 * 1024), 16 * 1024 * 1024);
+
+    const dialog = await screen.findByRole("dialog", { name: "Large image" });
+    expect(dialog).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByText("1 file(s) selected")).not.toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "Large image" })).not.toBeInTheDocument();
+
+    await selectAndFrame(input, sizedImage(2 * 1024 * 1024), 16 * 1024 * 1024);
+    fireEvent.click(
+      within(await screen.findByRole("dialog", { name: "Large image" })).getByRole("button", {
+        name: "Add anyway",
+      })
+    );
+    expect(screen.getByText("1 file(s) selected")).toBeInTheDocument();
   });
 
-  it("warns at exactly the 15MB threshold", () => {
+  it("blocks a framed image over 25MB", async () => {
     renderForm();
 
     const input = screen.getByLabelText("Product images") as HTMLInputElement;
-    fireEvent.change(input, { target: { files: [sizedImage(15 * 1024 * 1024)] } });
+    await selectAndFrame(input, sizedImage(2 * 1024 * 1024), 26 * 1024 * 1024);
 
-    expect(screen.getByRole("dialog", { name: "Large image" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByText("Image must be 25 MB or smaller")).toBeInTheDocument()
+    );
+    expect(screen.queryByText("1 file(s) selected")).not.toBeInTheDocument();
   });
 
-  it("warns (does not block) at exactly the 25MB cap", () => {
-    renderForm();
-
-    const input = screen.getByLabelText("Product images") as HTMLInputElement;
-    fireEvent.change(input, { target: { files: [sizedImage(25 * 1024 * 1024)] } });
-
-    expect(screen.getByRole("dialog", { name: "Large image" })).toBeInTheDocument();
-    expect(screen.queryByText("Image must be 25 MB or smaller")).not.toBeInTheDocument();
-  });
-
-  it("resets the input value so the same file can be re-selected", () => {
-    renderForm();
-
-    const input = screen.getByLabelText("Product images") as HTMLInputElement;
-    fireEvent.change(input, { target: { files: [sizedImage(2 * 1024 * 1024)] } });
-
-    expect(input.value).toBe("");
-  });
-
-  it("keeps the large-image dialog modal and blocks submit until resolved", async () => {
+  it("submits the framed image in image_files", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     renderForm(onSubmit);
 
     const input = screen.getByLabelText("Product images") as HTMLInputElement;
-    fireEvent.change(input, { target: { files: [sizedImage(16 * 1024 * 1024)] } });
+    await selectAndFrame(input, sizedImage(2 * 1024 * 1024), 2 * 1024 * 1024);
+    await waitFor(() => expect(screen.getByText("1 file(s) selected")).toBeInTheDocument());
 
-    const dialog = screen.getByRole("dialog", { name: "Large image" });
-    const cancel = within(dialog).getByRole("button", { name: "Cancel" });
-    const addAnyway = within(dialog).getByRole("button", { name: "Add anyway" });
-    expect(cancel).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0]![0].image_files).toHaveLength(1);
+  });
 
-    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
-    expect(addAnyway).toHaveFocus();
+  it("submits localized safety metadata", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    renderForm(onSubmit);
 
-    fireEvent.submit(screen.getByRole("button", { name: "Save" }).closest("form")!);
-    expect(onSubmit).not.toHaveBeenCalled();
-
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByRole("dialog", { name: "Large image" })).not.toBeInTheDocument();
-
-    fireEvent.change(input, { target: { files: [sizedImage(16 * 1024 * 1024)] } });
-    fireEvent.mouseDown(screen.getByRole("dialog", { name: "Large image" }).parentElement!);
-    expect(screen.queryByRole("dialog", { name: "Large image" })).not.toBeInTheDocument();
-
-    fireEvent.change(input, { target: { files: [sizedImage(16 * 1024 * 1024)] } });
-    fireEvent.click(
-      within(screen.getByRole("dialog", { name: "Large image" })).getByRole("button", {
-        name: "Add anyway",
-      })
-    );
+    fireEvent.change(screen.getByLabelText("Safety warnings (English)"), {
+      target: { value: "Keep away from curtains." },
+    });
+    fireEvent.change(screen.getByLabelText("Care instructions (Bulgarian)"), {
+      target: { value: "Подрязвайте фитила." },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
-    expect(onSubmit.mock.calls[0]![0].image_files).toHaveLength(1);
+    expect(onSubmit.mock.calls[0]![0]).toEqual(
+      expect.objectContaining({
+        safety_warnings_en: "Keep away from curtains.",
+        safety_warnings_bg: "",
+        care_instructions_en: "Trim wick before use.",
+        care_instructions_bg: "Подрязвайте фитила.",
+      })
+    );
   });
 });

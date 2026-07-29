@@ -24,6 +24,7 @@
       "admin bank-transfer payment email outbox idempotency",
       "admin order status/payment-status filter validation",
       "Stripe retry content-type/CSRF validation",
+      "Stripe completed webhook out-of-order cancelled/non-card handling",
       "admin CSV malformed encoding handling",
       "admin CSV image max-count behavior",
       "public comment sanitization and React text rendering behavior",
@@ -55,6 +56,7 @@
       "bank-transfer payment confirmation may enqueue duplicate customer email intents",
       "admin filter validation may be inconsistent between sibling order filters",
       "state-changing order endpoints may not share the same content-type/CSRF guard",
+      "Stripe completed webhooks may not guard terminal order states or non-card payment methods",
       "upload parsers may not consistently map malformed input to controlled validation errors",
       "CSV import may hide secondary image attachment failures",
       "stored pre-escaped user-generated text may be reused in plain-text React rendering contexts",
@@ -73,11 +75,11 @@
     ]
   },
   "summary": {
-    "total_confirmed_bugs": 18,
+    "total_confirmed_bugs": 19,
     "severity_counts": {
       "critical": 0,
       "high": 0,
-      "medium": 16,
+      "medium": 17,
       "low": 2
     }
   },
@@ -932,6 +934,57 @@
       "current_investigation_status": "Confirmed",
       "related_bugs": [],
       "regression_test_recommendation": "Add checkout route coverage for nonexistent and courier-mismatched office_id values, asserting a validation error and no order/cart mutation."
+    },
+    {
+      "bug_id": "QA-019",
+      "title": "Stripe completion trusts order IDs and mutates cancelled or non-card orders",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "area": "Backend / Payments / Webhooks / Order State",
+      "environment": "isolated temp SQLite DB, direct payment-service webhook handler probe",
+      "preconditions": [
+        "a valid Stripe checkout.session.completed webhook references an existing order ID that is not currently payable, such as a cancelled card order or a COD order"
+      ],
+      "reproduction_steps": [
+        "Initialize an isolated temp SQLite DB.",
+        "Insert session s-card and order order-cancelled-card with status='cancelled', payment_method='card', payment_status='failed', stripe_checkout_session_id='cs_old', and customer email paid-late@example.com.",
+        "Call handle_payment_succeeded(conn, 'evt_cancelled_completed', 'order-cancelled-card', 'pi_cancelled', now), matching the service used by POST /v1/webhooks/stripe for checkout.session.completed.",
+        "Query the order, order_emails, and stripe_events.",
+        "Repeat with pending COD order order-cod-stripe (payment_method='cod', payment_status='cod_pending') and event evt_cod_completed."
+      ],
+      "expected_result": "A completed payment webhook should only mark an order paid when the order is a payable card order and the event matches the current Stripe checkout session; terminal cancelled orders and non-card orders should not receive Stripe payment success side effects.",
+      "actual_result": "The handler returns True, applies payment_status='paid', stores the Stripe payment intent, records the Stripe event, and queues a placed customer email for both a cancelled card order and a COD order.",
+      "reproduction_rate": "2/2 isolated service probes",
+      "evidence": [
+        "Before handler: {'status': 'cancelled', 'payment_method': 'card', 'payment_status': 'failed', 'stripe_payment_intent_id': None}.",
+        "Handler result: True.",
+        "After handler: {'status': 'cancelled', 'payment_method': 'card', 'payment_status': 'paid', 'stripe_payment_intent_id': 'pi_cancelled'}.",
+        "Queued emails: [{'event': 'placed', 'recipient': 'paid-late@example.com', 'status': 'queued'}].",
+        "Stripe event row: {'event_id': 'evt_cancelled_completed', 'order_id': 'order-cancelled-card', 'event_type': 'checkout.session.completed'}.",
+        "COD before handler: {'status': 'pending', 'payment_method': 'cod', 'payment_status': 'cod_pending', 'stripe_payment_intent_id': None}.",
+        "COD after handler: {'status': 'pending', 'payment_method': 'cod', 'payment_status': 'paid', 'stripe_payment_intent_id': 'pi_cod'}.",
+        "COD queued emails: [{'event': 'placed', 'recipient': 'cod-stripe@example.com', 'status': 'queued'}].",
+        "app/routes/webhooks.py passes valid checkout.session.completed events directly to handle_payment_succeeded().",
+        "app/services/payment_service.py updates orders.payment_status='paid' by id only and queues placed email when an order row exists; it does not check orders.status, previous payment_status, payment_method, or current stripe_checkout_session_id."
+      ],
+      "relevant_logs": [
+        "service logged stripe_payment_succeeded event_id=evt_cancelled_completed order_id=order-cancelled-card and stripe_payment_succeeded event_id=evt_cod_completed order_id=order-cod-stripe"
+      ],
+      "screenshots_or_artifact_paths": [],
+      "api_requests_responses": [
+        "Route-level path is POST /v1/webhooks/stripe with a valid Stripe-signed checkout.session.completed event whose client_reference_id is the affected order ID; direct service probes exercised the same handler branch without external Stripe signing."
+      ],
+      "code_locations": [
+        "app/routes/webhooks.py",
+        "app/services/payment_service.py",
+        "app/database.py:234",
+        "tests/test_payment_integration.py"
+      ],
+      "database_state": "cancelled card probe leaves orders.status='cancelled' while changing orders.payment_status to paid; COD probe leaves payment_method='cod' while changing payment_status to paid; both probes queue placed emails and store Stripe events as processed",
+      "likely_cause": "handle_payment_succeeded() is idempotent by event ID but not state-aware; it applies payment success side effects to any existing order ID regardless of order status, payment method, previous payment status, or matching checkout session.",
+      "current_investigation_status": "Confirmed",
+      "related_bugs": [],
+      "regression_test_recommendation": "Add payment webhook/service coverage for checkout.session.completed on cancelled, non-pending, and non-card orders, asserting no paid transition or placed email is queued unless the order is a payable card order and the session ID matches the current checkout session."
     }
   ]
 }

@@ -59,6 +59,7 @@ export function UserMenu() {
         onClick={() => setIsOpen(!isOpen)}
         aria-expanded={isOpen}
         aria-haspopup="menu"
+        aria-label={t("myAccount")}
         className="flex items-center gap-2 rounded-brand p-1 transition-colors duration-fast hover:bg-cream focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"
       >
         {user ? (

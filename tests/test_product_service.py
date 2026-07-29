@@ -108,6 +108,30 @@ class TestGetProduct:
         assert product["name"] == "Lavender Dream"
         assert product["price_cents"] == 3200
 
+    def test_resolves_safety_metadata_with_locale_fallback(self, db_path):
+        init_db(db_path)
+        product_service.create_product(
+            {
+                "id": "safety-candle",
+                "name_en": "Safety Candle",
+                "name_bg": "Безопасна свещ",
+                "price_cents": 2200,
+                "stock": 5,
+                "safety_warnings_en": "Keep away from curtains.",
+                "safety_warnings_bg": "Дръжте далеч от завеси.",
+                "care_instructions_en": "Trim wick before each burn.",
+            }
+        )
+
+        detail = product_service.get_product("safety-candle", locale="bg")
+        assert detail["safety_warnings"] == "Дръжте далеч от завеси."
+        assert detail["care_instructions"] == "Trim wick before each burn."
+
+        products, total = product_service.list_products(locale="bg")
+        assert total == 1
+        assert products[0]["safety_warnings"] == "Дръжте далеч от завеси."
+        assert products[0]["care_instructions"] == "Trim wick before each burn."
+
     def test_raises_not_found_for_missing(self, _seeded_db):
         with pytest.raises(NotFoundError):
             product_service.get_product("no-such-product")
@@ -193,6 +217,21 @@ class TestUpdateProduct:
         )
         assert product["name_en"] == "Lavender Dream XL"
         assert product["price_cents"] == 3200  # Unchanged
+
+    def test_partial_update_preserves_safety_metadata(self, _seeded_db):
+        product_service.update_product(
+            "lavender-dream-300ml",
+            {
+                "safety_warnings_en": "Never leave unattended.",
+                "care_instructions_en": "Trim wick before use.",
+            },
+        )
+
+        product = product_service.update_product("lavender-dream-300ml", {"stock": 12})
+
+        assert product["stock"] == 12
+        assert product["safety_warnings_en"] == "Never leave unattended."
+        assert product["care_instructions_en"] == "Trim wick before use."
 
     def test_raises_not_found(self, _seeded_db):
         with pytest.raises(NotFoundError):

@@ -13,6 +13,9 @@ const STATIC_ROUTES = [
   "/checkout",
   "/orders",
   "/account",
+  "/terms",
+  "/privacy",
+  "/cookies",
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {

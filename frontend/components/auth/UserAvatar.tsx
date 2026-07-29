@@ -31,7 +31,8 @@ const sizeClasses: Record<AvatarSize, { image: string; fallback: string; text: s
 export function UserAvatar({ name, email, avatarUrl, alt = "", size = "sm" }: UserAvatarProps) {
   const [hasImageError, setHasImageError] = useState(false);
   const classes = sizeClasses[size];
-  const initial = name?.charAt(0).toUpperCase() ?? email.charAt(0).toUpperCase();
+  const displayName = name?.trim();
+  const initial = (displayName || email).charAt(0).toUpperCase();
 
   useEffect(() => {
     setHasImageError(false);

@@ -22,6 +22,17 @@ _CTX = {
     "tracking_url": "https://www.speedy.bg/en/track-shipment?shipmentNumber=77",
     "payment_method": "card",
     "payment_status": "paid",
+    "items_total_display": "€85.00",
+    "shipping_display": "€0.00",
+    "terms_url": "https://shop.example/en/terms",
+    "privacy_url": "https://shop.example/en/privacy",
+    "cookies_url": "https://shop.example/en/cookies",
+    "contact_url": "https://shop.example/en/contact",
+    "trader_name": "Atelier Marie",
+    "trader_contact_email": "contacts@theateliermarie.com",
+    "bank_name": "Test Bank",
+    "bank_iban": "BG00TEST",
+    "bank_bic": "TESTBGSF",
 }
 
 
@@ -74,6 +85,28 @@ class TestRendering:
         assert "1234abcd" in subject
         assert "ben@example.com" in body
         assert "https://admin.example/orders/1234abcd" in body
+
+    def test_placed_email_includes_legal_references(self):
+        _, body = render_template("placed", "en", _CTX)
+        assert "https://shop.example/en/terms" in body
+        assert "https://shop.example/en/privacy" in body
+        assert "contacts@theateliermarie.com" in body
+        assert "Lavender Dream" in body
+
+    def test_bg_payment_pending_email_includes_legal_references(self):
+        ctx = {
+            **_CTX,
+            "payment_method": "bank_transfer",
+            "terms_url": "https://shop.example/bg/terms",
+            "privacy_url": "https://shop.example/bg/privacy",
+            "cookies_url": "https://shop.example/bg/cookies",
+            "contact_url": "https://shop.example/bg/contact",
+        }
+        _, body = render_template("payment_pending", "bg", ctx)
+        assert "https://shop.example/bg/terms" in body
+        assert "https://shop.example/bg/privacy" in body
+        assert "BG00TEST" in body
+        assert "Lavender Dream" in body
 
 
 class TestLocaleFallback:

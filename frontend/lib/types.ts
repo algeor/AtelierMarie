@@ -63,6 +63,8 @@ export interface ProductResponse {
   id: string;
   name: string;
   description: string | null;
+  safety_warnings: string | null;
+  care_instructions: string | null;
   materials: string | null;
   days_to_craft: number | null;
   price_cents: number;
@@ -469,6 +471,10 @@ export interface AdminProductResponse {
   name_bg: string | null;
   description_en: string | null;
   description_bg: string | null;
+  safety_warnings_en: string | null;
+  safety_warnings_bg: string | null;
+  care_instructions_en: string | null;
+  care_instructions_bg: string | null;
   materials: string | null;
   days_to_craft: number | null;
   price_cents: number;
@@ -508,6 +514,10 @@ export interface CreateProductRequest {
   name_bg?: string | null;
   description_en?: string | null;
   description_bg?: string | null;
+  safety_warnings_en?: string | null;
+  safety_warnings_bg?: string | null;
+  care_instructions_en?: string | null;
+  care_instructions_bg?: string | null;
   materials?: string | null;
   days_to_craft?: number | null;
   price_cents: number;
@@ -528,6 +538,10 @@ export interface UpdateProductRequest {
   name_bg?: string | null;
   description_en?: string | null;
   description_bg?: string | null;
+  safety_warnings_en?: string | null;
+  safety_warnings_bg?: string | null;
+  care_instructions_en?: string | null;
+  care_instructions_bg?: string | null;
   materials?: string | null;
   days_to_craft?: number | null;
   price_cents?: number;

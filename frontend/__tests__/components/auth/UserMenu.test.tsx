@@ -115,7 +115,7 @@ describe("UserMenu", () => {
     const user = userEvent.setup();
     renderWithIntl(<UserMenu />);
 
-    const trigger = screen.getByRole("button");
+    const trigger = screen.getByRole("button", { name: "My Account" });
     expect(trigger).toHaveAttribute("aria-haspopup", "menu");
     expect(trigger).toHaveAttribute("aria-expanded", "false");
 
@@ -133,7 +133,7 @@ describe("UserMenu with no avatar", () => {
         user: {
           id: "user-001",
           email: "marie@ateliermarie.com",
-          name: "Marie",
+          name: "",
           avatar_url: null,
           is_admin: false,
         },
@@ -150,6 +150,7 @@ describe("UserMenu with no avatar", () => {
     const { renderWithIntl: renderWithFreshIntl } = await import("../../test-utils");
     const { screen: s } = await import("@testing-library/react");
     renderWithFreshIntl(<UserMenuNoAvatar />);
+    expect(s.getByRole("button", { name: "My Account" })).toBeInTheDocument();
     expect(s.getByText("M")).toBeInTheDocument();
   });
 });
