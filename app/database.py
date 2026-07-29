@@ -204,6 +204,13 @@ CREATE TABLE IF NOT EXISTS orders (
     total_cents INTEGER NOT NULL CHECK (total_cents >= 0),
     customer_email TEXT NOT NULL,
     customer_name  TEXT,
+    -- Shipping price + provenance (shipping-pricing — Phase A). shipping_cents
+    -- sums with items subtotal into total_cents. Provenance records how the
+    -- price was derived, for later reconciliation.
+    shipping_cents INTEGER NOT NULL DEFAULT 0 CHECK (shipping_cents >= 0),
+    shipping_price_source TEXT NOT NULL DEFAULT 'live',
+    shipping_is_fallback INTEGER NOT NULL DEFAULT 0,
+    shipping_quoted_at TEXT,
     delivery_method TEXT CHECK (delivery_method IN ('office', 'door')),
     delivery_courier TEXT CHECK (delivery_courier IN ('speedy', 'econt')),
     delivery_details TEXT,  -- JSON blob (DeliveryOffice or DeliveryDoor)
@@ -799,6 +806,35 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
             order_columns,
             "stripe_payment_intent_id",
             "stripe_payment_intent_id TEXT",
+        )
+        # Shipping price + provenance (shipping-pricing — Phase A).
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "shipping_cents",
+            "shipping_cents INTEGER NOT NULL DEFAULT 0",
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "shipping_price_source",
+            "shipping_price_source TEXT NOT NULL DEFAULT 'live'",
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "shipping_is_fallback",
+            "shipping_is_fallback INTEGER NOT NULL DEFAULT 0",
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "shipping_quoted_at",
+            "shipping_quoted_at TEXT",
         )
 
     if _table_exists(conn, "promotion_campaigns"):

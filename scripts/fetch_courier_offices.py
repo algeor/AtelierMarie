@@ -8,7 +8,9 @@ per courier-offices-data spec). Reads credentials from environment variables:
 
 Writes `data/speedy_offices.json` and `data/econt_offices.json` in the unified
 6-field schema (id, name, type, city, address, working_hours) with bilingual
-`_en` variants for i18n.
+`_en` variants for i18n. Also writes `data/econt_cities.json` — Econt's full
+served-places nomenclature (name/postcode/region), the source that lets
+ambiguous same-named towns price live (see delivery_service.get_places).
 
 Design:
 - `CourierSource` dataclass groups per-courier fetch + normalize logic
@@ -47,6 +49,7 @@ DATA_DIR = REPO_ROOT / "data"
 
 SPEEDY_URL = "https://api.speedy.bg/v1/location/office"
 ECONT_URL = "https://ee.econt.com/services/Nomenclatures/NomenclaturesService.getOffices.json"
+ECONT_CITIES_URL = "https://ee.econt.com/services/Nomenclatures/NomenclaturesService.getCities.json"
 
 _HTTP_TIMEOUT_S = 30
 
@@ -140,14 +143,30 @@ def _normalize_speedy(raw: dict) -> list[dict]:
 
 def _fetch_econt() -> dict:
     """Fetch full Econt office list. Credentials optional (public endpoint)."""
-    # Econt's Nomenclatures endpoint is public but rate-limits anonymous callers.
+    return _post_econt(ECONT_URL, b"{}")
+
+
+def _fetch_econt_cities() -> dict:
+    """Fetch Econt's served-cities nomenclature. Credentials optional (public).
+
+    Unlike offices (214 office-hosting towns), this returns every place Econt
+    delivers to (~1510) with postCode + region — the source that lets ambiguous
+    same-named towns (e.g. the three "Садово") price live instead of degrading
+    to the flat fallback. See delivery_service.get_places.
+    """
+    return _post_econt(ECONT_CITIES_URL, b'{"countryCode":"BGR"}')
+
+
+def _post_econt(url: str, body: bytes) -> dict:
+    """POST raw JSON `body` to an Econt Nomenclatures endpoint with optional auth."""
+    # Econt's Nomenclatures endpoints are public but rate-limit anonymous callers.
     # Basic auth is accepted if credentials are set.
     settings = get_courier_fetch_settings()
     username = settings.econt_username
     password = settings.econt_password
     req = urllib.request.Request(  # noqa: S310 — HTTPS to trusted host
-        ECONT_URL,
-        data=b"{}",
+        url,
+        data=body,
         headers={"Content-Type": "application/json"},
         method="POST",
     )
@@ -158,6 +177,30 @@ def _fetch_econt() -> dict:
         req.add_header("Authorization", f"Basic {token}")
     with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT_S) as resp:  # noqa: S310
         return json.loads(resp.read().decode("utf-8"))
+
+
+def _normalize_econt_cities(raw: dict) -> list[dict]:
+    """Raw {'cities': [...]} → served-place records with postcode + region.
+
+    Drops rows missing a name or postCode (a place with no postcode can't
+    disambiguate). `region`/`region_en` may be null (54 of ~1510 lack a region).
+    """
+    out: list[dict] = []
+    for c in raw.get("cities", []):
+        name = c.get("name")
+        postal_code = c.get("postCode")
+        if not name or not postal_code:
+            continue
+        out.append(
+            {
+                "name": name,
+                "name_en": c.get("nameEn"),
+                "postal_code": postal_code,
+                "region": c.get("regionName"),
+                "region_en": c.get("regionNameEn"),
+            }
+        )
+    return out
 
 
 def _atomic_write_json(path: Path, records: list[dict]) -> None:
@@ -192,18 +235,24 @@ SOURCES: list[CourierSource] = [
         fetch=_fetch_econt,
         normalize=normalize_econt,
     ),
+    CourierSource(
+        name="econt-cities",
+        output_path=DATA_DIR / "econt_cities.json",
+        fetch=_fetch_econt_cities,
+        normalize=_normalize_econt_cities,
+    ),
 ]
 
 
 def refresh_courier(source: CourierSource) -> int:
-    """Fetch + normalize + write one courier. Returns record count on success."""
-    logger.info("fetching %s offices", source.name)
+    """Fetch + normalize + write one source. Returns record count on success."""
+    logger.info("fetching %s", source.name)
     raw = source.fetch()
     records = source.normalize(raw)
     if not records:
         raise RuntimeError(f"{source.name} normalized to zero records")
     _atomic_write_json(source.output_path, records)
-    logger.info("wrote %d %s offices → %s", len(records), source.name, source.output_path)
+    logger.info("wrote %d %s records → %s", len(records), source.name, source.output_path)
     return len(records)
 
 

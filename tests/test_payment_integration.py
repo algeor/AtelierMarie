@@ -58,6 +58,7 @@ def delivery() -> DeliveryInfo:
             office_id="1001",
             office_name="Sofia Center",
             office_type="office",
+            city="София",
             phone="+359888000000",
         ),
     )

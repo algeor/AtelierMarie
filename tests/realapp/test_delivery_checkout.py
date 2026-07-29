@@ -81,6 +81,7 @@ DELIVERY_OFFICE_ECONT = {
         "office_id": "1001",
         "office_name": "София Център",
         "office_type": "office",
+        "city": "София",
         "phone": "+359888123456",
     },
 }
@@ -92,6 +93,7 @@ DELIVERY_OFFICE_SPEEDY_APT = {
         "office_id": "speedy-sf-003",
         "office_name": "Автомат Люлин",
         "office_type": "apt",
+        "city": "София",
         "phone": "+359888123456",
     },
 }

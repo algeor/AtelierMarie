@@ -16,6 +16,7 @@ from app.models.orders import (
 from app.services.order_service import (
     EmptyCartError,
     InsufficientStockError,
+    InvalidShippingPriceError,
     OrderNotFoundError,
     ProductUnavailableError,
     checkout,
@@ -126,6 +127,10 @@ def create_order(
                 locale=locale,
                 admin_notification_email=settings.admin_notification_email,
                 payment_method=body.payment_method,
+                shipping_cents=body.shipping_cents,
+                shipping_price_source=body.shipping_price_source,
+                shipping_is_fallback=body.shipping_is_fallback,
+                shipping_quoted_at=body.shipping_quoted_at,
             )
 
             stripe_checkout_url: str | None = None
@@ -150,6 +155,17 @@ def create_order(
         return JSONResponse(
             status_code=400,
             content={"error": {"code": "EMPTY_CART", "message": "Cart is empty"}},
+        )
+    except InvalidShippingPriceError as e:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "INVALID_SHIPPING_PRICE",
+                    "message": str(e),
+                    "details": {"shipping_cents": e.shipping_cents, "max_cents": e.max_cents},
+                }
+            },
         )
     except InsufficientStockError as e:
         return JSONResponse(

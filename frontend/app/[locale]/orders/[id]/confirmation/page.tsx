@@ -17,6 +17,7 @@ import type { OrderResponse } from "@/lib/types";
 export default function OrderConfirmationPage() {
   const t = useTranslations("orders");
   const tCart = useTranslations("cart");
+  const tDelivery = useTranslations("checkout.delivery");
   const getLocalizedError = useLocalizedError();
   const params = useParams();
   const orderId = params.id as string;
@@ -141,11 +142,27 @@ export default function OrderConfirmationPage() {
         </div>
 
         {/* Order total */}
-        <div className="mb-6 flex items-center justify-between border-t border-champagne-beige pt-4">
-          <span className="font-heading text-xl text-charcoal">{t("total")}</span>
-          <span className="font-heading text-xl text-charcoal">
-            {formatPrice(order.total_cents)}
-          </span>
+        <div className="mb-6 space-y-2 border-t border-champagne-beige pt-4">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-soft-brown">{tCart("subtotal")}</span>
+            <span className="text-charcoal">
+              {formatPrice(order.items_total_cents)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-soft-brown">{tDelivery("shippingLabel")}</span>
+            <span className="text-charcoal">
+              {order.shipping_cents === 0
+                ? tDelivery("freeShipping")
+                : formatPrice(order.shipping_cents)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between border-t border-champagne-beige pt-2">
+            <span className="font-heading text-xl text-charcoal">{t("total")}</span>
+            <span className="font-heading text-xl text-charcoal">
+              {formatPrice(order.total_cents)}
+            </span>
+          </div>
         </div>
 
         {/* Contact note */}

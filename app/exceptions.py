@@ -72,6 +72,18 @@ def register_exception_handlers(app: FastAPI) -> None:
         else:
             message = "Request validation failed"
 
+        # Log the failing fields so a 422 is diagnosable from the server console
+        # (e.g. an office-mode /calculate arriving with an empty city). The raw
+        # inputs are user-supplied request data, already sanitized above.
+        logger.warning(
+            "request_validation_failed",
+            method=request.method,
+            path=request.url.path,
+            fields=[
+                {"loc": e.get("loc"), "msg": e.get("msg")} for e in sanitized_errors
+            ],
+        )
+
         return JSONResponse(
             status_code=422,
             content={

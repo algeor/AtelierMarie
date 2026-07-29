@@ -45,8 +45,13 @@ const ordersResponse: OrderListResponse = {
     {
       id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
       status: "pending",
+      payment_method: "cod",
+      payment_status: "cod_pending",
+      stripe_checkout_url: null,
       items_total_cents: 7700,
       shipping_cents: 0,
+      shipping_price_source: "live",
+      shipping_is_fallback: false,
       total_cents: 7700,
       customer_email: "alice@example.com",
       customer_name: "Alice",

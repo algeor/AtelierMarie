@@ -96,6 +96,25 @@ class Settings(BaseSettings):
     bank_bic: str = ""
     bank_name: str = ""
 
+    # Courier pricing APIs (shipping-pricing). Credentials are validated lazily
+    # per-request — a misconfigured account produces fallback quotes with a
+    # logged warning, never a startup failure (design Risks table).
+    speedy_api_username: str = ""
+    speedy_api_password: SecretStr = SecretStr("")
+    speedy_sender_office_id: str = ""
+    econt_api_username: str = ""
+    econt_api_password: SecretStr = SecretStr("")
+    econt_sender_office_id: str = ""
+
+    # Econt sender identity — the shop's fixed origin, sent in every Econt
+    # calculate payload (name + phone + address). Not credentials: these are
+    # the public "from" details of the shipment, so plain str with real
+    # defaults (works in dev without a .env; still env-overridable).
+    econt_sender_name: str = "Atelier Marie"
+    econt_sender_phone: str = "0899869055"
+    econt_sender_address: str = "жк Красно село ул. Царица Елеонора №12"
+    econt_sender_city: str = "София"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
     @model_validator(mode="after")

@@ -146,3 +146,90 @@ class TestListCities:
         assert resp.status_code == 200
         data = resp.json()
         assert "Sofia" in data
+
+
+class TestGetPlaces:
+    """`delivery_service.get_places` — served-place lookup with postcode/region."""
+
+    def test_ambiguous_name_yields_distinct_places(self):
+        from app.services import delivery_service
+
+        places = delivery_service.get_places("econt", query="Садово")
+        sadovo = [p for p in places if p["name"] == "Садово"]
+        # Три различни "Садово" — distinguished by region + postcode.
+        assert len(sadovo) == 3
+        regions = {p["region"] for p in sadovo}
+        postcodes = {p["postal_code"] for p in sadovo}
+        assert regions == {"Пловдив", "Благоевград", "Бургас"}
+        assert postcodes == {"4122", "2922", "8463"}
+
+    def test_prefix_match_bg(self):
+        from app.services import delivery_service
+
+        places = delivery_service.get_places("econt", query="Айтос")
+        assert any(p["name"] == "Айтос" and p["postal_code"] == "8500" for p in places)
+
+    def test_prefix_match_en_localizes(self):
+        from app.services import delivery_service
+
+        places = delivery_service.get_places("econt", query="Sado", locale="en")
+        sadovo = [p for p in places if p["name"] == "Sadovo"]
+        assert len(sadovo) == 3
+        assert all(p["region"] in {"Plovdiv", "Blagoevgrad", "Burgas"} for p in sadovo)
+
+    def test_no_prefix_returns_sorted(self):
+        from app.services import delivery_service
+
+        places = delivery_service.get_places("econt")
+        assert len(places) > 1000
+        names = [p["name"] for p in places]
+        assert names == sorted(names)
+
+    def test_speedy_has_no_places(self):
+        from app.services import delivery_service
+
+        assert delivery_service.get_places("speedy", query="Со") == []
+
+
+class TestListPlaces:
+    """`GET /v1/delivery/places` — served-place endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_town_returns_multiple_rows(self, client):
+        resp = await client.get("/v1/delivery/places?courier=econt&q=Садово")
+        assert resp.status_code == 200
+        data = resp.json()
+        sadovo = [p for p in data if p["name"] == "Садово"]
+        assert len(sadovo) == 3
+        for p in sadovo:
+            assert set(p.keys()) == {"name", "region", "postal_code"}
+        assert {p["postal_code"] for p in sadovo} == {"4122", "2922", "8463"}
+
+    @pytest.mark.asyncio
+    async def test_locale_en(self, client):
+        resp = await client.get("/v1/delivery/places?courier=econt&q=Sado&locale=en")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert any(p["name"] == "Sadovo" and p["region"] == "Plovdiv" for p in data)
+
+    @pytest.mark.asyncio
+    async def test_speedy_returns_empty(self, client):
+        resp = await client.get("/v1/delivery/places?courier=speedy&q=Со")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    @pytest.mark.asyncio
+    async def test_no_match_returns_empty(self, client):
+        resp = await client.get("/v1/delivery/places?courier=econt&q=xyz123")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    @pytest.mark.asyncio
+    async def test_invalid_courier_rejected(self, client):
+        resp = await client.get("/v1/delivery/places?courier=dhl")
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_missing_courier_rejected(self, client):
+        resp = await client.get("/v1/delivery/places")
+        assert resp.status_code == 422

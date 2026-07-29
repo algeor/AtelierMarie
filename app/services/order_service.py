@@ -8,11 +8,19 @@ import json
 import sqlite3
 import uuid
 from datetime import UTC, datetime
-from typing import Literal, TypedDict
+from typing import Literal, TypedDict, get_args
 
 import structlog
 
-from app.constants import MAX_LIMIT, MAX_PAGE, STATUS_TO_EMAIL_EVENT, tracking_url_for
+from app.constants import (
+    FREE_SHIPPING_THRESHOLD_CENTS,
+    MAX_LIMIT,
+    MAX_PAGE,
+    SHIPPING_CENTS_MAX,
+    STATUS_TO_EMAIL_EVENT,
+    ShippingPriceSource,
+    tracking_url_for,
+)
 from app.models.delivery import DeliveryInfo
 from app.models.orders import OrderStatus
 from app.services import pricing
@@ -21,6 +29,10 @@ logger = structlog.get_logger(__name__)
 
 # SQLite-compatible datetime format
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
+
+# Runtime whitelist for the shipping price-source provenance column, derived from
+# the Literal so it can never drift from the type (same pattern as OrderStatus).
+_VALID_PRICE_SOURCES: frozenset[str] = frozenset(get_args(ShippingPriceSource))
 
 # Valid state transitions for orders
 VALID_TRANSITIONS: dict[str, set[str]] = {
@@ -39,6 +51,22 @@ def _localized_product_name(locale: Locale) -> str:
     if locale == "bg":
         return "COALESCE(NULLIF(p.name_bg, ''), p.name_en, '') AS name"
     return "COALESCE(NULLIF(p.name_en, ''), p.name_bg, '') AS name"
+
+
+def _normalize_quoted_at(value: str | None) -> str | None:
+    """Keep `quoted_at` only if it parses as our SQLite timestamp format.
+
+    The client echoes this back from the quote; it is audit metadata, so we
+    drop anything that isn't a well-formed `_DT_FMT` string rather than persist
+    a fabricated value (review W3). None (no quote timestamp) is passed through.
+    """
+    if value is None:
+        return None
+    try:
+        datetime.strptime(value, _DT_FMT)
+    except ValueError:
+        return None
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +98,21 @@ class WrongPaymentMethodError(OrderServiceError):
 
 class EmptyCartError(OrderServiceError):
     """Raised when cart has no items at checkout."""
+
+
+class InvalidShippingPriceError(OrderServiceError):
+    """Raised when a client-submitted shipping_cents is out of the accepted range.
+
+    Translated to a 422 with code INVALID_SHIPPING_PRICE at the route layer.
+    Server range-validates rather than trusting the frontend (parent Decision 16).
+    """
+
+    def __init__(self, shipping_cents: int, max_cents: int) -> None:
+        self.shipping_cents = shipping_cents
+        self.max_cents = max_cents
+        super().__init__(
+            f"shipping_cents {shipping_cents} is outside the accepted range [0, {max_cents}]"
+        )
 
 
 class InsufficientStockError(OrderServiceError):
@@ -147,6 +190,9 @@ class OrderData(TypedDict):
     total_cents: int
     items_total_cents: int
     shipping_cents: int
+    shipping_price_source: str
+    shipping_is_fallback: bool
+    shipping_quoted_at: str | None
     customer_email: str
     customer_name: str | None
     delivery_method: str | None
@@ -189,6 +235,10 @@ def checkout(
     locale: Locale = "en",
     admin_notification_email: str = "",
     payment_method: str = "cod",
+    shipping_cents: int = 0,
+    shipping_price_source: str = "live",
+    shipping_is_fallback: bool = False,
+    shipping_quoted_at: str | None = None,
 ) -> OrderData:
     """Convert cart to an order atomically.
 
@@ -281,9 +331,35 @@ def checkout(
         items_total_cents = sum(
             effective_prices[row["product_id"]] * row["quantity"] for row in cart_rows
         )
-        # shipping_cents is a placeholder in this change — the shipping-pricing
-        # follow-on adds real courier calculation + free-shipping threshold.
-        shipping_cents = 0
+        # Server-enforce shipping (parent Decision 16 — never trust the client).
+        # 1. Free shipping short-circuit: items ≥ €50 forces 0¢ and normalizes
+        #    provenance to live/non-fallback (a free order was never "guessed").
+        # 2. Otherwise range-validate the client-submitted shipping_cents.
+        #
+        # ACCEPTED (review W2): the range check admits shipping_cents == 0 on a
+        # sub-€50 order, so a scripted client can under-pay shipping. This is a
+        # deliberate MVP tradeoff — parent Decision 16 chose range-check over
+        # signed price tokens, and the dominant COD flow (see design.md) means a
+        # human confirms every order before dispatch, catching a 0¢ shipping line.
+        # Server-side re-quoting is deferred to Phase C (reconciliation).
+        if items_total_cents >= FREE_SHIPPING_THRESHOLD_CENTS:
+            shipping_cents = 0
+            shipping_price_source = "live"
+            shipping_is_fallback = False
+            shipping_quoted_at = None
+        else:
+            if not (0 <= shipping_cents <= SHIPPING_CENTS_MAX):
+                raise InvalidShippingPriceError(shipping_cents, SHIPPING_CENTS_MAX)
+            # Harden provenance (review W3): the client echoes these back from the
+            # quote, but they are audit metadata for reconciliation — never trust
+            # them verbatim. Reject an unknown source, then DERIVE is_fallback from
+            # it (a "live" quote is never a fallback; anything else is) so a client
+            # cannot relabel a flat/fallback price as a clean live one. quoted_at is
+            # only kept when it parses as our timestamp format; garbage is dropped.
+            if shipping_price_source not in _VALID_PRICE_SOURCES:
+                raise InvalidShippingPriceError(shipping_cents, SHIPPING_CENTS_MAX)
+            shipping_is_fallback = shipping_price_source != "live"
+            shipping_quoted_at = _normalize_quoted_at(shipping_quoted_at)
         total_cents = items_total_cents + shipping_cents
 
         # Initial payment_status depends on payment method.
@@ -293,11 +369,13 @@ def checkout(
             """
             INSERT INTO orders (id, session_id, user_id, status, total_cents,
                                customer_email, customer_name,
+                               shipping_cents, shipping_price_source,
+                               shipping_is_fallback, shipping_quoted_at,
                                delivery_method, delivery_courier, delivery_details,
                                locale, notes,
                                payment_method, payment_status,
                                created_at, updated_at)
-            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 order_id,
@@ -306,6 +384,10 @@ def checkout(
                 total_cents,
                 customer_email,
                 customer_name,
+                shipping_cents,
+                shipping_price_source,
+                1 if shipping_is_fallback else 0,
+                shipping_quoted_at,
                 delivery.method,
                 delivery_courier,
                 delivery_details_json,
@@ -398,6 +480,9 @@ def checkout(
         total_cents=total_cents,
         items_total_cents=items_total_cents,
         shipping_cents=shipping_cents,
+        shipping_price_source=shipping_price_source,
+        shipping_is_fallback=shipping_is_fallback,
+        shipping_quoted_at=shipping_quoted_at,
         customer_email=customer_email,
         customer_name=customer_name,
         delivery_method=delivery.method,
@@ -456,11 +541,21 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
         delivery_details = None
 
     # shipping_cents column is added by shipping-pricing; safe-default to 0.
-    shipping_cents = row["shipping_cents"] if "shipping_cents" in row.keys() else 0
+    row_keys = row.keys()
+    shipping_cents = row["shipping_cents"] if "shipping_cents" in row_keys else 0
     total_cents = row["total_cents"]
     items_total_cents = total_cents - shipping_cents
+    # Provenance columns default to live/non-fallback for legacy rows.
+    shipping_price_source = (
+        row["shipping_price_source"]
+        if "shipping_price_source" in row_keys and row["shipping_price_source"]
+        else "live"
+    )
+    shipping_is_fallback = bool(
+        row["shipping_is_fallback"] if "shipping_is_fallback" in row_keys else 0
+    )
+    shipping_quoted_at = row["shipping_quoted_at"] if "shipping_quoted_at" in row_keys else None
 
-    row_keys = row.keys()
     return OrderData(
         id=row["id"],
         session_id=row["session_id"],
@@ -469,6 +564,9 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
         total_cents=total_cents,
         items_total_cents=items_total_cents,
         shipping_cents=shipping_cents,
+        shipping_price_source=shipping_price_source,
+        shipping_is_fallback=shipping_is_fallback,
+        shipping_quoted_at=shipping_quoted_at,
         customer_email=row["customer_email"],
         customer_name=row["customer_name"],
         delivery_method=row["delivery_method"] if "delivery_method" in row_keys else None,

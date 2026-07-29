@@ -21,12 +21,12 @@ const mockCartState = {
   items: [
     {
       product_id: "lavender-dream",
-      product: { id: "lavender-dream", name: "Lavender Dream", price_cents: 2500, images: [], primary_image_url: "/img.jpg", primary_thumbnail_url: "/img.jpg", stock: 5 },
+      product: { id: "lavender-dream", name: "Lavender Dream", price_cents: 5000, images: [], primary_image_url: "/img.jpg", primary_thumbnail_url: "/img.jpg", stock: 5 },
       quantity: 1,
       added_at: "2026-01-01T00:00:00Z",
     },
   ],
-  total_cents: 2500,
+  total_cents: 5000,
   item_count: 1,
   isLoading: false,
   error: null,
@@ -50,6 +50,7 @@ vi.mock("@/contexts/AuthContext", () => ({
 
 vi.mock("@/lib/api", () => ({
   createOrder: vi.fn(),
+  calculateShipping: vi.fn().mockResolvedValue({ quotes: [] }),
 }));
 
 vi.mock("@/components/checkout/DeliverySection", () => ({
@@ -131,8 +132,13 @@ describe("Checkout Page", () => {
     mockedCreateOrder.mockResolvedValue({
       id: "order-abc",
       status: "pending",
+      payment_method: "cod",
+      payment_status: "cod_pending",
+      stripe_checkout_url: null,
       items_total_cents: 2500,
       shipping_cents: 0,
+      shipping_price_source: "live",
+      shipping_is_fallback: false,
       total_cents: 2500,
       customer_email: "test@example.com",
       customer_name: null,

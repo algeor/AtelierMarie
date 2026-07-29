@@ -251,6 +251,7 @@ class TestOrderModels:
                     "office_id": "1",
                     "office_name": "Sofia",
                     "office_type": "office",
+                    "city": "София",
                     "phone": "+359888123456",
                 },
             },

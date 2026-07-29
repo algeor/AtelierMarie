@@ -14,6 +14,8 @@ import type {
   BulkDiscountRequest,
   BulkDiscountResponse,
   BulkResultItem,
+  CalculateShippingRequest,
+  CalculateShippingResponse,
   CampaignCreateRequest,
   CampaignListResponse,
   CampaignResponse,
@@ -27,6 +29,7 @@ import type {
   ContactRequest,
   ContactResponse,
   Courier,
+  CityPlace,
   CreateOrderRequest,
   CreateFaqItemRequest,
   CreateProductRequest,
@@ -43,6 +46,7 @@ import type {
   OrderStatus,
   ProductListResponse,
   ProductImage,
+  ShippingQuote,
   ProductResponse,
   ProductVideo,
   PublicBannerResponse,
@@ -631,6 +635,93 @@ export async function getDeliveryCities(
   return cities.filter((c) => c.toLowerCase().startsWith(q));
 }
 
+// Fixtures include the ambiguous "Садово" (three towns, distinct postcodes) so
+// the place-picker + postcode-autofill flow can be exercised without a backend.
+const MOCK_PLACES: Record<Courier, CityPlace[]> = {
+  econt: [
+    { name: "София", region: "София (столица)", postal_code: "1000" },
+    { name: "Пловдив", region: "Пловдив", postal_code: "4000" },
+    { name: "Садово", region: "Пловдив", postal_code: "4122" },
+    { name: "Садово", region: "Благоевград", postal_code: "2922" },
+    { name: "Садово", region: "Бургас", postal_code: "8463" },
+  ],
+  speedy: [],
+};
+
+export async function getDeliveryPlaces(
+  courier: Courier,
+  query?: string
+): Promise<CityPlace[]> {
+  await delay();
+  const places = MOCK_PLACES[courier] ?? [];
+  if (!query) return places;
+  const q = query.toLowerCase();
+  return places.filter((p) => p.name.toLowerCase().startsWith(q));
+}
+
+const MOCK_FREE_SHIPPING_THRESHOLD_CENTS = 5000;
+const MOCK_FALLBACK_SHIPPING_CENTS = 500;
+
+/** Base live prices per courier (cents) + delivery estimate (days). */
+const MOCK_LIVE_QUOTES: Record<Courier, { cents: number; days: number }> = {
+  speedy: { cents: 650, days: 2 },
+  econt: { cents: 590, days: 3 },
+};
+
+/**
+ * Mock the shipping calculator.
+ * - Free shipping (0¢, live) when items_total_cents >= threshold.
+ * - Otherwise returns live quotes for each requested courier.
+ * - Set `address.city` to "fallback" (case-insensitive) or `office_id` to
+ *   "fallback" to simulate a courier outage → flat fallback quotes.
+ */
+export async function calculateShipping(
+  payload: CalculateShippingRequest
+): Promise<CalculateShippingResponse> {
+  await delay();
+  const now = new Date().toISOString();
+  const couriers = payload.couriers.length > 0 ? payload.couriers : (["speedy", "econt"] as Courier[]);
+
+  if (payload.items_total_cents >= MOCK_FREE_SHIPPING_THRESHOLD_CENTS) {
+    return {
+      quotes: couriers.map((courier) => ({
+        courier,
+        cents: 0,
+        estimated_delivery_days: MOCK_LIVE_QUOTES[courier].days,
+        is_fallback: false,
+        price_source: "live",
+        quoted_at: now,
+      })),
+    };
+  }
+
+  const simulateFallback =
+    payload.city.toLowerCase() === "fallback" || payload.office_id === "fallback";
+
+  const quotes: ShippingQuote[] = couriers.map((courier) => {
+    if (simulateFallback) {
+      return {
+        courier,
+        cents: MOCK_FALLBACK_SHIPPING_CENTS,
+        estimated_delivery_days: null,
+        is_fallback: true,
+        price_source: "flat",
+        quoted_at: null,
+      };
+    }
+    return {
+      courier,
+      cents: MOCK_LIVE_QUOTES[courier].cents,
+      estimated_delivery_days: MOCK_LIVE_QUOTES[courier].days,
+      is_fallback: false,
+      price_source: "live",
+      quoted_at: now,
+    };
+  });
+
+  return { quotes };
+}
+
 export async function createOrder(
   data: CreateOrderRequest
 ): Promise<OrderResponse> {
@@ -642,6 +733,12 @@ export async function createOrder(
   const cart = buildCartResponse();
   const now = new Date().toISOString();
 
+  // Server-side free-shipping enforcement mirror: total >= threshold → 0¢, live.
+  const freeShipping = cart.total_cents >= MOCK_FREE_SHIPPING_THRESHOLD_CENTS;
+  const shipping_cents = freeShipping ? 0 : data.shipping_cents ?? 0;
+  const shipping_price_source = freeShipping ? "live" : data.shipping_price_source ?? "live";
+  const shipping_is_fallback = freeShipping ? false : data.shipping_is_fallback ?? false;
+
   const order: OrderResponse = {
     id: generateOrderId(),
     status: "pending",
@@ -652,8 +749,10 @@ export async function createOrder(
       ? "cod_pending" : "pending",
     stripe_checkout_url: null,
     items_total_cents: cart.total_cents,
-    shipping_cents: 0,
-    total_cents: cart.total_cents,
+    shipping_cents,
+    shipping_price_source,
+    shipping_is_fallback,
+    total_cents: cart.total_cents + shipping_cents,
     customer_email: data.customer_email,
     customer_name: data.customer_name ?? null,
     delivery_method: data.delivery.method,
@@ -747,6 +846,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     stripe_checkout_url: null,
     items_total_cents: 7700,
     shipping_cents: 0,
+    shipping_price_source: "live",
+    shipping_is_fallback: false,
     total_cents: 7700,
     customer_email: "alice@example.com",
     customer_name: "Alice Johnson",
@@ -778,6 +879,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     stripe_checkout_url: null,
     items_total_cents: 5600,
     shipping_cents: 0,
+    shipping_price_source: "live",
+    shipping_is_fallback: false,
     total_cents: 5600,
     customer_email: "bob@example.com",
     customer_name: "Bob Smith",
@@ -810,6 +913,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     stripe_checkout_url: null,
     items_total_cents: 3200,
     shipping_cents: 0,
+    shipping_price_source: "live",
+    shipping_is_fallback: false,
     total_cents: 3200,
     customer_email: "carol@example.com",
     customer_name: "Carol Davis",
@@ -840,6 +945,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     stripe_checkout_url: null,
     items_total_cents: 9000,
     shipping_cents: 0,
+    shipping_price_source: "live",
+    shipping_is_fallback: false,
     total_cents: 9000,
     customer_email: "dave@example.com",
     customer_name: "Dave Wilson",

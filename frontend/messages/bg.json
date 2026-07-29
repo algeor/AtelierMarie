@@ -159,7 +159,7 @@
     "faqCare": "Грижа за свещи",
     "faqCustom": "Поръчки по заявка",
     "faqShipping": "Доставка и връщане",
-    "questions": "Въпроси?"
+    "questions": "Въпроси?",
     "zoom": "Увеличи",
     "zoomImage": "Увеличи изображението",
     "closeZoom": "Затвори увеличението"
@@ -269,6 +269,18 @@
       "phonePlaceholder": "+359...",
       "phoneRequired": "Телефонът е задължителен",
       "phoneInvalid": "Моля, въведете валиден телефонен номер",
+      "priceEstimate": "Приблизителна доставка",
+      "priceExact": "Доставка",
+      "calculating": "Изчисляване на доставката...",
+      "shippingLabel": "Доставка",
+      "shippingPending": "Изчислява се на следващата стъпка",
+      "shippingRequired": "Моля, изберете опция за доставка",
+      "shippingError": "В момента не можахме да изчислим доставката. Моля, проверете адреса и опитайте отново.",
+      "freeShipping": "Безплатно",
+      "amountToFreeShipping": "Добави още за {amount} за безплатна доставка",
+      "freeShippingAchieved": "Спечелихте безплатна доставка!",
+      "deliveryEstimate": "Ок. {days} работни дни",
+      "fallbackDisclaimer": "Това е приблизителна цена — крайната цена за доставка може леко да се различава.",
       "display": {
         "sectionTitle": "Доставка",
         "methodLabel": "Начин",
@@ -303,6 +315,8 @@
     "progress": "Напредък на поръчката",
     "items": "Артикули",
     "total": "Общо",
+    "shippingFallbackBadge": "Приблизителна",
+    "shippingFallbackHint": "Цената за доставка беше приблизителна (оферта от куриера липсваше при поръчката)",
     "contact": "Контакт",
     "status": {
       "pending": "Изчакваща",

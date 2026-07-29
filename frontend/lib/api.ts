@@ -14,6 +14,8 @@ import type {
   BannerUpdateRequest,
   BulkDiscountRequest,
   BulkDiscountResponse,
+  CalculateShippingRequest,
+  CalculateShippingResponse,
   CampaignCreateRequest,
   CampaignListResponse,
   CampaignResponse,
@@ -31,6 +33,7 @@ import type {
   CreateProductRequest,
   CreateTaxonomyTermRequest,
   CreateFaqItemRequest,
+  CityPlace,
   FaqAdminResponse,
   FaqItemAdminResponse,
   FaqResponse,
@@ -276,6 +279,25 @@ export async function getDeliveryCities(
   if (query) params.set("q", query);
   if (locale) params.set("locale", locale);
   return apiClient.get<string[]>(`/v1/delivery/cities?${params}`);
+}
+
+export async function getDeliveryPlaces(
+  courier: Courier,
+  query?: string,
+  locale?: Locale
+): Promise<CityPlace[]> {
+  if (USE_MOCK) return (await getMock()).getDeliveryPlaces(courier, query);
+  const params = new URLSearchParams({ courier });
+  if (query) params.set("q", query);
+  if (locale) params.set("locale", locale);
+  return apiClient.get<CityPlace[]>(`/v1/delivery/places?${params}`);
+}
+
+export async function calculateShipping(
+  payload: CalculateShippingRequest
+): Promise<CalculateShippingResponse> {
+  if (USE_MOCK) return (await getMock()).calculateShipping(payload);
+  return apiClient.calculateShipping(payload);
 }
 
 export async function getOrders(

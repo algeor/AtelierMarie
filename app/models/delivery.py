@@ -37,12 +37,18 @@ def _validate_phone(value: str) -> str:
 
 
 class DeliveryOffice(BaseModel):
-    """Office pickup destination — a Speedy/Econt staffed office or locker."""
+    """Office pickup destination — a Speedy/Econt staffed office or locker.
+
+    `city` is the office's city — carried so the shipping calculator can quote
+    an office pickup without a separate lookup (the courier calculate APIs are
+    city-keyed). Sourced from the selected office record at checkout.
+    """
 
     courier: Courier
     office_id: str = Field(..., min_length=1, max_length=64)
     office_name: str = Field(..., min_length=1, max_length=255)
     office_type: OfficeType
+    city: str = Field(..., min_length=1, max_length=100)
     phone: str = Field(..., min_length=8, max_length=20)
 
     @field_validator("phone")

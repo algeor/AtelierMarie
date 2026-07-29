@@ -15,9 +15,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useTranslations, useLocale } from "next-intl";
-import { getDeliveryCities, getDeliveryOffices } from "@/lib/api";
+import { getDeliveryCities, getDeliveryOffices, getDeliveryPlaces } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type {
+  CityPlace,
   Courier,
   DeliveryDoor,
   DeliveryInfo,
@@ -397,16 +398,24 @@ interface DoorAddressFormProps {
   value: Partial<DeliveryDoor>;
   onChange: (patch: Partial<DeliveryDoor>) => void;
   errors: DeliveryValidationErrors;
+  locale: Locale;
 }
 
-function DoorAddressForm({ value, onChange, errors }: DoorAddressFormProps) {
+function DoorAddressForm({ value, onChange, errors, locale }: DoorAddressFormProps) {
   const t = useTranslations("checkout.delivery.door");
+  const courier = value.courier ?? "speedy";
+  // Econt is the only courier with a served-places source (name + region +
+  // postcode). For it the city becomes a validated place picker that autofills
+  // a read-only postcode, so ambiguous same-named towns price live. Speedy has
+  // no such source and keeps the plain free-text city/postcode inputs.
+  const usePlacePicker = courier === "econt";
 
   const field = (
     key: "city" | "postalCode" | "street" | "building" | "apartment",
     fieldKey: keyof DeliveryDoor,
     required: boolean,
     errorKey?: keyof DeliveryValidationErrors,
+    readOnly = false,
   ) => {
     const err = errorKey ? errors[errorKey] : undefined;
     return (
@@ -420,6 +429,7 @@ function DoorAddressForm({ value, onChange, errors }: DoorAddressFormProps) {
           value={(value[fieldKey] as string | null | undefined) ?? ""}
           onChange={(e) => onChange({ [fieldKey]: e.target.value })}
           placeholder={t(`${key}Placeholder`)}
+          readOnly={readOnly}
           maxLength={
             fieldKey === "street"
               ? 200
@@ -432,6 +442,7 @@ function DoorAddressForm({ value, onChange, errors }: DoorAddressFormProps) {
           aria-invalid={err ? "true" : undefined}
           className={cn(
             "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
+            readOnly && "cursor-not-allowed opacity-70",
             err ? "border-red-700" : "border-champagne-beige"
           )}
         />
@@ -446,14 +457,141 @@ function DoorAddressForm({ value, onChange, errors }: DoorAddressFormProps) {
 
   return (
     <div className="mb-6">
-      {field("city", "city", true, "city")}
-      {field("postalCode", "postal_code", true, "postalCode")}
+      {usePlacePicker ? (
+        <DoorPlaceField
+          courier={courier}
+          locale={locale}
+          city={value.city ?? ""}
+          postalCode={value.postal_code ?? ""}
+          onSelect={(place) =>
+            onChange({ city: place.name, postal_code: place.postal_code ?? "" })
+          }
+          error={errors.city}
+        />
+      ) : (
+        <>
+          {field("city", "city", true, "city")}
+          {field("postalCode", "postal_code", true, "postalCode")}
+        </>
+      )}
       {field("street", "street", true, "street")}
       <div className="grid gap-4 sm:grid-cols-2">
         {field("building", "building", false)}
         {field("apartment", "apartment", false)}
       </div>
     </div>
+  );
+}
+
+// ---------------- DoorPlaceField ----------------
+
+interface DoorPlaceFieldProps {
+  courier: Courier;
+  locale: Locale;
+  city: string;
+  postalCode: string;
+  onSelect: (place: CityPlace) => void;
+  error?: string;
+}
+
+// Debounced place typeahead for Econt door delivery — mirrors the OfficePicker
+// city typeahead but consumes getDeliveryPlaces so suggestions carry region +
+// postcode. Selecting a place autofills a read-only postcode; ambiguous towns
+// (e.g. three "Садово") appear as distinct "name — region" rows.
+function DoorPlaceField({ courier, locale, city, postalCode, onSelect, error }: DoorPlaceFieldProps) {
+  const t = useTranslations("checkout.delivery.door");
+  const [query, setQuery] = useState(city);
+  const [suggestions, setSuggestions] = useState<CityPlace[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [confirmed, setConfirmed] = useState<string | null>(city || null);
+
+  useEffect(() => {
+    if (query.length < 1 || confirmed === query) {
+      setSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const results = await getDeliveryPlaces(courier, query, locale);
+        if (!cancelled) setSuggestions(results.slice(0, 10));
+      } catch {
+        if (!cancelled) setSuggestions([]);
+      }
+    }, 200);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query, courier, confirmed, locale]);
+
+  const confirmPlace = (place: CityPlace) => {
+    setQuery(place.name);
+    setConfirmed(place.name);
+    setShowSuggestions(false);
+    onSelect(place);
+  };
+
+  return (
+    <>
+      <div className="mb-4">
+        <label className="mb-1.5 block text-sm font-medium text-soft-brown">
+          {t("cityLabel")} <span className="text-red-700">*</span>
+        </label>
+        <div className="relative">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setConfirmed(null);
+              setShowSuggestions(true);
+            }}
+            onFocus={() => setShowSuggestions(true)}
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+            placeholder={t("cityPlaceholder")}
+            maxLength={100}
+            aria-invalid={error ? "true" : undefined}
+            className={cn(
+              "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
+              error ? "border-red-700" : "border-champagne-beige"
+            )}
+          />
+          {showSuggestions && suggestions.length > 0 && (
+            <ul className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-brand border border-champagne-beige bg-warm-ivory shadow-lg">
+              {suggestions.map((place) => (
+                <li key={`${place.name}-${place.postal_code}`}>
+                  <button
+                    type="button"
+                    onClick={() => confirmPlace(place)}
+                    className="block w-full px-4 py-2 text-left text-sm text-charcoal hover:bg-champagne-beige/30"
+                  >
+                    {place.region ? `${place.name} — ${place.region}` : place.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        {error && (
+          <p className="mt-1 text-sm text-red-700" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+      <div className="mb-4">
+        <label className="mb-1.5 block text-sm font-medium text-soft-brown">
+          {t("postalCodeLabel")} <span className="text-red-700">*</span>
+        </label>
+        <input
+          type="text"
+          value={postalCode}
+          readOnly
+          placeholder={t("postalCodePlaceholder")}
+          className="w-full cursor-not-allowed rounded-brand border border-champagne-beige bg-warm-ivory px-4 py-3 text-charcoal opacity-70 focus:outline-none"
+        />
+      </div>
+    </>
   );
 }
 
@@ -539,7 +677,7 @@ export function DeliverySection({ value, onChange, errors = {} }: DeliverySectio
       setSelectedOfficeFull(null);
       onChange({
         ...value,
-        office: { courier: currentCourier ?? "speedy", office_id: "", office_name: "", office_type: "office", phone: office?.phone ?? "" },
+        office: { courier: currentCourier ?? "speedy", office_id: "", office_name: "", office_type: "office", city: "", phone: office?.phone ?? "" },
       });
       return;
     }
@@ -551,6 +689,7 @@ export function DeliverySection({ value, onChange, errors = {} }: DeliverySectio
         office_id: o.id,
         office_name: o.name,
         office_type: o.type,
+        city: o.city,
         phone: office?.phone ?? "",
       },
     });
@@ -583,7 +722,7 @@ export function DeliverySection({ value, onChange, errors = {} }: DeliverySectio
             id: office.office_id,
             name: office.office_name,
             type: office.office_type,
-            city: "",
+            city: office.city ?? "",
             address: "",
             working_hours: "",
           }
@@ -610,7 +749,7 @@ export function DeliverySection({ value, onChange, errors = {} }: DeliverySectio
       )}
 
       {method === "door" && currentCourier && (
-        <DoorAddressForm value={door ?? { courier: currentCourier }} onChange={patchDoor} errors={errors} />
+        <DoorAddressForm value={door ?? { courier: currentCourier }} onChange={patchDoor} errors={errors} locale={locale} />
       )}
 
       {method && currentCourier && (method !== "office" || selectedOffice) && (

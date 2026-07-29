@@ -105,3 +105,17 @@ class CalculateShippingResponse(BaseModel):
     """Response for `POST /v1/delivery/calculate` — one quote per requested courier."""
 
     quotes: list[ShippingQuote]
+
+
+class CityPlace(BaseModel):
+    """A served delivery place — name + region + postcode.
+
+    Region distinguishes same-named towns (e.g. the three "Садово"); the
+    postcode is the disambiguator the pricing API needs so an ambiguous town
+    prices live instead of degrading to the flat fallback. Returned by
+    `GET /v1/delivery/places` and used by the door-delivery place picker.
+    """
+
+    name: str
+    region: str | None = None
+    postal_code: str | None = None
