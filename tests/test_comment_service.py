@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.database import init_db
+from app.database import get_db, init_db
 from app.services.comment_service import (
     CommentNotFoundError,
     ProductNotFoundError,
@@ -71,8 +71,16 @@ class TestCreateComment:
         result = create_comment(
             "session-1", None, active_product, "<b>User</b>", "<script>alert('x')</script>Nice"
         )
-        assert "&lt;b&gt;" in result["display_name"]
-        assert "&lt;script&gt;" in result["body"]
+        assert result["display_name"] == "<b>User</b>"
+        assert result["body"] == "<script>alert('x')</script>Nice"
+
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT display_name, body FROM comments WHERE id = ?",
+                (result["id"],),
+            ).fetchone()
+        assert "&lt;b&gt;" in row["display_name"]
+        assert "&lt;script&gt;" in row["body"]
 
     def test_display_name_too_short(self, active_product):
         with pytest.raises(ValidationError, match="at least 2"):

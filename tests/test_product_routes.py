@@ -218,6 +218,7 @@ class TestGetProduct:
         assert response.status_code == 404
         body = response.json()
         assert body["error"]["code"] == "NOT_FOUND"
+        assert body["error"]["details"] is None
 
     @pytest.mark.asyncio
     async def test_returns_404_for_inactive(self, client, _products):

@@ -13,6 +13,7 @@ from app.database import get_db
 from app.dependencies.auth import get_current_user
 from app.dependencies.session import require_session
 from app.models.users import UserResponse
+from app.responses import error_response
 from app.services import auth_service
 
 logger = structlog.get_logger(__name__)
@@ -36,16 +37,7 @@ async def login(
     settings = get_settings()
 
     if not settings.google_client_id or not settings.google_redirect_uri:
-        return JSONResponse(
-            status_code=503,
-            content={
-                "error": {
-                    "code": "AUTH_NOT_CONFIGURED",
-                    "message": "Google OAuth is not configured",
-                    "details": None,
-                }
-            },
-        )
+        return error_response(503, "AUTH_NOT_CONFIGURED", "Google OAuth is not configured")
 
     validated_path = auth_service.validate_redirect_path(redirect_to)
     auth_url = auth_service.build_google_auth_url(session_id, return_to=validated_path)
@@ -133,39 +125,21 @@ async def callback(
 
     except auth_service.InvalidStateError:
         logger.warning("OAuth callback: invalid state from session %s", session_id[:8])
-        return JSONResponse(
-            status_code=400,
-            content={"error": {"code": "invalid_state", "message": "Invalid OAuth state"}},
-        )
+        return error_response(400, "invalid_state", "Invalid OAuth state")
 
     except auth_service.TokenExchangeError:
         logger.error("OAuth callback: token exchange failed for session %s", session_id[:8])
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": {
-                    "code": "token_exchange_failed",
-                    "message": "Token exchange failed",
-                }
-            },
-        )
+        return error_response(400, "token_exchange_failed", "Token exchange failed")
 
     except auth_service.EmailNotVerifiedError:
-        return JSONResponse(
-            status_code=400,
-            content={"error": {"code": "email_not_verified", "message": "Email is not verified"}},
-        )
+        return error_response(400, "email_not_verified", "Email is not verified")
 
     except auth_service.AuthServiceUnavailableError:
         logger.error("OAuth callback: auth service unavailable (JWKS fetch failed)")
-        return JSONResponse(
-            status_code=503,
-            content={
-                "error": {
-                    "code": "authentication_service_unavailable",
-                    "message": "Authentication service unavailable",
-                }
-            },
+        return error_response(
+            503,
+            "authentication_service_unavailable",
+            "Authentication service unavailable",
         )
 
     except Exception:
@@ -187,16 +161,7 @@ async def get_me(
     belongs to that user in the database.
     """
     if current_user is None:
-        return JSONResponse(
-            status_code=401,
-            content={
-                "error": {
-                    "code": "NOT_AUTHENTICATED",
-                    "message": "User not found",
-                    "details": None,
-                }
-            },
-        )
+        return error_response(401, "NOT_AUTHENTICATED", "User not found")
 
     return JSONResponse(status_code=200, content=current_user.model_dump())
 

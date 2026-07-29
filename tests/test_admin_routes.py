@@ -281,6 +281,8 @@ class TestAdminCreateProduct:
         assert response.status_code == 409
         body = response.json()
         assert body["error"]["code"] == "DUPLICATE"
+        assert "details" in body["error"]
+        assert body["error"]["details"] is None
 
     @pytest.mark.asyncio
     async def test_returns_422_for_invalid_data(self, admin_client):
@@ -413,6 +415,54 @@ class TestAdminDeleteProduct:
 
 class TestAdminCSVImport:
     """Tests for POST /v1/admin/products/import."""
+
+    @pytest.mark.asyncio
+    async def test_import_invalid_utf8_returns_invalid_csv(self, admin_client):
+        response = await admin_client.post(
+            "/v1/admin/products/import",
+            files={"file": ("products.csv", b"id,name_en,price_cents\n\xff", "text/csv")},
+        )
+
+        assert response.status_code == 400
+        body = response.json()
+        assert body["error"] == {
+            "code": "INVALID_CSV",
+            "message": "CSV file must be valid UTF-8",
+            "details": None,
+        }
+
+    @pytest.mark.asyncio
+    async def test_import_full_gallery_reports_image_url_error(self, admin_client):
+        from app.services import product_image_service
+
+        create = await admin_client.post(
+            "/v1/admin/products",
+            json={
+                "id": "full-gallery-candle",
+                "name_en": "Full Gallery",
+                "price_cents": 2000,
+                "stock": 5,
+            },
+        )
+        assert create.status_code == 201
+        for index in range(product_image_service.MAX_IMAGES_PER_PRODUCT):
+            product_image_service.add_existing_image_url(
+                "full-gallery-candle", f"/static/products/existing-{index}.webp"
+            )
+
+        csv_content = (
+            "id,name_en,price_cents,image_url\n"
+            "full-gallery-candle,Full Gallery,2000,/static/products/new.webp\n"
+        )
+        response = await admin_client.post(
+            "/v1/admin/products/import",
+            files={"file": ("products.csv", csv_content, "text/csv")},
+        )
+
+        body = response.json()
+        assert body["updated"] == 0
+        assert body["errors"][0]["row"] == 2
+        assert "maximum images" in body["errors"][0]["message"]
 
     @pytest.mark.asyncio
     async def test_imports_new_products(self, admin_client):

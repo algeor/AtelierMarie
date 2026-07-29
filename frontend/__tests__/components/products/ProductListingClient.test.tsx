@@ -1,5 +1,5 @@
 import React from "react";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { renderWithIntl } from "../../test-utils";
@@ -113,5 +113,35 @@ describe("ProductListingClient taxonomy menu", () => {
     expect(screen.queryByRole("heading", { name: "Small Candle" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Boxes/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Premium/ })).toBeInTheDocument();
+  });
+
+  it("sorts by effective sale price", async () => {
+    window.history.replaceState(null, "", "/en/products?sort=price_asc");
+    renderWithIntl(
+      <ProductListingClient
+        products={[
+          product({
+            id: "sale-candle",
+            name: "Sale Candle",
+            price_cents: 5000,
+            effective_price_cents: 1000,
+            discount_percent: 80,
+            discount_active: true,
+          }),
+          product({
+            id: "plain-candle",
+            name: "Plain Candle",
+            price_cents: 2000,
+            effective_price_cents: 2000,
+          }),
+        ]}
+        taxonomy={taxonomy}
+      />
+    );
+
+    await waitFor(() => {
+      const names = screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent);
+      expect(names).toEqual(["Sale Candle", "Plain Candle"]);
+    });
   });
 });

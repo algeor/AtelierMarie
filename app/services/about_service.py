@@ -5,7 +5,7 @@ import uuid
 
 from app.database import get_db
 from app.services.image_service import process_image, validate_image_file
-from app.utils.sanitize import is_safe_http_or_relative_url, sanitize_text
+from app.utils.sanitize import is_safe_http_or_relative_url, sanitize_text, unsanitize_text
 
 
 class AboutSectionNotFoundError(Exception):
@@ -83,13 +83,13 @@ def _clean_url(value: str | None) -> str | None:
 def _public_section_dict(row: sqlite3.Row) -> dict:
     cta = None
     if row["cta_label"] and row["cta_href"]:
-        cta = {"label": row["cta_label"], "href": row["cta_href"]}
+        cta = {"label": unsanitize_text(row["cta_label"]), "href": row["cta_href"]}
     return {
         "slug": row["slug"],
         "type": row["type"],
-        "heading": row["heading"],
-        "subheading": row["subheading"],
-        "body": row["body"],
+        "heading": unsanitize_text(row["heading"]),
+        "subheading": unsanitize_text(row["subheading"]),
+        "body": unsanitize_text(row["body"]),
         "cta": cta,
         "image": _image_url(_section_owner_slug(row["slug"]), row["image_id"]),
         "items": [],
@@ -101,10 +101,10 @@ def _admin_item_dict(row: sqlite3.Row) -> dict:
     return {
         "id": item_id,
         "section": row["section"],
-        "title_en": row["title_en"],
-        "title_bg": row["title_bg"],
-        "text_en": row["text_en"],
-        "text_bg": row["text_bg"],
+        "title_en": unsanitize_text(row["title_en"]),
+        "title_bg": unsanitize_text(row["title_bg"]),
+        "text_en": unsanitize_text(row["text_en"]),
+        "text_bg": unsanitize_text(row["text_bg"]),
         "image_id": row["image_id"],
         "image": _image_url(_item_owner_slug(item_id), row["image_id"]),
         "link_href": row["link_href"],
@@ -119,14 +119,14 @@ def _admin_section_dict(row: sqlite3.Row) -> dict:
     return {
         "slug": row["slug"],
         "type": row["type"],
-        "heading_en": row["heading_en"],
-        "heading_bg": row["heading_bg"],
-        "subheading_en": row["subheading_en"],
-        "subheading_bg": row["subheading_bg"],
-        "body_en": row["body_en"],
-        "body_bg": row["body_bg"],
-        "cta_label_en": row["cta_label_en"],
-        "cta_label_bg": row["cta_label_bg"],
+        "heading_en": unsanitize_text(row["heading_en"]),
+        "heading_bg": unsanitize_text(row["heading_bg"]),
+        "subheading_en": unsanitize_text(row["subheading_en"]),
+        "subheading_bg": unsanitize_text(row["subheading_bg"]),
+        "body_en": unsanitize_text(row["body_en"]),
+        "body_bg": unsanitize_text(row["body_bg"]),
+        "cta_label_en": unsanitize_text(row["cta_label_en"]),
+        "cta_label_bg": unsanitize_text(row["cta_label_bg"]),
         "cta_href": row["cta_href"],
         "image_id": row["image_id"],
         "image": _image_url(_section_owner_slug(row["slug"]), row["image_id"]),
@@ -184,8 +184,8 @@ def get_public_about(locale: str = "en") -> dict:
                 by_slug[row["section"]]["items"].append(
                     {
                         "id": item_id,
-                        "title": row["title"],
-                        "text": row["text"],
+                        "title": unsanitize_text(row["title"]),
+                        "text": unsanitize_text(row["text"]),
                         "image": _image_url(_item_owner_slug(item_id), row["image_id"]),
                         "link": row["link_href"],
                     }

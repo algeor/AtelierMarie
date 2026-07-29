@@ -233,6 +233,24 @@ class TestUpdateProduct:
         assert product["safety_warnings_en"] == "Never leave unattended."
         assert product["care_instructions_en"] == "Trim wick before use."
 
+    def test_partial_update_preserves_video_in_response(self, _seeded_db):
+        with get_db() as conn:
+            conn.execute(
+                """
+                INSERT INTO product_videos (id, product_id, status, video_url, poster_url)
+                VALUES ('video-1', 'lavender-dream-300ml', 'ready',
+                        '/static/products/video.mp4', '/static/products/poster.webp')
+                """
+            )
+
+        product = product_service.update_product(
+            "lavender-dream-300ml",
+            {"name_en": "Lavender Dream Updated"},
+        )
+
+        assert product["video"] is not None
+        assert product["video"]["video_url"] == "/static/products/video.mp4"
+
     def test_raises_not_found(self, _seeded_db):
         with pytest.raises(NotFoundError):
             product_service.update_product("no-such-product", {"name_en": "X"})

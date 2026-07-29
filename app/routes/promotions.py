@@ -22,6 +22,7 @@ from app.models.promotions import (
     CampaignUpdateRequest,
     PublicBannerResponse,
 )
+from app.responses import error_response
 from app.services import banner_service, promotion_service
 from app.services.product_service import BulkTargetLimitError, DiscountValidationError
 
@@ -30,10 +31,7 @@ public_router = APIRouter()
 
 
 def _campaign_not_found() -> JSONResponse:
-    return JSONResponse(
-        status_code=404,
-        content={"error": {"code": "NOT_FOUND", "message": "Campaign not found"}},
-    )
+    return error_response(404, "NOT_FOUND", "Campaign not found")
 
 
 # --- Admin campaigns -------------------------------------------------------
@@ -98,15 +96,9 @@ async def admin_update_campaign(
     except promotion_service.CampaignNotFoundError:
         return _campaign_not_found()
     except promotion_service.CampaignStateError as e:
-        return JSONResponse(
-            status_code=409,
-            content={"error": {"code": "CAMPAIGN_STATE", "message": str(e)}},
-        )
+        return error_response(409, "CAMPAIGN_STATE", str(e))
     except DiscountValidationError as e:
-        return JSONResponse(
-            status_code=422,
-            content={"error": {"code": "VALIDATION_ERROR", "message": str(e)}},
-        )
+        return error_response(422, "VALIDATION_ERROR", str(e))
     return CampaignResponse(**campaign)
 
 
@@ -142,10 +134,7 @@ async def admin_apply_campaign(campaign_id: str) -> BulkDiscountResponse | JSONR
     except promotion_service.CampaignNotFoundError:
         return _campaign_not_found()
     except BulkTargetLimitError as e:
-        return JSONResponse(
-            status_code=422,
-            content={"error": {"code": "BULK_TARGET_LIMIT_EXCEEDED", "message": str(e)}},
-        )
+        return error_response(422, "BULK_TARGET_LIMIT_EXCEEDED", str(e))
     return BulkDiscountResponse(**result)
 
 

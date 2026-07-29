@@ -22,6 +22,12 @@ class ContactRequest(BaseModel):
             return value.strip()
         return value
 
+    @field_validator("name")
+    @classmethod
+    def single_line_name(cls, value: str) -> str:
+        """Collapse control whitespace so names are safe in email subjects."""
+        return " ".join(value.split())
+
 
 class ContactResponse(BaseModel):
     """Response returned after accepting or silently dropping a contact form."""

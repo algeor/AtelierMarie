@@ -215,6 +215,8 @@ def reorder_items(section: str, ordered_ids: list[int]) -> dict:
     with get_db() as conn:
         if not _section_exists(conn, section):
             raise FaqSectionNotFoundError(f"FAQ section not found: {section}")
+        if len(ordered_ids) != len(set(ordered_ids)):
+            raise FaqValidationError("ordered_ids must not contain duplicates")
         if ordered_ids:
             placeholders = ", ".join("?" for _ in ordered_ids)
             rows = conn.execute(

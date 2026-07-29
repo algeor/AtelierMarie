@@ -46,9 +46,7 @@ class InvalidRetryStateError(PaymentServiceError):
 
     def __init__(self, order_id: str, payment_status: str) -> None:
         self.order_id = order_id
-        super().__init__(
-            f"Order {order_id} has payment_status='{payment_status}', cannot retry"
-        )
+        super().__init__(f"Order {order_id} has payment_status='{payment_status}', cannot retry")
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +143,7 @@ def handle_payment_succeeded(
     order_id: str,
     payment_intent_id: str | None,
     now: str,
+    stripe_session_id: str | None = None,
 ) -> bool:
     """Handle checkout.session.completed: set payment_status='paid', queue 'placed' email.
 
@@ -162,19 +161,43 @@ def handle_payment_succeeded(
             conn.execute("ROLLBACK")
             return False
 
-        conn.execute(
-            "UPDATE orders SET payment_status = 'paid', stripe_payment_intent_id = ? WHERE id = ?",
-            (payment_intent_id, order_id),
-        )
-        # Queue 'placed' email now that payment is confirmed.
         order_row = conn.execute(
-            "SELECT customer_email FROM orders WHERE id = ?", (order_id,)
+            """
+            SELECT customer_email, status, payment_method, payment_status,
+                   stripe_checkout_session_id
+            FROM orders WHERE id = ?
+            """,
+            (order_id,),
         ).fetchone()
+        can_mark_paid = False
         if order_row:
+            stored_session_id = order_row["stripe_checkout_session_id"]
+            session_matches = not stored_session_id or stripe_session_id == stored_session_id
+            can_mark_paid = (
+                order_row["payment_method"] == "card"
+                and order_row["status"] != "cancelled"
+                and order_row["payment_status"] in ("pending", "failed")
+                and session_matches
+            )
+
+        if can_mark_paid:
+            conn.execute(
+                "UPDATE orders SET payment_status = 'paid', stripe_payment_intent_id = ? "
+                "WHERE id = ?",
+                (payment_intent_id, order_id),
+            )
+            # Queue 'placed' email now that payment is confirmed.
             conn.execute(
                 "INSERT INTO order_emails (order_id, event, recipient, status)"
                 " VALUES (?, 'placed', ?, 'queued')",
                 (order_id, order_row["customer_email"]),
+            )
+        else:
+            logger.warning(
+                "stripe_payment_succeeded_ignored",
+                order_id=order_id,
+                event_id=event_id,
+                stripe_session_id=stripe_session_id,
             )
         conn.execute("COMMIT")
     except Exception:

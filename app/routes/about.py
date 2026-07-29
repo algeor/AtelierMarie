@@ -17,6 +17,7 @@ from app.models.about import (
     ReorderAboutSectionsRequest,
 )
 from app.models.products import Locale
+from app.responses import error_response
 from app.services import about_service
 from app.services.about_service import (
     AboutItemNotFoundError,
@@ -206,6 +207,4 @@ async def _read_upload_with_limit(file: UploadFile) -> bytes:
 
 
 def _error(status_code: int, code: str, message: str) -> JSONResponse:
-    return JSONResponse(
-        status_code=status_code, content={"error": {"code": code, "message": message}}
-    )
+    return error_response(status_code, code, message)
