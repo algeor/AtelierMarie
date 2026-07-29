@@ -46,7 +46,7 @@ export function BodyRenderer({ body, className = "" }: { body: string | null; cl
         ) : block.type === "quote" ? (
           <blockquote
             key={`${index}-${block.text}`}
-            className="border-l border-current/25 pl-4 text-lg italic leading-8 text-current sm:text-xl"
+            className="border-l-2 border-muted-gold pl-5 font-heading text-2xl leading-9 text-charcoal sm:text-3xl sm:leading-10"
           >
             &ldquo;{block.text}&rdquo;
           </blockquote>

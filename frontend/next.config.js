@@ -1,12 +1,9 @@
 const createNextIntlPlugin = require("next-intl/plugin");
-const path = require("path");
 
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  distDir: process.env.NEXT_DIST_DIR || ".next",
-  outputFileTracingRoot: path.join(__dirname),
   images: {
     // Disable optimization in dev — product images are placeholders.
     // Switch to optimized + remotePatterns when real backend serves images.

@@ -329,7 +329,7 @@ let nextAboutItemId = 18;
 
 const MOCK_ABOUT_SECTIONS: AboutSectionAdmin[] = [
   mockAboutSection("hero", "hero", 0, "The Atelier Marie", "The Atelier Marie", "Handcrafted Elegance for Beautiful Spaces", "Ръчно изработена елегантност за красиви пространства", "At The Atelier Marie, we create handcrafted candles designed to bring beauty, warmth, and a touch of luxury into your home.", "В The Atelier Marie създаваме ръчно изработени свещи, замислени да внесат красота, топлина и лек досег на лукс във вашия дом.", "Explore our collection", "Разгледайте нашата колекция", "/products"),
-  mockAboutSection("story", "text_image", 1, "Our Story", "Нашата история", "From a Creative Idea to a Handmade Atelier", "От творческа идея до ръчно ателие", "The Atelier Marie began with a simple thought: \"I want something this beautiful in my own home.\"", "The Atelier Marie започна с една проста мисъл: „Искам нещо толкова красиво в собствения си дом.“"),
+  mockAboutSection("story", "text_image", 1, "Our Story", "Нашата история", "From a Creative Idea to a Handmade Atelier", "От творческа идея до ръчно ателие", "The Atelier Marie began with a simple thought:\n\n> I want something this beautiful in my own home.", "The Atelier Marie започна с една проста мисъл:\n\n> Искам нещо толкова красиво в собствения си дом."),
   mockAboutSection("philosophy", "text_band", 2, "Our Philosophy", "Нашата философия", "Candles Designed to Be Admired", "Свещи, създадени, за да им се възхищавате", "We believe candles can be more than a source of light or fragrance.", "Вярваме, че свещите могат да бъдат повече от източник на светлина или аромат."),
   mockAboutSection("differentiators", "cards", 3, "What Makes Our Candles Different", "Какво отличава нашите свещи", "More Than a Candle — A Piece of Art for Your Home", "Повече от свещ — произведение на изкуството за вашия дом", null, null),
   mockAboutSection("process", "timeline", 4, "The Art of Making", "Изкуството на създаването", "Crafted Slowly, Made With Care", "Изработени бавно, създадени с грижа", "Every creation begins with an idea.\n\nBefore a candle reaches your home, it goes through a careful process of design and craftsmanship.", "Всяко творение започва с идея.\n\nПреди една свещ да стигне до вашия дом, тя преминава през внимателен процес на проектиране и изработка."),
@@ -514,7 +514,7 @@ const MOCK_USER: UserResponse = {
 
 // --- In-Memory FAQ State ---
 
-const faqNowIso = "2024-06-01T10:00:00Z";
+const mockFaqTimestamp = "2024-06-01T10:00:00Z";
 
 let mockFaqNextId = 7;
 
@@ -525,8 +525,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
     title_bg: "За нашите свещи",
     icon: "🕯",
     sort_order: 0,
-    created_at: faqNowIso,
-    updated_at: faqNowIso,
+    created_at: mockFaqTimestamp,
+    updated_at: mockFaqTimestamp,
     items: [
       {
         id: 1,
@@ -537,8 +537,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
         answer_bg: "Да. Всяка свещ е изработена с любов на ръка в нашето ателие.",
         sort_order: 0,
         is_published: true,
-        created_at: faqNowIso,
-        updated_at: faqNowIso,
+        created_at: mockFaqTimestamp,
+        updated_at: mockFaqTimestamp,
       },
     ],
   },
@@ -548,8 +548,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
     title_bg: "Грижа и безопасност",
     icon: "✨",
     sort_order: 1,
-    created_at: faqNowIso,
-    updated_at: faqNowIso,
+    created_at: mockFaqTimestamp,
+    updated_at: mockFaqTimestamp,
     items: [
       {
         id: 2,
@@ -562,8 +562,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
           "* Никога не оставяйте горяща свещ без надзор.\n* Дръжте свещите далеч от деца и домашни любимци.",
         sort_order: 0,
         is_published: true,
-        created_at: faqNowIso,
-        updated_at: faqNowIso,
+        created_at: mockFaqTimestamp,
+        updated_at: mockFaqTimestamp,
       },
     ],
   },
@@ -573,8 +573,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
     title_bg: "Поръчки по заявка и подаръци",
     icon: "🎁",
     sort_order: 2,
-    created_at: faqNowIso,
-    updated_at: faqNowIso,
+    created_at: mockFaqTimestamp,
+    updated_at: mockFaqTimestamp,
     items: [
       {
         id: 3,
@@ -585,8 +585,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
         answer_bg: "Да. Обичаме да претворяваме идеите на нашите клиенти.",
         sort_order: 0,
         is_published: true,
-        created_at: faqNowIso,
-        updated_at: faqNowIso,
+        created_at: mockFaqTimestamp,
+        updated_at: mockFaqTimestamp,
       },
     ],
   },
@@ -596,8 +596,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
     title_bg: "Поръчки, доставка и връщане",
     icon: "📦",
     sort_order: 3,
-    created_at: faqNowIso,
-    updated_at: faqNowIso,
+    created_at: mockFaqTimestamp,
+    updated_at: mockFaqTimestamp,
     items: [
       {
         id: 4,
@@ -608,8 +608,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
         answer_bg: "Времето за подготовка варира в зависимост от продукта.",
         sort_order: 0,
         is_published: true,
-        created_at: faqNowIso,
-        updated_at: faqNowIso,
+        created_at: mockFaqTimestamp,
+        updated_at: mockFaqTimestamp,
       },
     ],
   },
