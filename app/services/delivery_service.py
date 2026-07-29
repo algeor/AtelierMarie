@@ -55,6 +55,13 @@ class Office(TypedDict):
 # Raw records as stored in JSON — bilingual, superset of Office.
 _offices_by_courier: dict[Courier, list[dict]] = {}
 
+# Per-courier map from any city spelling (English transliteration OR Bulgarian,
+# both casefolded) to the Bulgarian city name. Econt's pricing API only accepts
+# Cyrillic city names, so a checkout coming in with locale=en sends a Latin city
+# (e.g. "Sadovo") that must be resolved back to "Садово" before pricing. Built
+# from the same office data the /offices and /cities endpoints already expose.
+_city_bg_by_courier: dict[Courier, dict[str, str]] = {}
+
 
 def _load_courier_data(courier: Courier, path: Path) -> list[dict]:
     """Load one courier's JSON file. Missing file → empty list + warning."""
@@ -90,10 +97,24 @@ def _load_courier_data(courier: Courier, path: Path) -> list[dict]:
     return data
 
 
+def _build_city_bg_map(offices: list[dict]) -> dict[str, str]:
+    """Map every casefolded city spelling (BG and EN) to the Bulgarian name."""
+    mapping: dict[str, str] = {}
+    for o in offices:
+        city_bg = o["city"]
+        mapping[city_bg.casefold()] = city_bg
+        city_en = o.get("city_en")
+        if city_en:
+            mapping[city_en.casefold()] = city_bg
+    return mapping
+
+
 def _load_all() -> None:
     """Populate the in-memory cache from all configured courier files."""
     for courier, path in COURIER_FILES.items():
-        _offices_by_courier[courier] = _load_courier_data(courier, path)
+        offices = _load_courier_data(courier, path)
+        _offices_by_courier[courier] = offices
+        _city_bg_by_courier[courier] = _build_city_bg_map(offices)
 
 
 def _resolve_locale(raw: dict, locale: Locale) -> Office:
@@ -189,9 +210,24 @@ def get_cities(
     return result
 
 
+def resolve_city_bg(courier: Courier, city: str) -> str:
+    """Return the Bulgarian spelling of `city` for `courier`'s pricing API.
+
+    Econt's calculate endpoint only accepts Cyrillic city names; a checkout
+    made with locale=en sends a Latin transliteration (e.g. "Sadovo"). Maps
+    either spelling to the Bulgarian name using the courier's office data.
+    Unknown cities pass through unchanged — the caller's live-pricing attempt
+    then either succeeds (city already Cyrillic / recognized by the courier) or
+    degrades to the flat fallback, which is the correct behavior for a city we
+    have no office data for.
+    """
+    return _city_bg_by_courier.get(courier, {}).get(city.casefold(), city)
+
+
 def reload_data() -> None:
     """Reload office data from disk. For post-fetch-script refresh or tests."""
     _offices_by_courier.clear()
+    _city_bg_by_courier.clear()
     _load_all()
 
 

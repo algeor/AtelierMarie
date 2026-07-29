@@ -255,6 +255,8 @@ export interface OrderResponse {
   stripe_checkout_url: string | null;
   items_total_cents: number;
   shipping_cents: number;
+  shipping_price_source: ShippingPriceSource;
+  shipping_is_fallback: boolean;
   total_cents: number;
   customer_email: string;
   customer_name: string | null;
@@ -288,6 +290,7 @@ export interface DeliveryOffice {
   office_id: string;
   office_name: string;
   office_type: OfficeType;
+  city: string;
   phone: string;
 }
 
@@ -316,12 +319,53 @@ export interface OfficeResponse {
   working_hours: string;
 }
 
+// --- Shipping pricing (Phase A) ---
+
+export type ShippingPriceSource = "live" | "table" | "flat";
+
+export interface ShippingQuote {
+  courier: Courier;
+  cents: number;
+  estimated_delivery_days: number | null;
+  is_fallback: boolean;
+  price_source: ShippingPriceSource;
+  quoted_at: string | null;
+}
+
+export interface CalculateShippingRequest {
+  method: DeliveryMethod;
+  city: string;
+  office_id?: string | null;
+  address?: ShippingAddress | null;
+  items_total_cents: number;
+  couriers: Courier[];
+}
+
+// Preview address for /calculate — looser than the checkout DeliveryDoor: only
+// `city` is required and there is no `phone` (a price preview must not force the
+// shopper to enter one). Mirrors app/models/shipping.py:ShippingAddress.
+export interface ShippingAddress {
+  courier: Courier;
+  city: string;
+  postal_code?: string | null;
+  street?: string | null;
+  building?: string | null;
+}
+
+export interface CalculateShippingResponse {
+  quotes: ShippingQuote[];
+}
+
 export interface CreateOrderRequest {
   customer_email: string;
   customer_name?: string | null;
   delivery: DeliveryInfo;
   notes?: string | null;
   payment_method?: PaymentMethod;
+  shipping_cents?: number;
+  shipping_price_source?: ShippingPriceSource;
+  shipping_is_fallback?: boolean;
+  shipping_quoted_at?: string | null;
 }
 
 export interface UpdateOrderStatusRequest {
