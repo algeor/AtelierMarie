@@ -87,6 +87,17 @@ describe("CallbackHandler", () => {
     expect(mockedGetCurrentUser).not.toHaveBeenCalled();
   });
 
+  it("shows cancelled state when OAuth is cancelled", async () => {
+    mockSearchParams = new URLSearchParams("error=oauth_cancelled");
+
+    renderWithIntl(<CallbackHandler />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Sign in cancelled/)).toBeInTheDocument();
+    });
+    expect(mockedGetCurrentUser).not.toHaveBeenCalled();
+  });
+
   it("shows error when getCurrentUser returns null", async () => {
     mockSearchParams = new URLSearchParams("success=true");
     mockedGetCurrentUser.mockResolvedValueOnce(null);

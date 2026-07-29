@@ -8,6 +8,8 @@ We've received your order and are holding it for you. Here's what you ordered:
 - {{ item.product_name }} × {{ item.quantity }} — {{ item.line_total_display }}
 {% endfor %}
 
+Subtotal: {{ items_total_display }}
+Delivery: {{ shipping_display }}
 Total: {{ total_display }}
 {% if payment_method == 'card' %}
 Your payment is being processed. Once your card payment is confirmed, we'll
@@ -24,6 +26,12 @@ Please complete your bank transfer to secure your order:
 Once we receive your payment, we'll send you an order confirmation email.
 Please use the reference number above so we can match your payment to your order.
 {% endif %}
+Terms, withdrawal, returns, and refunds: {{ terms_url }}
+Privacy information: {{ privacy_url }}
+Cookie information: {{ cookies_url }}
+Trader contact: {{ trader_name }} — {{ trader_contact_email }}
+Contact page: {{ contact_url }}
+
 If you have any questions, just reply to this email.
 
 With love,

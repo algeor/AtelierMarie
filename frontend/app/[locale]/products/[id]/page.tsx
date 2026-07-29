@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/Badge";
 import { AddToCartSection } from "@/components/products/AddToCartSection";
 import { ProductSocialSection } from "@/components/products/ProductSocialSection";
 import type { Locale } from "@/i18n/routing";
+import { LEGAL_IDENTITY } from "@/lib/legal";
 import { getLocalizedAlternates } from "@/lib/seo";
 
 interface ProductPageProps {
@@ -116,6 +117,46 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
             productId={product.id}
             stock={product.stock}
           />
+
+          <section className="rounded-brand border border-champagne-beige bg-cream p-4" aria-labelledby="product-safety-heading">
+            <h2 id="product-safety-heading" className="font-heading text-lg text-charcoal">
+              {t("safetyTitle")}
+            </h2>
+            <dl className="mt-3 grid gap-3 text-sm text-soft-brown sm:grid-cols-2">
+              <div>
+                <dt className="font-medium text-charcoal">{t("productIdentifier")}</dt>
+                <dd className="break-words">{product.id}</dd>
+              </div>
+              <div>
+                <dt className="font-medium text-charcoal">{t("responsibleParty")}</dt>
+                <dd>{LEGAL_IDENTITY.responsiblePartyName}</dd>
+              </div>
+              <div>
+                <dt className="font-medium text-charcoal">{t("responsiblePartyAddress")}</dt>
+                <dd className="break-words">{LEGAL_IDENTITY.responsiblePartyAddress}</dd>
+              </div>
+              <div>
+                <dt className="font-medium text-charcoal">{t("responsiblePartyEmail")}</dt>
+                <dd className="break-words">{LEGAL_IDENTITY.responsiblePartyEmail}</dd>
+              </div>
+            </dl>
+            {(product.safety_warnings || product.care_instructions) && (
+              <div className="mt-4 space-y-4 text-sm leading-6 text-soft-brown">
+                {product.safety_warnings && (
+                  <div>
+                    <h3 className="font-medium text-charcoal">{t("safetyWarnings")}</h3>
+                    <p className="mt-1 whitespace-pre-line">{product.safety_warnings}</p>
+                  </div>
+                )}
+                {product.care_instructions && (
+                  <div>
+                    <h3 className="font-medium text-charcoal">{t("careInstructions")}</h3>
+                    <p className="mt-1 whitespace-pre-line">{product.care_instructions}</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
 
           <div className="rounded-brand border border-champagne-beige bg-cream p-4">
             <h2 className="text-sm font-medium text-charcoal">{t("faqLinksTitle")}</h2>

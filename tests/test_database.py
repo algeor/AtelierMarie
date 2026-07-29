@@ -236,11 +236,19 @@ class TestWeightGramsMigration:
 
         cols = _table_columns(conn, "products")
         assert "weight_grams" in cols
+        assert "safety_warnings_en" in cols
+        assert "safety_warnings_bg" in cols
+        assert "care_instructions_en" in cols
+        assert "care_instructions_bg" in cols
         row = conn.execute(
-            "SELECT stock, weight_grams FROM products WHERE id = ?", ("legacy-candle",)
+            "SELECT stock, weight_grams, safety_warnings_en, care_instructions_en "
+            "FROM products WHERE id = ?",
+            ("legacy-candle",),
         ).fetchone()
         assert row["stock"] == 7  # preserved
         assert row["weight_grams"] == 300  # backfilled
+        assert row["safety_warnings_en"] is None
+        assert row["care_instructions_en"] is None
         conn.close()
 
     def test_rebuild_is_idempotent(self):
@@ -253,4 +261,104 @@ class TestWeightGramsMigration:
         # Second run is a no-op (guard: columns == set(_PRODUCT_COLUMNS))
         _migrate_products_table(conn)
         assert "weight_grams" in _table_columns(conn, "products")
+        conn.close()
+
+
+class TestFaqReturnsPolicyMigration:
+    """Existing FAQ seed text is updated conservatively and only once."""
+
+    @staticmethod
+    def _faq_schema_sql() -> str:
+        return """
+        CREATE TABLE schema_migrations (
+            name TEXT PRIMARY KEY,
+            applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE TABLE faq_sections (
+            slug TEXT PRIMARY KEY,
+            title_en TEXT NOT NULL,
+            title_bg TEXT,
+            icon TEXT,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE TABLE faq_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            section TEXT NOT NULL REFERENCES faq_sections(slug),
+            question_en TEXT NOT NULL,
+            question_bg TEXT,
+            answer_en TEXT NOT NULL,
+            answer_bg TEXT,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            is_published INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        """
+
+    def _conn_with_faq_row(self, answer_en: str, answer_bg: str) -> sqlite3.Connection:
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.executescript(self._faq_schema_sql())
+        conn.execute(
+            "INSERT INTO faq_sections (slug, title_en, title_bg, sort_order) "
+            "VALUES ('shipping', 'Orders, Shipping & Returns', 'Поръчки, доставка и връщане', 3)"
+        )
+        conn.execute(
+            """
+            INSERT INTO faq_items (
+                section, question_en, question_bg, answer_en, answer_bg, sort_order
+            ) VALUES ('shipping', 'Do you accept returns?', 'Приемате ли връщания?', ?, ?, 0)
+            """,
+            (answer_en, answer_bg),
+        )
+        return conn
+
+    def test_exact_old_returns_answer_is_updated_and_marked(self):
+        from app.database import (
+            _FAQ_RETURNS_POLICY_MARKER,
+            _NEW_FAQ_RETURNS_ANSWER_BG,
+            _NEW_FAQ_RETURNS_ANSWER_EN,
+            _OLD_FAQ_RETURNS_ANSWER_BG,
+            _OLD_FAQ_RETURNS_ANSWER_EN,
+            _migrate_faq_returns_policy_reference,
+        )
+
+        conn = self._conn_with_faq_row(
+            _OLD_FAQ_RETURNS_ANSWER_EN,
+            _OLD_FAQ_RETURNS_ANSWER_BG,
+        )
+
+        _migrate_faq_returns_policy_reference(conn)
+        _migrate_faq_returns_policy_reference(conn)
+
+        row = conn.execute("SELECT answer_en, answer_bg FROM faq_items").fetchone()
+        assert row["answer_en"] == _NEW_FAQ_RETURNS_ANSWER_EN
+        assert row["answer_bg"] == _NEW_FAQ_RETURNS_ANSWER_BG
+        marker = conn.execute(
+            "SELECT 1 FROM schema_migrations WHERE name = ?",
+            (_FAQ_RETURNS_POLICY_MARKER,),
+        ).fetchone()
+        assert marker is not None
+        conn.close()
+
+    def test_owner_edited_returns_answer_is_preserved(self):
+        from app.database import (
+            _FAQ_RETURNS_POLICY_MARKER,
+            _migrate_faq_returns_policy_reference,
+        )
+
+        conn = self._conn_with_faq_row("Owner custom answer", "Редактиран от собственика")
+
+        _migrate_faq_returns_policy_reference(conn)
+
+        row = conn.execute("SELECT answer_en, answer_bg FROM faq_items").fetchone()
+        assert row["answer_en"] == "Owner custom answer"
+        assert row["answer_bg"] == "Редактиран от собственика"
+        marker = conn.execute(
+            "SELECT 1 FROM schema_migrations WHERE name = ?",
+            (_FAQ_RETURNS_POLICY_MARKER,),
+        ).fetchone()
+        assert marker is not None
         conn.close()

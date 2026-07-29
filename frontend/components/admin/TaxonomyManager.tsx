@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
+import { SaveConfirmation } from "@/components/admin/SaveConfirmation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { ApiError } from "@/lib/api-client";
@@ -24,10 +25,13 @@ interface TaxonomyManagerProps {
  */
 export function TaxonomyManager({ kind }: TaxonomyManagerProps) {
   const t = useTranslations("admin");
+  const tCommon = useTranslations("common");
   const getLocalizedError = useLocalizedError();
   const [terms, setTerms] = useState<AdminTaxonomyTerm[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [saveNotice, setSaveNotice] = useState<{ id: number; message: string } | null>(null);
+  const saveNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [newNameEn, setNewNameEn] = useState("");
   const [newNameBg, setNewNameBg] = useState("");
@@ -58,6 +62,23 @@ export function TaxonomyManager({ kind }: TaxonomyManagerProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind]);
 
+  useEffect(() => {
+    return () => {
+      if (saveNoticeTimerRef.current) clearTimeout(saveNoticeTimerRef.current);
+    };
+  }, []);
+
+  function showSaved(message = tCommon("saved")) {
+    if (saveNoticeTimerRef.current) clearTimeout(saveNoticeTimerRef.current);
+    setSaveNotice((current) => ({
+      id: (current?.id ?? 0) + 1,
+      message,
+    }));
+    saveNoticeTimerRef.current = setTimeout(() => {
+      setSaveNotice(null);
+    }, 3200);
+  }
+
   async function handleCreate() {
     if (!newNameEn.trim()) return;
     setIsCreating(true);
@@ -71,6 +92,7 @@ export function TaxonomyManager({ kind }: TaxonomyManagerProps) {
       setNewNameEn("");
       setNewNameBg("");
       await refresh();
+      showSaved();
     } catch (err) {
       setError(err instanceof ApiError ? getLocalizedError(err.code) : t("taxonomy.saveError"));
     } finally {
@@ -83,6 +105,7 @@ export function TaxonomyManager({ kind }: TaxonomyManagerProps) {
     try {
       await updateTaxonomyTerm(kind, slug, data);
       await refresh();
+      showSaved();
     } catch (err) {
       setError(err instanceof ApiError ? getLocalizedError(err.code) : t("taxonomy.saveError"));
     }
@@ -122,6 +145,7 @@ export function TaxonomyManager({ kind }: TaxonomyManagerProps) {
       await updateTaxonomyTerm(kind, a.slug, { sort_order: bOrder });
       await updateTaxonomyTerm(kind, b.slug, { sort_order: aOrder });
       await refresh();
+      showSaved();
     } catch (err) {
       setError(err instanceof ApiError ? getLocalizedError(err.code) : t("taxonomy.saveError"));
       await refresh(); // resync after a partial failure
@@ -136,6 +160,7 @@ export function TaxonomyManager({ kind }: TaxonomyManagerProps) {
     try {
       await deleteTaxonomyTerm(kind, term.slug);
       await refresh();
+      showSaved();
     } catch (err) {
       if (err instanceof ApiError && err.code === "TAXONOMY_IN_USE") {
         setError(t("taxonomy.inUse", { name: term.name_en }));
@@ -156,6 +181,7 @@ export function TaxonomyManager({ kind }: TaxonomyManagerProps) {
           {error}
         </div>
       )}
+      {saveNotice && <SaveConfirmation key={saveNotice.id} message={saveNotice.message} />}
 
       {/* Create form */}
       <div className="flex flex-wrap items-end gap-3 rounded-brand border border-champagne-beige bg-warm-ivory p-4">

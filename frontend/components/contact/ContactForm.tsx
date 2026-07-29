@@ -2,10 +2,12 @@
 
 import { useCallback, useState, type FormEvent } from "react";
 import { useLocale, useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import { submitContact } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
 import { Button } from "@/components/ui/Button";
+import { policyPath } from "@/lib/legal";
 import type { Locale } from "@/i18n/routing";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -187,6 +189,17 @@ export function ContactForm() {
           </p>
         )}
       </div>
+
+      <p className="mb-4 text-xs leading-5 text-soft-brown/75">
+        {t("privacyNoticePrefix")} {" "}
+        <Link
+          href={policyPath("privacy")}
+          className="font-medium text-soft-brown underline underline-offset-4 transition-colors hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand"
+        >
+          {t("privacyNoticeLink")}
+        </Link>{" "}
+        {t("privacyNoticeSuffix")}
+      </p>
 
       <Button type="submit" size="lg" isLoading={isSubmitting} className="w-full sm:w-auto">
         {isSubmitting ? t("submitting") : t("submit")}

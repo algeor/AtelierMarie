@@ -129,7 +129,7 @@ class TestProcessImage:
         with Image.open(main_path) as img:
             assert img.size == (2000, 1333)
         with Image.open(zoom_path) as img:
-            assert img.size == (2400, 1600)
+            assert img.size == (3000, 2000)
 
     def test_portrait_image_resized(self, tmp_path):
         """Portrait image fits within bounding box."""
@@ -141,7 +141,7 @@ class TestProcessImage:
         with Image.open(main_path) as img:
             assert img.size == (1250, 2500)
         with Image.open(zoom_path) as img:
-            assert img.size == (1500, 3000)
+            assert img.size == (1875, 3750)
 
     def test_small_image_no_upscale(self, tmp_path):
         """Small image is NOT upscaled (thumbnail mode)."""
@@ -507,3 +507,67 @@ class TestProductIdSlugValidation:
         validate_image_file(_make_jpeg(), "valid-slug-123")
         validate_image_file(_make_jpeg(), "ab")
         validate_image_file(_make_jpeg(), "lavender-dream-300ml")
+
+
+def _make_jpeg_with_orientation(width: int, height: int, orientation: int) -> bytes:
+    """Create a JPEG whose EXIF orientation flag requests a rotation.
+
+    Orientation 6 means "rotate 90° CW for display", so the stored pixels are
+    landscape while the intended display is portrait.
+    """
+    img = Image.new("RGB", (width, height), color=(10, 20, 30))
+    from PIL.ExifTags import Base as ExifBase
+
+    exif_data = img.getexif()
+    exif_data[ExifBase.Orientation] = orientation
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", exif=exif_data.tobytes())
+    return buf.getvalue()
+
+
+class TestExifOrientationApplied:
+    """EXIF orientation is baked into the pixels before resizing (upright output)."""
+
+    def test_orientation_6_uprights_portrait_photo(self, tmp_path):
+        # Stored 120x60 landscape, orientation 6 → display is 60x120 portrait.
+        img_data = _make_jpeg_with_orientation(120, 60, orientation=6)
+        process_image(img_data, "sideways-candle", str(tmp_path))
+
+        main_path = tmp_path / "products" / "sideways-candle.webp"
+        with Image.open(main_path) as img:
+            # After exif_transpose the image is uprighted: portrait, not landscape.
+            assert img.width < img.height
+            assert img.size == (60, 120)
+
+    def test_no_orientation_flag_leaves_dimensions(self, tmp_path):
+        # A plain image (editor canvas export carries no EXIF) is a no-op.
+        img_data = _make_jpeg(120, 60)
+        process_image(img_data, "plain-candle", str(tmp_path))
+
+        main_path = tmp_path / "products" / "plain-candle.webp"
+        with Image.open(main_path) as img:
+            assert img.size == (120, 60)
+
+
+class TestQualityAndDimensionConstants:
+    """Quality bump: main q92, zoom 3000x3750 q95; safety ceilings unchanged."""
+
+    def test_output_constants(self):
+        from app.services import image_service as svc
+
+        assert svc._MAIN_QUALITY == 92
+        assert svc._ZOOM_MAX_SIZE == (3000, 3750)
+        assert svc._ZOOM_QUALITY == 95
+        assert svc._THUMB_QUALITY == 80
+
+    def test_zoom_box_under_pixel_ceiling(self):
+        from app.services import image_service as svc
+
+        zoom_pixels = svc._ZOOM_MAX_SIZE[0] * svc._ZOOM_MAX_SIZE[1]
+        assert zoom_pixels <= svc.MAX_IMAGE_PIXELS
+
+    def test_safety_limits_unchanged(self):
+        from app.services import image_service as svc
+
+        assert svc.MAX_IMAGE_PIXELS == 25_000_000
+        assert svc.MAX_FILE_SIZE == 25 * 1024 * 1024

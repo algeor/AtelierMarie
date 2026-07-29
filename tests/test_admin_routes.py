@@ -216,6 +216,29 @@ class TestAdminCreateProduct:
         assert body["price_cents"] == 2000
 
     @pytest.mark.asyncio
+    async def test_creates_product_with_safety_metadata(self, admin_client):
+        response = await admin_client.post(
+            "/v1/admin/products",
+            json={
+                "id": "safety-admin-candle",
+                "name_en": "Safety Admin Candle",
+                "price_cents": 2100,
+                "stock": 7,
+                "safety_warnings_en": "Never leave unattended.",
+                "safety_warnings_bg": "Не оставяйте без надзор.",
+                "care_instructions_en": "Trim wick before use.",
+                "care_instructions_bg": "Подрязвайте фитила преди употреба.",
+            },
+        )
+
+        assert response.status_code == 201
+        body = response.json()
+        assert body["safety_warnings_en"] == "Never leave unattended."
+        assert body["safety_warnings_bg"] == "Не оставяйте без надзор."
+        assert body["care_instructions_en"] == "Trim wick before use."
+        assert body["care_instructions_bg"] == "Подрязвайте фитила преди употреба."
+
+    @pytest.mark.asyncio
     async def test_create_defaults_weight_to_300(self, admin_client):
         response = await admin_client.post(
             "/v1/admin/products",
@@ -258,6 +281,8 @@ class TestAdminCreateProduct:
         assert response.status_code == 409
         body = response.json()
         assert body["error"]["code"] == "DUPLICATE"
+        assert "details" in body["error"]
+        assert body["error"]["details"] is None
 
     @pytest.mark.asyncio
     async def test_returns_422_for_invalid_data(self, admin_client):
@@ -338,6 +363,32 @@ class TestAdminUpdateProduct:
         assert response.json()["weight_grams"] == 420
 
     @pytest.mark.asyncio
+    async def test_partial_update_preserves_safety_metadata(self, admin_client):
+        create = await admin_client.post(
+            "/v1/admin/products",
+            json={
+                "id": "preserve-safety-candle",
+                "name_en": "Preserve Safety",
+                "price_cents": 2100,
+                "stock": 7,
+                "safety_warnings_en": "Never leave unattended.",
+                "care_instructions_en": "Trim wick before use.",
+            },
+        )
+        assert create.status_code == 201
+
+        response = await admin_client.put(
+            "/v1/admin/products/preserve-safety-candle",
+            json={"stock": 3},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["stock"] == 3
+        assert body["safety_warnings_en"] == "Never leave unattended."
+        assert body["care_instructions_en"] == "Trim wick before use."
+
+    @pytest.mark.asyncio
     async def test_returns_404_for_missing(self, admin_client, _products):
         response = await admin_client.put(
             "/v1/admin/products/no-such-product",
@@ -364,6 +415,54 @@ class TestAdminDeleteProduct:
 
 class TestAdminCSVImport:
     """Tests for POST /v1/admin/products/import."""
+
+    @pytest.mark.asyncio
+    async def test_import_invalid_utf8_returns_invalid_csv(self, admin_client):
+        response = await admin_client.post(
+            "/v1/admin/products/import",
+            files={"file": ("products.csv", b"id,name_en,price_cents\n\xff", "text/csv")},
+        )
+
+        assert response.status_code == 400
+        body = response.json()
+        assert body["error"] == {
+            "code": "INVALID_CSV",
+            "message": "CSV file must be valid UTF-8",
+            "details": None,
+        }
+
+    @pytest.mark.asyncio
+    async def test_import_full_gallery_reports_image_url_error(self, admin_client):
+        from app.services import product_image_service
+
+        create = await admin_client.post(
+            "/v1/admin/products",
+            json={
+                "id": "full-gallery-candle",
+                "name_en": "Full Gallery",
+                "price_cents": 2000,
+                "stock": 5,
+            },
+        )
+        assert create.status_code == 201
+        for index in range(product_image_service.MAX_IMAGES_PER_PRODUCT):
+            product_image_service.add_existing_image_url(
+                "full-gallery-candle", f"/static/products/existing-{index}.webp"
+            )
+
+        csv_content = (
+            "id,name_en,price_cents,image_url\n"
+            "full-gallery-candle,Full Gallery,2000,/static/products/new.webp\n"
+        )
+        response = await admin_client.post(
+            "/v1/admin/products/import",
+            files={"file": ("products.csv", csv_content, "text/csv")},
+        )
+
+        body = response.json()
+        assert body["updated"] == 0
+        assert body["errors"][0]["row"] == 2
+        assert "maximum images" in body["errors"][0]["message"]
 
     @pytest.mark.asyncio
     async def test_imports_new_products(self, admin_client):
@@ -486,6 +585,28 @@ class TestAdminCSVImport:
         assert body["is_featured"] is True
         assert body["materials"] == "Soy wax"
         assert body["days_to_craft"] == 4
+
+    @pytest.mark.asyncio
+    async def test_imports_safety_metadata_columns(self, admin_client):
+        csv_content = (
+            "id,name_en,price_cents,safety_warnings_en,safety_warnings_bg,"
+            "care_instructions_en,care_instructions_bg\n"
+            "csv-safety-candle,CSV Safety,2000,Never leave unattended.,"
+            "Не оставяйте без надзор.,Trim wick.,Подрязвайте фитила.\n"
+        )
+        response = await admin_client.post(
+            "/v1/admin/products/import",
+            files={"file": ("products.csv", csv_content, "text/csv")},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["created"] == 1
+        detail = await admin_client.get("/v1/admin/products/csv-safety-candle")
+        body = detail.json()
+        assert body["safety_warnings_en"] == "Never leave unattended."
+        assert body["safety_warnings_bg"] == "Не оставяйте без надзор."
+        assert body["care_instructions_en"] == "Trim wick."
+        assert body["care_instructions_bg"] == "Подрязвайте фитила."
 
     @pytest.mark.asyncio
     async def test_import_without_weight_defaults_new_to_300(self, admin_client):

@@ -29,6 +29,7 @@ from app.email.providers import (
 )
 from app.email.redaction import redact_recipient
 from app.email.renderer import TemplateMissingError, render_template
+from app.legal import LEGAL_IDENTITY, localized_policy_url
 from app.services.order_service import OrderData, _fetch_order_with_items
 
 logger = structlog.get_logger(__name__)
@@ -96,7 +97,17 @@ def _build_email_context(order_data: OrderData, locale: str, settings: Settings)
         "tracking_carrier": order_data["tracking_carrier"],
         "tracking_number": order_data["tracking_number"],
         "tracking_url": order_data["tracking_url"],
-        "admin_order_url": f"{settings.frontend_url}/admin/orders/{order_id}",
+        "admin_order_url": f"{settings.frontend_url.rstrip('/')}/admin/orders/{order_id}",
+        "terms_url": localized_policy_url(settings.frontend_url, locale, "terms"),
+        "privacy_url": localized_policy_url(settings.frontend_url, locale, "privacy"),
+        "cookies_url": localized_policy_url(settings.frontend_url, locale, "cookies"),
+        "contact_url": localized_policy_url(settings.frontend_url, locale, "contact"),
+        "trader_name": LEGAL_IDENTITY["trading_name"],
+        "trader_legal_name": LEGAL_IDENTITY["legal_name"],
+        "trader_contact_email": LEGAL_IDENTITY["contact_email"],
+        "trader_address": LEGAL_IDENTITY["geographic_address"],
+        "trader_registration_number": LEGAL_IDENTITY["registration_number"],
+        "trader_vat_number": LEGAL_IDENTITY["vat_number"],
         # Payment fields (payment-integration) — safe defaults for legacy rows.
         "payment_method": order_data.get("payment_method", "cod"),
         "payment_status": order_data.get("payment_status", "cod_pending"),

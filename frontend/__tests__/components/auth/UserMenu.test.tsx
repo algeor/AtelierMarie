@@ -1,5 +1,5 @@
 import React from "react";
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { renderWithIntl } from "../../test-utils";
@@ -45,6 +45,17 @@ describe("UserMenu", () => {
     const img = document.querySelector("img");
     // next/image proxies external URLs through /_next/image?url=<encoded>&...
     expect(img?.getAttribute("src")).toContain(encodeURIComponent("https://example.com/avatar.jpg"));
+  });
+
+  it("falls back to initial when avatar image fails to load", () => {
+    renderWithIntl(<UserMenu />);
+    const img = document.querySelector("img");
+
+    expect(img).toBeInTheDocument();
+    fireEvent.error(img as HTMLImageElement);
+
+    expect(screen.getByText("M")).toBeInTheDocument();
+    expect(document.querySelector("img")).not.toBeInTheDocument();
   });
 
   it("opens dropdown on click", async () => {
@@ -104,7 +115,7 @@ describe("UserMenu", () => {
     const user = userEvent.setup();
     renderWithIntl(<UserMenu />);
 
-    const trigger = screen.getByRole("button");
+    const trigger = screen.getByRole("button", { name: "My Account" });
     expect(trigger).toHaveAttribute("aria-haspopup", "menu");
     expect(trigger).toHaveAttribute("aria-expanded", "false");
 
@@ -122,7 +133,7 @@ describe("UserMenu with no avatar", () => {
         user: {
           id: "user-001",
           email: "marie@ateliermarie.com",
-          name: "Marie",
+          name: "",
           avatar_url: null,
           is_admin: false,
         },
@@ -139,6 +150,7 @@ describe("UserMenu with no avatar", () => {
     const { renderWithIntl: renderWithFreshIntl } = await import("../../test-utils");
     const { screen: s } = await import("@testing-library/react");
     renderWithFreshIntl(<UserMenuNoAvatar />);
+    expect(s.getByRole("button", { name: "My Account" })).toBeInTheDocument();
     expect(s.getByText("M")).toBeInTheDocument();
   });
 });

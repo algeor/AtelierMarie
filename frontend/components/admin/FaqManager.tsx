@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import {
   createFaqItem,
@@ -10,6 +10,7 @@ import {
   updateFaqItem,
   updateFaqSection,
 } from "@/lib/api";
+import { SaveConfirmation } from "@/components/admin/SaveConfirmation";
 import type {
   FaqAdminResponse,
   FaqItemAdminResponse,
@@ -32,10 +33,13 @@ const EMPTY_DRAFT: Draft = {
 
 export function FaqManager() {
   const t = useTranslations("admin.faq");
+  const tCommon = useTranslations("common");
   const [faq, setFaq] = useState<FaqAdminResponse | null>(null);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [error, setError] = useState<string | null>(null);
   const [validation, setValidation] = useState<Record<string, string>>({});
+  const [saveNotice, setSaveNotice] = useState<{ id: number; message: string } | null>(null);
+  const saveNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,6 +54,23 @@ export function FaqManager() {
       cancelled = true;
     };
   }, [t]);
+
+  useEffect(() => {
+    return () => {
+      if (saveNoticeTimerRef.current) clearTimeout(saveNoticeTimerRef.current);
+    };
+  }, []);
+
+  function showSaved(message = tCommon("saved")) {
+    if (saveNoticeTimerRef.current) clearTimeout(saveNoticeTimerRef.current);
+    setSaveNotice((current) => ({
+      id: (current?.id ?? 0) + 1,
+      message,
+    }));
+    saveNoticeTimerRef.current = setTimeout(() => {
+      setSaveNotice(null);
+    }, 3200);
+  }
 
   function replaceSection(section: FaqSectionAdminResponse) {
     setFaq((current) =>
@@ -124,6 +145,7 @@ export function FaqManager() {
           sort_order: section.sort_order,
         })
       );
+      showSaved();
     } catch {
       setError(t("saveError"));
     }
@@ -152,6 +174,7 @@ export function FaqManager() {
           sort_order: item.sort_order,
         })
       );
+      showSaved();
     } catch {
       setError(t("saveError"));
     }
@@ -160,6 +183,7 @@ export function FaqManager() {
   async function togglePublished(item: FaqItemAdminResponse) {
     try {
       replaceItem(await updateFaqItem(item.id, { is_published: !item.is_published }));
+      showSaved();
     } catch {
       setError(t("saveError"));
     }
@@ -169,6 +193,7 @@ export function FaqManager() {
     setError(null);
     try {
       await deleteFaqItem(itemId);
+      showSaved();
       setFaq((current) =>
         current
           ? {
@@ -193,6 +218,7 @@ export function FaqManager() {
     ordered.splice(nextIndex, 0, item!);
     try {
       setFaq(await reorderFaqItems({ section: section.slug, ordered_ids: ordered.map((item) => item.id) }));
+      showSaved();
     } catch {
       setError(t("saveError"));
     }
@@ -230,6 +256,7 @@ export function FaqManager() {
           : current
       );
       setDrafts((current) => ({ ...current, [sectionSlug]: EMPTY_DRAFT }));
+      showSaved();
     } catch {
       setError(t("saveError"));
     }
@@ -240,6 +267,7 @@ export function FaqManager() {
   return (
     <div className="space-y-6">
       {error && <p className="rounded-brand bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+      {saveNotice && <SaveConfirmation key={saveNotice.id} message={saveNotice.message} />}
       {faq?.sections.map((section) => (
         <section key={section.slug} className="rounded-brand border border-champagne-beige bg-cream p-5">
           <div className="grid gap-4 md:grid-cols-[1fr_1fr_96px_auto] md:items-end">
@@ -337,10 +365,17 @@ function ItemEditor({
   disableDown: boolean;
 }) {
   const t = useTranslations("admin.faq");
+  const statusClass = item.is_published
+    ? "rounded-pill border border-green-200 bg-green-50 px-3 py-1 text-xs font-semibold text-green-700"
+    : "rounded-pill border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700";
+  const visibilityButtonClass = item.is_published
+    ? "rounded-brand border border-red-200 bg-red-50 px-4 py-2 text-xs font-semibold text-red-700 shadow-sm hover:bg-red-100"
+    : "rounded-brand border border-green-200 bg-green-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-green-700";
+
   return (
     <div className="rounded-brand border border-champagne-beige bg-white p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <span className="rounded-pill bg-champagne-beige/60 px-3 py-1 text-xs font-medium text-soft-brown">
+        <span className={statusClass}>
           {item.is_published ? t("published") : t("hidden")}
         </span>
         <div className="flex flex-wrap gap-2">
@@ -350,7 +385,7 @@ function ItemEditor({
           <button type="button" disabled={disableDown} onClick={onMoveDown} className="rounded-brand border border-champagne-beige px-3 py-2 text-xs text-soft-brown disabled:opacity-40">
             {t("moveDown")}
           </button>
-          <button type="button" onClick={() => onToggle(item)} className="rounded-brand border border-champagne-beige px-3 py-2 text-xs text-soft-brown">
+          <button type="button" onClick={() => onToggle(item)} className={visibilityButtonClass}>
             {item.is_published ? t("hide") : t("show")}
           </button>
           <button type="button" onClick={() => onDelete(item.id)} className="rounded-brand border border-red-200 px-3 py-2 text-xs text-red-700">

@@ -62,6 +62,27 @@ describe("renderAtelierSection", () => {
     expect(container.querySelector("section#values")?.className).toContain("scroll-mt-24");
   });
 
+  it("normalizes relative CTA hrefs to absolute internal routes", () => {
+    render(
+      <>
+        {renderAtelierSection(
+          section({
+            slug: "custom_cta",
+            type: "cta_band",
+            heading: "Looking for Something Unique?",
+            body: "Create a personalised candle.",
+            cta: { label: "Request a Custom Order", href: "contact" },
+          })
+        )}
+      </>
+    );
+
+    expect(screen.getByRole("link", { name: "Request a Custom Order" })).toHaveAttribute(
+      "href",
+      "/contact"
+    );
+  });
+
   it("returns null for unknown types", () => {
     const rendered = renderAtelierSection(section({ type: "unknown" as AboutSection["type"] }));
     expect(rendered).toBeNull();

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import { BASE_URL } from "@/lib/api-client";
+import { resolveMediaUrl } from "@/lib/media";
 import { cn } from "@/lib/utils";
 
 interface ProductImageProps {
@@ -21,9 +21,7 @@ export function ProductImage({
   className,
 }: ProductImageProps) {
   const [hasError, setHasError] = useState(false);
-  const resolvedImageUrl = imageUrl?.startsWith("/static/")
-    ? `${BASE_URL}${imageUrl}`
-    : imageUrl;
+  const resolvedImageUrl = resolveMediaUrl(imageUrl);
 
   const showPlaceholder = !resolvedImageUrl || hasError;
 

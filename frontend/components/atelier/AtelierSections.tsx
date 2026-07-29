@@ -30,12 +30,20 @@ function Cta({ section }: { section: AboutSection }) {
   if (!section.cta) return null;
   return (
     <Link
-      href={section.cta.href}
+      href={normalizeInternalHref(section.cta.href)}
       className="inline-flex min-h-11 items-center justify-center rounded-brand bg-charcoal px-6 py-3 text-sm font-semibold text-warm-ivory transition-colors hover:bg-soft-brown"
     >
       {section.cta.label}
     </Link>
   );
+}
+
+function normalizeInternalHref(href: string) {
+  const trimmed = href.trim();
+  if (/^[a-z][a-z\d+.-]*:/i.test(trimmed) || /^[/#.]/.test(trimmed)) {
+    return trimmed;
+  }
+  return `/${trimmed}`;
 }
 
 export function Hero({ section }: { section: AboutSection }) {

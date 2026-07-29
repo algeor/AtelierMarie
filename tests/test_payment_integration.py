@@ -55,8 +55,8 @@ def delivery() -> DeliveryInfo:
         method="office",
         office=DeliveryOffice(
             courier="econt",
-            office_id="1001",
-            office_name="Sofia Center",
+            office_id="econt-1029",
+            office_name="София",
             office_type="office",
             phone="+359888000000",
         ),
@@ -249,6 +249,61 @@ class TestHandlePaymentSucceeded:
         ).fetchone()[0]
         assert count == 1
 
+    def test_ignores_cancelled_order(self, conn, delivery):
+        order = _do_checkout(conn, delivery, payment_method="card")
+        conn.execute(
+            "UPDATE orders SET status = 'cancelled', stripe_checkout_session_id = 'cs_current' "
+            "WHERE id = ?",
+            (order["id"],),
+        )
+        conn.commit()
+        now = datetime.now(UTC).strftime(_DT_FMT)
+
+        handle_payment_succeeded(
+            conn, "evt_cancelled", order["id"], "pi_cancelled", now, "cs_current"
+        )
+
+        updated = get_order(conn, order["id"])
+        assert updated["payment_status"] == "pending"
+        count = conn.execute(
+            "SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND event = 'placed'",
+            (order["id"],),
+        ).fetchone()[0]
+        assert count == 0
+
+    def test_ignores_non_card_order(self, conn, delivery):
+        order = _do_checkout(conn, delivery, payment_method="cod")
+        now = datetime.now(UTC).strftime(_DT_FMT)
+
+        handle_payment_succeeded(conn, "evt_cod", order["id"], "pi_cod", now, "cs_cod")
+
+        updated = get_order(conn, order["id"])
+        assert updated["payment_status"] == "cod_pending"
+        count = conn.execute(
+            "SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND event = 'placed'",
+            (order["id"],),
+        ).fetchone()[0]
+        assert count == 1  # the original COD placed email only
+
+    def test_ignores_mismatched_session_id(self, conn, delivery):
+        order = _do_checkout(conn, delivery, payment_method="card")
+        conn.execute(
+            "UPDATE orders SET stripe_checkout_session_id = 'cs_current' WHERE id = ?",
+            (order["id"],),
+        )
+        conn.commit()
+        now = datetime.now(UTC).strftime(_DT_FMT)
+
+        handle_payment_succeeded(conn, "evt_stale", order["id"], "pi_stale", now, "cs_old")
+
+        updated = get_order(conn, order["id"])
+        assert updated["payment_status"] == "pending"
+        count = conn.execute(
+            "SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND event = 'placed'",
+            (order["id"],),
+        ).fetchone()[0]
+        assert count == 0
+
 
 # ---------------------------------------------------------------------------
 # 10.5 handle_session_expired()
@@ -313,10 +368,12 @@ def stripe_app(tmp_path):
 
     get_settings.cache_clear()
     import os
-    os.environ["STRIPE_WEBHOOK_SECRET"] = "whsec_test"
+
+    os.environ["STRIPE_WEBHOOK_SECRET"] = "whsec_test"  # pragma: allowlist secret
     os.environ["DATABASE_PATH"] = db_path
 
     from app.main import create_app
+
     app = create_app()
     yield app
 
@@ -329,6 +386,7 @@ class TestStripeWebhookRoute:
     @pytest.mark.anyio
     async def test_invalid_signature_returns_400(self, stripe_app):
         from httpx import ASGITransport, AsyncClient
+
         async with AsyncClient(
             transport=ASGITransport(app=stripe_app), base_url="http://test"
         ) as client:
@@ -345,9 +403,13 @@ class TestStripeWebhookRoute:
         import sys
         import types
 
-        body = json.dumps({
-            "id": "evt_unknown", "type": "some.unknown.event", "data": {"object": {}},
-        }).encode()
+        body = json.dumps(
+            {
+                "id": "evt_unknown",
+                "type": "some.unknown.event",
+                "data": {"object": {}},
+            }
+        ).encode()
 
         mock_event = MagicMock()
         mock_event.id = "evt_unknown"
@@ -361,6 +423,7 @@ class TestStripeWebhookRoute:
 
         with patch.dict(sys.modules, {"stripe": fake_stripe}):
             from httpx import ASGITransport, AsyncClient
+
             async with AsyncClient(
                 transport=ASGITransport(app=stripe_app), base_url="http://test"
             ) as client:
@@ -380,6 +443,7 @@ class TestStripeWebhookRoute:
 class TestAutoCancel:
     def _run(self, conn):
         from app.main import _cancel_abandoned_card_orders
+
         with patch("app.main.get_db") as m:
             m.return_value.__enter__ = lambda s: conn
             m.return_value.__exit__ = MagicMock(return_value=False)
@@ -390,8 +454,13 @@ class TestAutoCancel:
         sid = uuid.uuid4().hex
         _add_cart(conn, sid, pid, qty=2)
         order = checkout(
-            conn, session_id=sid, customer_email="x@x.com", customer_name=None,
-            delivery=delivery, notes=None, payment_method="card",
+            conn,
+            session_id=sid,
+            customer_email="x@x.com",
+            customer_name=None,
+            delivery=delivery,
+            notes=None,
+            payment_method="card",
         )
         stock_after_order = conn.execute(
             "SELECT stock FROM products WHERE id = ?", (pid,)
@@ -402,9 +471,10 @@ class TestAutoCancel:
         self._run(conn)
         updated = get_order(conn, order["id"])
         assert updated["status"] == "cancelled"
-        assert conn.execute(
-            "SELECT stock FROM products WHERE id = ?", (pid,)
-        ).fetchone()[0] == stock_after_order + 2
+        assert (
+            conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0]
+            == stock_after_order + 2
+        )
 
     def test_does_not_cancel_cod_orders(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="cod")

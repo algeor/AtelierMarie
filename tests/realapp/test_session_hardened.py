@@ -3,6 +3,7 @@
 import re
 import sqlite3
 from datetime import UTC, datetime, timedelta
+from http.cookies import SimpleCookie
 from unittest.mock import patch
 
 import pytest
@@ -10,10 +11,23 @@ from httpx import AsyncClient
 
 from app.config import get_settings
 from app.middleware.session import rotate_session
+from app.models.users import UserResponse
+from app.services import auth_service
 
 # SQLite-compatible datetime format
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
 _UUID4_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+
+
+def _set_cookie_values(response, cookie_name: str) -> list[str]:
+    """Return values for a Set-Cookie name, preserving duplicate headers."""
+    values: list[str] = []
+    for header in response.headers.get_list("set-cookie"):
+        cookie = SimpleCookie()
+        cookie.load(header)
+        if cookie_name in cookie:
+            values.append(cookie[cookie_name].value)
+    return values
 
 
 # --- 7.1 No cookie → new session created ---
@@ -376,6 +390,49 @@ def test_session_rotation_migrates_cart(db_path: str, app):
     assert items[2]["quantity"] == 1
 
     conn.close()
+
+
+@pytest.mark.asyncio
+async def test_logout_sets_single_rotated_session_cookie(client: AsyncClient, db_path: str):
+    """Logout must not append the stale request session cookie after rotation."""
+    settings = get_settings()
+    old_session = "aaaaaaaa-bbbb-4ccc-9ddd-eeeeeeeeeeee"
+    user = UserResponse(
+        id="user-logout-rotation",
+        email="logout@example.com",
+        name="Logout User",
+        avatar_url=None,
+        is_admin=False,
+    )
+
+    now = datetime.now(UTC)
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO users (id, google_id, email, name) VALUES (?, ?, ?, ?)",
+        (user.id, "google-logout-rotation", user.email, user.name),
+    )
+    conn.execute(
+        "INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+        (
+            old_session,
+            user.id,
+            now.strftime(_DT_FMT),
+            (now + timedelta(days=30)).strftime(_DT_FMT),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    client.cookies.set(settings.session_cookie_name, old_session)
+    client.cookies.set(settings.jwt_cookie_name, auth_service.create_jwt(user, old_session))
+
+    response = await client.post("/v1/auth/logout")
+
+    assert response.status_code == 200
+    assert response.headers["X-Session-Rotated"] == "true"
+    session_cookie_values = _set_cookie_values(response, settings.session_cookie_name)
+    assert len(session_cookie_values) == 1
+    assert session_cookie_values[0] != old_session
 
 
 # --- 7.12 DB failure during session middleware ---

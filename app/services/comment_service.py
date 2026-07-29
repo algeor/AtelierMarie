@@ -3,7 +3,7 @@
 import uuid
 
 from app.database import get_db
-from app.utils.sanitize import contains_blocked_word, is_url_only, sanitize_text
+from app.utils.sanitize import contains_blocked_word, is_url_only, sanitize_text, unsanitize_text
 
 
 class ProductNotFoundError(Exception):
@@ -132,10 +132,17 @@ def create_comment(
 
     return {
         "id": comment_id,
-        "display_name": display_name,
-        "body": body,
+        "display_name": unsanitize_text(display_name),
+        "body": unsanitize_text(body),
         "created_at": _get_comment_created_at(comment_id),
     }
+
+
+def _comment_row_to_dict(row) -> dict:
+    data = dict(row)
+    data["display_name"] = unsanitize_text(data.get("display_name"))
+    data["body"] = unsanitize_text(data.get("body"))
+    return data
 
 
 def _get_comment_created_at(comment_id: str) -> str:
@@ -186,7 +193,7 @@ def list_comments(
             (product_id, limit, offset),
         ).fetchall()
 
-    return [dict(row) for row in rows], total
+    return [_comment_row_to_dict(row) for row in rows], total
 
 
 def delete_comment(comment_id: str) -> None:
@@ -238,4 +245,4 @@ def list_all_comments(
             [*params, limit, offset],
         ).fetchall()
 
-    return [dict(row) for row in rows], total
+    return [_comment_row_to_dict(row) for row in rows], total

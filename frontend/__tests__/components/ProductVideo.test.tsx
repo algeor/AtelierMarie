@@ -1,6 +1,6 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import { renderWithIntl } from "../test-utils";
 import { ProductCard } from "@/components/products/ProductCard";
 import { ProductGallery } from "@/components/products/ProductGallery";
@@ -30,6 +30,7 @@ function image(id: string, sortOrder: number): ProductImage {
     id,
     image_url: `/static/products/${id}.webp`,
     thumbnail_url: `/static/products/${id}-thumb.webp`,
+    zoom_url: `/static/products/${id}-zoom.webp`,
     sort_order: sortOrder,
     is_primary: sortOrder === 0,
   };
@@ -56,6 +57,8 @@ function product(overrides: Partial<ProductResponse> = {}): ProductResponse {
     id: "candle",
     name: "Candle",
     description: null,
+    safety_warnings: null,
+    care_instructions: null,
     materials: null,
     days_to_craft: null,
     price_cents: 3200,
@@ -63,6 +66,10 @@ function product(overrides: Partial<ProductResponse> = {}): ProductResponse {
     discount_percent: null,
     discount_active: false,
     category: null,
+    category_name: null,
+    product_type: "candles",
+    product_type_name: "Candles",
+    labels: [],
     images: [],
     video: null,
     primary_image_url: "/static/products/candle.webp",
@@ -91,7 +98,7 @@ beforeEach(() => {
 
 describe("product video rendering", () => {
   it("inserts the video thumbnail at the configured gallery position", () => {
-    const { container } = render(
+    const { container } = renderWithIntl(
       <ProductGallery
         name="Candle"
         images={[image("first", 0), image("second", 1)]}
@@ -112,7 +119,7 @@ describe("product video rendering", () => {
   });
 
   it("places the video thumbnail last when sort order exceeds image count", () => {
-    const { container } = render(
+    const { container } = renderWithIntl(
       <ProductGallery
         name="Candle"
         images={[image("first", 0), image("second", 1)]}
@@ -144,7 +151,7 @@ describe("product video rendering", () => {
       dispatchEvent: vi.fn(),
     }));
 
-    const { container } = render(
+    const { container } = renderWithIntl(
       <ProductGallery
         name="Candle"
         images={[image("first", 0)]}

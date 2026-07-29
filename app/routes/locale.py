@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.database import get_db
 from app.models.products import Locale
+from app.responses import error_response
 
 router = APIRouter()
 
@@ -26,10 +27,7 @@ async def update_locale(body: UpdateLocaleRequest, request: Request) -> JSONResp
     """Update the preferred locale stored in the session row."""
     session_id = request.state.session_id
     if not session_id:
-        return JSONResponse(
-            status_code=400,
-            content={"error": {"code": "NO_SESSION", "message": "No active session"}},
-        )
+        return error_response(400, "NO_SESSION", "No active session")
 
     with get_db() as conn:
         conn.execute(

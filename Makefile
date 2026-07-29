@@ -72,16 +72,16 @@ dev: ## Start both backend and frontend (requires two terminals — use dev-back
 	@echo "Or: make dev-backend & make dev-frontend"
 
 dev-backend: ## Start FastAPI dev server (port 8000)
-	.venv/bin/uvicorn app.main:app --reload --port 8000 --reload-exclude '.venv'
+	.venv/bin/uvicorn app.main:app --reload --reload-dir app --port 8000
 
 dev-frontend: ## Start Next.js dev server (port 3000)
-	cd frontend && npm run dev
+	npm run dev
 
 # ─── Clean ────────────────────────────────────────────────────────────────────
 
 clean: ## Remove build artifacts, caches, venv
 	rm -rf .venv
-	rm -rf frontend/node_modules frontend/.next
+	rm -rf frontend/node_modules frontend/.next frontend/.next-dev frontend/.next-build
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
 	@echo "✓ Cleaned"

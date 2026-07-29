@@ -22,6 +22,13 @@ def sanitize_text(text: str) -> str:
     return html.escape(text, quote=True)
 
 
+def unsanitize_text(text: str | None) -> str | None:
+    """Decode text that was stored with sanitize_text for plain-text API output."""
+    if text is None:
+        return None
+    return html.unescape(text)
+
+
 def is_url_only(text: str) -> bool:
     """Return True if text is solely a URL (protocol required).
 

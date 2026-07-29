@@ -17,6 +17,7 @@ from app.models.taxonomy import (
     TaxonomyResponse,
     UpdateTaxonomyTermRequest,
 )
+from app.responses import error_response
 from app.services import taxonomy_service
 from app.services.taxonomy_service import (
     Kind,
@@ -70,10 +71,7 @@ def _update_term(
     except TaxonomyNotFoundError:
         return _not_found(kind)
     except TaxonomyValidationError as e:
-        return JSONResponse(
-            status_code=422,
-            content={"error": {"code": "INVALID_TAXONOMY", "message": str(e)}},
-        )
+        return error_response(422, "INVALID_TAXONOMY", str(e))
     return AdminTaxonomyTerm(**term)
 
 
@@ -83,18 +81,12 @@ def _delete_term(kind: Kind, slug: str) -> Response:
     except TaxonomyNotFoundError:
         return _not_found(kind)
     except TaxonomyInUseError as e:
-        return JSONResponse(
-            status_code=409,
-            content={"error": {"code": "TAXONOMY_IN_USE", "message": str(e)}},
-        )
+        return error_response(409, "TAXONOMY_IN_USE", str(e))
     return Response(status_code=204)
 
 
 def _not_found(kind: Kind) -> JSONResponse:
-    return JSONResponse(
-        status_code=404,
-        content={"error": {"code": "NOT_FOUND", "message": f"{kind} term not found"}},
-    )
+    return error_response(404, "NOT_FOUND", f"{kind} term not found")
 
 
 # --- Product types ---

@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.database import get_db
+from app.responses import error_response
 from app.services.payment_service import _now_str, handle_payment_succeeded, handle_session_expired
 from app.services.webhook_service import (
     WebhookVerificationError,
@@ -36,10 +37,7 @@ async def zeptomail_webhook(request: Request) -> JSONResponse:
 
     raw_body = await request.body()
     if len(raw_body) > _MAX_BODY_BYTES:
-        return JSONResponse(
-            status_code=413,
-            content={"error": {"code": "PAYLOAD_TOO_LARGE", "message": "Body too large"}},
-        )
+        return error_response(413, "PAYLOAD_TOO_LARGE", "Body too large")
 
     try:
         verify_signature(
@@ -49,20 +47,14 @@ async def zeptomail_webhook(request: Request) -> JSONResponse:
         )
     except WebhookVerificationError as exc:
         logger.warning("webhook_signature_rejected", reason=str(exc))
-        return JSONResponse(
-            status_code=401,
-            content={"error": {"code": "INVALID_SIGNATURE", "message": "Signature rejected"}},
-        )
+        return error_response(401, "INVALID_SIGNATURE", "Signature rejected")
 
     import json
 
     try:
         payload = json.loads(raw_body)
     except (ValueError, UnicodeDecodeError):
-        return JSONResponse(
-            status_code=400,
-            content={"error": {"code": "INVALID_PAYLOAD", "message": "Malformed JSON"}},
-        )
+        return error_response(400, "INVALID_PAYLOAD", "Malformed JSON")
 
     result = handle_webhook_event(payload if isinstance(payload, dict) else {})
     return JSONResponse(status_code=200, content=result)
@@ -92,15 +84,7 @@ async def stripe_webhook(request: Request) -> JSONResponse:
         event = stripe.Webhook.construct_event(raw_body, sig_header, webhook_secret)
     except Exception as exc:
         logger.warning("stripe_webhook_signature_rejected", error=str(exc))
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": {
-                    "code": "INVALID_SIGNATURE",
-                    "message": "Stripe signature rejected",
-                }
-            },
-        )
+        return error_response(400, "INVALID_SIGNATURE", "Stripe signature rejected")
 
     now = _now_str()
     event_id = event.id
@@ -111,7 +95,15 @@ async def stripe_webhook(request: Request) -> JSONResponse:
     with get_db() as conn:
         if event_type == "checkout.session.completed":
             payment_intent_id = getattr(session_obj, "payment_intent", None)
-            handle_payment_succeeded(conn, event_id, order_id, payment_intent_id, now)
+            stripe_session_id = getattr(session_obj, "id", None)
+            handle_payment_succeeded(
+                conn,
+                event_id,
+                order_id,
+                payment_intent_id,
+                now,
+                stripe_session_id,
+            )
         elif event_type == "checkout.session.expired":
             stripe_session_id = getattr(session_obj, "id", None) or ""
             handle_session_expired(conn, event_id, order_id, stripe_session_id, now)

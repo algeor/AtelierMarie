@@ -57,6 +57,9 @@ class TestAdminDashboard:
         assert body["orders"]["revenue_cents"] == 0
         assert body["orders"]["by_status"] == {}
         assert body["low_stock_count"] == 0
+        assert body["orders_today"] == 0
+        assert body["revenue_this_week_cents"] == 0
+        assert body["active_product_count"] == 0
 
     @pytest.mark.asyncio
     async def test_dashboard_with_data(self, admin_client, _seeded_data):
@@ -80,6 +83,9 @@ class TestAdminDashboard:
 
         # Low stock (stock <= 5 AND active): candle-b (3), candle-c (0)
         assert body["low_stock_count"] == 2
+        assert body["orders_today"] == 5
+        assert body["revenue_this_week_cents"] == 18000
+        assert body["active_product_count"] == 3
 
     @pytest.mark.asyncio
     async def test_dashboard_requires_auth(self, app):

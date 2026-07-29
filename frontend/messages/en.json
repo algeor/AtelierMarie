@@ -7,6 +7,7 @@
     "close": "Close",
     "dismiss": "Dismiss",
     "save": "Save",
+    "saved": "Saved.",
     "cancel": "Cancel",
     "delete": "Delete",
     "edit": "Edit",
@@ -32,7 +33,11 @@
   },
   "header": {
     "cartLabel": "Shopping cart",
-    "cartLabelWithItems": "Shopping cart, {count} {count, plural, one {item} other {items}}"
+    "cartLabelWithItems": "Shopping cart, {count} {count, plural, one {item} other {items}}",
+    "openMenu": "Open menu",
+    "closeMenu": "Close menu",
+    "mobileMenuTitle": "Menu",
+    "language": "Language"
   },
   "footer": {
     "handcrafted": "Handcrafted with love",
@@ -64,7 +69,10 @@
     "submit": "Send message",
     "submitting": "Sending...",
     "success": "Thank you. We will get back to you soon.",
-    "genericError": "Something went wrong. Please try again later."
+    "genericError": "Something went wrong. Please try again later.",
+    "privacyNoticePrefix": "We use your contact details and message only to respond to your inquiry. See our",
+    "privacyNoticeLink": "Privacy Policy",
+    "privacyNoticeSuffix": "for details."
   },
   "faq": {
     "eyebrow": "Atelier Marie",
@@ -90,6 +98,127 @@
         "text": "Custom requests and order questions are answered directly from the atelier."
       }
     ]
+  },
+  "terms": {
+    "metaTitle": "Terms & Conditions | Atelier Marie",
+    "metaDescription": "Terms and conditions for Atelier Marie orders, delivery, withdrawal, returns, custom products, faulty items, and refunds.",
+    "eyebrow": "Atelier Marie",
+    "title": "Terms & Conditions",
+    "subtitle": "Please read these terms before placing an order. They explain ordering, delivery, withdrawal, returns, custom products, faulty items, and refunds.",
+    "lastUpdated": "Last updated: 29 July 2026",
+    "footerLink": "Terms & Conditions",
+    "checkoutPrefix": "By placing an order, you agree to our",
+    "checkoutLink": "Terms & Conditions",
+    "checkoutSuffix": "including delivery, withdrawal, and returns information.",
+    "navLabel": "Terms sections",
+    "backToTop": "Back to top",
+    "sections": [
+      {
+        "id": "seller",
+        "title": "Seller information",
+        "nav": "Seller",
+        "body": [
+          "This website is operated by Atelier Marie. Full legal identity, geographic address, registration, and VAT/tax status are shown in the trader details on this page and must be reviewed before launch.",
+          "For order questions, withdrawal notices, returns, damaged items, privacy requests, or other support, contact us through the Contact Form or by email at contacts@theateliermarie.com."
+        ]
+      },
+      {
+        "id": "products",
+        "title": "Products and handmade variations",
+        "nav": "Products",
+        "body": [
+          "Atelier Marie candles are handmade. Small variations in colour, finish, decorative details, weight, or appearance may occur and are part of the handmade character of the product.",
+          "Product photos and descriptions are prepared carefully, but handmade items may not be identical to the exact photographed piece."
+        ]
+      },
+      {
+        "id": "orders",
+        "title": "Orders and payment",
+        "nav": "Orders",
+        "body": [
+          "When you place an order, you must provide accurate contact and delivery details so we can process and deliver it.",
+          "Product prices are shown in the storefront currency before you place the order. VAT/tax wording must match the final owner-provided VAT status before launch.",
+          "Available payment methods and any known delivery charges are shown during checkout before you place the order. An order may require confirmation before dispatch."
+        ]
+      },
+      {
+        "id": "delivery",
+        "title": "Delivery",
+        "nav": "Delivery",
+        "body": [
+          "Delivery options, courier details, and any delivery charges are shown during checkout before you place the order.",
+          "If preparation or delivery is delayed, we will contact you using the details provided with the order."
+        ]
+      },
+      {
+        "id": "returns",
+        "title": "Right of withdrawal and returns",
+        "nav": "Returns",
+        "body": [
+          "For standard products bought online, consumers have the right to withdraw from the contract within 14 days from the day they receive the goods, without giving a reason.",
+          "To exercise the right of withdrawal, contact us by email or through the Contact Form before the 14-day period expires.",
+          "Any clear statement that you wish to withdraw from the order is sufficient. You may use the model withdrawal form below, but it is not required.",
+          "After you tell us that you withdraw, you generally have another 14 days to send the goods back. We will provide return instructions and the return address after receiving your message.",
+          "For ordinary withdrawal, photos are not required and you do not need to give a reason.",
+          "Please return items with their original packaging where possible. You may inspect the item as you would in a shop.",
+          "You may be responsible for any loss in value caused by handling beyond what is necessary to inspect the product, including lighting, using, damaging, or over-handling a candle.",
+          "Unless we agree otherwise or the item is faulty, damaged, or incorrect, you are responsible for the direct cost of returning goods under the right of withdrawal."
+        ],
+        "modelFormTitle": "Model withdrawal form",
+        "modelFormIntro": "You may copy this text into an email or contact-form message:",
+        "modelFormLines": [
+          "To Atelier Marie:",
+          "I hereby give notice that I withdraw from my contract of sale for the following goods:",
+          "Ordered on / received on:",
+          "Order number:",
+          "Consumer name:",
+          "Consumer address:",
+          "Date:"
+        ]
+      },
+      {
+        "id": "custom-products",
+        "title": "Custom and personalized products",
+        "nav": "Custom",
+        "body": [
+          "The statutory right of withdrawal does not apply, where legally permitted, to products made to your specifications or clearly personalized.",
+          "This includes candles with custom names, messages, logos, photos, bespoke colours, fragrances, or made-to-order designs requested by you.",
+          "This exception is used narrowly. Choosing a standard size, standard scent, or in-stock design does not by itself make a product personalized."
+        ]
+      },
+      {
+        "id": "faulty-items",
+        "title": "Faulty, damaged, or incorrect items",
+        "nav": "Faulty items",
+        "body": [
+          "The 14-day withdrawal right is separate from your statutory rights for faulty, damaged, incorrect, or non-conforming goods. Those rights remain unaffected.",
+          "If your item arrives damaged, faulty, or incorrect, contact us as soon as possible. Please include your order number and clear photos of the item, packaging, and courier label where relevant so we can resolve the issue quickly.",
+          "For faulty, damaged, or incorrect items, we will handle the appropriate remedy in accordance with applicable consumer law."
+        ]
+      },
+      {
+        "id": "refunds",
+        "title": "Refunds",
+        "nav": "Refunds",
+        "body": [
+          "For valid withdrawal, we will reimburse payments due to you within the required legal deadline. For goods, we may wait until we receive the goods back or you provide evidence that you sent them back, whichever happens first.",
+          "Where required, the refund includes the product price and the least expensive standard delivery option offered for the original order. Extra delivery upgrades, such as express delivery chosen by you, may not be refundable beyond the standard delivery cost.",
+          "Refunds are made using the original payment method where possible. For cash-on-delivery or bank-transfer orders, refunds may be made by bank transfer."
+        ]
+      },
+      {
+        "id": "contact",
+        "title": "Contact",
+        "nav": "Contact",
+        "body": [
+          "For questions about these terms, your order, withdrawal, returns, damaged items, or refunds, contact us through the Contact Form or by email at contacts@theateliermarie.com."
+        ]
+      }
+    ],
+    "identityIntro": "The legal identity, address, registration, VAT/tax status, and responsible-party details are placeholders and must be reviewed before launch.",
+    "policyLinksTitle": "Related policies",
+    "privacyLink": "Privacy Policy",
+    "cookiesLink": "Cookie Policy"
   },
   "auth": {
     "signIn": "Sign In",
@@ -163,7 +292,16 @@
     "questions": "Questions?",
     "zoom": "Zoom",
     "zoomImage": "Zoom image",
-    "closeZoom": "Close zoom"
+    "closeZoom": "Close zoom",
+    "galleryNext": "Next",
+    "galleryPrevious": "Previous",
+    "safetyTitle": "Product safety",
+    "productIdentifier": "Product identifier",
+    "safetyWarnings": "Safety warnings",
+    "careInstructions": "Care and use instructions",
+    "responsibleParty": "Responsible party",
+    "responsiblePartyAddress": "Address",
+    "responsiblePartyEmail": "Contact email"
   },
   "comments": {
     "title": "Comments",
@@ -282,7 +420,15 @@
         "apartment": "Apt/Floor",
         "none": "Not specified"
       }
-    }
+    },
+    "legalPrefix": "By placing an order, you agree to the",
+    "legalTerms": "Terms & Conditions",
+    "legalMiddle": "and understand that we process your contact and delivery data as described in the",
+    "legalPrivacy": "Privacy Policy",
+    "legalSuffix": ".",
+    "shippingLabel": "Delivery",
+    "shippingNotCalculated": "Not separately calculated in this checkout",
+    "totalDue": "Total due now"
   },
   "orders": {
     "title": "My Orders",
@@ -340,7 +486,13 @@
       "bankAmount": "Amount",
       "bankReference": "Reference",
       "bankNote": "Use the reference above so we can match your transfer to your order."
-    }
+    },
+    "subtotal": "Subtotal",
+    "shipping": "Delivery",
+    "shippingZero": "No separate delivery charge in this order",
+    "policyNote": "Withdrawal, returns, and privacy information remain available after purchase:",
+    "termsLink": "Terms & Conditions",
+    "privacyLink": "Privacy Policy"
   },
   "admin": {
     "title": "Admin",
@@ -410,7 +562,7 @@
     "csvColumnDescriptionBg": "Bulgarian description",
     "editProductSubtitle": "Update {name}",
     "csvImport": "CSV Import",
-    "csvImportHelp": "Upload a CSV with columns: id, name_en, name_bg, description_en, description_bg, price_cents, stock, category, image_url, weight_grams, is_active, is_featured, materials, days_to_craft",
+    "csvImportHelp": "Upload a CSV with columns: id, name_en, name_bg, description_en, description_bg, price_cents, stock, category, image_url, weight_grams, is_active, is_featured, materials, days_to_craft, safety_warnings_en, safety_warnings_bg, care_instructions_en, care_instructions_bg",
     "nameEn": "Name (English)",
     "nameBg": "Name (Bulgarian)",
     "descriptionEn": "Description (English)",
@@ -446,6 +598,12 @@
     "selectedFiles": "{count} file(s) selected",
     "largeImageTitle": "Large image",
     "largeImageWarning": "This image is large ({size} MB). Large files can slow your store. Add it anyway?",
+    "cropTitle": "Adjust image",
+    "cropHint": "Drag to reposition, and use the sliders to zoom or rotate. The frame matches how the image appears in your shop.",
+    "cropZoom": "Zoom",
+    "cropRotate": "Rotate",
+    "cropConfirm": "Use image",
+    "cropCancel": "Cancel",
     "addAnyway": "Add anyway",
     "moveUp": "Move up",
     "moveDown": "Move down",
@@ -475,14 +633,15 @@
       "stockNonNegative": "Stock cannot be negative",
       "weightRange": "Weight must be between 1 and 100000 grams",
       "imageType": "Image must be a JPEG or PNG file",
-"imageSize": "Image must be 25 MB or smaller",
+      "imageSize": "Image must be 25 MB or smaller",
       "videoType": "Upload a video file",
       "videoSize": "Video must be 200MB or smaller",
       "maxImages": "A product can have up to 6 images",
       "productTypeRequired": "Product type is required",
       "discountPercentRange": "Discount must be between 1 and 99",
       "discountWindowOrder": "Discount start must be before the end",
-      "discountPercentRequired": "Enter a discount percent when setting a schedule"
+      "discountPercentRequired": "Enter a discount percent when setting a schedule",
+      "safetyTextTooLong": "Safety and care text must be 2000 characters or fewer"
     },
     "errors": {
       "saveProduct": "Failed to save product",
@@ -644,7 +803,17 @@
       },
       "confirmDeleteTitle": "Delete campaign?",
       "filterRequired": "Select at least one filter criterion."
-    }
+    },
+    "safetySectionTitle": "Product safety",
+    "safetySectionHelp": "Optional product-specific candle safety and care text shown on product pages.",
+    "safetyWarningsEn": "Safety warnings (English)",
+    "safetyWarningsBg": "Safety warnings (Bulgarian)",
+    "careInstructionsEn": "Care instructions (English)",
+    "careInstructionsBg": "Care instructions (Bulgarian)",
+    "safetyWarningsEnPlaceholder": "e.g., Never leave a burning candle unattended.",
+    "safetyWarningsBgPlaceholder": "Add Bulgarian safety warnings...",
+    "careInstructionsEnPlaceholder": "e.g., Burn on a heat-resistant surface and trim wick as needed.",
+    "careInstructionsBgPlaceholder": "Add Bulgarian care instructions..."
   },
   "locale": {
     "changeLanguage": "Change language",
@@ -671,6 +840,20 @@
     "BAD_REQUEST": "Please check your request and try again",
     "INVALID_CONTENT_TYPE": "Please check your request and try again",
     "VALIDATION_ERROR": "Please check your input and try again",
+    "product_not_found": "Product not found",
+    "video_not_found": "Product video not found",
+    "video_processing": "The video is still processing. Please wait and try again.",
+    "invalid_product_id": "Invalid product ID",
+    "file_too_large": "The uploaded file is too large",
+    "invalid_video": "The video file could not be used",
+    "video_unavailable": "Video processing is temporarily unavailable",
+    "video_processing_failed": "Video processing failed. Please try another file",
+    "invalid_image_type": "The image file type is not supported",
+    "max_product_images": "This product already has the maximum number of images",
+    "image_dimensions_too_large": "The image dimensions are too large",
+    "image_processing_failed": "Image processing failed. Please try another file",
+    "image_not_found": "Product image not found",
+    "invalid_image_order": "Invalid image order",
     "CAMPAIGN_STATE": "This campaign is live. Remove its discount before editing the discount or target, then re-apply.",
     "BULK_TARGET_LIMIT_EXCEEDED": "This target matches too many products (limit is 500). Narrow the filter or selection.",
     "DUPLICATE": "This item already exists",
@@ -682,5 +865,161 @@
     "INTERNAL_ERROR": "Something went wrong. Please try again.",
     "SERVICE_UNAVAILABLE": "Service is temporarily unavailable. Please try again.",
     "UNKNOWN": "Something went wrong. Please try again."
+  },
+  "legal": {
+    "identityTitle": "Trader and controller details",
+    "tradingName": "Trading name",
+    "legalName": "Legal name",
+    "country": "Country",
+    "geographicAddress": "Geographic address",
+    "contactEmail": "Contact email",
+    "registrationNumber": "Registration number",
+    "vatNumber": "VAT status/number",
+    "responsiblePartyTitle": "Responsible party",
+    "ownerReviewTitle": "Owner review required",
+    "ownerReviewNotice": "The legal identity, address, registration, VAT/tax status, and responsible-party details are placeholders and must be reviewed before launch.",
+    "policyLinksTitle": "Related policies",
+    "termsConditions": "Terms & Conditions",
+    "privacyPolicy": "Privacy Policy",
+    "cookiePolicy": "Cookie Policy",
+    "contactPage": "Contact page"
+  },
+  "privacy": {
+    "metaTitle": "Privacy Policy | Atelier Marie",
+    "metaDescription": "How Atelier Marie processes order, delivery, contact, account, comment, payment, cookie, and email data.",
+    "eyebrow": "Legal information",
+    "title": "Privacy Policy",
+    "subtitle": "This policy explains how we use personal data when you browse the store, contact us, create an account, comment, or place an order.",
+    "lastUpdated": "Last updated: 29 July 2026",
+    "controllerTitle": "Controller details",
+    "sections": [
+      {
+        "id": "data",
+        "title": "Personal data we process",
+        "nav": "Data",
+        "body": [
+          "We process the details you provide when using the store: name, email address, delivery information, phone number for courier delivery, order notes, contact-form messages, and product comments or reactions.",
+          "If you sign in with Google, we receive the account identifiers needed to create and secure your account, such as your email, name, Google ID, and avatar URL when provided by Google.",
+          "For payments, we store order and payment status references. Card payment details are handled by Stripe and are not stored by Atelier Marie. Cash-on-delivery and bank-transfer orders store only the payment method and order status needed to process the order.",
+          "The app also stores session, authentication, locale, cart, order, email-delivery, suppression, security, and technical log data needed to run the service."
+        ]
+      },
+      {
+        "id": "purposes",
+        "title": "Why we use the data",
+        "nav": "Purposes",
+        "body": [
+          "We use order, cart, delivery, and payment data to take steps before entering into a contract, perform the sales contract, arrange delivery, provide order support, and keep purchase records.",
+          "We use contact-form messages and replies to handle your inquiry and any custom-order request. We use account/session data to authenticate you and protect the service.",
+          "We use comments and reactions to provide public product feedback features. We use operational logs, fraud-prevention data, and email delivery records for legitimate interests in security, reliability, and customer support.",
+          "Where the law requires records to be kept, we process the relevant data to comply with legal obligations."
+        ]
+      },
+      {
+        "id": "recipients",
+        "title": "Recipients and processors",
+        "nav": "Recipients",
+        "body": [
+          "We share data only where needed for the current store features: hosting and infrastructure providers, email delivery providers, Google OAuth when you choose Google sign-in, Stripe for card-payment processing references, and courier/order-fulfilment partners where delivery is required.",
+          "We do not describe or use analytics, advertising pixels, newsletter marketing, profiling, or similar non-essential tracking in the current app."
+        ]
+      },
+      {
+        "id": "retention",
+        "title": "Retention",
+        "nav": "Retention",
+        "body": [
+          "Order and accounting records are kept for the period required by applicable law and for handling customer support, returns, withdrawal, and warranty questions.",
+          "Contact messages, email delivery audit rows, suppression records, sessions, carts, comments, and technical logs are kept only as long as needed for the feature, security, support, or legal reason that created them. The executable deletion and erasure workflow is tracked separately from this policy baseline."
+        ]
+      },
+      {
+        "id": "rights",
+        "title": "Your rights",
+        "nav": "Rights",
+        "body": [
+          "Depending on the situation, you may have rights to access, correct, erase, restrict, object to processing, and receive a copy of your personal data. You may also complain to a data protection authority.",
+          "To exercise privacy rights, contact us using the privacy contact email shown on this page. We may need to verify your identity before acting on a request."
+        ]
+      },
+      {
+        "id": "cookies",
+        "title": "Cookies and similar storage",
+        "nav": "Cookies",
+        "body": [
+          "The store currently uses necessary session/authentication cookies and a locale preference cookie. See the Cookie Policy for the current cookie inventory and retention notes.",
+          "A separate consent mechanism should be added before analytics, advertising, profiling, or other non-essential tracking cookies are introduced."
+        ]
+      },
+      {
+        "id": "contact",
+        "title": "Privacy contact",
+        "nav": "Contact",
+        "body": [
+          "For privacy requests or questions, contact Atelier Marie at the email address shown in the controller details above. You can also use the Contact page for ordinary order or product questions."
+        ]
+      }
+    ]
+  },
+  "cookies": {
+    "metaTitle": "Cookie Policy | Atelier Marie",
+    "metaDescription": "Current cookie inventory for Atelier Marie session, authentication, and locale cookies.",
+    "eyebrow": "Legal information",
+    "title": "Cookie Policy",
+    "subtitle": "This policy lists the cookies and similar storage currently used by the store.",
+    "lastUpdated": "Last updated: 29 July 2026",
+    "inventoryTitle": "Current cookie inventory",
+    "headers": {
+      "name": "Name",
+      "purpose": "Purpose",
+      "type": "Type",
+      "duration": "Duration"
+    },
+    "cookies": [
+      {
+        "name": "session_id",
+        "purpose": "Keeps the visitor session, cart, locale preference, and checkout flow associated with the same browser.",
+        "type": "Necessary session cookie",
+        "duration": "Up to the configured session lifetime or until cleared by the browser."
+      },
+      {
+        "name": "atelier_auth",
+        "purpose": "Keeps a signed-in account authenticated after Google OAuth login.",
+        "type": "Necessary authentication cookie",
+        "duration": "Up to the configured authentication lifetime or until sign-out/expiry."
+      },
+      {
+        "name": "NEXT_LOCALE",
+        "purpose": "Stores the selected language so localized pages open in the chosen locale.",
+        "type": "Preference cookie",
+        "duration": "Persistent preference cookie unless cleared by the browser."
+      }
+    ],
+    "sections": [
+      {
+        "id": "necessary",
+        "title": "Necessary and preference cookies",
+        "body": [
+          "The current store uses cookies needed to provide the cart, checkout, account session, language selection, security, and basic site operation.",
+          "Without the necessary session and authentication cookies, core features such as cart continuity, checkout, and account sign-in may not work correctly."
+        ]
+      },
+      {
+        "id": "no-tracking",
+        "title": "No non-essential tracking in the current app",
+        "body": [
+          "The codebase currently contains no analytics, advertising pixels, behavioral profiling, or newsletter marketing tracking. For that reason, the store does not show a marketing-style cookie consent banner now.",
+          "If non-essential tracking is added later, the cookie inventory and consent controls must be updated before that tracking is enabled."
+        ]
+      },
+      {
+        "id": "control",
+        "title": "How to control cookies",
+        "body": [
+          "You can block or delete cookies through your browser settings. Blocking necessary cookies may break sign-in, cart, checkout, or locale features.",
+          "For privacy questions, use the contact details in the Privacy Policy."
+        ]
+      }
+    ]
   }
 }

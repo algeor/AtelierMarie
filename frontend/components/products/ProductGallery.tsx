@@ -1,13 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useTranslations } from "next-intl";
-import { BASE_URL } from "@/lib/api-client";
+import Lightbox, { type Slide } from "yet-another-react-lightbox";
+import Zoom from "yet-another-react-lightbox/plugins/zoom";
+import Video from "yet-another-react-lightbox/plugins/video";
+import Thumbnails from "yet-another-react-lightbox/plugins/thumbnails";
+import "yet-another-react-lightbox/styles.css";
+import "yet-another-react-lightbox/plugins/thumbnails.css";
+import { resolveMediaUrl } from "@/lib/media";
 import { cn } from "@/lib/utils";
 import type { ProductImage as ProductImageModel, ProductVideo } from "@/lib/types";
 import { ProductImage } from "./ProductImage";
-import { VideoLightbox } from "./VideoLightbox";
 
 interface ProductGalleryProps {
   name: string;
@@ -20,19 +25,12 @@ type GalleryItem =
   | { kind: "image"; id: string; image: ProductImageModel }
   | { kind: "video"; id: string; video: ProductVideo };
 
-function resolveImageUrl(url: string | null): string | null {
-  return url?.startsWith("/static/") ? `${BASE_URL}${url}` : url;
-}
-
 export function ProductGallery({ name, images, video, primaryImageUrl }: ProductGalleryProps) {
   const t = useTranslations("products");
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-  const [lightboxVideo, setLightboxVideo] = useState<ProductVideo | null>(null);
-  const [isZoomOpen, setIsZoomOpen] = useState(false);
-  const [zoomFailed, setZoomFailed] = useState(false);
-  const lightboxRef = useRef<HTMLDivElement>(null);
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  // -1 = lightbox closed; otherwise the open slide index.
+  const [lightboxIndex, setLightboxIndex] = useState(-1);
 
   useEffect(() => {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -83,55 +81,34 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
   const selectedImage = selectedItem?.kind === "image" ? selectedItem.image : null;
   const selectedVideo = selectedItem?.kind === "video" ? selectedItem.video : null;
 
-  useEffect(() => {
-    if (!isZoomOpen) return;
+  // One ordered slide array covering every image and the video, mirroring the
+  // gallery order. Image slides use the high-res zoom derivative (falling back
+  // to the main image) so the Zoom plugin can pan into detail; these assets are
+  // only requested by YARL when their slide is shown, not on page load.
+  const slides = useMemo<Slide[]>(
+    () =>
+      galleryItems.map((item) => {
+        if (item.kind === "video") {
+          return {
+            type: "video",
+            poster: resolveMediaUrl(item.video.poster_url) ?? undefined,
+            sources: [
+              { src: resolveMediaUrl(item.video.video_url) ?? "", type: "video/mp4" },
+            ],
+          };
+        }
+        return {
+          src: resolveMediaUrl(item.image.zoom_url ?? item.image.image_url) ?? "",
+          alt: name,
+        };
+      }),
+    [galleryItems, name]
+  );
 
-    const previousActiveElement =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    closeButtonRef.current?.focus();
-    document.body.style.overflow = "hidden";
-    setZoomFailed(false);
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setIsZoomOpen(false);
-        return;
-      }
-      if (event.key !== "Tab") return;
-
-      const dialog = lightboxRef.current;
-      if (!dialog) return;
-      const focusable = Array.from(
-        dialog.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-        )
-      );
-      if (focusable.length === 0) return;
-
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (!first || !last) return;
-      if (!dialog.contains(document.activeElement)) {
-        event.preventDefault();
-        first.focus();
-        return;
-      }
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    }
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = "";
-      previousActiveElement?.focus();
-    };
-  }, [isZoomOpen]);
+  const selectedIndex = Math.max(
+    0,
+    galleryItems.findIndex((item) => item.id === selectedItem?.id)
+  );
 
   if (!selectedItem) {
     return (
@@ -144,18 +121,13 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
     );
   }
 
-  const zoomImageUrl = selectedImage ? selectedImage.zoom_url ?? selectedImage.image_url : null;
-  const resolvedZoomImageUrl = resolveImageUrl(zoomImageUrl);
-  const resolvedMainImageUrl = resolveImageUrl(selectedImage?.image_url ?? null);
-  const zoomDisplayUrl = zoomFailed ? resolvedMainImageUrl : resolvedZoomImageUrl;
-
   return (
     <div className="space-y-3">
       {selectedVideo ? (
         <button
           type="button"
           aria-label={name}
-          onClick={() => setLightboxVideo(selectedVideo)}
+          onClick={() => setLightboxIndex(selectedIndex)}
           className="group relative block w-full overflow-hidden rounded-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
         >
           {prefersReducedMotion ? (
@@ -167,8 +139,8 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
             />
           ) : (
             <video
-              src={resolveImageUrl(selectedVideo.video_url) ?? undefined}
-              poster={resolveImageUrl(selectedVideo.poster_url) ?? undefined}
+              src={resolveMediaUrl(selectedVideo.video_url) ?? undefined}
+              poster={resolveMediaUrl(selectedVideo.poster_url) ?? undefined}
               muted
               autoPlay
               loop
@@ -184,7 +156,7 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
         <button
           type="button"
           aria-label={t("zoomImage")}
-          onClick={() => setIsZoomOpen(true)}
+          onClick={() => setLightboxIndex(selectedIndex)}
           className="group relative block w-full rounded-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
         >
           <ProductImage
@@ -202,7 +174,7 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
       {galleryItems.length > 1 && (
         <div className="grid grid-cols-6 gap-2">
           {galleryItems.map((item) => {
-            const thumbnailUrl = resolveImageUrl(
+            const thumbnailUrl = resolveMediaUrl(
               item.kind === "video" ? item.video.poster_url : item.image.thumbnail_url
             );
             const isSelected = item.id === selectedItem.id;
@@ -234,49 +206,34 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
         </div>
       )}
 
-      {lightboxVideo?.video_url && (
-        <VideoLightbox
-          name={name}
-          videoUrl={lightboxVideo.video_url}
-          posterUrl={lightboxVideo.poster_url}
-          onClose={() => setLightboxVideo(null)}
-        />
-      )}
-
-      {isZoomOpen && zoomDisplayUrl && (
-        <div
-          ref={lightboxRef}
-          role="dialog"
-          aria-modal="true"
-          aria-label={t("zoomImage")}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/90 p-4"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setIsZoomOpen(false);
-          }}
-        >
-          <button
-            ref={closeButtonRef}
-            type="button"
-            aria-label={t("closeZoom")}
-            onClick={() => setIsZoomOpen(false)}
-            className="absolute right-4 top-4 rounded-brand bg-warm-ivory px-3 py-2 text-sm font-medium text-charcoal shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warm-ivory focus-visible:ring-offset-2 focus-visible:ring-offset-charcoal"
-          >
-            {t("closeZoom")}
-          </button>
-          <div className="relative h-[88vh] w-full max-w-6xl">
-            <Image
-              src={zoomDisplayUrl}
-              alt={name}
-              fill
-              sizes="100vw"
-              className="object-contain"
-              onError={() => {
-                if (!zoomFailed) setZoomFailed(true);
-              }}
-            />
-          </div>
-        </div>
-      )}
+      <Lightbox
+        open={lightboxIndex >= 0}
+        index={lightboxIndex >= 0 ? lightboxIndex : 0}
+        close={() => setLightboxIndex(-1)}
+        slides={slides}
+        plugins={[Zoom, Video, Thumbnails]}
+        on={{
+          // Keep the inline hero/thumbnail selection in sync as the user pages.
+          view: ({ index }) => {
+            const item = galleryItems[index];
+            if (item) setSelectedItemId(item.id);
+          },
+        }}
+        carousel={{ finite: true }}
+        controller={{ closeOnBackdropClick: true }}
+        video={{ autoPlay: false, controls: true, playsInline: true }}
+        zoom={{ maxZoomPixelRatio: 3, doubleTapDelay: 300 }}
+        thumbnails={{ vignette: false, borderRadius: 8 }}
+        labels={{
+          Next: t("galleryNext"),
+          Previous: t("galleryPrevious"),
+          Close: t("closeZoom"),
+        }}
+        styles={{
+          // Match the retired modals' luxury charcoal backdrop.
+          container: { backgroundColor: "rgba(43, 38, 34, 0.94)" },
+        }}
+      />
     </div>
   );
 }

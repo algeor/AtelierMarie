@@ -61,8 +61,13 @@ def test_section_slug_and_type_are_immutable(about_db):
 
 
 def test_sanitization_escapes_html_on_write(about_db):
-    updated = about_service.update_section_text(
-        "hero", {"body_en": "<script>alert(1)</script><b>Clean</b>"}
-    )
-    assert "<script>" not in updated["body_en"]
-    assert "&lt;script&gt;" in updated["body_en"]
+    raw_text = "<script>alert(1)</script><b>Clean</b>"
+    updated = about_service.update_section_text("hero", {"body_en": raw_text})
+    assert updated["body_en"] == raw_text
+
+    with get_db() as conn:
+        stored = conn.execute("SELECT body_en FROM about_sections WHERE slug = 'hero'").fetchone()[
+            0
+        ]
+    assert "<script>" not in stored
+    assert "&lt;script&gt;" in stored

@@ -7,7 +7,7 @@ and path-traversal prevention. All images are stored as WebP.
 import re
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from app.config import get_settings
 
@@ -18,10 +18,10 @@ Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 # Output dimensions (max bounding box, aspect ratio preserved)
 _MAIN_MAX_SIZE = (2000, 2500)
 _THUMB_MAX_SIZE = (400, 500)
-_ZOOM_MAX_SIZE = (2400, 3000)
-_MAIN_QUALITY = 88
+_ZOOM_MAX_SIZE = (3000, 3750)  # 11.25 MP — enough pixels to pan into fine detail
+_MAIN_QUALITY = 92
 _THUMB_QUALITY = 80
-_ZOOM_QUALITY = 90
+_ZOOM_QUALITY = 95
 
 # File size limit
 MAX_FILE_SIZE = 25 * 1024 * 1024  # 25MB
@@ -180,6 +180,14 @@ def process_image(
         raise ImageProcessingError("image_dimensions_too_large") from e
     except Exception as e:
         raise ImageProcessingError(f"Image file is corrupted or cannot be processed: {e}") from e
+
+    # Apply EXIF orientation to the pixels BEFORE resizing, then continue.
+    # WebP output below carries no metadata, so the orientation flag would
+    # otherwise be lost without rotating the pixels — leaving phone photos
+    # sideways. exif_transpose bakes the correct orientation into the pixels;
+    # for images with no EXIF (e.g. canvas exports from the admin editor) it is
+    # a no-op.
+    img = ImageOps.exif_transpose(img)
 
     # Convert to RGB if necessary (handles RGBA, P, L modes)
     if img.mode not in ("RGB", "RGBA"):

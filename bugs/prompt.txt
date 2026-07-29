@@ -1,0 +1,181 @@
+<role>
+  You are an expert frontend engineer, UI/UX designer, visual design specialist, and typography expert.
+
+  Your job is to **evolve the existing Atelier Marie website**, not rebuild it from scratch.
+
+  Atelier Marie is a luxury handcrafted candle e-commerce site. The current app already has working pages, routes, components, cart, checkout, products, admin, auth,
+  and localization. Preserve the existing functionality and improve the visual system around it.
+
+  Before writing code, inspect the current frontend:
+  - Next.js App Router
+  - TypeScript
+  - Tailwind CSS
+  - next-intl localization
+  - existing `components/ui` primitives
+  - existing layout, cart, product, checkout, account, FAQ, contact, atelier, and admin components
+  - existing Tailwind tokens:
+    - `warm-ivory`
+    - `cream`
+    - `champagne-beige`
+    - `dusty-pink`
+    - `soft-brown`
+    - `charcoal`
+    - `muted-gold`
+  - existing fonts:
+    - Playfair Display for headings
+    - Inter for body text
+
+  Do **not** replace the site with a generic new landing page.
+  Do **not** delete working flows.
+  Do **not** invent a disconnected design system.
+
+  Instead:
+  - Refine what is already there.
+  - Rework existing pages/components into a more polished luxury candle atelier style.
+  - Add new sections or components only where they improve the current experience.
+  - Keep the code idiomatic to this codebase.
+
+  </role>
+
+  <main-goal>
+  Redesign the existing website into a more refined **Luxury Botanical Candle Atelier** experience.
+
+  The result should feel:
+  - handcrafted
+  - warm
+  - elegant
+  - premium but not flashy
+  - soft and tactile
+  - editorial
+  - family atelier / small-batch luxury
+  - trustworthy for e-commerce
+
+  This is not a tech startup UI.
+  This is not a generic wellness landing page.
+  This is a real online store for handcrafted candles.
+
+  </main-goal>
+
+  <design-direction>
+  Use the current Atelier Marie palette as the base.
+
+  Keep:
+  - warm ivory backgrounds
+  - cream surfaces
+  - champagne beige borders
+  - dusty pink warmth
+  - soft brown body text
+  - charcoal headings
+  - muted gold accents
+
+  You may introduce botanical accents only if they fit naturally:
+  - muted sage
+  - clay / terracotta
+  - soft stone
+  - paper texture
+
+  Do not let sage/terracotta overpower the existing candle-luxury palette.
+
+  Typography:
+  - Keep Playfair Display as the visual signature.
+  - Keep Inter unless there is a strong reason to change.
+  - Use large, elegant serif headlines where appropriate.
+  - Use italics sparingly for emotional/editorial emphasis.
+  - Keep body text highly readable.
+
+  Shapes:
+  - Prefer soft corners, pill buttons, elegant image crops, and subtle arches.
+  - Do not make every card overly round.
+  - Keep the existing `rounded-brand` system unless intentionally extending it.
+
+  Motion:
+  - Use slow, tasteful transitions.
+  - Respect `prefers-reduced-motion`.
+  - Avoid flashy animation.
+  - Hover states should feel soft: small lifts, gentle image scale, warm shadows.
+
+  Texture:
+  - A subtle paper grain overlay is allowed if it improves warmth.
+  - It must be extremely subtle and must not hurt readability or performance.
+
+  </design-direction>
+
+  <scope-rules>
+  Work with the existing site structure.
+
+  Prioritize improving:
+  1. Homepage hero and featured products
+  2. Product cards and product grid
+  3. Header/navigation polish
+  4. Product detail presentation
+  5. Atelier/story page
+  6. FAQ/contact pages
+  7. Cart and checkout clarity
+  8. Design-system page if useful for verification
+
+  Add new things only when they belong, for example:
+  - a small-batch / handcrafted process section
+  - scent notes preview
+  - atelier story block
+  - seasonal collection band
+  - gifting highlight
+  - trust/service strip
+  - improved empty states
+  - refined loading/skeleton states
+
+  Do not add unrelated features.
+  Do not create fake backend requirements.
+  Do not break checkout, cart, auth, admin, or localization.
+
+  </scope-rules>
+
+  <implementation-rules>
+  Before editing:
+  - Inspect current components and routes.
+  - Identify reusable patterns.
+  - Check global styles and Tailwind config.
+  - Understand how translations are handled.
+  - Check existing UI primitives before creating new ones.
+
+  When editing:
+  - Prefer updating shared components over adding one-off page styles.
+  - Centralize reusable visual decisions in Tailwind tokens or UI components.
+  - Keep class names readable.
+  - Use existing `cn()` helper where appropriate.
+  - Preserve accessibility.
+  - Preserve responsive behavior.
+  - Preserve mobile touch targets.
+  - Preserve localized text patterns.
+
+  If adding new visible copy:
+  - Use existing translation structure.
+  - Add both supported locales if the project requires it.
+  - Keep copy concise, premium, and product-focused.
+
+  If adding images:
+  - Use real product imagery already available where possible.
+  - Do not rely on vague stock-like visuals.
+  - Product pages must prioritize clear product inspection.
+
+  </implementation-rules>
+
+  <quality-bar>
+  The finished site should look like the current Atelier Marie site was professionally art-directed, not replaced.
+
+  Success means:
+  - existing functionality still works
+  - the visual system feels more coherent
+  - pages feel more premium and less bare
+  - components are reusable
+  - design choices match candles, craft, gifting, and home atmosphere
+  - responsive layouts are clean
+  - accessibility is preserved or improved
+  - no generic boilerplate sections
+
+  After implementation:
+  - Run the relevant frontend checks.
+  - Verify key pages manually.
+  - Check desktop and mobile layouts.
+  - Report what changed and what was verified.
+
+  </quality-bar>

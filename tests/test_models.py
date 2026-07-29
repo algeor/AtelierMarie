@@ -95,6 +95,20 @@ class TestProductModels:
         assert req.is_active is True
         assert req.is_featured is False
 
+    def test_create_product_rejects_oversized_safety_text(self):
+        with pytest.raises(ValidationError):
+            CreateProductRequest(
+                id="new-candle-200ml",
+                name_en="New Candle",
+                price_cents=2500,
+                stock=10,
+                safety_warnings_en="x" * 2001,
+            )
+
+    def test_update_product_rejects_oversized_care_text(self):
+        with pytest.raises(ValidationError):
+            UpdateProductRequest(care_instructions_bg="x" * 2001)
+
     def test_create_product_weight_defaults_to_300(self):
         req = CreateProductRequest(
             id="new-candle-200ml", name_en="New Candle", price_cents=2500, stock=10

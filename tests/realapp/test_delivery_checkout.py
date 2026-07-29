@@ -78,8 +78,8 @@ DELIVERY_OFFICE_ECONT = {
     "method": "office",
     "office": {
         "courier": "econt",
-        "office_id": "1001",
-        "office_name": "София Център",
+        "office_id": "econt-1029",
+        "office_name": "София",
         "office_type": "office",
         "phone": "+359888123456",
     },
@@ -151,7 +151,7 @@ class TestOfficeDeliveryPersistence:
         assert body["delivery_method"] == "office"
         assert body["delivery_courier"] == "econt"
         # Cyrillic preserved through ensure_ascii=False JSON serialization
-        assert body["delivery_details"]["office_name"] == "София Център"
+        assert body["delivery_details"]["office_name"] == "София"
         assert body["delivery_details"]["phone"] == "+359888123456"
 
 
@@ -271,3 +271,22 @@ class TestCheckoutDeliveryValidation:
     async def test_invalid_delivery_returns_422(self, order_client, payload):
         resp = await order_client.post("/v1/orders", json=payload)
         assert resp.status_code == 422, f"expected 422, got {resp.status_code} for {payload}"
+
+    async def test_nonexistent_office_id_returns_422(self, order_client):
+        payload = {
+            "customer_email": "t@t.com",
+            "delivery": {
+                "method": "office",
+                "office": {
+                    **DELIVERY_OFFICE_ECONT["office"],
+                    "office_id": "econt-missing",
+                },
+            },
+        }
+
+        resp = await order_client.post("/v1/orders", json=payload)
+
+        assert resp.status_code == 422
+        body = resp.json()
+        assert body["error"]["code"] == "INVALID_DELIVERY_OFFICE"
+        assert body["error"]["details"]["office_id"] == "econt-missing"

@@ -1,9 +1,9 @@
 import React from "react";
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithIntl } from "../../test-utils";
 import { ProductGallery } from "@/components/products/ProductGallery";
-import type { ProductImage } from "@/lib/types";
+import type { ProductImage, ProductVideo } from "@/lib/types";
 
 vi.mock("next/image", () => ({
   default: ({ src, alt, ...props }: { src: string; alt: string }) => (
@@ -21,35 +21,48 @@ const image: ProductImage = {
   is_primary: true,
 };
 
+const secondImage: ProductImage = {
+  id: "image-2",
+  image_url: "/static/products/amber.webp",
+  thumbnail_url: "/static/products/amber_thumb.webp",
+  zoom_url: "/static/products/amber_zoom.webp",
+  sort_order: 2,
+  is_primary: false,
+};
+
+const readyVideo: ProductVideo = {
+  id: "vid-1",
+  product_id: "lavender-dreams",
+  status: "ready",
+  video_url: "/static/products/lavender_video.mp4",
+  poster_url: "/static/products/lavender_poster.webp",
+  sort_order: 1,
+  duration_secs: 12,
+  failure_reason: null,
+  created_at: "2024-06-01T10:00:00Z",
+  updated_at: "2024-06-01T10:00:00Z",
+};
+
 describe("ProductGallery", () => {
-  it("renders the main image first and opens the zoom image lazily", () => {
+  it("renders the main image and loads the zoom asset only when the lightbox opens", () => {
     const { container } = renderWithIntl(
       <ProductGallery name="Lavender Dreams" images={[image]} primaryImageUrl={image.image_url} />
     );
 
+    // Hero uses the main derivative; the zoom asset is not requested up front.
     expect(screen.getByAltText("Lavender Dreams")).toHaveAttribute(
       "src",
       expect.stringContaining("/static/products/lavender.webp")
     );
-    expect(container.innerHTML).not.toContain("lavender_zoom.webp");
+    expect(container.ownerDocument.body.innerHTML).not.toContain("lavender_zoom.webp");
 
     fireEvent.click(screen.getByRole("button", { name: "Zoom image" }));
 
-    const dialog = screen.getByRole("dialog", { name: "Zoom image" });
-    expect(dialog).toBeInTheDocument();
-    const renderedImages = screen.getAllByAltText("Lavender Dreams");
-    expect(renderedImages[renderedImages.length - 1]).toHaveAttribute(
-      "src",
-      expect.stringContaining("/static/products/lavender_zoom.webp")
+    // The open lightbox renders the high-res zoom derivative.
+    const zoomImg = Array.from(document.querySelectorAll("img")).find((img) =>
+      img.getAttribute("src")?.includes("lavender_zoom.webp")
     );
-
-    fireEvent.mouseDown(dialog);
-    expect(screen.queryByRole("dialog", { name: "Zoom image" })).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Zoom image" }));
-
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByRole("dialog", { name: "Zoom image" })).not.toBeInTheDocument();
+    expect(zoomImg).toBeTruthy();
   });
 
   it("falls back to the main image when zoom_url is missing", () => {
@@ -63,54 +76,67 @@ describe("ProductGallery", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Zoom image" }));
 
-    const renderedImages = screen.getAllByAltText("Lavender Dreams");
-    expect(renderedImages[renderedImages.length - 1]).toHaveAttribute(
-      "src",
-      expect.stringContaining("/static/products/lavender.webp")
+    // No zoom asset exists, so the lightbox slide uses the main image_url.
+    const slideImg = Array.from(document.querySelectorAll("img")).find((img) =>
+      img.getAttribute("src")?.includes("/static/products/lavender.webp")
     );
+    expect(slideImg).toBeTruthy();
+    expect(document.body.innerHTML).not.toContain("lavender_zoom.webp");
   });
 
-  it("closes the zoom via the close button", () => {
+  it("closes the lightbox via the close control", async () => {
     renderWithIntl(
       <ProductGallery name="Lavender Dreams" images={[image]} primaryImageUrl={image.image_url} />
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Zoom image" }));
-    expect(screen.getByRole("dialog", { name: "Zoom image" })).toBeInTheDocument();
+    const closeButton = screen.getByRole("button", { name: "Close zoom" });
+    expect(closeButton).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Close zoom" }));
-    expect(screen.queryByRole("dialog", { name: "Zoom image" })).not.toBeInTheDocument();
+    fireEvent.click(closeButton);
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Close zoom" })).not.toBeInTheDocument()
+    );
   });
 
-  it("uses the selected thumbnail's zoom_url when multiple images exist", () => {
-    const second: ProductImage = {
-      id: "image-2",
-      image_url: "/static/products/amber.webp",
-      thumbnail_url: "/static/products/amber_thumb.webp",
-      zoom_url: "/static/products/amber_zoom.webp",
-      sort_order: 1,
-      is_primary: false,
-    };
+  it("builds one ordered carousel over images and the video", () => {
     renderWithIntl(
       <ProductGallery
         name="Lavender Dreams"
-        images={[image, second]}
+        images={[image, secondImage]}
+        video={readyVideo}
         primaryImageUrl={image.image_url}
       />
     );
 
-    // Select the second thumbnail (thumbnail buttons are labelled with the product name),
-    // then open the zoom.
+    // Open the lightbox from the hero, then page across to the video slide.
+    fireEvent.click(screen.getByRole("button", { name: "Zoom image" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    // The video slide (sort_order 1, between the two images) is reachable in the
+    // same viewer and carries the video source.
+    const source = document.querySelector('video source[src*="lavender_video.mp4"]');
+    expect(source).toBeTruthy();
+  });
+
+  it("opens the lightbox on the selected thumbnail's image", () => {
+    renderWithIntl(
+      <ProductGallery
+        name="Lavender Dreams"
+        images={[image, secondImage]}
+        primaryImageUrl={image.image_url}
+      />
+    );
+
+    // Thumbnail buttons are labelled with the product name; select the second.
     const thumbs = screen.getAllByRole("button", { name: "Lavender Dreams" });
-    expect(thumbs).toHaveLength(2);
-    fireEvent.click(thumbs[1]!);
+    fireEvent.click(thumbs[thumbs.length - 1]!);
 
     fireEvent.click(screen.getByRole("button", { name: "Zoom image" }));
 
-    const renderedImages = screen.getAllByAltText("Lavender Dreams");
-    expect(renderedImages[renderedImages.length - 1]).toHaveAttribute(
-      "src",
-      expect.stringContaining("/static/products/amber_zoom.webp")
+    const zoomImg = Array.from(document.querySelectorAll("img")).find((img) =>
+      img.getAttribute("src")?.includes("amber_zoom.webp")
     );
+    expect(zoomImg).toBeTruthy();
   });
 });

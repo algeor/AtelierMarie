@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { UserAvatar } from "@/components/auth/UserAvatar";
 
 export function UserMenu() {
   const t = useTranslations("auth");
@@ -47,8 +47,6 @@ export function UserMenu() {
     };
   }, [isOpen]);
 
-  const initial = user?.name?.charAt(0).toUpperCase() ?? user?.email?.charAt(0).toUpperCase() ?? "?";
-
   async function handleSignOut() {
     setIsOpen(false);
     await logout();
@@ -61,21 +59,12 @@ export function UserMenu() {
         onClick={() => setIsOpen(!isOpen)}
         aria-expanded={isOpen}
         aria-haspopup="menu"
+        aria-label={t("myAccount")}
         className="flex items-center gap-2 rounded-brand p-1 transition-colors duration-fast hover:bg-cream focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"
       >
-        {user?.avatar_url ? (
-          <Image
-            src={user.avatar_url}
-            alt=""
-            width={32}
-            height={32}
-            className="w-8 h-8 rounded-full object-cover"
-          />
-        ) : (
-          <span className="w-8 h-8 rounded-full bg-muted-gold text-charcoal flex items-center justify-center text-sm font-medium">
-            {initial}
-          </span>
-        )}
+        {user ? (
+          <UserAvatar name={user.name} email={user.email} avatarUrl={user.avatar_url} />
+        ) : null}
       </button>
 
       {isOpen && (

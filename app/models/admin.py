@@ -28,6 +28,11 @@ class DashboardResponse(BaseModel):
     products: ProductStats
     orders: OrderStats
     low_stock_count: int = Field(..., description="Active products with stock <= 5")
+    orders_today: int = Field(..., description="Orders created today")
+    revenue_this_week_cents: int = Field(
+        ..., description="Non-cancelled revenue from the last 7 days"
+    )
+    active_product_count: int = Field(..., description="Currently active products")
 
 
 class LowStockProductsResponse(BaseModel):
