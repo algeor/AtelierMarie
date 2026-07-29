@@ -147,12 +147,22 @@ def _fetch_econt() -> dict:
 
 
 def _fetch_econt_cities() -> dict:
-    """Fetch Econt's served-cities nomenclature. Credentials optional (public).
+    """Fetch Econt's served-settlements nomenclature. Credentials optional (public).
 
-    Unlike offices (214 office-hosting towns), this returns every place Econt
-    delivers to (~1510) with postCode + region — the source that lets ambiguous
-    same-named towns (e.g. the three "Садово") price live instead of degrading
-    to the flat fallback. See delivery_service.get_places.
+    Despite the endpoint name, `getCities` is NOT towns-only: it is Econt's
+    authoritative list of every settlement it delivers to — villages included
+    (verified live 2026-07-30: Труд, Костиево, Стряма, Калековец, Радиново,
+    Войводиново all present). It returns ~1510 records with postCode + region,
+    of which 1425 support `to_door_courier` and 1407 `to_office_courier`
+    (each record's `servingOffices` array carries the serving types). This is
+    the source that lets ambiguous same-named settlements (e.g. the three
+    "Садово") price live instead of degrading to the flat fallback.
+
+    There is no larger "all places" endpoint: settlements absent here are ones
+    Econt genuinely does not serve, not a gap in our data. `getStreets` gives
+    street-level detail WITHIN a settlement (finer, not more settlements);
+    `getOffices` is narrower still (only 214 office-hosting towns). See
+    delivery_service.get_places.
     """
     return _post_econt(ECONT_CITIES_URL, b'{"countryCode":"BGR"}')
 
