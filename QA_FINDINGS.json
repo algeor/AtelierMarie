@@ -1,0 +1,174 @@
+{
+  "source_prompt": "bugs/bugs_prompt.md",
+  "status": "Investigating",
+  "started": "2026-07-29",
+  "environment": {
+    "workspace": "/Users/I551270/PycharmProjects/AtelierMarie"
+  },
+  "progress": {
+    "areas_tested": [
+      "initial prompt review",
+      "backend automated tests",
+      "backend lint",
+      "frontend lint",
+      "frontend unit test suite isolation",
+      "isolated cart/order API happy path and stock failure",
+      "admin product video update response consistency",
+      "route-level API error envelope consistency"
+    ],
+    "areas_not_yet_tested": [
+      "frontend workflows",
+      "backend APIs",
+      "auth/permissions",
+      "database integrity beyond automated tests and video response probe",
+      "build/test gates",
+      "accessibility",
+      "performance",
+      "error handling",
+      "concurrency"
+    ],
+    "active_hypotheses": [
+      "frontend component test harness is missing shared browser and intl providers",
+      "admin ProductForm test fixture is stale relative to required product taxonomy fields",
+      "product/video attachment is inconsistent across admin product service paths",
+      "custom route errors bypass the global envelope shape"
+    ],
+    "unresolved_anomalies": [
+      "bugs/bugs_prompt.md is staged as an empty new file while the worktree contains the QA prompt",
+      "bugs/prompt.txt is untracked and intentionally untouched"
+    ],
+    "test_accounts_data_created": [],
+    "services_manipulated": [],
+    "major_remaining_attack_surfaces": ["full application surface"]
+  },
+  "summary": {
+    "total_confirmed_bugs": 3,
+    "severity_counts": {
+      "critical": 0,
+      "high": 0,
+      "medium": 3,
+      "low": 0
+    }
+  },
+  "findings": [
+    {
+      "bug_id": "QA-001",
+      "title": "Full frontend test suite fails from broken ProductGallery/ProductVideo/ProductForm test setup",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "area": "Frontend / Tests",
+      "environment": "local workspace, frontend, Vitest v4.1.10, jsdom",
+      "preconditions": ["dependencies installed", "current worktree as of 2026-07-29"],
+      "reproduction_steps": [
+        "Run cd frontend && npm test.",
+        "Run cd frontend && npx vitest run __tests__/components/products/ProductGallery.test.tsx __tests__/components/ProductVideo.test.tsx __tests__/components/admin/ProductForm.test.tsx --reporter=verbose."
+      ],
+      "expected_result": "Frontend regression suite passes or fails only on real product regressions.",
+      "actual_result": "8 tests fail across 3 files.",
+      "reproduction_rate": "2/2 command runs",
+      "evidence": [
+        "npm test: 3 failed files, 8 failed tests, 35 passed files, 230 passed tests.",
+        "ProductGallery.test.tsx: 4 failures with TypeError: window.matchMedia is not a function at frontend/components/products/ProductGallery.tsx:38.",
+        "ProductVideo.test.tsx: 3 failures with missing NextIntlClientProvider at frontend/components/products/ProductGallery.tsx:28.",
+        "ProductForm.test.tsx: onSubmit remains uncalled; rendered form shows Could not load taxonomy. and Product type is required."
+      ],
+      "relevant_logs": [
+        "Failed to call useTranslations because the context from NextIntlClientProvider was not found.",
+        "TypeError: window.matchMedia is not a function",
+        "expected vi.fn() to be called 1 times, but got 0 times"
+      ],
+      "screenshots_or_artifact_paths": [],
+      "api_requests_responses": [],
+      "code_locations": [
+        "frontend/__tests__/components/products/ProductGallery.test.tsx",
+        "frontend/__tests__/components/ProductVideo.test.tsx",
+        "frontend/__tests__/components/admin/ProductForm.test.tsx",
+        "frontend/__tests__/test-utils.tsx",
+        "frontend/components/products/ProductGallery.tsx:28",
+        "frontend/components/products/ProductGallery.tsx:38"
+      ],
+      "database_state": null,
+      "likely_cause": "Test setup lacks a global window.matchMedia shim, ProductVideo tests bypass the shared intl wrapper, and ProductForm tests use a product fixture/mocks that do not satisfy required taxonomy/product_type validation.",
+      "current_investigation_status": "Confirmed",
+      "related_bugs": [],
+      "regression_test_recommendation": "Add global browser API shims, require translated component renders through the shared helper, and keep admin form fixtures/API mocks synchronized with required product fields."
+    },
+    {
+      "bug_id": "QA-002",
+      "title": "Updating an admin product drops existing video from the update response",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "area": "Backend / API / Admin Products",
+      "environment": "isolated temp SQLite DB, local ASGI client, ENVIRONMENT=development, admin bearer key",
+      "preconditions": ["product has an existing product_videos row with status='ready'"],
+      "reproduction_steps": [
+        "Seed product video-candle and a ready product_videos row for it.",
+        "GET /v1/admin/products/video-candle with a valid admin bearer token.",
+        "PATCH /v1/admin/products/video-candle with {\"name_en\":\"Video Candle Updated\"}.",
+        "GET /v1/admin/products/video-candle again."
+      ],
+      "expected_result": "The PATCH response includes the same video object as the GET responses because the product still has a video and the response model includes video.",
+      "actual_result": "The PATCH response returns video: null; both GET responses include the ready video object.",
+      "reproduction_rate": "1/1 isolated API probe",
+      "evidence": [
+        "Before PATCH: GET returned video id video-1 for product video-candle.",
+        "PATCH response: status 200, name_en='Video Candle Updated', video=None.",
+        "After PATCH: GET returned the same ready video object, proving persistence was not removed.",
+        "app/services/product_service.py update_product() attaches image fields but not product_video_service.attach_video_fields_one(...)."
+      ],
+      "relevant_logs": ["No backend error; API returns 200."],
+      "screenshots_or_artifact_paths": [],
+      "api_requests_responses": [
+        "GET /v1/admin/products/video-candle -> 200 with video object",
+        "PATCH /v1/admin/products/video-candle {name_en: Video Candle Updated} -> 200 with video null",
+        "GET /v1/admin/products/video-candle -> 200 with video object"
+      ],
+      "code_locations": ["app/services/product_service.py update_product()"],
+      "database_state": "product_videos row remains present throughout",
+      "likely_cause": "update_product() ends with product_image_service.attach_image_fields_one(product) and does not attach video fields.",
+      "current_investigation_status": "Confirmed",
+      "related_bugs": [],
+      "regression_test_recommendation": "Add a backend admin product update test that seeds a ready video, patches a non-video field, and asserts the update response still includes video."
+    },
+    {
+      "bug_id": "QA-003",
+      "title": "Route-level API errors omit the documented details field",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "area": "Backend / API",
+      "environment": "isolated temp SQLite DB, local ASGI client, ENVIRONMENT=development",
+      "preconditions": ["API app created from create_app()", "admin bearer key configured for admin probes"],
+      "reproduction_steps": [
+        "Seed product dup-candle.",
+        "POST /v1/admin/products with duplicate id='dup-candle'.",
+        "POST /v1/admin/products with product_type='missing-type'.",
+        "GET /v1/admin/orders?status=bogus.",
+        "GET /v1/products/nope."
+      ],
+      "expected_result": "Every error follows the documented app envelope: {error:{code,message,details}}.",
+      "actual_result": "These route-created errors include code and message but omit details entirely.",
+      "reproduction_rate": "1/1 isolated API probe across 4 endpoints",
+      "evidence": [
+        "Duplicate create: 409 {'error': {'code': 'DUPLICATE', 'message': 'Product with this ID already exists'}}, details missing.",
+        "Invalid taxonomy: 422 {'error': {'code': 'INVALID_TAXONOMY', 'message': 'Unknown product type: missing-type'}}, details missing.",
+        "Invalid admin order status: 422 {'error': {'code': 'INVALID_STATUS', 'message': \"Invalid status 'bogus'. Must be one of: pending, confirmed, shipped, delivered, cancelled\"}}, details missing.",
+        "Missing public product: 404 {'error': {'code': 'NOT_FOUND', 'message': 'Product not found'}}, details missing.",
+        "app/main.py documents all errors with details; app/exceptions.py global handlers include it."
+      ],
+      "relevant_logs": ["No backend error; responses are successful error responses."],
+      "screenshots_or_artifact_paths": [],
+      "api_requests_responses": [
+        "POST /v1/admin/products duplicate id -> 409 without details",
+        "POST /v1/admin/products invalid product_type -> 422 without details",
+        "GET /v1/admin/orders?status=bogus -> 422 without details",
+        "GET /v1/products/nope -> 404 without details"
+      ],
+      "code_locations": ["app/main.py", "app/exceptions.py", "app/routes/admin.py", "app/routes/products.py"],
+      "database_state": "seed product dup-candle required for duplicate path",
+      "likely_cause": "Route handlers return handcrafted JSONResponse bodies instead of a shared error helper/global exception path, and many omit details.",
+      "current_investigation_status": "Confirmed",
+      "related_bugs": [],
+      "regression_test_recommendation": "Add schema assertions for representative custom route errors and centralize error response construction so details is always present."
+    }
+  ]
+}
