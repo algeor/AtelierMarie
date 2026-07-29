@@ -1,29 +1,30 @@
 # QA Findings
 
-Source prompt: `bugs/bugs_prompt.md`
+Source prompt: `its-showtime-prompts/QA.md`
 
 ## Progress Snapshot
 
-- Status: Investigating
+- Status: Complete QA snapshot; fixes started from the confirmed bug catalogue
 - Started: 2026-07-29
 - Environment: local workspace `/Users/I551270/PycharmProjects/AtelierMarie`
-- Areas tested: initial prompt review, backend automated tests, backend lint, frontend lint, frontend unit test suite isolation, isolated cart/order API happy path and stock failure, admin product video update response consistency, route-level API error envelope consistency, backend discount contract tests, frontend checkout discount display consistency, frontend product listing discount sort consistency, auth returning-user profile persistence edge case, auth avatar fallback edge case, auth user-menu accessible-name check, admin bank-transfer payment email outbox idempotency, admin order status/payment-status filter validation, Stripe retry content-type/CSRF validation, Stripe completed webhook out-of-order cancelled/non-card handling, admin CSV malformed encoding handling, admin CSV image max-count behavior, public comment sanitization and React text rendering behavior, public contact submission and owner-email subject handling, admin FAQ duplicate reorder handling, admin-managed atelier content entity rendering, checkout office-delivery catalogue validation
-- Areas not yet tested: broader frontend browser workflows, frontend checkout submission in a real browser session, broader backend APIs beyond discount/cart/order and representative admin probes, auth/permissions beyond admin bearer probes and returning-user profile persistence probe, order email sweeper behavior under duplicated queued payment rows, database integrity beyond automated tests and video response probe, accessibility, performance, error handling outside representative route-level API envelope probes, concurrency
-- Active hypotheses: frontend component test harness is missing shared browser and intl providers; admin ProductForm test fixture is stale relative to required product taxonomy fields; product/video attachment is inconsistent across admin product service paths; frontend discount display code may still use base price in cart-adjacent UI; frontend client-side product sorting may diverge from backend effective-price sort semantics; returning OAuth profile updates may clear optional user fields when provider omits them; auth avatar fallback may not normalize blank profile fields; bank-transfer payment confirmation may enqueue duplicate customer email intents; admin filter validation may be inconsistent between sibling order filters; state-changing order endpoints may not share the same content-type/CSRF guard; Stripe completed webhooks may not guard terminal order states or non-card payment methods; upload parsers may not consistently map malformed input to controlled validation errors; CSV import may hide secondary image attachment failures; stored pre-escaped user-generated text may be reused in plain-text React rendering contexts; public form text accepted by APIs may be reused in email header-like fields without control-character normalization; ordered-list mutation APIs may not reject duplicate IDs before persisting sort positions; admin-authored content may be storage-escaped and then rendered as plain React text; checkout delivery payloads may trust frontend-selected courier office data without server-side catalogue validation
-- Unresolved anomalies: none currently
+- Areas tested: initial prompt review, backend automated tests, backend lint, frontend lint/build, frontend unit test suite isolation, isolated cart/order API happy path and stock failure, admin product video update response consistency, route-level API error envelope consistency, backend discount contract tests, frontend checkout discount display consistency, frontend product listing discount sort consistency, auth returning-user profile persistence edge case, auth avatar fallback edge case, auth user-menu accessible-name check, auth logout session-cookie rotation, OAuth callback session rotation behavior, admin bank-transfer payment email outbox idempotency, admin order status/payment-status filter validation, Stripe retry content-type/CSRF validation, Stripe completed webhook out-of-order cancelled/non-card handling, admin CSV malformed encoding handling, admin CSV image max-count behavior, public comment sanitization and React text rendering behavior, public contact submission and owner-email subject handling, admin FAQ duplicate reorder handling, admin-managed atelier content entity rendering, admin atelier image clear file lifecycle, checkout office-delivery catalogue validation, public/legal/product safety legal identity placeholder propagation, backend email legal context placeholder propagation, mobile header navigation availability, checkout shipping price transparency and persisted shipping cents, product-detail structured data coverage, storefront product-listing first-page cap/filter omission, public FAQ invalid-locale handling, checkout door-delivery whitespace address handling, mock-mode product media URL resolution, current-code revalidation of prior product video, discount, auth, comment, contact, atelier text, payment, and delivery findings
+- Deferred QA scope: broader frontend browser workflows, frontend checkout submission in a real browser session, backend APIs beyond representative probes, auth/permissions beyond the tested admin bearer and OAuth/session paths, order email sweeper behavior, deeper database integrity, accessibility, performance, error handling outside representative route-level envelopes, and concurrency.
+- Confirmed risk themes: frontend test reliability; API response contract consistency; pricing display consistency; auth/session rotation; payment/email idempotency; upload/import validation; user/admin-authored text rendering; ordered-list integrity; checkout delivery validation; legal identity completeness; mobile navigation; storefront discovery; SEO structured data; mock media resolution; admin media file lifecycle.
+- Unresolved anomalies: full backend pytest once exceeded the `/v1/about` 200 ms assertion at 279 ms, but the focused test passed in isolation
 - Test accounts/data created: none yet
 - Services manipulated: Next mock dev server on `127.0.0.1:3002`
-- Major remaining attack surfaces: full application surface remains open
+- Fix backlog readiness: each catalogue entry includes reproduction steps, observed/expected behavior, evidence, likely cause, impact, and a suggested regression test.
 
 ## Executive QA Summary
 
-- Total confirmed bugs discovered: 19
-- Severity counts: Critical 0, High 0, Medium 17, Low 2
-- Major risk areas: frontend regression coverage reliability; admin product response consistency; API contract consistency; discount pricing consistency; auth profile persistence; payment email outbox idempotency; admin filter validation consistency; payment retry request-hardening consistency; payment webhook state ordering; admin upload validation hardening; user-generated content rendering consistency; public-form email notification hardening; admin ordered-list data integrity; admin content rendering consistency; checkout delivery destination integrity
-- Most fragile workflows: not yet established
-- Systemic patterns: inconsistent reuse of backend/public pricing semantics in frontend UI code; duplicated cross-layer side effects between service and route code
-- Areas that appear robust: none proven yet
+- Total confirmed bugs discovered: 30
+- Severity counts: Critical 0, High 1, Medium 24, Low 5
+- Major risk areas: frontend regression coverage reliability; admin product response consistency; API contract consistency; discount pricing consistency; auth profile persistence; auth/session rotation reliability; payment email outbox idempotency; admin filter validation consistency; payment retry request-hardening consistency; payment webhook state ordering; admin upload validation hardening; user-generated content rendering consistency; public-form email notification hardening; admin ordered-list data integrity; admin content rendering consistency; admin content media lifecycle; checkout delivery destination integrity; checkout delivery address integrity; public legal/compliance identity configuration; mobile storefront navigation; storefront catalogue discovery; checkout shipping price transparency; product-page SEO structured data; mock/deployment media reliability
+- Most fragile workflows: auth session rotation, checkout delivery integrity, payment/email side effects, admin import/media lifecycle, and storefront catalogue discovery
+- Systemic patterns: inconsistent reuse of backend/public pricing semantics in frontend UI code; duplicated cross-layer side effects between service and route code; duplicated frontend/backend legal identity constants without a launch-time completeness guard; client-side storefront filtering over a fixed first page; inconsistent locale validation between sibling public endpoints; delivery text fields lack shared whitespace normalization; admin media clear paths can update database pointers without removing public static files; route-level cookie rotation can be overwritten by middleware-set session cookies
+- Areas that appear robust in this snapshot: focused backend discount pricing contracts and several previously reported issues now have current-code evidence indicating fixes, pending final browser or end-to-end revalidation where noted.
 - Areas difficult to validate: auth/OAuth and external integrations may require mocks or local-only probes
+- Current revalidation notes: QA-001, QA-002, QA-004, QA-005, QA-006, QA-007, QA-008, QA-009, QA-010, QA-011, QA-014, QA-015, QA-017, QA-018, QA-019, and QA-021 have current-run evidence indicating they may be fixed and should be revalidated before being treated as active defects.
 
 ## Complete Bug Catalogue
 
@@ -33,7 +34,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Confidence: Confirmed
 - Area: Frontend / Tests
 - Environment: local workspace, `frontend`, Vitest `v4.1.10`, jsdom
-- Status: Confirmed
+- Status: Needs revalidation - full frontend Vitest passed in current run
 - Preconditions: dependencies installed; current worktree as of 2026-07-29
 - Reproduction steps:
   1. Run `cd frontend && npm test`.
@@ -42,6 +43,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Actual result: 8 tests fail across 3 files.
 - Reproduction rate: 2/2 command runs.
 - Evidence:
+  - Current rerun contradicted the earlier failure: `npm --prefix frontend run test` passed with 41 files and 248 tests, so this finding may have been fixed by later worktree changes.
   - `npm test`: 3 failed files, 8 failed tests, 35 passed files, 230 passed tests.
   - `ProductGallery.test.tsx`: 4 failures with `TypeError: window.matchMedia is not a function` at `frontend/components/products/ProductGallery.tsx:38`.
   - `ProductVideo.test.tsx`: 3 failures with `Failed to call useTranslations because the context from NextIntlClientProvider was not found` at `frontend/components/products/ProductGallery.tsx:28`; the test renders `ProductGallery` with raw Testing Library `render` instead of `renderWithIntl`.
@@ -60,7 +62,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Confidence: Confirmed
 - Area: Backend / API / Admin Products
 - Environment: isolated temp SQLite DB, local ASGI client, `ENVIRONMENT=development`, admin bearer key
-- Status: Confirmed
+- Status: Needs revalidation - current tests/code indicate fixed
 - Preconditions: product has an existing `product_videos` row with `status='ready'`.
 - Reproduction steps:
   1. Seed product `video-candle` and a ready `product_videos` row for it.
@@ -80,6 +82,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Relevant logs: no backend error; API returns 200.
 - Likely cause: `update_product()` ends with `return product_image_service.attach_image_fields_one(product)` and does not attach video fields.
 - Impact: admin UI/API consumers can believe a product video disappeared immediately after saving unrelated product metadata, causing stale UI state or accidental follow-up changes based on an incomplete response.
+- Current revalidation note: 2026-07-29 current run: app/services/product_service.py update_product now attaches video fields before returning, and tests/test_product_service.py::test_partial_update_preserves_video_in_response exists.
 - Suggested regression test: add a backend admin product update test that seeds a ready video, patches a non-video field, and asserts the update response still includes `video`.
 
 ### QA-003 — Route-level API errors omit the documented `details` field
@@ -88,7 +91,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Confidence: Confirmed
 - Area: Backend / API
 - Environment: isolated temp SQLite DB, local ASGI client, `ENVIRONMENT=development`
-- Status: Confirmed
+- Status: Needs revalidation - current worktree adds a mobile menu implementation
 - Preconditions: API app created from `create_app()`; admin bearer key configured for admin probes.
 - Reproduction steps:
   1. Seed product `dup-candle`.
@@ -118,7 +121,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Confidence: Confirmed
 - Area: Frontend / Checkout / Discounts
 - Environment: local workspace, frontend checkout component, backend discount tests green
-- Status: Confirmed
+- Status: Needs revalidation - current tests/code indicate fixed
 - Preconditions: cart contains a product with active discount fields, for example `price_cents=3200` and `effective_price_cents=2560`; cart `total_cents` is computed from `effective_price_cents`.
 - Reproduction steps:
   1. Use a cart item whose product has `price_cents=3200`, `effective_price_cents=2560`, `discount_percent=20`, quantity `1`, and cart `total_cents=2560`.
@@ -137,6 +140,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Relevant logs: `.venv/bin/pytest tests/test_discounts.py -q -> 19 passed`.
 - Likely cause: checkout summary uses the base `ProductResponse.price_cents` field for display math instead of the discounted `ProductResponse.effective_price_cents` field used by cart totals and order snapshots.
 - Impact: customers can see internally inconsistent checkout totals for sale items; the line item says one price while the subtotal/order snapshot uses another.
+- Current revalidation note: 2026-07-29 current run: frontend/app/[locale]/checkout/page.tsx uses item.product.effective_price_cents for unit and line totals; frontend/__tests__/app/checkout.test.tsx asserts effective-price summary.
 - Suggested regression test: add a checkout page/component test with a discounted cart item and assert the unit price, line total, and subtotal all use `effective_price_cents`.
 
 ### QA-005 — Client-side product price sorting ignores active discounts
@@ -145,7 +149,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Confidence: Confirmed
 - Area: Frontend / Product Listing / Discounts
 - Environment: local workspace, frontend `ProductListingClient`, backend discount tests green
-- Status: Confirmed
+- Status: Needs revalidation - current tests/code indicate fixed
 - Preconditions: product list contains at least one discounted product whose `effective_price_cents` changes its ordering relative to base price; user selects price ascending or price descending.
 - Reproduction steps:
   1. Use products `sale-candle price_cents=5000 effective_price_cents=1000` and `plain-candle price_cents=2000 effective_price_cents=2000`.
@@ -166,6 +170,7 @@ Source prompt: `bugs/bugs_prompt.md`
   - `.venv/bin/pytest tests/test_discounts.py -q -> 19 passed`
 - Likely cause: `ProductListingClient` implements price sorting locally using `ProductResponse.price_cents`, while backend and price display semantics use `effective_price_cents` when discounts are active.
 - Impact: sale products can appear in the wrong order when shoppers sort by price, contradicting the displayed discounted prices and backend sort behavior.
+- Current revalidation note: 2026-07-29 current run: ProductListingClient sorts price_asc/price_desc by effective_price_cents, and ProductListingClient.test.tsx has sorts-by-effective-sale-price coverage.
 - Suggested regression test: add a `ProductListingClient` test where a discounted high-base-price product has the lowest effective price, then assert `price_asc`/`price_desc` order by `effective_price_cents`.
 
 ### QA-006 — Returning OAuth login clears stored name and avatar when Google omits optional claims
@@ -174,7 +179,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Confidence: Confirmed
 - Area: Backend / Auth / User Profile
 - Environment: isolated temp SQLite DB, direct `auth_service.upsert_user` probe
-- Status: Confirmed
+- Status: Needs revalidation - current tests/code indicate fixed
 - Preconditions: a user already exists with `google_id`, `name`, and `avatar_url` populated; a later OAuth callback for the same `google_id` provides no `name` and no `picture` claim.
 - Reproduction steps:
   1. Initialize a temp DB and call `auth_service.upsert_user(conn, "google-1", "a@test.com", "Old Name", "http://old-avatar.jpg")`.
@@ -193,6 +198,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Relevant logs: `.venv/bin/python` direct probe showed the DB row had null profile fields after the second upsert.
 - Likely cause: the returning-user update writes nullable `name`/`avatar_url` values directly, but the response object falls back to previous values instead of reflecting the database mutation.
 - Impact: a returning OAuth login can silently erase stored display/profile data, which can later affect account UI and any feature that derives display identity from the persisted user row.
+- Current revalidation note: 2026-07-29 current run: auth_service.upsert_user normalizes blank profile fields and preserves existing name/avatar when Google omits them; tests/test_auth.py covers returning-user omitted fields.
 - Suggested regression test: add an `upsert_user` test for an existing user where `name` and `avatar_url` are omitted, asserting the stored row preserves existing non-null values or the response and persistence are intentionally aligned.
 
 ### QA-007 — Admin bank-transfer payment confirmation queues duplicate placed email rows
@@ -201,7 +207,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Confidence: Confirmed
 - Area: Backend / Admin Orders / Email Outbox
 - Environment: isolated temp SQLite DB, local ASGI admin route probe, `ENVIRONMENT=development`, admin bearer key
-- Status: Confirmed
+- Status: Needs revalidation - current tests/code indicate fixed
 - Preconditions: an order exists with `payment_method=bank_transfer` and `payment_status=pending`; the admin marks it paid.
 - Reproduction steps:
   1. Create a bank-transfer checkout order in an isolated temp DB.
@@ -222,6 +228,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Relevant logs: route probe returned 200; DB after route showed two queued `placed` rows.
 - Likely cause: both the service layer and the admin route enqueue the same `placed` email intent, and queued outbox rows are not deduplicated by schema or helper.
 - Impact: the outbox/audit trail is polluted with duplicate customer email intents; if the first duplicate fails transiently, the second queued duplicate can bypass intended backoff by acquiring the failed claim immediately.
+- Current revalidation note: 2026-07-29 current evidence: `tests/realapp/test_order_routes.py::TestAdminMarkPaymentPaid::test_bank_transfer_paid_queues_one_placed_email` is present and current route code queues one `placed` email through `mark_bank_transfer_paid()` only.
 - Suggested regression test: add a route-level bank-transfer payment test that asserts a single `placed` row exists after `PATCH /v1/admin/orders/{id}/payment`; keep the enqueue responsibility in one layer or make `queue_order_email` idempotent for queued intents.
 
 ### QA-008 — Admin order payment status filter accepts invalid values as empty results
@@ -230,7 +237,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Confidence: Confirmed
 - Area: Backend / API / Admin Orders
 - Environment: isolated temp SQLite DB, local ASGI admin route probe, `ENVIRONMENT=development`, admin bearer key
-- Status: Confirmed
+- Status: Needs revalidation - current tests/code indicate fixed
 - Preconditions: admin bearer authentication is configured; no order data is required to reproduce the validation difference.
 - Reproduction steps:
   1. Start the app against a fresh temp SQLite DB with `ADMIN_API_KEY=test-admin-key-realapp`.
@@ -255,6 +262,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Relevant logs: local probe also logged courier office data loading; no backend error was emitted for the invalid payment status.
 - Likely cause: `admin_list_orders()` validates the `status` query parameter against `OrderStatus` but does not perform the equivalent validation for `payment_status` against `PaymentStatus`.
 - Impact: admin clients cannot distinguish a mistyped payment-status filter from a legitimate empty result, which can hide filtering mistakes and makes the admin API contract inconsistent across sibling enum filters.
+- Current revalidation note: 2026-07-29 current evidence: `tests/realapp/test_order_routes.py::TestAdminInvalidStatusFilter::test_invalid_payment_status_422` is present and current `app/routes/admin.py` validates `payment_status` before querying.
 - Suggested regression test: add an admin order list route test for `payment_status=bogus` asserting a 422 error and another valid payment-status control asserting 200.
 
 ### QA-009 — Stripe retry endpoint accepts form posts and creates a new checkout session
@@ -263,7 +271,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Confidence: Confirmed
 - Area: Backend / API / Orders / Payments
 - Environment: isolated temp SQLite DB, local ASGI route probe, fake Stripe module, `STRIPE_SECRET_KEY=sk_test_probe`
-- Status: Confirmed
+- Status: Needs revalidation - current tests/code indicate fixed
 - Preconditions: a card order belongs to the current session and has `payment_status='failed'`; Stripe is configured; the caller has the session cookie.
 - Reproduction steps:
   1. Seed a session, product, cart item, and card order in a fresh temp SQLite DB.
@@ -286,6 +294,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Relevant logs: local probe logged courier office data loading; no backend error was emitted.
 - Likely cause: `create_stripe_retry_session()` is a cookie-authenticated state-changing POST but lacks the content-type/CSRF guard present on `create_order()`.
 - Impact: a non-JSON form POST can trigger an external Stripe session creation and mutate the order's retry session id, bypassing the request-hardening policy applied to checkout.
+- Current revalidation note: 2026-07-29 current evidence: `tests/realapp/test_order_routes.py::TestCsrfProtection::test_stripe_retry_form_encoded_rejected` is present and current `app/routes/orders.py` rejects non-JSON retry requests.
 - Suggested regression test: add a route-level test that posts form-encoded content to `/v1/orders/{id}/stripe-session` with a retryable card order and asserts a 422 `INVALID_CONTENT_TYPE` response and no Stripe call/session-id mutation.
 
 ### QA-010 — User avatar fallback renders blank when profile name is an empty string
@@ -294,7 +303,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Confidence: Confirmed
 - Area: Frontend / Auth / User Menu
 - Environment: local workspace, direct backend auth service probe plus executable frontend fallback-expression probe
-- Status: Confirmed
+- Status: Needs revalidation - current tests/code indicate fixed
 - Preconditions: an authenticated user has `name=""` and `avatar_url=null`, or their avatar image fails and `name=""` is present in the user response.
 - Reproduction steps:
   1. Create or upsert a user through `auth_service.upsert_user(conn, "google-empty-name", "empty@example.com", "", None)`.
@@ -316,6 +325,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Relevant logs: no backend error; the probes returned successfully.
 - Likely cause: the avatar fallback treats only `null`/`undefined` names as absent and does not trim or test for a non-empty display name before deriving the initial.
 - Impact: authenticated users with blank stored names, or users whose avatar image fails while their name is blank, see an apparently empty login/user avatar instead of a stable email initial.
+- Current revalidation note: 2026-07-29 current run: UserAvatar trims name and falls back to email initial; UserMenu.test.tsx covers blank name/null avatar fallback.
 - Suggested regression test: add a `UserAvatar` or `UserMenu` test where `name=""` and `avatar_url=null`, asserting the email initial is rendered; normalize blank names before computing initials.
 
 ### QA-011 — Authenticated user menu button has no descriptive accessible name
@@ -324,7 +334,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Confidence: Confirmed
 - Area: Frontend / Auth / Accessibility
 - Environment: local workspace, source inspection plus `dom-accessibility-api` accessible-name probe
-- Status: Confirmed
+- Status: Needs revalidation - current tests/code indicate fixed
 - Preconditions: the header renders an authenticated user with `avatar_url` present, or the avatar falls back to a single initial.
 - Reproduction steps:
   1. Inspect `UserMenu` rendered inside the authenticated header.
@@ -345,6 +355,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Relevant logs: no runtime error; this is semantic accessibility output.
 - Likely cause: `UserMenu` relies on avatar visual content for the trigger and does not assign a descriptive label to the button.
 - Impact: screen-reader and voice-control users cannot identify the account menu reliably; in the common loaded-image state, the control is effectively unnamed.
+- Current revalidation note: 2026-07-29 current run: UserMenu trigger now has aria-label My Account and tests assert the accessible name and menu attributes.
 - Suggested regression test: add a `UserMenu` accessibility test asserting the trigger can be found by role and localized name, e.g. `getByRole("button", { name: /account|user/i })`, in both image and fallback states.
 
 ### QA-012 — Admin CSV import crashes on invalid UTF-8 upload instead of returning CSV validation error
@@ -412,7 +423,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Confidence: Confirmed
 - Area: Backend / Frontend / Comments
 - Environment: isolated temp SQLite DB, local ASGI client, React server-rendering probe using frontend dependencies
-- Status: Confirmed
+- Status: Needs revalidation - current tests/code indicate fixed
 - Preconditions: an active product exists; a user posts a comment or display name containing normal escapable characters such as `&`, `<`, `>`, or quotes.
 - Reproduction steps:
   1. Seed active product `entity-candle` in an isolated temp SQLite DB.
@@ -435,6 +446,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Relevant logs: no backend error; courier office startup logs appeared during local app creation.
 - Likely cause: the backend uses HTML entity encoding as storage-level sanitization, but the frontend consumes API strings as plain text and relies on React's own escaping, causing double-escaping at render time.
 - Impact: customers and admins see corrupted comment text for common punctuation and names, making the comments feature look broken and reducing trust in submitted user content.
+- Current revalidation note: 2026-07-29 current run: app/services/comment_service.py now unsanitizes comment display_name/body in create/list/admin output, and tests/realapp/test_comment_routes.py::TestPostCommentRoute::test_returns_plain_text_not_html_entities exists.
 - Suggested regression test: add an API/comment UI integration test that posts text containing `&`, `<`, and quotes, then asserts the rendered comment displays the original characters as plain text without executing markup.
 
 ### QA-015 — Contact form newline names create multiline owner-email subjects
@@ -443,7 +455,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Confidence: Confirmed
 - Area: Backend / Contact / Email Notifications
 - Environment: isolated temp SQLite DB, local ASGI client, direct contact email drain with recording provider
-- Status: Confirmed
+- Status: Needs revalidation - current model and route test indicate fixed
 - Preconditions: contact form endpoint is available; owner contact email drain processes queued contact messages.
 - Reproduction steps:
   1. Initialize an isolated temp SQLite DB and app.
@@ -468,6 +480,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Relevant logs: local app startup logged courier office data loads; drain logged `contact_email_sent` for the contact message.
 - Likely cause: contact validation only strips outer whitespace and the plain-text email template renders untrusted `submitter_name` directly into the first-line subject.
 - Impact: a public contact submission can produce malformed or header-like owner email subjects; real providers or future SMTP transports may reject the notification, and the displayed subject/body can mislead admins by making injected header-looking lines appear as part of the email metadata.
+- Current revalidation note: 2026-07-29 current run: app/models/contact.py now collapses contact name control whitespace with single_line_name, and tests/test_contact_routes.py::test_contact_name_newlines_are_single_line_in_subject exists.
 - Suggested regression test: add contact route/email rendering coverage for CR/LF in `name`, asserting the API rejects it with validation or normalizes it before rendering the owner email subject.
 
 ### QA-016 — FAQ reorder accepts duplicate IDs and creates duplicate sort_order values
@@ -507,7 +520,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Confidence: Confirmed
 - Area: Backend / Frontend / Atelier Content
 - Environment: isolated temp SQLite DB, local ASGI admin/public route probe, React server-rendering probe using frontend dependencies
-- Status: Confirmed
+- Status: Needs revalidation - current tests/code indicate fixed
 - Preconditions: admin bearer authentication is configured; the seeded `hero` atelier section exists.
 - Reproduction steps:
   1. Initialize an isolated temp SQLite DB and app.
@@ -531,6 +544,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Relevant logs: no backend error; local app startup logged courier office data loads.
 - Likely cause: the about service uses HTML entity encoding as storage-level sanitization, but the public React page renders API strings as plain text and relies on React's escaping, causing double-escaping at display time.
 - Impact: admins editing atelier page copy can corrupt public page text for normal punctuation and branded names containing ampersands, quotes, or angle brackets; the admin edit response also echoes the corrupted entity text.
+- Current revalidation note: 2026-07-29 current run: app/services/about_service.py now unsanitizes public/admin section and item text output, and tests/test_about_service.py::test_sanitization_escapes_html_on_write asserts API output returns raw text while storage remains escaped.
 - Suggested regression test: add an about admin/public rendering test that edits heading/body text containing `&`, `<`, and quotes, then asserts the rendered atelier page displays the original characters as inert plain text.
 
 ### QA-018 — Checkout accepts and persists nonexistent courier office IDs
@@ -539,7 +553,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Confidence: Confirmed
 - Area: Backend / API / Checkout / Delivery
 - Environment: isolated temp SQLite DB, local ASGI client, seeded cart and product, courier office catalogue loaded from local JSON
-- Status: Confirmed
+- Status: Needs revalidation - current tests/code indicate fixed
 - Preconditions: session cart contains at least one active product; customer selects office delivery.
 - Reproduction steps:
   1. Initialize an isolated temp SQLite DB and app.
@@ -563,6 +577,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Relevant logs: no backend error; local app startup logged courier office data loads.
 - Likely cause: checkout treats the frontend's selected office object as trusted input and does not resolve or verify it against the backend courier office catalogue before creating the order.
 - Impact: customers or manipulated clients can place pickup orders to nonexistent or mismatched offices, leaving staff with undeliverable courier details and corrupting order fulfilment data.
+- Current revalidation note: 2026-07-29 current evidence: `tests/realapp/test_delivery_checkout.py::TestCheckoutDeliveryValidation::test_nonexistent_office_id_returns_422` is present and current checkout catches `InvalidDeliveryOfficeError`.
 - Suggested regression test: add checkout route coverage for nonexistent and courier-mismatched `office_id` values, asserting a validation error and no order/cart mutation.
 
 ### QA-019 — Stripe completion trusts order IDs and mutates cancelled or non-card orders
@@ -571,7 +586,7 @@ Source prompt: `bugs/bugs_prompt.md`
 - Confidence: Confirmed
 - Area: Backend / Payments / Webhooks / Order State
 - Environment: isolated temp SQLite DB, direct payment-service webhook handler probe
-- Status: Confirmed
+- Status: Needs revalidation - current tests/code indicate fixed
 - Preconditions: a valid Stripe `checkout.session.completed` webhook references an existing order ID that is not currently payable, such as a cancelled card order or a COD order.
 - Reproduction steps:
   1. Initialize an isolated temp SQLite DB.
@@ -598,26 +613,349 @@ Source prompt: `bugs/bugs_prompt.md`
 - Relevant logs: service logged `stripe_payment_succeeded event_id=evt_cancelled_completed order_id=order-cancelled-card` and `stripe_payment_succeeded event_id=evt_cod_completed order_id=order-cod-stripe`.
 - Likely cause: `handle_payment_succeeded()` is idempotent by event ID but not state-aware; it applies payment success side effects to any existing order ID regardless of order status, payment method, previous payment status, or matching checkout session.
 - Impact: out-of-order or mismatched Stripe webhooks can produce contradictory order state (`cancelled` but `paid`) or convert COD orders to paid, then send customer placed/thank-you email for an order that should not have been confirmed through Stripe.
+- Current revalidation note: 2026-07-29 current evidence: `tests/test_payment_integration.py` now covers cancelled, non-card, and mismatched-session Stripe success guards; current `payment_service` checks order state before marking paid.
 - Suggested regression test: add payment webhook/service coverage for `checkout.session.completed` on cancelled, non-pending, and non-card orders, asserting no paid transition or placed email is queued unless the order is a payable card order and the session ID matches the current checkout session.
+
+### QA-020 — Public pages and transactional email contexts expose TODO legal identity values
+
+- Severity: Medium
+- Confidence: Confirmed
+- Area: Frontend / Backend / Legal / Email
+- Environment: local workspace, Next.js build output, direct frontend/backend legal identity probes
+- Status: Confirmed
+- Preconditions: current worktree uses the checked-in legal identity constants.
+- Reproduction steps:
+  1. Run `node --experimental-strip-types` against `frontend/lib/legal.ts` and print `LEGAL_IDENTITY` plus keys containing `TODO`.
+  2. Run `.venv/bin/python` against `app.legal.LEGAL_IDENTITY` and print keys containing `TODO`.
+  3. Inspect the legal/product pages and email context builders that render these constants.
+- Expected result: Public policy pages, product safety information, and transactional email templates should use complete legal identity data or fail closed before production when required legal values are still placeholders.
+- Actual result: The frontend and backend legal identity constants contain TODO placeholder values, and those values are rendered by public legal/product pages and passed into transactional email contexts.
+- Reproduction rate: 1/1 frontend legal constant probe and 1/1 backend legal constant probe.
+- Evidence:
+  - Frontend probe output includes `legalName=TODO: legal entity name`, `geographicAddress=TODO: geographic business address`, `registrationNumber=TODO: registration number`, `vatNumber=TODO: VAT number or not VAT registered`, and `responsiblePartyAddress=TODO: geographic business address`.
+  - Backend probe output includes `legal_name=TODO: legal entity name`, `geographic_address=TODO: geographic business address`, `registration_number=TODO: registration number`, and `vat_number=TODO: VAT number or not VAT registered`.
+  - `frontend/app/[locale]/privacy/page.tsx` renders `LEGAL_IDENTITY.legalName`, `geographicAddress`, and `registrationNumber` in the controller details section.
+  - `frontend/app/[locale]/terms/page.tsx` renders `LEGAL_IDENTITY.legalName`, `geographicAddress`, `registrationNumber`, and `vatNumber` in trader identity details.
+  - `frontend/app/[locale]/products/[id]/page.tsx` renders `LEGAL_IDENTITY.responsiblePartyAddress` in product safety information.
+  - `app/services/email_service.py` injects `LEGAL_IDENTITY` legal name, address, registration number, and VAT number into order email template context.
+  - `npm --prefix frontend run build` completed successfully, so the placeholder content does not block production builds.
+- API requests/responses: not applicable.
+- Database state: not applicable.
+- Relevant logs: no runtime error; build succeeds with unrelated `<img>` warnings only.
+- Likely cause: Legal identity values are duplicated as static frontend/backend constants with TODO placeholders and there is no startup/build-time guard that rejects incomplete required legal fields before those constants are rendered or used in emails.
+- Impact: A production build can ship legally required policy, trader, product-safety, and email identity fields as `TODO` text, creating customer confusion and compliance risk.
+- Suggested regression test: Add a build/test guard that fails when any required legal identity value contains TODO/placeholder text, and add page/email context tests asserting legal identity fields are complete before production release.
+
+### QA-021 — Mobile header hides primary store navigation without a mobile menu
+
+- Severity: Medium
+- Confidence: Confirmed
+- Area: Frontend / UX / Accessibility / Navigation
+- Environment: local workspace, Header component code inspection, architecture runtime note
+- Status: Confirmed
+- Preconditions: viewport is below the Tailwind `md` breakpoint.
+- Reproduction steps:
+  1. Open or inspect the storefront header at a mobile viewport below `md`.
+  2. Observe the header navigation links container uses `hidden md:flex`.
+  3. Search the header/layout components for a mobile menu trigger or alternative primary navigation.
+- Expected result: Mobile users should have a visible, keyboard-accessible way to navigate to primary storefront destinations such as Home, Shop, Atelier, FAQ, and Contact.
+- Actual result: The primary nav list is hidden on mobile and the header renders no replacement menu trigger; mobile users only get the logo, language toggle, auth control, and cart button.
+- Reproduction rate: 1/1 code inspection plus architecture runtime sampling note.
+- Evidence:
+  - `frontend/components/layout/Header.tsx` renders the primary links in `<ul className="hidden md:flex items-center gap-8">`.
+  - The same Header component renders only `LanguageToggle`, auth, and cart controls on the right side; there is no `md:hidden` menu button or drawer.
+  - `rg` over `frontend/components/layout` found no mobile menu/hamburger implementation for Header; only `LanguageToggle` has a menu role.
+  - `ARCHITECT_FINDINGS.md` records runtime sampling of `/en` where desktop links were inside a `hidden md:flex` list.
+- API requests/responses: not applicable.
+- Database state: not applicable.
+- Relevant logs: not applicable.
+- Likely cause: The responsive header hides desktop navigation below `md` but no mobile navigation drawer/menu was implemented to replace it.
+- Impact: Mobile shoppers cannot directly reach core store/support destinations from the header, which creates discovery friction and weakens keyboard/mobile navigation.
+- Current revalidation note: 2026-07-29 current worktree: frontend/components/layout/Header.tsx now defines `NAV_LINKS`, renders a `md:hidden` menu button, opens a portal dialog with Home/Shop/Atelier/FAQ/Contact links, and uses the shared `useFocusTrap`; frontend/messages/en.json and bg.json now include open/close/menu labels; `npx vitest run __tests__/components/layout/Header.test.tsx --reporter=verbose` passed 5 tests. Browser/mobile interaction still needs revalidation before closing the historical finding.
+- Suggested regression test: Add Header tests for a mobile menu trigger, menu contents, Escape/backdrop close behavior, focus restoration, and keyboard reachability of primary navigation links.
+
+### QA-022 — Checkout can place orders before showing or persisting a real shipping cost
+
+- Severity: High
+- Confidence: Confirmed
+- Area: Frontend / Backend / Checkout / Delivery Pricing
+- Environment: local workspace, direct `order_service.checkout` probe, checkout UI code inspection
+- Status: Confirmed
+- Preconditions: cart contains at least one item and customer selects a valid delivery destination.
+- Reproduction steps:
+  1. Inspect the checkout order summary shipping row.
+  2. Inspect `DeliverySection` pricing note and `order_service.checkout` shipping calculation.
+  3. Run a direct checkout service probe with a valid office delivery selection and inspect `items_total_cents`, `shipping_cents`, and `total_cents`.
+- Expected result: Before submitting an order, checkout should either show a real shipping price included in `total_cents` or clearly enforce a free-shipping business rule server-side.
+- Actual result: Checkout displays shipping as not separately calculated, still enables Place Order, and backend checkout hardcodes `shipping_cents=0` so `total_cents` equals item subtotal.
+- Reproduction rate: 1/1 direct checkout service probe.
+- Evidence:
+  - `frontend/app/[locale]/checkout/page.tsx` renders `shippingNotCalculated` and displays total due as `formatPrice(total_cents)` from the cart subtotal.
+  - `frontend/components/checkout/DeliverySection.tsx` says shipping price, calculate API, courier comparison, and free-shipping threshold are intentionally out of scope for this change.
+  - `app/services/order_service.py` sets `shipping_cents = 0` with a comment that the shipping-pricing follow-on adds real courier calculation and free-shipping threshold.
+  - Direct checkout probe output: `{'items_total_cents': 2500, 'shipping_cents': 0, 'total_cents': 2500, 'db_total_cents': 2500}`.
+  - `openspec/changes/shipping-pricing/tasks.md` leaves `/v1/delivery/calculate`, `CreateOrderRequest.shipping_cents`, checkout validation, and frontend calculate wiring unchecked.
+- API requests/responses: direct service probe; no HTTP request required to prove the checkout invariant.
+- Database state: direct probe persisted `orders.total_cents=2500` for a 2500-cent cart and returned `shipping_cents=0`.
+- Relevant logs: direct probe logged courier office data loads, then returned `shipping_cents=0`.
+- Likely cause: Structured delivery was implemented before the shipping-pricing follow-on, leaving a placeholder zero shipping amount in both UI and backend checkout.
+- Impact: Customers can submit an order without knowing the delivered cost unless shipping is actually free; staff then inherit ambiguous fulfilment/payment expectations.
+- Suggested regression test: Add checkout tests requiring selected shipping quote inclusion in `total_cents`, server-side range validation of `shipping_cents`, and explicit free-shipping override behavior when applicable.
+
+### QA-023 — Product detail pages omit Product and Offer structured data
+
+- Severity: Low
+- Confidence: Confirmed
+- Area: Frontend / SEO / Product Detail
+- Environment: local workspace, product/FAQ/atelier page code inspection
+- Status: Confirmed
+- Preconditions: active product detail page is rendered.
+- Reproduction steps:
+  1. Inspect `frontend/app/[locale]/products/[id]/page.tsx` for `application/ld+json` output.
+  2. Compare with FAQ and Atelier pages that already emit JSON-LD scripts.
+  3. Search product detail route and SEO helpers for Product/Offer schema generation.
+- Expected result: Each active product page should emit Product JSON-LD with offer price, currency, availability, URL, brand/seller, and product identity fields.
+- Actual result: The product detail page renders product UI and basic metadata but no `application/ld+json` Product/Offer block.
+- Reproduction rate: 1/1 code inspection.
+- Evidence:
+  - `frontend/app/[locale]/products/[id]/page.tsx` imports product data and renders the product page but has no `<script type="application/ld+json">`.
+  - `frontend/app/[locale]/faq/page.tsx` emits `application/ld+json` via `buildFaqJsonLd` and `serializeJsonLd`.
+  - `frontend/app/[locale]/atelier/page.tsx` emits `application/ld+json` via `getAboutJsonLd`.
+  - `rg` found no Product/Offer structured-data builder or `application/ld+json` block under the product detail route.
+- API requests/responses: not applicable.
+- Database state: not applicable.
+- Relevant logs: not applicable.
+- Likely cause: Structured-data helpers were added for FAQ/About content but not extended to product detail pages.
+- Impact: Product pages miss a standard e-commerce SEO signal for price, availability, and product identity, reducing eligibility for product-rich search results.
+- Suggested regression test: Add a product detail render test that asserts a Product JSON-LD script with Offer `priceCurrency`, `price`, `availability`, `url`, `image`, `sku`/`productID`, `brand`, and `seller` fields.
+
+### QA-024 — Storefront filters can hide matching products beyond the first 100
+
+- Severity: Medium
+- Confidence: Confirmed
+- Area: Frontend / Product Listing / Discovery
+- Environment: local workspace, temp SQLite DB, direct product service probe, storefront page code inspection
+- Status: Confirmed
+- Preconditions: active catalogue has more than 100 products; a product matching a filter/search is outside the first 100 newest products
+- Reproduction steps:
+  1. Seed a temp DB with 100 active medium products and one active small product created later.
+  2. Inspect frontend/app/[locale]/products/page.tsx and frontend/lib/api.ts.
+  3. Compare the storefront fixed getProducts(1, 100, locale) data set with the backend category=small result.
+- Expected result: Filtered/search product listing views should include every active matching product, or the server page should request the filter/search from the backend API.
+- Actual result: The page always fetches the first 100 products without search/filter/sort parameters, then ProductListingClient filters only that array. A matching product on page 2 is absent from the client data and the filter returns zero visible products.
+- Reproduction rate: 1/1 temp DB service probe
+- Evidence:
+  - frontend/app/[locale]/products/page.tsx calls getProducts(1, 100, locale) and passes only the returned products array into ProductListingClient.
+  - frontend/lib/api.ts getProducts only sends page, limit, and locale; it does not send type, category, labels, q, sort, or in_stock from the URL.
+  - frontend/components/products/ProductListingClient.tsx applies product_type, category, label, stock, search, and sort on the received products array.
+  - app/routes/products.py and product_service.list_products support server-side category/filter pagination, with limit capped at 100.
+  - Probe output: {'storefront_fetch_total': 101, 'storefront_fetch_count': 100, 'first_page_last': 'bulk-medium-099', 'hidden_product_in_first_page': False, 'client_small_filter_ids': [], 'api_small_total': 1, 'api_small_ids': ['hidden-small-needle']}
+- API requests/responses: Direct service equivalent of GET /v1/products?page=1&limit=100 and GET /v1/products?category=small&page=1&limit=100
+- Database state: Temp DB contained 101 active products; hidden-small-needle existed and matched category small but was not in the first 100 unfiltered products.
+- Relevant logs: not applicable
+- Likely cause: The server-rendered listing page ignores URL search params and fetches a fixed first page for a client-only filtering model.
+- Impact: As the catalogue grows, shoppers can use filters/search and get false zero-result pages even though matching products exist in the backend catalogue.
+- Suggested regression test: Add a product listing integration test with more than 100 products, a filtered match outside the first page, and assert the page/API request includes the filter or paginates enough to show the match.
+
+### QA-025 — Public FAQ accepts unsupported locales and silently falls back to English
+
+- Severity: Low
+- Confidence: Confirmed
+- Area: Backend / API / Locale Validation
+- Environment: temp SQLite DB, real FastAPI app via ASGI client
+- Status: Confirmed
+- Preconditions: public FAQ route is available
+- Reproduction steps:
+  1. Initialize a temp DB and create the real FastAPI app.
+  2. Request GET /v1/faq?locale=fr.
+  3. Compare with sibling localized endpoints GET /v1/about?locale=fr, GET /v1/taxonomy?locale=fr, and GET /v1/promotions/banner?locale=fr.
+- Expected result: Unsupported locale values should be rejected consistently with the documented en/bg locale contract.
+- Actual result: FAQ returns 200 with English content for locale=fr, while sibling endpoints reject the same invalid locale with 422 validation errors.
+- Reproduction rate: 1/1 ASGI route comparison probe
+- Evidence:
+  - Probe output: /v1/faq?locale=fr -> 200 with sections.
+  - Probe output: /v1/about?locale=fr -> 422 VALIDATION_ERROR, Input should be 'en' or 'bg'.
+  - Probe output: /v1/taxonomy?locale=fr -> 422 VALIDATION_ERROR, Input should be 'en' or 'bg'.
+  - Probe output: /v1/promotions/banner?locale=fr -> 422 VALIDATION_ERROR, String should match pattern '^(en|bg)$'.
+  - app/routes/faq.py types locale as Locale | str, which accepts arbitrary strings.
+  - app/services/faq_service.py _public_locale returns bg only for bg and otherwise falls back to en.
+- API requests/responses: GET /v1/faq?locale=fr returned 200 {'sections': ...}; GET /v1/about?locale=fr returned 422 VALIDATION_ERROR; GET /v1/taxonomy?locale=fr returned 422 VALIDATION_ERROR; GET /v1/promotions/banner?locale=fr returned 422 VALIDATION_ERROR
+- Database state: Fresh seeded FAQ content only.
+- Relevant logs: courier office data load logs during app startup only
+- Likely cause: FAQ route widened the locale parameter to Locale | str and the service fallback treats every non-bg value as en.
+- Impact: API clients can ship typoed or unsupported locale URLs that appear successful, hiding localization bugs and producing inconsistent behavior across public pages.
+- Suggested regression test: Add route tests asserting GET /v1/faq?locale=fr returns the same 422 validation shape as about/taxonomy/promotions.
+
+### QA-026 — Checkout accepts whitespace-only door-delivery address fields
+
+- Severity: Medium
+- Confidence: Confirmed
+- Area: Backend / Checkout / Delivery Data Integrity
+- Environment: temp SQLite DB, real FastAPI app via ASGI client
+- Status: Confirmed
+- Preconditions: session cart contains at least one active product; customer selects door delivery
+- Reproduction steps:
+  1. Initialize a temp DB, seed an active product, and add it to a session cart through POST /v1/cart.
+  2. POST /v1/orders with delivery.method=door and city, postal_code, street, building, and apartment set to spaces only.
+  3. Inspect the response delivery_details.
+- Expected result: Required delivery address fields should be trimmed and whitespace-only city/postal_code/street should be rejected before an order is created.
+- Actual result: The order is created with 201 and persists whitespace-only city, postal_code, street, building, and apartment values in delivery_details.
+- Reproduction rate: 1/1 ASGI checkout probe
+- Evidence:
+  - Probe output: {'cart_status': 201, 'order_status': 201, 'delivery_details': {'courier': 'econt', 'city': '   ', 'postal_code': '   ', 'street': '   ', 'building': '   ', 'apartment': '   ', 'phone': '+359888123456'}, 'error': None}.
+  - app/models/delivery.py DeliveryDoor uses min_length/max_length for city, postal_code, and street but has no strip or whitespace-only validator for address fields.
+  - The frontend DeliverySection validation also checks presence/truthiness, so a string of spaces is not treated as missing before submission.
+- API requests/responses: POST /v1/cart -> 201; POST /v1/orders with whitespace-only door address -> 201 and returned whitespace fields
+- Database state: Temp DB order was created and cart was cleared for the whitespace-only address payload.
+- Relevant logs: courier office data load logs during app startup only
+- Likely cause: Delivery text fields rely on length constraints without shared string normalization, unlike customer_name/contact/product validators that strip and reject blank strings.
+- Impact: A customer can place an order with an unusable delivery address, leaving staff unable to fulfil the shipment without manual follow-up.
+- Suggested regression test: Add delivery model and checkout route tests for whitespace-only city/postal_code/street/building/apartment, asserting required fields reject after trim and optional fields normalize to null/empty.
+
+### QA-027 — Mock storefront product images resolve to backend-only URLs that do not exist
+
+- Severity: Low
+- Confidence: Confirmed
+- Area: Frontend / Mock Mode / Media
+- Environment: local workspace, mock API code inspection, filesystem probe
+- Status: Confirmed
+- Preconditions: frontend runs with NEXT_PUBLIC_USE_MOCK_API=true, which README documents as not requiring the backend
+- Reproduction steps:
+  1. Inspect README.md mock-mode guidance.
+  2. Inspect mock product image URLs in frontend/lib/mock-api.ts.
+  3. Inspect ProductImage URL resolution and api-client BASE_URL default.
+  4. Check whether a mock product image exists under frontend/public and under backend static.
+- Expected result: Mock mode should render bundled mock product images from the frontend without requiring backend static serving.
+- Actual result: ProductImage rewrites /static/products/lavender-dreams-300ml.webp to http://localhost:8000/static/products/lavender-dreams-300ml.webp. The file exists in frontend/public/static/products, but not in backend static/products, so mock product cards fall back to placeholders unless an external backend happens to serve matching mock filenames.
+- Reproduction rate: 1/1 code and filesystem probe
+- Evidence:
+  - README.md states NEXT_PUBLIC_USE_MOCK_API=true uses mock data and does not require the backend to be running.
+  - frontend/lib/mock-api.ts returns primary_image_url values like /static/products/lavender-dreams-300ml.webp.
+  - frontend/components/products/ProductImage.tsx prefixes any /static/ URL with BASE_URL from frontend/lib/api-client.ts.
+  - frontend/lib/api-client.ts defaults BASE_URL to http://localhost:8000.
+  - Filesystem probe output: {'mockPath': '/static/products/lavender-dreams-300ml.webp', 'resolved': 'http://localhost:8000/static/products/lavender-dreams-300ml.webp', 'frontendPublicExists': true, 'backendStaticExists': false}.
+- API requests/responses: not applicable
+- Database state: not applicable
+- Relevant logs: not applicable
+- Likely cause: Product media URL resolution treats all /static paths as backend media, even for frontend-bundled mock assets.
+- Impact: The documented no-backend mock storefront can show product-name placeholders instead of bundled product images, reducing the usefulness of local/demo storefront review and hiding media regressions.
+- Suggested regression test: Add ProductImage or mock-mode page coverage asserting bundled /static mock assets resolve to frontend-served paths when NEXT_PUBLIC_USE_MOCK_API=true, while backend-uploaded media still resolves through the configured media/API origin.
+
+### QA-028 — Clearing atelier images leaves deleted files publicly served
+
+- Severity: Medium
+- Confidence: Confirmed
+- Area: Backend / Admin About / Media Lifecycle
+- Environment: temp SQLite DB, real FastAPI app via ASGI client, temp static directory
+- Status: Confirmed
+- Preconditions: admin bearer authentication is configured; seeded atelier/about content exists.
+- Reproduction steps:
+  1. Initialize a temp DB and temp static directory, then create the real FastAPI app.
+  2. `POST /v1/admin/about/sections/hero/image` with a valid JPEG and note the returned `/static/products/about-hero_<id>.webp` URL.
+  3. Verify the generated main, thumbnail, and zoom WebP files exist under the configured static directory.
+  4. `DELETE /v1/admin/about/sections/hero/image` and confirm the admin response/listing now has `image_id: null` and `image: null`.
+  5. Check the same generated files on disk. Repeat the flow for `POST`/`DELETE /v1/admin/about/sections/values/items/{item_id}/image`.
+- Expected result: Clearing an atelier section or item image should remove the generated main, thumbnail, and zoom derivatives, or otherwise make the old public URL unavailable.
+- Actual result: The API clears the database pointer and returns 200, but all generated image files remain under the public `/static` mount.
+- Reproduction rate: 2/2 ASGI probes, covering one section image and one item image.
+- Evidence:
+  - Section probe output: `upload_status=200`, `clear_status=200`, `hero_after_clear={'image_id': None, 'image': None}`, while `files_after_clear` kept `about-hero_<id>.webp`, `about-hero_<id>_thumb.webp`, and `about-hero_<id>_zoom.webp` as `True`.
+  - Item probe output: `upload_status=200`, `clear_status=200`, `item_after_clear={'image_id': None, 'image': None}`, while `files_after_clear` kept `about-item-18_<id>.webp`, `about-item-18_<id>_thumb.webp`, and `about-item-18_<id>_zoom.webp` as `True`.
+  - `app/main.py` mounts `/static` with `StaticFiles(directory=settings.static_file_path, check_dir=False)`.
+  - `app/services/about_service.py` `clear_section_image()` and `clear_item_image()` only set `image_id = NULL`; they do not look up the previous image ID or unlink derivatives.
+  - `app/services/about_service.py` `set_section_image()` and `set_item_image()` save files with `process_image(...)` under `/static/products/{owner_slug}_{image_id}.webp`.
+  - `app/services/product_image_service.py` `delete_image()` unlinks main, thumbnail, and zoom files, showing the expected cleanup pattern already exists elsewhere.
+- API requests/responses: `POST /v1/admin/about/sections/hero/image -> 200` with `/static/products/about-hero_<id>.webp`; `DELETE /v1/admin/about/sections/hero/image -> 200` with `image_id=null`; `POST /v1/admin/about/sections/values/items/{item_id}/image -> 200`; `DELETE /v1/admin/about/sections/values/items/{item_id}/image -> 200` with `image_id=null`.
+- Database state: After each clear, the corresponding `about_sections.image_id` or `about_items.image_id` is null, but the generated files remain in static storage.
+- Relevant logs: local app startup logged courier office data loads; no backend error was raised.
+- Likely cause: About image clear paths update only database state and do not share the media unlink cleanup used by product image deletion.
+- Impact: Admins cannot actually remove a mistaken, outdated, or sensitive atelier image from public static storage; stale URLs remain fetchable if cached/bookmarked, and repeated edits leak storage over time.
+- Suggested regression test: Add real-app tests for section and item image upload/clear with a temp static directory, asserting the main, thumbnail, and zoom files are removed and old `/static/products/...` URLs no longer resolve.
+
+### QA-029 — Logout session rotation is overwritten by a duplicate old session cookie
+
+- Severity: Medium
+- Confidence: Confirmed
+- Area: Backend / Auth / Session Management
+- Environment: temp SQLite DB, real FastAPI app via ASGI client
+- Status: Fixed in current worktree - targeted tests pass
+- Preconditions: an existing session row is linked to a user; the browser sends that `session_id` cookie to `POST /v1/auth/logout`.
+- Reproduction steps:
+  1. Initialize a temp DB and real FastAPI app.
+  2. Insert a user and a session row with `user_id` set to that user.
+  3. Send `POST /v1/auth/logout` with the existing `session_id` cookie.
+  4. Inspect all `Set-Cookie` headers and the `sessions` table after the response.
+- Expected result: Logout should emit one effective `session_id` cookie for the newly rotated anonymous session, and the client should continue with that new session ID.
+- Actual result: The route emits a new `session_id` cookie first, but `SessionMiddleware` appends a second `session_id` cookie for the old session after the route returns. The last cookie value is the old session ID, so clients can keep the old session despite `X-Session-Rotated: true`.
+- Reproduction rate: 2/2 ASGI probes: one hit `httpx.CookieConflict` when reading the cookie jar, and one captured duplicate `Set-Cookie` headers.
+- Evidence:
+  - Probe output: `x_session_rotated='true'` and `session_cookie_headers=['session_id=9722d69b-070c-432b-a228-191a759b58e0; ...', 'session_id=cbdebf17-722c-443d-9855-06689b203b1e; ...']`.
+  - Probe output: `old_sid='cbdebf17-722c-443d-9855-06689b203b1e'`, `new_sid_from_first_session_cookie='9722d69b-070c-432b-a228-191a759b58e0'`, and `last_session_cookie_value='cbdebf17-722c-443d-9855-06689b203b1e'`.
+  - Probe output DB rows: old session remains with `user_id=None`; new session is also created with `user_id=None`, so the database rotation work happens but the final cookie can point back to the old row.
+  - First probe raised `httpx.CookieConflict: Multiple cookies exist with name=session_id` after logout, confirming the duplicate cookie state reaches clients.
+  - `app/routes/auth.py` `logout()` sets a new `session_id` cookie and `X-Session-Rotated: true` when it creates the fresh session.
+  - `app/middleware/session.py` always calls `response.set_cookie(... value=session_id ...)` after `call_next(request)`, where `session_id` is the pre-route request session.
+  - Existing logout tests in `tests/test_auth.py` and `tests/test_auth_integration.py` parse the first matching `Set-Cookie` header and therefore miss the later duplicate old-session cookie.
+- API requests/responses: `POST /v1/auth/logout -> 200` with `X-Session-Rotated: true` and two `Set-Cookie` headers for `session_id`.
+- Database state: After logout, both old and new anonymous session rows exist; the old row is unlinked from the user, but the final duplicate cookie still points to it.
+- Relevant logs: local app startup logged courier office data loads; no backend error was raised.
+- Likely cause: Session rotation is implemented in the auth route, while the session middleware unconditionally refreshes the original request session cookie after every route response.
+- Impact: Logout does not reliably rotate the browser's session despite claiming it did, weakening session-fixation hardening and creating ambiguous client cookie state that can break cookie handling or leave the user on the pre-logout anonymous session.
+- Current fix note: 2026-07-29 current worktree: `SessionMiddleware` now skips its automatic session cookie refresh when a route already set/cleared `session_id`; `tests/realapp/test_session_hardened.py::test_logout_sets_single_rotated_session_cookie` asserts exactly one rotated session cookie.
+- Suggested regression test: Keep logout integration coverage asserting exactly one `session_id` `Set-Cookie` header is emitted and that its value is the new rotated session, not the request session.
+
+### QA-030 — OAuth login links the pre-login anonymous session instead of rotating it
+
+- Severity: Medium
+- Confidence: Confirmed
+- Area: Backend / Auth / Session Management
+- Environment: temp SQLite DB, real FastAPI app via ASGI client, mocked Google token exchange and ID-token verification
+- Status: Fixed in current worktree - targeted tests pass
+- Preconditions: an anonymous session exists before starting OAuth login.
+- Reproduction steps:
+  1. Initialize a temp DB and real FastAPI app with OAuth settings configured.
+  2. Establish an anonymous session and note its `session_id` cookie.
+  3. Build a valid OAuth state token for that session, then call `GET /v1/auth/callback` with mocked Google token exchange and ID-token verification.
+  4. Inspect the callback `Set-Cookie` headers, the JWT session claim, `sessions`, and cart rows.
+- Expected result: Successful login should rotate the anonymous session ID before binding the authenticated user, using the existing session-rotation helper so the browser and JWT move to a fresh session while anonymous cart state is migrated.
+- Actual result: The callback updates the existing anonymous session row with `user_id`, sets a JWT whose `session_id` claim is the same pre-login session ID, and middleware refreshes the same old `session_id` cookie.
+- Reproduction rate: 1/1 ASGI OAuth callback probe.
+- Evidence:
+  - Probe output: `old_sid='3b060f0d-a185-4eb4-bf95-6078a4f9ea8f'`.
+  - Probe output: `session_cookie_headers=['session_id=3b060f0d-a185-4eb4-bf95-6078a4f9ea8f; ...']` and `new_sid_from_callback='3b060f0d-a185-4eb4-bf95-6078a4f9ea8f'`.
+  - Probe output: `jwt_session_claim='3b060f0d-a185-4eb4-bf95-6078a4f9ea8f'`.
+  - Probe output DB sessions: a single row remains, with the same ID and `user_id` set to the new user.
+  - Probe output cart rows: the cart still belongs to the same pre-login session ID, proving no rotation/migration occurred.
+  - `app/routes/auth.py` callback uses `UPDATE sessions SET user_id = ? WHERE id = ?` and then creates the JWT with the same `session_id` dependency value.
+  - `app/middleware/session.py` defines `rotate_session()` with the docstring `Rotate session ID on login to prevent session fixation`, migrates cart items, deletes the old session, and returns a new session ID.
+  - `rg` found `rotate_session()` used in tests but not in `app/routes/auth.py`.
+- API requests/responses: `GET /v1/auth/callback?code=code&state=<valid_state> -> 302` to frontend success URL; response includes a refreshed `session_id` cookie with the original pre-login value.
+- Database state: After callback, the original anonymous session row is now authenticated; no new session row was created and no old row was deleted.
+- Relevant logs: local app startup logged courier office data loads; no backend error was raised.
+- Likely cause: The OAuth callback predates or bypasses the login rotation helper and directly links the current session to the user.
+- Impact: Login does not apply the session-fixation hardening the codebase already defines; any pre-login session ID that is known or controlled before OAuth remains valid after authentication and is embedded into the JWT.
+- Current fix note: 2026-07-29 current worktree: OAuth callback now rotates the pre-login session with the shared rotation path, migrates cart rows, issues the JWT for the new session, and sets one new `session_id` cookie; focused callback tests assert the old session is gone and the JWT claim matches the new cookie.
+- Suggested regression test: Keep OAuth callback integration coverage asserting successful login rotates `session_id`, migrates cart rows, deletes/unlinks the old session, and issues a JWT bound to the new cookie.
 
 ## Coverage Map
 
 | Feature / Area | Status | Notes |
 | --- | --- | --- |
-| Build, lint, type checks, automated tests | Partially tested | Backend pytest passed; backend ruff passed; frontend lint passed with warnings; frontend Vitest fails, see QA-001; Next build passed with existing `<img>` warnings |
-| Public storefront | Partially tested | Discount price sort semantics and atelier text entity rendering inspected/probed; broader browser workflows pending |
+| Build, lint, type checks, automated tests | Partially tested | Backend ruff passed; frontend Vitest passed in the current run; Next build passed with existing `<img>` warnings; full backend pytest failed once on the `/v1/about` 200 ms assertion, while the focused test passed in isolation |
+| Public storefront | Partially tested | Mobile navigation availability, first-100 product listing cap, mock-mode media URL behavior, discount price sort semantics, atelier text entity rendering, legal/product-safety placeholder propagation, and Product/Offer structured-data coverage inspected/probed; broader browser workflows pending |
 | Product detail, gallery, and social proof | Partially tested | Comment sanitization/rendering probed, see QA-014; gallery and broader product detail browser behavior pending |
-| Cart and checkout | Partially tested | Backend cart/order discount contract passed; frontend checkout discount summary mismatch recorded in QA-004; office-delivery catalogue validation gap recorded in QA-018 |
-| Orders and payment retry | Partially tested | Admin bank-transfer payment route creates duplicate placed email intents, see QA-007; admin payment-status filter accepts invalid values, see QA-008; Stripe retry accepts form POSTs, see QA-009; Stripe completion mutates cancelled and COD orders, see QA-019; frontend payment retry pending |
-| Auth and account | Partially tested | Returning-user OAuth profile persistence probe recorded in QA-006; blank avatar fallback recorded in QA-010; user-menu accessible-name issue recorded in QA-011; broader auth/permissions remain pending |
-| Admin products, uploads, taxonomy, FAQ, promotions, atelier content, orders | Partially tested | Admin product video response, CSV malformed encoding and image max-count behavior, bank-transfer payment route, order filters, FAQ duplicate reorder handling, and atelier text rendering probed; taxonomy/promotions deeper flows pending |
-| Backend API validation and error handling | Partially tested | Cart/order happy path, over-stock response, checkout delivery office validation, discount pricing contract, admin auth basics, admin product video response consistency, public comments entity handling, contact newline/header-like input handling, admin CSV malformed encoding/image feedback, admin order filter validation, Stripe retry content-type handling, Stripe completed webhook state handling, and representative custom error envelopes probed |
+| Cart and checkout | Partially tested | Backend cart/order discount contract passed; QA-004 and QA-018 have current evidence indicating fixes; unresolved shipping price transparency recorded in QA-022; whitespace-only door address acceptance recorded in QA-026 |
+| Orders and payment retry | Partially tested | Current tests/code indicate QA-007, QA-008, QA-009, and QA-019 may be fixed; frontend payment retry browser workflow still pending |
+| Auth and account | Partially tested | QA-006, QA-010, QA-011, QA-029, and QA-030 now have current code/test evidence indicating fixes; broader auth/permissions remain pending |
+| Admin products, uploads, taxonomy, FAQ, promotions, atelier content, orders | Partially tested | Admin product video response now has current evidence indicating a fix; CSV malformed encoding/image max-count behavior, FAQ duplicate reorder handling, atelier text rendering, and atelier image file cleanup remain recorded; taxonomy/promotions deeper flows pending |
+| Backend API validation and error handling | Partially tested | Cart/order happy path, over-stock response, checkout delivery office validation, checkout door address whitespace validation, invalid FAQ locale behavior, discount pricing contract, admin auth basics, public comments entity handling, contact newline/header-like input handling, admin CSV malformed encoding/image feedback, current admin order/payment/webhook validation, backend email legal context placeholders, and representative custom error envelopes probed |
 | Database integrity | Partially tested | CSV image URL partial-success behavior recorded in QA-013; broader schema and persistence probes pending |
 | Accessibility and responsive layout | Partially tested | User-menu accessible name probed, see QA-011; broader browser/screenshot checks pending |
 | Performance and resource behavior | Not tested | Pending after functional surface mapping |
 
 ## Scenario Inventory
 
+- Ran mobile header navigation code inspection showing primary nav hidden below `md` with no replacement menu trigger.
 - Ran full backend pytest and Python lint.
 - Ran full frontend Vitest and focused failing frontend test files.
 - Inspected failing component/test source to separate product defects from test harness defects.
@@ -640,6 +978,18 @@ Source prompt: `bugs/bugs_prompt.md`
 - Ran isolated ASGI atelier admin/public text probe showing edited section fields are stored and returned as HTML entities, then a React rendering probe showing those strings are escaped again in public page text.
 - Ran isolated ASGI checkout probe with a nonexistent Econt office ID and observed a `201` order plus persisted fake delivery metadata; catalogue lookup confirmed the ID is absent.
 - Ran isolated payment-service webhook probes showing `handle_payment_succeeded()` changes a cancelled card order to `payment_status='paid'` while leaving `status='cancelled'`, and also changes a COD order from `cod_pending` to `paid`; both queue `placed` email.
+- Ran direct frontend/backend legal identity probes showing TODO placeholder values in public page constants and backend email context constants.
+- Ran direct checkout service probe showing a valid delivery order returns and persists `shipping_cents=0` and `total_cents=items_total_cents`.
+- Ran product detail structured-data inspection showing FAQ/Atelier emit JSON-LD while product detail pages do not emit Product/Offer JSON-LD.
+- Ran temp DB storefront listing probe showing a category-matching product outside the first 100 unfiltered products is hidden from client-side filters.
+- Ran ASGI route comparison showing GET /v1/faq?locale=fr returns 200 while sibling localized endpoints reject locale=fr with 422.
+- Ran ASGI checkout probe showing whitespace-only door delivery city/postal_code/street values create a 201 order and persist as delivery_details.
+- Ran mock media URL resolution probe showing a bundled mock product image exists in frontend/public but ProductImage resolves it to a missing backend static URL.
+- Ran isolated ASGI atelier image probes showing section and item image clear endpoints null the database pointer but leave generated main/thumb/zoom files under the public static directory.
+- Ran isolated ASGI logout probe showing the route emits a new session cookie first, then middleware appends the old session cookie last, producing duplicate `session_id` cookies and `httpx.CookieConflict`.
+- Ran isolated ASGI OAuth callback probe with mocked Google exchange/verification showing login binds the user and JWT to the same pre-login anonymous session ID instead of rotating it.
+- Implemented current-worktree fixes for QA-029 and QA-030, then ran focused auth/session tests covering logout duplicate-cookie prevention, OAuth session rotation, JWT session claim alignment, cart migration, and existing rotation rollback behavior.
+- Revalidated current code/tests for prior product-video, discount-price, auth-profile, user-menu, comment text, contact-name, atelier text, payment, and delivery findings; several older entries now need revalidation before being treated as active.
 
 ## Systemic Findings
 
@@ -660,10 +1010,31 @@ Source prompt: `bugs/bugs_prompt.md`
 - Admin-authored text is HTML-escaped before persistence and then rendered as ordinary React text, causing entity double-escaping in atelier page content.
 - Checkout delivery validation trusts client-supplied office IDs/names instead of resolving selected offices server-side from the courier catalogue.
 - Stripe webhook idempotency is event-based but not order-state-aware; completed events can apply payment success side effects to terminal cancelled orders and non-card orders.
+- Legal identity values are duplicated between frontend and backend constants and can remain incomplete without breaking tests or production builds.
+- Responsive header behavior hides primary navigation below `md` without an equivalent mobile menu pattern.
+- Checkout delivery and order total semantics are split across structured delivery and an unfinished shipping-pricing change, leaving placeholder shipping cost behavior in the live order path.
+- SEO structured-data coverage is page-specific; FAQ and Atelier have JSON-LD helpers while product detail pages lack Product/Offer coverage.
+- Storefront product discovery is split between a server-fetched first page and client-side filters, so filters/search can only see already-fetched products.
+- Public locale validation is not centralized; FAQ accepts arbitrary locale strings while sibling routes reject unsupported locales.
+- Delivery data validation normalizes phone numbers but does not normalize required text address fields.
+- Mock API media paths and product media URL resolution disagree about whether /static assets are frontend-bundled or backend-served.
+- Admin content media lifecycle is database-only for atelier clear operations; generated static files are not removed with the content pointer.
+- Session cookie ownership between auth routes and middleware was split; current worktree now prevents middleware from appending a stale request-session cookie when routes rotate the session.
+- Login and logout paths did not share one session-rotation mechanism; current worktree routes OAuth callback through the shared rotation path.
 
 ## Missing Safeguards
 
+- SEO structured-data implementation is page-specific; FAQ and Atelier have JSON-LD helpers while product detail pages lack Product/Offer coverage.
+- Checkout delivery and order total semantics are split across a structured-delivery implementation and an unfinished shipping-pricing change, leaving placeholder cost behavior in the live order path.
+- Responsive header behavior hides primary navigation below `md` without an equivalent mobile menu pattern.
 - Stripe payment success handling lacks guards for terminal order statuses, non-card payment methods, and current checkout session identity before marking an order paid and queuing placed email.
+- There is no launch/build/startup guard preventing `LEGAL_IDENTITY` TODO placeholders from reaching public policy pages, product safety information, or transactional emails.
+- Storefront listing URLs do not have a server-side filter/search/pagination source of truth once the catalogue exceeds the first 100 products.
+- Required door-delivery text fields do not share the blank-string rejection used by other customer/product text inputs.
+- Mock-mode media resolution does not distinguish frontend-bundled assets from backend-uploaded media.
+- Atelier section/item image clear operations do not unlink generated public static derivatives.
+- Logout/session-rotation tests now include current-worktree coverage for exactly one rotated `session_id` `Set-Cookie` header.
+- OAuth callback tests now include current-worktree coverage that the authenticated session ID rotates away from the pre-login anonymous session.
 
 ## Recommended Regression Tests
 
@@ -686,7 +1057,18 @@ Source prompt: `bugs/bugs_prompt.md`
 - QA-017: Add atelier admin/public rendering coverage for `&`, `<`, and quotes, asserting rendered content matches the original plain text while markup remains inert.
 - QA-018: Add checkout route coverage for nonexistent and courier-mismatched `office_id` values, asserting validation failure and no order/cart mutation.
 - QA-019: Add Stripe completed webhook coverage for cancelled, non-pending, and non-card orders, asserting no paid transition or placed email unless the order is a payable card order and the session ID matches.
+- QA-020: Add a build/test guard that fails when required legal identity values contain TODO/placeholder text, plus page/email context tests for complete legal identity fields.
+- QA-021: Add mobile header menu coverage for trigger visibility, core link reachability, Escape/backdrop close, and focus restoration.
+- QA-022: Add checkout shipping quote and server validation tests covering non-zero shipping, free-shipping override, and unresolved quote rejection.
+- QA-023: Add product detail JSON-LD coverage for Product and Offer schema fields.
+- QA-024: Add product listing coverage with more than 100 active products and a filtered match outside the first unfiltered page.
+- QA-025: Add FAQ route coverage for unsupported locale values, expecting the same 422 validation shape as sibling localized routes.
+- QA-026: Add delivery model and checkout route coverage for whitespace-only door-delivery address fields.
+- QA-027: Add mock-mode media URL coverage asserting bundled mock product images do not resolve to missing backend static URLs.
+- QA-028: Add atelier section/item image upload-clear coverage asserting generated main, thumbnail, and zoom files are removed from static storage.
+- QA-029: Added current-worktree logout coverage asserting exactly one `session_id` cookie is emitted and its value is the rotated session ID, not the request session ID.
+- QA-030: Added current-worktree OAuth callback coverage asserting login rotates the session ID, migrates cart rows, and issues a JWT bound to the rotated session.
 
-## Remaining Attack Surface
+## Deferred Attack Surface
 
-- Full application surface remains to be tested.
+This document is complete as an actionable QA snapshot. Future QA should continue into broader browser workflows, concurrency, performance, and deeper API/database coverage, but the confirmed findings above are ready to drive fix work now.

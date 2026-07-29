@@ -9,7 +9,7 @@ import Video from "yet-another-react-lightbox/plugins/video";
 import Thumbnails from "yet-another-react-lightbox/plugins/thumbnails";
 import "yet-another-react-lightbox/styles.css";
 import "yet-another-react-lightbox/plugins/thumbnails.css";
-import { BASE_URL } from "@/lib/api-client";
+import { resolveMediaUrl } from "@/lib/media";
 import { cn } from "@/lib/utils";
 import type { ProductImage as ProductImageModel, ProductVideo } from "@/lib/types";
 import { ProductImage } from "./ProductImage";
@@ -24,10 +24,6 @@ interface ProductGalleryProps {
 type GalleryItem =
   | { kind: "image"; id: string; image: ProductImageModel }
   | { kind: "video"; id: string; video: ProductVideo };
-
-function resolveImageUrl(url: string | null): string | null {
-  return url?.startsWith("/static/") ? `${BASE_URL}${url}` : url;
-}
 
 export function ProductGallery({ name, images, video, primaryImageUrl }: ProductGalleryProps) {
   const t = useTranslations("products");
@@ -95,14 +91,14 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
         if (item.kind === "video") {
           return {
             type: "video",
-            poster: resolveImageUrl(item.video.poster_url) ?? undefined,
+            poster: resolveMediaUrl(item.video.poster_url) ?? undefined,
             sources: [
-              { src: resolveImageUrl(item.video.video_url) ?? "", type: "video/mp4" },
+              { src: resolveMediaUrl(item.video.video_url) ?? "", type: "video/mp4" },
             ],
           };
         }
         return {
-          src: resolveImageUrl(item.image.zoom_url ?? item.image.image_url) ?? "",
+          src: resolveMediaUrl(item.image.zoom_url ?? item.image.image_url) ?? "",
           alt: name,
         };
       }),
@@ -143,8 +139,8 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
             />
           ) : (
             <video
-              src={resolveImageUrl(selectedVideo.video_url) ?? undefined}
-              poster={resolveImageUrl(selectedVideo.poster_url) ?? undefined}
+              src={resolveMediaUrl(selectedVideo.video_url) ?? undefined}
+              poster={resolveMediaUrl(selectedVideo.poster_url) ?? undefined}
               muted
               autoPlay
               loop
@@ -178,7 +174,7 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
       {galleryItems.length > 1 && (
         <div className="grid grid-cols-6 gap-2">
           {galleryItems.map((item) => {
-            const thumbnailUrl = resolveImageUrl(
+            const thumbnailUrl = resolveMediaUrl(
               item.kind === "video" ? item.video.poster_url : item.image.thumbnail_url
             );
             const isSelected = item.id === selectedItem.id;

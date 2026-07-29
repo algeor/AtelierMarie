@@ -2,6 +2,7 @@
 
 import sqlite3
 import time
+from http.cookies import SimpleCookie
 from unittest.mock import AsyncMock, patch
 
 import jwt
@@ -13,6 +14,17 @@ from app.models.users import UserResponse
 from app.services import auth_service
 
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _set_cookie_values(response, cookie_name: str) -> list[str]:
+    """Return values for a Set-Cookie name, preserving duplicate headers."""
+    values: list[str] = []
+    for header in response.headers.get_list("set-cookie"):
+        cookie = SimpleCookie()
+        cookie.load(header)
+        if cookie_name in cookie:
+            values.append(cookie[cookie_name].value)
+    return values
 
 
 # --- Fixtures ---
@@ -513,9 +525,17 @@ class TestCallbackRoute:
         assert "redirect_to=/products" in location
 
         # JWT cookie should be set
-        set_cookie_headers = response.headers.get_list("set-cookie")
-        has_jwt_cookie = any(settings.jwt_cookie_name in h for h in set_cookie_headers)
-        assert has_jwt_cookie
+        jwt_cookie_values = _set_cookie_values(response, settings.jwt_cookie_name)
+        assert len(jwt_cookie_values) == 1
+
+        session_cookie_values = _set_cookie_values(response, settings.session_cookie_name)
+        assert len(session_cookie_values) == 1
+        new_session_id = session_cookie_values[0]
+        assert new_session_id != session_id
+
+        claims = auth_service.verify_jwt(jwt_cookie_values[0])
+        assert claims is not None
+        assert claims["session_id"] == new_session_id
 
         # User should be created in DB
         conn = sqlite3.connect(db_path)
@@ -523,11 +543,20 @@ class TestCallbackRoute:
         user_row = conn.execute(
             "SELECT * FROM users WHERE google_id = ?", ("google-new-user",)
         ).fetchone()
+        old_session_row = conn.execute(
+            "SELECT * FROM sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+        new_session_row = conn.execute(
+            "SELECT * FROM sessions WHERE id = ?", (new_session_id,)
+        ).fetchone()
         conn.close()
 
         assert user_row is not None
         assert user_row["email"] == "newuser@gmail.com"
         assert user_row["is_admin"] == 1  # First user is admin
+        assert old_session_row is None
+        assert new_session_row is not None
+        assert new_session_row["user_id"] == user_row["id"]
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("_configure_oauth")
@@ -684,7 +713,7 @@ class TestCallbackRoute:
     async def test_callback_links_session_and_backfills_orders(
         self, auth_client: AsyncClient, session_id, db_path
     ):
-        """After callback: sessions.user_id set, anonymous orders backfilled."""
+        """After callback: session rotates and anonymous orders are backfilled."""
         # Insert an anonymous order for this session
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
@@ -717,25 +746,35 @@ class TestCallbackRoute:
                 "picture": None,
             }
 
-            await auth_client.get(
+            response = await auth_client.get(
                 "/v1/auth/callback",
                 params={"code": "code", "state": state_token},
                 follow_redirects=False,
             )
 
-        # Verify session linked and order backfilled
+        settings = get_settings()
+        session_cookie_values = _set_cookie_values(response, settings.session_cookie_name)
+        assert len(session_cookie_values) == 1
+        new_session_id = session_cookie_values[0]
+        assert new_session_id != session_id
+
+        # Verify the old session was rotated away and the anonymous order was backfilled.
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
-        session_row = conn.execute(
-            "SELECT user_id FROM sessions WHERE id = ?", (session_id,)
+        old_session_row = conn.execute(
+            "SELECT id FROM sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+        new_session_row = conn.execute(
+            "SELECT user_id FROM sessions WHERE id = ?", (new_session_id,)
         ).fetchone()
         order_row = conn.execute(
             "SELECT user_id FROM orders WHERE id = ?", ("order-anon-1",)
         ).fetchone()
         conn.close()
 
-        assert session_row["user_id"] is not None
-        assert order_row["user_id"] == session_row["user_id"]
+        assert old_session_row is None
+        assert new_session_row["user_id"] is not None
+        assert order_row["user_id"] == new_session_row["user_id"]
 
 
 class TestLogoutCartIsolation:
@@ -764,18 +803,10 @@ class TestLogoutCartIsolation:
         response = await auth_client.post("/v1/auth/logout")
         assert response.status_code == 200
 
-        # The new session cookie was set — extract it
-        set_cookies = response.headers.get_list("set-cookie")
-        new_session_cookie = None
-        for h in set_cookies:
-            if settings.session_cookie_name in h and settings.jwt_cookie_name not in h:
-                # Parse session_id value from set-cookie header
-                parts = h.split(";")[0]
-                if "=" in parts:
-                    new_session_cookie = parts.split("=", 1)[1]
-                    break
-
-        assert new_session_cookie is not None
+        # Exactly one new session cookie is set.
+        session_cookie_values = _set_cookie_values(response, settings.session_cookie_name)
+        assert len(session_cookie_values) == 1
+        new_session_cookie = session_cookie_values[0]
         # Verify new session has no cart items
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row

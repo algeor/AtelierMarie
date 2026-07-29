@@ -12,6 +12,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.dependencies.auth import get_current_user
 from app.dependencies.session import require_session
+from app.middleware.session import rotate_session_in_transaction
 from app.models.users import UserResponse
 from app.responses import error_response
 from app.services import auth_service
@@ -84,7 +85,7 @@ async def callback(
         # Verify Google ID token (signature, aud, iss, email_verified)
         google_claims = await auth_service.verify_google_id_token(id_token)
 
-        # Upsert user + link session
+        # Upsert user, rotate the anonymous session, and backfill anonymous orders.
         with get_db() as conn:
             user = auth_service.upsert_user(
                 conn,
@@ -93,19 +94,16 @@ async def callback(
                 google_claims.get("name"),
                 google_claims.get("picture"),
             )
-            # Link session to user
-            conn.execute(
-                "UPDATE sessions SET user_id = ? WHERE id = ?",
-                (user.id, session_id),
-            )
+            new_session_id = rotate_session_in_transaction(conn, session_id, user.id)
             # Backfill anonymous orders to this user
             conn.execute(
                 "UPDATE orders SET user_id = ? WHERE session_id = ? AND user_id IS NULL",
                 (user.id, session_id),
             )
+        request.state.session_id = new_session_id
 
         # Create JWT for cookie
-        jwt_token = auth_service.create_jwt(user, session_id)
+        jwt_token = auth_service.create_jwt(user, new_session_id)
 
         # Redirect to frontend callback handler
         redirect_url = f"{frontend_base}/auth/callback?success=true&redirect_to={return_to}"
@@ -121,6 +119,15 @@ async def callback(
             samesite="lax",
             path="/",
         )
+        response.set_cookie(
+            key=settings.session_cookie_name,
+            value=new_session_id,
+            max_age=settings.session_max_age,
+            httponly=True,
+            secure=settings.session_cookie_secure and settings.environment != "development",
+            samesite="lax",
+        )
+        response.headers["X-Session-Rotated"] = "true"
         return response
 
     except auth_service.InvalidStateError:

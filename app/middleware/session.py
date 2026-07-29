@@ -63,6 +63,17 @@ def _should_skip_path(path: str, skip_paths: list[str]) -> bool:
     return False
 
 
+def _response_sets_cookie(response: Response, cookie_name: str) -> bool:
+    """Return True when a route already set or cleared this cookie."""
+    cookie_prefix = f"{cookie_name}=".lower()
+    for header_name, header_value in response.raw_headers:
+        if header_name.lower() != b"set-cookie":
+            continue
+        if header_value.decode("latin-1").lower().startswith(cookie_prefix):
+            return True
+    return False
+
+
 class SessionMiddleware(BaseHTTPMiddleware):
     """Reads or creates a session cookie, sets request.state.session_id."""
 
@@ -167,17 +178,50 @@ class SessionMiddleware(BaseHTTPMiddleware):
 
         response = await call_next(request)
 
-        # Bug #3 fix: Set-Cookie on EVERY response (spec Decision 2 — prevents timing side-channel)
-        response.set_cookie(
-            key=settings.session_cookie_name,
-            value=session_id,
-            max_age=settings.session_max_age,
-            httponly=True,
-            secure=settings.session_cookie_secure and settings.environment != "development",
-            samesite="lax",
-        )
+        # Bug #3 fix: Set-Cookie on EVERY response (spec Decision 2 — prevents timing side-channel).
+        # If a route intentionally rotated/replaced the session cookie, do not append
+        # a second Set-Cookie for the stale request session.
+        response_session_id = getattr(request.state, "session_id", session_id)
+        if not _response_sets_cookie(response, settings.session_cookie_name):
+            response.set_cookie(
+                key=settings.session_cookie_name,
+                value=response_session_id,
+                max_age=settings.session_max_age,
+                httponly=True,
+                secure=settings.session_cookie_secure and settings.environment != "development",
+                samesite="lax",
+            )
 
         return response
+
+
+def rotate_session_in_transaction(
+    conn: "sqlite3.Connection", old_session_id: str, user_id: str
+) -> str:
+    """Rotate a session using the caller's active transaction."""
+    settings = get_settings()
+    new_session_id = str(uuid.uuid4())
+    now = datetime.now(UTC)
+    expires_at = now + timedelta(seconds=settings.session_max_age)
+
+    row = conn.execute(
+        "SELECT preferred_locale FROM sessions WHERE id = ?",
+        (old_session_id,),
+    ).fetchone()
+    preferred_locale = row["preferred_locale"] if row and row["preferred_locale"] else "en"
+
+    conn.execute(
+        "INSERT INTO sessions (id, user_id, preferred_locale, created_at, expires_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (new_session_id, user_id, preferred_locale, _format_dt(now), _format_dt(expires_at)),
+    )
+    conn.execute(
+        "UPDATE cart_items SET session_id = ? WHERE session_id = ?",
+        (new_session_id, old_session_id),
+    )
+    conn.execute("DELETE FROM sessions WHERE id = ?", (old_session_id,))
+
+    return new_session_id
 
 
 def rotate_session(conn: "sqlite3.Connection", old_session_id: str, user_id: str) -> str:
@@ -195,25 +239,9 @@ def rotate_session(conn: "sqlite3.Connection", old_session_id: str, user_id: str
 
     Returns the new session ID.
     """
-    settings = get_settings()
-    new_session_id = str(uuid.uuid4())
-    now = datetime.now(UTC)
-    expires_at = now + timedelta(seconds=settings.session_max_age)
-
     conn.execute("BEGIN IMMEDIATE")
     try:
-        # Step 1: Insert new session row with user_id
-        conn.execute(
-            "INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-            (new_session_id, user_id, _format_dt(now), _format_dt(expires_at)),
-        )
-        # Step 2: Migrate cart items (UPDATE before DELETE to avoid FK issues)
-        conn.execute(
-            "UPDATE cart_items SET session_id = ? WHERE session_id = ?",
-            (new_session_id, old_session_id),
-        )
-        # Step 3: Delete old session
-        conn.execute("DELETE FROM sessions WHERE id = ?", (old_session_id,))
+        new_session_id = rotate_session_in_transaction(conn, old_session_id, user_id)
         conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")

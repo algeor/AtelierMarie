@@ -6,7 +6,8 @@ import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { ApiError, BASE_URL } from "@/lib/api-client";
+import { ApiError } from "@/lib/api-client";
+import { resolveMediaUrl } from "@/lib/media";
 import { getAdminTaxonomy } from "@/lib/api";
 import { cn, formatPrice } from "@/lib/utils";
 import type { AdminProductResponse, AdminTaxonomyTerm, ProductImage } from "@/lib/types";
@@ -376,7 +377,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
   }
 
   function previewUrl(url: string): string {
-    return url.startsWith("/static/") ? `${BASE_URL}${url}` : url;
+    return resolveMediaUrl(url) ?? url;
   }
 
   function formatFileSizeMb(bytes: number): string {

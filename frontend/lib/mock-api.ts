@@ -125,14 +125,12 @@ function toPublicProduct(product: MockProduct, locale = "en"): ProductResponse {
 }
 
 function mockProductImage(productId: string, sortOrder = 0, isPrimary = true): ProductImage {
-  // Distinct filenames per sort order so a multi-image product yields distinct
-  // slides in the gallery/lightbox.
-  const stem = sortOrder === 0 ? productId : `${productId}-${sortOrder}`;
+  const imageUrl = `/static/products/${productId}.webp`;
   return {
     id: `${productId}-${sortOrder}`,
-    image_url: `/static/products/${stem}.webp`,
-    thumbnail_url: `/static/products/${stem}_thumb.webp`,
-    zoom_url: `/static/products/${stem}_zoom.webp`,
+    image_url: imageUrl,
+    thumbnail_url: imageUrl,
+    zoom_url: imageUrl,
     sort_order: sortOrder,
     is_primary: isPrimary,
   };
@@ -142,11 +140,11 @@ function mockProductVideo(productId: string, sortOrder = 1): ProductVideo {
   return {
     id: `${productId}-video`,
     product_id: productId,
-    status: "ready",
-    video_url: `/static/products/${productId}_video.mp4`,
-    poster_url: `/static/products/${productId}_thumb.webp`,
+    status: "queued",
+    video_url: null,
+    poster_url: `/static/products/${productId}.webp`,
     sort_order: sortOrder,
-    duration_secs: 18,
+    duration_secs: null,
     failure_reason: null,
     created_at: "2024-06-01T10:00:00Z",
     updated_at: "2024-06-01T10:00:00Z",
@@ -207,7 +205,7 @@ const MOCK_PRODUCTS: MockProduct[] = [
     ],
     video: mockProductVideo("lavender-dreams-300ml", 2),
     primary_image_url: "/static/products/lavender-dreams-300ml.webp",
-    primary_thumbnail_url: "/static/products/lavender-dreams-300ml_thumb.webp",
+    primary_thumbnail_url: "/static/products/lavender-dreams-300ml.webp",
     stock: 24,
     weight_grams: 300,
     is_active: true,
@@ -244,7 +242,7 @@ const MOCK_PRODUCTS: MockProduct[] = [
     images: [mockProductImage("midnight-amber-300ml")],
     video: null,
     primary_image_url: "/static/products/midnight-amber-300ml.webp",
-    primary_thumbnail_url: "/static/products/midnight-amber-300ml_thumb.webp",
+    primary_thumbnail_url: "/static/products/midnight-amber-300ml.webp",
     stock: 12,
     weight_grams: 450,
     is_active: true,
@@ -315,7 +313,7 @@ const MOCK_PRODUCTS: MockProduct[] = [
     images: [mockProductImage("vanilla-bourbon-300ml")],
     video: null,
     primary_image_url: "/static/products/vanilla-bourbon-300ml.webp",
-    primary_thumbnail_url: "/static/products/vanilla-bourbon-300ml_thumb.webp",
+    primary_thumbnail_url: "/static/products/vanilla-bourbon-300ml.webp",
     stock: 0,
     weight_grams: 500,
     is_active: false,
@@ -1257,12 +1255,12 @@ export async function uploadProductImage(
     mockError("max_product_images", "Product already has the maximum number of images");
   }
   const imageId = `${productId}-${Date.now()}`;
-  const imageUrl = `/static/products/${productId}_${imageId}.webp`;
+  const imageUrl = product.primary_image_url ?? "/static/products/vanilla-bourbon-300ml.webp";
   const image: ProductImage = {
     id: imageId,
     image_url: imageUrl,
-    thumbnail_url: `/static/products/${productId}_${imageId}_thumb.webp`,
-    zoom_url: `/static/products/${productId}_${imageId}_zoom.webp`,
+    thumbnail_url: imageUrl,
+    zoom_url: imageUrl,
     sort_order: product.images.length,
     is_primary: product.images.length === 0,
   };

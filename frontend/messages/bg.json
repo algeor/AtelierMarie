@@ -33,7 +33,11 @@
   },
   "header": {
     "cartLabel": "Кошница",
-    "cartLabelWithItems": "Кошница, {count} {count, plural, one {артикул} other {артикула}}"
+    "cartLabelWithItems": "Кошница, {count} {count, plural, one {артикул} other {артикула}}",
+    "openMenu": "Отвори меню",
+    "closeMenu": "Затвори меню",
+    "mobileMenuTitle": "Меню",
+    "language": "Език"
   },
   "footer": {
     "handcrafted": "Ръчна изработка с любов",

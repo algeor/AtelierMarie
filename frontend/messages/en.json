@@ -33,7 +33,11 @@
   },
   "header": {
     "cartLabel": "Shopping cart",
-    "cartLabelWithItems": "Shopping cart, {count} {count, plural, one {item} other {items}}"
+    "cartLabelWithItems": "Shopping cart, {count} {count, plural, one {item} other {items}}",
+    "openMenu": "Open menu",
+    "closeMenu": "Close menu",
+    "mobileMenuTitle": "Menu",
+    "language": "Language"
   },
   "footer": {
     "handcrafted": "Handcrafted with love",

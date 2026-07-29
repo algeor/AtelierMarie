@@ -30,6 +30,7 @@ function image(id: string, sortOrder: number): ProductImage {
     id,
     image_url: `/static/products/${id}.webp`,
     thumbnail_url: `/static/products/${id}-thumb.webp`,
+    zoom_url: `/static/products/${id}-zoom.webp`,
     sort_order: sortOrder,
     is_primary: sortOrder === 0,
   };
