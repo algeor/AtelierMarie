@@ -14,39 +14,52 @@
       "frontend unit test suite isolation",
       "isolated cart/order API happy path and stock failure",
       "admin product video update response consistency",
-      "route-level API error envelope consistency"
+      "route-level API error envelope consistency",
+      "frontend checkout discount display consistency",
+      "frontend product listing discount sort consistency",
+      "backend discount contract tests",
+      "auth returning-user profile persistence edge case",
+      "admin bank-transfer payment email outbox idempotency"
     ],
     "areas_not_yet_tested": [
-      "frontend workflows",
-      "backend APIs",
-      "auth/permissions",
       "database integrity beyond automated tests and video response probe",
-      "build/test gates",
       "accessibility",
       "performance",
-      "error handling",
-      "concurrency"
+      "concurrency",
+      "broader frontend browser workflows",
+      "frontend checkout submission in a real browser session",
+      "broader backend APIs beyond discount/cart/order and representative admin probes",
+      "error handling outside the representative route-level API envelope probes",
+      "auth/permissions beyond admin bearer probes and returning-user profile persistence probe",
+      "order email sweeper behavior under duplicated queued payment rows"
     ],
     "active_hypotheses": [
       "frontend component test harness is missing shared browser and intl providers",
       "admin ProductForm test fixture is stale relative to required product taxonomy fields",
       "product/video attachment is inconsistent across admin product service paths",
-      "custom route errors bypass the global envelope shape"
+      "frontend discount display code may still use base price in cart-adjacent UI",
+      "frontend client-side product sorting may diverge from backend effective-price sort semantics",
+      "returning OAuth profile updates may clear optional user fields when provider omits them",
+      "bank-transfer payment confirmation may enqueue duplicate customer email intents"
     ],
     "unresolved_anomalies": [
       "bugs/bugs_prompt.md is staged as an empty new file while the worktree contains the QA prompt",
       "bugs/prompt.txt is untracked and intentionally untouched"
     ],
     "test_accounts_data_created": [],
-    "services_manipulated": [],
-    "major_remaining_attack_surfaces": ["full application surface"]
+    "services_manipulated": [
+      "Next mock dev server on 127.0.0.1:3002"
+    ],
+    "major_remaining_attack_surfaces": [
+      "full application surface"
+    ]
   },
   "summary": {
-    "total_confirmed_bugs": 3,
+    "total_confirmed_bugs": 7,
     "severity_counts": {
       "critical": 0,
       "high": 0,
-      "medium": 3,
+      "medium": 7,
       "low": 0
     }
   },
@@ -58,7 +71,10 @@
       "confidence": "Confirmed",
       "area": "Frontend / Tests",
       "environment": "local workspace, frontend, Vitest v4.1.10, jsdom",
-      "preconditions": ["dependencies installed", "current worktree as of 2026-07-29"],
+      "preconditions": [
+        "dependencies installed",
+        "current worktree as of 2026-07-29"
+      ],
       "reproduction_steps": [
         "Run cd frontend && npm test.",
         "Run cd frontend && npx vitest run __tests__/components/products/ProductGallery.test.tsx __tests__/components/ProductVideo.test.tsx __tests__/components/admin/ProductForm.test.tsx --reporter=verbose."
@@ -100,7 +116,9 @@
       "confidence": "Confirmed",
       "area": "Backend / API / Admin Products",
       "environment": "isolated temp SQLite DB, local ASGI client, ENVIRONMENT=development, admin bearer key",
-      "preconditions": ["product has an existing product_videos row with status='ready'"],
+      "preconditions": [
+        "product has an existing product_videos row with status='ready'"
+      ],
       "reproduction_steps": [
         "Seed product video-candle and a ready product_videos row for it.",
         "GET /v1/admin/products/video-candle with a valid admin bearer token.",
@@ -116,14 +134,18 @@
         "After PATCH: GET returned the same ready video object, proving persistence was not removed.",
         "app/services/product_service.py update_product() attaches image fields but not product_video_service.attach_video_fields_one(...)."
       ],
-      "relevant_logs": ["No backend error; API returns 200."],
+      "relevant_logs": [
+        "No backend error; API returns 200."
+      ],
       "screenshots_or_artifact_paths": [],
       "api_requests_responses": [
         "GET /v1/admin/products/video-candle -> 200 with video object",
         "PATCH /v1/admin/products/video-candle {name_en: Video Candle Updated} -> 200 with video null",
         "GET /v1/admin/products/video-candle -> 200 with video object"
       ],
-      "code_locations": ["app/services/product_service.py update_product()"],
+      "code_locations": [
+        "app/services/product_service.py update_product()"
+      ],
       "database_state": "product_videos row remains present throughout",
       "likely_cause": "update_product() ends with product_image_service.attach_image_fields_one(product) and does not attach video fields.",
       "current_investigation_status": "Confirmed",
@@ -137,7 +159,10 @@
       "confidence": "Confirmed",
       "area": "Backend / API",
       "environment": "isolated temp SQLite DB, local ASGI client, ENVIRONMENT=development",
-      "preconditions": ["API app created from create_app()", "admin bearer key configured for admin probes"],
+      "preconditions": [
+        "API app created from create_app()",
+        "admin bearer key configured for admin probes"
+      ],
       "reproduction_steps": [
         "Seed product dup-candle.",
         "POST /v1/admin/products with duplicate id='dup-candle'.",
@@ -155,7 +180,9 @@
         "Missing public product: 404 {'error': {'code': 'NOT_FOUND', 'message': 'Product not found'}}, details missing.",
         "app/main.py documents all errors with details; app/exceptions.py global handlers include it."
       ],
-      "relevant_logs": ["No backend error; responses are successful error responses."],
+      "relevant_logs": [
+        "No backend error; responses are successful error responses."
+      ],
       "screenshots_or_artifact_paths": [],
       "api_requests_responses": [
         "POST /v1/admin/products duplicate id -> 409 without details",
@@ -163,12 +190,197 @@
         "GET /v1/admin/orders?status=bogus -> 422 without details",
         "GET /v1/products/nope -> 404 without details"
       ],
-      "code_locations": ["app/main.py", "app/exceptions.py", "app/routes/admin.py", "app/routes/products.py"],
+      "code_locations": [
+        "app/main.py",
+        "app/exceptions.py",
+        "app/routes/admin.py",
+        "app/routes/products.py"
+      ],
       "database_state": "seed product dup-candle required for duplicate path",
       "likely_cause": "Route handlers return handcrafted JSONResponse bodies instead of a shared error helper/global exception path, and many omit details.",
       "current_investigation_status": "Confirmed",
       "related_bugs": [],
       "regression_test_recommendation": "Add schema assertions for representative custom route errors and centralize error response construction so details is always present."
+    },
+    {
+      "bug_id": "QA-004",
+      "title": "Checkout summary line items show full price for discounted products while subtotal uses discounted total",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "area": "Frontend / Checkout / Discounts",
+      "environment": "local workspace, frontend checkout component, backend discount tests green",
+      "preconditions": [
+        "cart contains a product with active discount fields, e.g. price_cents=3200 and effective_price_cents=2560",
+        "cart total_cents is computed from effective_price_cents, as backend and mock API do"
+      ],
+      "reproduction_steps": [
+        "Use a cart item whose product has price_cents=3200, effective_price_cents=2560, discount_percent=20, quantity=1, and cart total_cents=2560.",
+        "Render or inspect the checkout order summary in frontend/app/[locale]/checkout/page.tsx.",
+        "Compare the line item unit/line total with the subtotal."
+      ],
+      "expected_result": "The checkout summary line item uses the same effective discounted price as the cart subtotal, e.g. 1 x €25.60 and subtotal €25.60.",
+      "actual_result": "The line item uses product.price_cents, so it displays 1 x €32.00 and line total €32.00 while the subtotal displays €25.60 from total_cents.",
+      "reproduction_rate": "1/1 code-path inspection against the active checkout component plus passing backend discount contract tests",
+      "evidence": [
+        "frontend/app/[locale]/checkout/page.tsx lines 287 and 291 format item.product.price_cents instead of item.product.effective_price_cents.",
+        "frontend/lib/mock-api.ts buildCartResponse computes total_cents from item.product.effective_price_cents.",
+        "tests/test_discounts.py::TestCartTotals::test_cart_total_uses_effective_price and TestCheckoutSnapshot::test_checkout_snapshots_discounted_price passed in the focused tests/test_discounts.py run.",
+        "Mock discounted product lavender-dreams-300ml has price_cents=3200 and effective_price_cents=2560."
+      ],
+      "relevant_logs": [
+        ".venv/bin/pytest tests/test_discounts.py -q -> 19 passed"
+      ],
+      "screenshots_or_artifact_paths": [],
+      "api_requests_responses": [],
+      "code_locations": [
+        "frontend/app/[locale]/checkout/page.tsx:287",
+        "frontend/app/[locale]/checkout/page.tsx:291",
+        "frontend/lib/mock-api.ts:620",
+        "tests/test_discounts.py:260",
+        "tests/test_discounts.py:291"
+      ],
+      "database_state": null,
+      "likely_cause": "Checkout summary uses the base ProductResponse.price_cents field for display math instead of the discounted ProductResponse.effective_price_cents field used by cart totals and order snapshots.",
+      "current_investigation_status": "Confirmed",
+      "related_bugs": [],
+      "regression_test_recommendation": "Add a checkout page/component test with a discounted cart item and assert the unit price, line total, and subtotal all use effective_price_cents."
+    },
+    {
+      "bug_id": "QA-005",
+      "title": "Client-side product price sorting ignores active discounts",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "area": "Frontend / Product Listing / Discounts",
+      "environment": "local workspace, frontend ProductListingClient, backend discount tests green",
+      "preconditions": [
+        "product list contains at least one discounted product whose effective_price_cents changes its ordering relative to base price",
+        "user selects price ascending or price descending in the product menu"
+      ],
+      "reproduction_steps": [
+        "Use products sale-candle price_cents=5000 effective_price_cents=1000 and plain-candle price_cents=2000 effective_price_cents=2000.",
+        "Apply the client price_asc sort from ProductListingClient.",
+        "Compare the result to the backend/public contract that sorts by effective_price_cents."
+      ],
+      "expected_result": "price_asc orders sale-candle before plain-candle because 1000 < 2000, matching backend effective-price sorting and the displayed sale prices.",
+      "actual_result": "price_asc orders plain-candle before sale-candle because the client sorts by base price_cents, 2000 < 5000.",
+      "reproduction_rate": "1/1 direct executable sort probe plus code inspection",
+      "evidence": [
+        "Executable probe output: client_price_asc=[plain-candle,sale-candle], expected_effective_price_asc=[sale-candle,plain-candle].",
+        "frontend/components/products/ProductListingClient.tsx lines 211-215 sort price_asc/price_desc by price_cents.",
+        "app/services/product_service.py lines 218-260 documents and implements price sort by effective_price_cents.",
+        "tests/test_discounts.py::TestPriceSort::test_price_asc_uses_effective_price and test_price_desc_uses_effective_price passed in the focused tests/test_discounts.py run."
+      ],
+      "relevant_logs": [
+        "node probe -> {\"client_price_asc\":[\"plain-candle\",\"sale-candle\"],\"expected_effective_price_asc\":[\"sale-candle\",\"plain-candle\"]}",
+        ".venv/bin/pytest tests/test_discounts.py -q -> 19 passed"
+      ],
+      "screenshots_or_artifact_paths": [],
+      "api_requests_responses": [],
+      "code_locations": [
+        "frontend/components/products/ProductListingClient.tsx:211",
+        "frontend/components/products/ProductListingClient.tsx:215",
+        "app/services/product_service.py:218",
+        "app/services/product_service.py:259",
+        "tests/test_discounts.py:190",
+        "tests/test_discounts.py:198"
+      ],
+      "database_state": null,
+      "likely_cause": "ProductListingClient implements price sorting locally using ProductResponse.price_cents, while the backend and price display semantics use effective_price_cents when discounts are active.",
+      "current_investigation_status": "Confirmed",
+      "related_bugs": [],
+      "regression_test_recommendation": "Add a ProductListingClient test where a discounted high-base-price product has the lowest effective price, then assert price_asc/price_desc order by effective_price_cents."
+    },
+    {
+      "bug_id": "QA-006",
+      "title": "Returning OAuth login clears stored name and avatar when Google omits optional claims",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "area": "Backend / Auth / User Profile",
+      "environment": "isolated temp SQLite DB, direct auth_service.upsert_user probe",
+      "preconditions": [
+        "A user already exists with google_id, name, and avatar_url populated.",
+        "A later OAuth callback for the same google_id provides no name and no picture claim."
+      ],
+      "reproduction_steps": [
+        "Initialize a temp DB and call auth_service.upsert_user(conn, google-1, a@test.com, Old Name, http://old-avatar.jpg).",
+        "Call auth_service.upsert_user(conn, google-1, a@test.com, None, None) for the same google_id.",
+        "Read SELECT id, name, avatar_url FROM users WHERE google_id = google-1."
+      ],
+      "expected_result": "The stored profile keeps the previous non-null name and avatar when the provider omits optional replacement values, or the returned UserResponse matches what was actually persisted.",
+      "actual_result": "The returned UserResponse still reports Old Name and http://old-avatar.jpg, but the users table row is updated to name=NULL and avatar_url=NULL.",
+      "reproduction_rate": "1/1 direct service probe",
+      "evidence": [
+        "Probe output second_return={'name':'Old Name','avatar_url':'http://old-avatar.jpg'} while db_row={'name': None, 'avatar_url': None}.",
+        "app/services/auth_service.py lines 343-345 update name and avatar_url directly from nullable OAuth claims.",
+        "app/services/auth_service.py lines 350-351 return fallback values from the old row, masking the persisted nulls in the immediate response.",
+        "Existing TestUpsertUser only covers returning users with replacement name/avatar, not omitted optional claims."
+      ],
+      "relevant_logs": [
+        ".venv/bin/python direct probe -> db_row {'name': None, 'avatar_url': None} after second upsert"
+      ],
+      "screenshots_or_artifact_paths": [],
+      "api_requests_responses": [],
+      "code_locations": [
+        "app/services/auth_service.py:343",
+        "app/services/auth_service.py:345",
+        "app/services/auth_service.py:350",
+        "app/services/auth_service.py:351",
+        "tests/test_auth.py:282"
+      ],
+      "database_state": "users row for google-1 changed from name=Old Name/avatar_url=http://old-avatar.jpg to name=NULL/avatar_url=NULL",
+      "likely_cause": "The returning-user update writes nullable name/avatar_url values directly, but the response object falls back to the previous values instead of reflecting the database mutation.",
+      "current_investigation_status": "Confirmed",
+      "related_bugs": [],
+      "regression_test_recommendation": "Add an upsert_user test for an existing user where name and avatar_url are omitted, asserting the stored row preserves existing non-null values or the response and persistence are intentionally aligned."
+    },
+    {
+      "bug_id": "QA-007",
+      "title": "Admin bank-transfer payment confirmation queues duplicate placed email rows",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "area": "Backend / Admin Orders / Email Outbox",
+      "environment": "isolated temp SQLite DB, local ASGI admin route probe, ENVIRONMENT=development, admin bearer key",
+      "preconditions": [
+        "An order exists with payment_method=bank_transfer and payment_status=pending.",
+        "The admin calls PATCH /v1/admin/orders/{order_id}/payment with payment_status=paid."
+      ],
+      "reproduction_steps": [
+        "Create a bank_transfer checkout order in an isolated temp DB.",
+        "Before marking paid, query order_emails for that order.",
+        "PATCH /v1/admin/orders/{order_id}/payment with a valid admin bearer token and {payment_status: paid}.",
+        "After the route returns 200, query order_emails for that order again."
+      ],
+      "expected_result": "Exactly one queued placed email intent exists after payment is marked paid.",
+      "actual_result": "Two queued placed rows exist for the same order and recipient after the route returns 200.",
+      "reproduction_rate": "1/1 isolated ASGI route probe",
+      "evidence": [
+        "Probe before: [{'event':'payment_pending','status':'queued'}, {'event':'admin_new_order','status':'queued'}].",
+        "Probe after: payment_pending queued, admin_new_order queued, plus two {'event':'placed','status':'queued','recipient':'test@example.com'} rows.",
+        "app/services/order_service.py lines 745-748 insert a queued placed row inside mark_bank_transfer_paid().",
+        "app/routes/admin.py lines 720-721 queues placed again after mark_bank_transfer_paid() returns.",
+        "app/database.py lines 263-265 only enforce uniqueness for status=sent, so duplicate queued rows are allowed."
+      ],
+      "relevant_logs": [
+        "PATCH /v1/admin/orders/{order_id}/payment -> 200 with payment_status=paid",
+        "DB after route -> two queued placed rows for test@example.com"
+      ],
+      "screenshots_or_artifact_paths": [],
+      "api_requests_responses": [
+        "PATCH /v1/admin/orders/{order_id}/payment {payment_status: paid} -> 200, payment_status=paid"
+      ],
+      "code_locations": [
+        "app/services/order_service.py:745",
+        "app/services/order_service.py:748",
+        "app/routes/admin.py:720",
+        "app/routes/admin.py:721",
+        "app/services/email_service.py:145",
+        "app/database.py:263"
+      ],
+      "database_state": "order_emails contains duplicate queued placed rows for the same order_id/event/recipient after the admin payment route.",
+      "likely_cause": "Both the service layer and the admin route enqueue the same placed email intent, and queued outbox rows are not deduplicated by schema or helper.",
+      "current_investigation_status": "Confirmed",
+      "related_bugs": [],
+      "regression_test_recommendation": "Add a route-level bank-transfer payment test that asserts a single placed row exists after PATCH /v1/admin/orders/{id}/payment; keep the enqueue responsibility in one layer or make queue_order_email idempotent for queued intents."
     }
   ]
 }
