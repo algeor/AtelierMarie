@@ -68,4 +68,14 @@ describe("Footer", () => {
 
     expect(screen.getByRole("link", { name: "FAQ" })).toHaveAttribute("href", "/faq");
   });
+
+  it("links Terms & Conditions from the footer without a separate returns link", () => {
+    renderWithIntl(<Footer />);
+
+    expect(screen.getByRole("link", { name: "Terms & Conditions" })).toHaveAttribute(
+      "href",
+      "/terms"
+    );
+    expect(screen.queryByRole("link", { name: /^returns$/i })).not.toBeInTheDocument();
+  });
 });

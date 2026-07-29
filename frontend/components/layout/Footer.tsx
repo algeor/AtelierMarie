@@ -85,6 +85,14 @@ export function Footer() {
                   {t("faq.footerLink")}
                 </Link>
               </li>
+              <li>
+                <Link
+                  href="/terms"
+                  className="text-soft-brown hover:text-charcoal transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand px-1 py-0.5"
+                >
+                  {t("terms.footerLink")}
+                </Link>
+              </li>
               </ul>
             </nav>
 

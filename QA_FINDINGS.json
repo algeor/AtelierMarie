@@ -19,7 +19,13 @@
       "frontend product listing discount sort consistency",
       "backend discount contract tests",
       "auth returning-user profile persistence edge case",
-      "admin bank-transfer payment email outbox idempotency"
+      "auth avatar fallback edge case",
+      "auth user-menu accessible-name check",
+      "admin bank-transfer payment email outbox idempotency",
+      "admin order status/payment-status filter validation",
+      "Stripe retry content-type/CSRF validation",
+      "admin CSV malformed encoding handling",
+      "admin CSV image max-count behavior"
     ],
     "areas_not_yet_tested": [
       "database integrity beyond automated tests and video response probe",
@@ -40,7 +46,12 @@
       "frontend discount display code may still use base price in cart-adjacent UI",
       "frontend client-side product sorting may diverge from backend effective-price sort semantics",
       "returning OAuth profile updates may clear optional user fields when provider omits them",
-      "bank-transfer payment confirmation may enqueue duplicate customer email intents"
+      "auth avatar fallback may not normalize blank profile fields",
+      "bank-transfer payment confirmation may enqueue duplicate customer email intents",
+      "admin filter validation may be inconsistent between sibling order filters",
+      "state-changing order endpoints may not share the same content-type/CSRF guard",
+      "upload parsers may not consistently map malformed input to controlled validation errors",
+      "CSV import may hide secondary image attachment failures"
     ],
     "unresolved_anomalies": [
       "bugs/bugs_prompt.md is staged as an empty new file while the worktree contains the QA prompt",
@@ -55,12 +66,12 @@
     ]
   },
   "summary": {
-    "total_confirmed_bugs": 7,
+    "total_confirmed_bugs": 13,
     "severity_counts": {
       "critical": 0,
       "high": 0,
-      "medium": 7,
-      "low": 0
+      "medium": 11,
+      "low": 2
     }
   },
   "findings": [
@@ -381,6 +392,290 @@
       "current_investigation_status": "Confirmed",
       "related_bugs": [],
       "regression_test_recommendation": "Add a route-level bank-transfer payment test that asserts a single placed row exists after PATCH /v1/admin/orders/{id}/payment; keep the enqueue responsibility in one layer or make queue_order_email idempotent for queued intents."
+    },
+    {
+      "bug_id": "QA-008",
+      "title": "Admin order payment status filter accepts invalid values as empty results",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "area": "Backend / API / Admin Orders",
+      "environment": "isolated temp SQLite DB, local ASGI admin route probe, ENVIRONMENT=development, admin bearer key",
+      "preconditions": [
+        "Admin bearer authentication is configured; no order data is required to reproduce the validation difference."
+      ],
+      "reproduction_steps": [
+        "Start the app against a fresh temp SQLite DB with ADMIN_API_KEY=test-admin-key-realapp.",
+        "Send GET /v1/admin/orders?status=bogus with the admin bearer token.",
+        "Send GET /v1/admin/orders?payment_status=bogus with the same token.",
+        "Send GET /v1/admin/orders?payment_status=paid as a valid control."
+      ],
+      "expected_result": "Invalid payment_status should be rejected with a validation error, matching invalid status behavior and the PaymentStatus enum.",
+      "actual_result": "payment_status=bogus returns 200 with an empty page, indistinguishable from a valid filter that simply has no matching orders.",
+      "reproduction_rate": "1/1 isolated ASGI route probe",
+      "evidence": [
+        "Probe output: /v1/admin/orders?status=bogus -> 422 {'error': {'code': 'INVALID_STATUS', ...}}.",
+        "Probe output: /v1/admin/orders?payment_status=bogus -> 200 {'items': [], 'total': 0, 'page': 1, 'limit': 20}.",
+        "Probe output: /v1/admin/orders?payment_status=paid -> 200 {'items': [], 'total': 0, 'page': 1, 'limit': 20}.",
+        "app/models/orders.py:11 defines PaymentStatus = Literal[\"pending\", \"paid\", \"cod_pending\", \"failed\", \"refunded\"].",
+        "app/routes/admin.py lines 647-661 validate status, but lines 663-666 pass raw payment_status into the service.",
+        "app/services/order_service.py lines 575-602 accept payment_status: str | None and build WHERE payment_status = ? without enum validation."
+      ],
+      "relevant_logs": [
+        "Local probe logged courier office data loading; no backend error was emitted for the invalid payment status."
+      ],
+      "screenshots_or_artifact_paths": [],
+      "api_requests_responses": [
+        "GET /v1/admin/orders?status=bogus -> 422 with INVALID_STATUS",
+        "GET /v1/admin/orders?payment_status=bogus -> 200 with empty items",
+        "GET /v1/admin/orders?payment_status=paid -> 200 with empty items"
+      ],
+      "code_locations": [
+        "app/models/orders.py:11",
+        "app/routes/admin.py:647",
+        "app/routes/admin.py:663",
+        "app/services/order_service.py:575",
+        "app/services/order_service.py:600"
+      ],
+      "database_state": "fresh DB with no orders; the bug is visible before any records exist because it is a request validation issue",
+      "likely_cause": "admin_list_orders() validates the status query parameter against OrderStatus but does not perform equivalent validation for payment_status against PaymentStatus.",
+      "current_investigation_status": "Confirmed",
+      "related_bugs": [],
+      "regression_test_recommendation": "Add an admin order list route test for payment_status=bogus asserting a 422 error and another valid payment-status control asserting 200."
+    },
+    {
+      "bug_id": "QA-009",
+      "title": "Stripe retry endpoint accepts form posts and creates a new checkout session",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "area": "Backend / API / Orders / Payments",
+      "environment": "isolated temp SQLite DB, local ASGI route probe, fake Stripe module, STRIPE_SECRET_KEY=sk_test_probe",
+      "preconditions": [
+        "A card order belongs to the current session and has payment_status='failed'.",
+        "Stripe is configured; the caller has the session cookie."
+      ],
+      "reproduction_steps": [
+        "Seed a session, product, cart item, and card order in a fresh temp SQLite DB.",
+        "Set the order to payment_status='failed' and stripe_checkout_session_id='cs_old'.",
+        "Install a fake local stripe.checkout.Session.create returning id='cs_form_retry' and url='https://stripe.test/retry'.",
+        "Send POST /v1/orders/{order_id}/stripe-session with the session cookie, body x=1, and Content-Type: application/x-www-form-urlencoded.",
+        "Read the order's stripe_checkout_session_id from the database."
+      ],
+      "expected_result": "State-changing order/payment endpoints should reject form-encoded POSTs with the same content-type guard used by POST /v1/orders, or otherwise enforce an equivalent CSRF-safe request contract.",
+      "actual_result": "The retry endpoint returns 200 with a stripe_checkout_url, calls stripe.checkout.Session.create once, and updates the order row to stripe_checkout_session_id='cs_form_retry'.",
+      "reproduction_rate": "1/1 isolated ASGI route probe",
+      "evidence": [
+        "Probe output: response 200 {'stripe_checkout_url': 'https://stripe.test/retry'}.",
+        "Probe output: db {'payment_status': 'failed', 'stripe_checkout_session_id': 'cs_form_retry'}.",
+        "Probe output: stripe_calls 1.",
+        "app/routes/orders.py lines 51-60 enforce Content-Type: application/json for checkout POSTs.",
+        "app/routes/orders.py lines 169-222 implement the Stripe retry POST without reading Request or enforcing content type.",
+        "tests/realapp/test_order_routes.py lines 463-492 cover form-encoded rejection only for POST /v1/orders."
+      ],
+      "relevant_logs": [
+        "Local probe logged courier office data loading; no backend error was emitted."
+      ],
+      "screenshots_or_artifact_paths": [],
+      "api_requests_responses": [
+        "POST /v1/orders/{order_id}/stripe-session with Content-Type: application/x-www-form-urlencoded and body x=1 -> 200 with stripe_checkout_url"
+      ],
+      "code_locations": [
+        "app/routes/orders.py:51",
+        "app/routes/orders.py:169",
+        "app/routes/orders.py:222",
+        "tests/realapp/test_order_routes.py:463"
+      ],
+      "database_state": "order remained payment_status='failed', but stripe_checkout_session_id changed from cs_old to cs_form_retry",
+      "likely_cause": "create_stripe_retry_session() is a cookie-authenticated state-changing POST but lacks the content-type/CSRF guard present on create_order().",
+      "current_investigation_status": "Confirmed",
+      "related_bugs": [],
+      "regression_test_recommendation": "Add a route-level test that posts form-encoded content to /v1/orders/{id}/stripe-session with a retryable card order and asserts a 422 INVALID_CONTENT_TYPE response and no Stripe call/session-id mutation."
+    },
+    {
+      "bug_id": "QA-010",
+      "title": "User avatar fallback renders blank when profile name is an empty string",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "area": "Frontend / Auth / User Menu",
+      "environment": "local workspace, direct backend auth service probe plus executable frontend fallback-expression probe",
+      "preconditions": [
+        "An authenticated user has name='' and avatar_url=null, or their avatar image fails and name='' is present in the user response."
+      ],
+      "reproduction_steps": [
+        "Create or upsert a user through auth_service.upsert_user(conn, 'google-empty-name', 'empty@example.com', '', None).",
+        "Observe that the backend UserResponse and database row preserve name='' and avatar_url=None.",
+        "Evaluate the UserAvatar fallback expression with name='' and email='empty@example.com'.",
+        "Compare it with the same expression for name=null."
+      ],
+      "expected_result": "When the display name is blank, the avatar fallback should use the email initial, E, just as it does when name is null.",
+      "actual_result": "name='' produces an empty string initial with length 0, so the circular fallback avatar renders with no visible character.",
+      "reproduction_rate": "1/1 backend state probe and 1/1 frontend expression probe",
+      "evidence": [
+        "Backend probe output: response {'email': 'empty@example.com', 'name': '', 'avatar_url': None, ...} and db_row {'email': 'empty@example.com', 'name': '', 'avatar_url': None}.",
+        "Frontend expression probe output: {\"name\":\"\",\"email\":\"empty@example.com\",\"initial\":\"\",\"initialLength\":0}.",
+        "Control output: {\"name\":null,\"email\":\"empty@example.com\",\"initial\":\"E\",\"initialLength\":1}.",
+        "frontend/components/auth/UserAvatar.tsx:34 computes name?.charAt(0).toUpperCase() ?? email.charAt(0).toUpperCase(), so empty string short-circuits the nullish fallback.",
+        "frontend/components/auth/UserAvatar.tsx lines 53-58 render {initial} directly inside the fallback circle.",
+        "frontend/__tests__/components/auth/UserMenu.test.tsx lines 128-154 cover avatar_url=null with name='Marie', but not blank names."
+      ],
+      "relevant_logs": [
+        "No backend error; the probes returned successfully."
+      ],
+      "screenshots_or_artifact_paths": [],
+      "api_requests_responses": [],
+      "code_locations": [
+        "frontend/components/auth/UserAvatar.tsx:34",
+        "frontend/components/auth/UserAvatar.tsx:53",
+        "frontend/__tests__/components/auth/UserMenu.test.tsx:128",
+        "app/services/auth_service.py:322",
+        "app/models/users.py:11"
+      ],
+      "database_state": "users row for google-empty-name has name='' and avatar_url=NULL",
+      "likely_cause": "The avatar fallback treats only null/undefined names as absent and does not trim or test for a non-empty display name before deriving the initial.",
+      "current_investigation_status": "Confirmed",
+      "related_bugs": [
+        "QA-006"
+      ],
+      "regression_test_recommendation": "Add a UserAvatar or UserMenu test where name='' and avatar_url=null, asserting the email initial is rendered; normalize blank names before computing initials."
+    },
+    {
+      "bug_id": "QA-011",
+      "title": "Authenticated user menu button has no descriptive accessible name",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "area": "Frontend / Auth / Accessibility",
+      "environment": "local workspace, source inspection plus dom-accessibility-api accessible-name probe",
+      "preconditions": [
+        "The header renders an authenticated user with avatar_url present, or the avatar falls back to a single initial."
+      ],
+      "reproduction_steps": [
+        "Inspect UserMenu rendered inside the authenticated header.",
+        "For the image-avatar state, compute the accessible name of a button with aria-expanded='false', aria-haspopup='menu', and an inner <img alt=''>.",
+        "For the fallback state, compute the accessible name of the same button with an inner <span>M</span>."
+      ],
+      "expected_result": "The menu trigger has a stable descriptive accessible name such as Account menu, User menu, or localized equivalent in both image and fallback states.",
+      "actual_result": "The image-avatar state has an empty accessible name, and the fallback state is named only M.",
+      "reproduction_rate": "1/1 source inspection plus 1/1 accessible-name probe",
+      "evidence": [
+        "Accessible-name probe output: {\"imageButtonName\":\"\",\"imageButtonNameLength\":0}.",
+        "Accessible-name probe output: {\"fallbackButtonName\":\"M\",\"fallbackButtonNameLength\":1}.",
+        "frontend/components/auth/UserMenu.tsx lines 57-67 render the trigger button with aria-expanded and aria-haspopup, but no aria-label or visible descriptive text.",
+        "frontend/components/auth/UserAvatar.tsx:31 defaults alt='', and lines 42-49 render the loaded avatar image as decorative.",
+        "frontend/components/layout/Header.tsx lines 80-83 show the nearby cart button has an explicit aria-label, so this is inconsistent within the same header controls.",
+        "frontend/__tests__/components/auth/UserMenu.test.tsx lines 114-124 assert ARIA expanded/menu attributes but do not assert an accessible name."
+      ],
+      "relevant_logs": [
+        "No runtime error; this is semantic accessibility output."
+      ],
+      "screenshots_or_artifact_paths": [],
+      "api_requests_responses": [],
+      "code_locations": [
+        "frontend/components/auth/UserMenu.tsx:57",
+        "frontend/components/auth/UserAvatar.tsx:31",
+        "frontend/components/auth/UserAvatar.tsx:42",
+        "frontend/components/layout/Header.tsx:80",
+        "frontend/__tests__/components/auth/UserMenu.test.tsx:114"
+      ],
+      "database_state": null,
+      "likely_cause": "UserMenu relies on avatar visual content for the trigger and does not assign a descriptive label to the button.",
+      "current_investigation_status": "Confirmed",
+      "related_bugs": [
+        "QA-010"
+      ],
+      "regression_test_recommendation": "Add a UserMenu accessibility test asserting the trigger can be found by role and localized name, e.g. getByRole('button', { name: /account|user/i }), in both image and fallback states."
+    },
+    {
+      "bug_id": "QA-012",
+      "title": "Admin CSV import crashes on invalid UTF-8 upload instead of returning CSV validation error",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "area": "Backend / API / Admin Products / CSV Import",
+      "environment": "isolated temp SQLite DB, local ASGI admin route probe, raise_app_exceptions true and false controls",
+      "preconditions": [
+        "Admin bearer authentication is configured; upload a .csv file whose bytes are not valid UTF-8."
+      ],
+      "reproduction_steps": [
+        "Start the app against a fresh temp SQLite DB with ADMIN_API_KEY=test-admin-key-realapp.",
+        "Send POST /v1/admin/products/import as admin with multipart file bad.csv, content bytes b'\\xff\\xfe\\x00\\x00', and content type text/csv.",
+        "Run once with ASGI raise_app_exceptions=False to observe the HTTP response.",
+        "Run once with ASGI raise_app_exceptions=True to observe the underlying exception."
+      ],
+      "expected_result": "Malformed or non-UTF-8 CSV uploads should return a controlled 400 INVALID_CSV style response without an unhandled exception stack trace.",
+      "actual_result": "The endpoint raises UnicodeDecodeError; with app exceptions suppressed, the client receives 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"An unexpected error occurred\",\"details\":null}}.",
+      "reproduction_rate": "2/2 probe modes",
+      "evidence": [
+        "HTTP probe output: raise_false 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"An unexpected error occurred\",\"details\":null}}.",
+        "Exception probe output: raise_true_exception UnicodeDecodeError 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte.",
+        "Logged stack trace points to app/routes/admin.py:407, text = content.decode(\"utf-8-sig\").",
+        "app/routes/admin.py lines 395-407 read bounded upload bytes and decode directly without catching UnicodeDecodeError.",
+        "The route already maps oversize/missing-header/missing-column CSV cases to INVALID_CSV, so malformed encoding is inconsistent with adjacent validation behavior."
+      ],
+      "relevant_logs": [
+        "Backend logs Unhandled exception on POST /v1/admin/products/import followed by a UnicodeDecodeError stack trace."
+      ],
+      "screenshots_or_artifact_paths": [],
+      "api_requests_responses": [
+        "POST /v1/admin/products/import with invalid UTF-8 multipart CSV -> 500 INTERNAL_ERROR"
+      ],
+      "code_locations": [
+        "app/routes/admin.py:395",
+        "app/routes/admin.py:407"
+      ],
+      "database_state": "fresh DB; no product writes are required to reproduce",
+      "likely_cause": "admin_import_products() decodes uploaded bytes with content.decode('utf-8-sig') outside a validation try/except, so malformed encodings escape to the global 500 handler.",
+      "current_investigation_status": "Confirmed",
+      "related_bugs": [
+        "QA-003"
+      ],
+      "regression_test_recommendation": "Add a route test uploading invalid UTF-8 bytes to /v1/admin/products/import and assert a controlled 400 INVALID_CSV response with no product writes."
+    },
+    {
+      "bug_id": "QA-013",
+      "title": "CSV import reports success while silently dropping image_url when gallery is full",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "area": "Backend / API / Admin Products / CSV Import",
+      "environment": "isolated temp SQLite DB, local ASGI admin route probe, product pre-seeded with six image rows",
+      "preconditions": [
+        "An existing product already has six product_images rows; a CSV import row for that product includes a new image_url."
+      ],
+      "reproduction_steps": [
+        "Seed product full-gallery and six existing product_images rows for it.",
+        "Upload CSV id,name_en,price_cents,image_url\\nfull-gallery,Full Gallery Updated,2500,/static/products/new-image.webp\\n through POST /v1/admin/products/import as admin.",
+        "Read the API response.",
+        "Query product_images for full-gallery and check whether /static/products/new-image.webp was added."
+      ],
+      "expected_result": "If the supplied image_url cannot be attached because the gallery is full, the import should report a row error or otherwise communicate that the image was skipped.",
+      "actual_result": "The API returns 200 {'created': 0, 'updated': 1, 'errors': []} and updates the product text/price, but the submitted image URL is absent from product_images.",
+      "reproduction_rate": "1/1 isolated ASGI route probe",
+      "evidence": [
+        "Probe response: response 200 {'created': 0, 'updated': 1, 'errors': []}.",
+        "DB product row after import: {'name_en': 'Full Gallery Updated', 'price_cents': 2500}.",
+        "DB image state after import: image_count 6, has_new_image False.",
+        "Existing image URLs remained ['/static/products/full-0.webp', ..., '/static/products/full-5.webp'].",
+        "app/services/product_image_service.py lines 257-278 return None when current['count'] >= MAX_IMAGES_PER_PRODUCT.",
+        "app/routes/admin.py lines 617-624 ignore the return value from add_existing_image_url() and increment updated/created without adding an error."
+      ],
+      "relevant_logs": [
+        "No backend error; the row is treated as successful."
+      ],
+      "screenshots_or_artifact_paths": [],
+      "api_requests_responses": [
+        "POST /v1/admin/products/import with a valid CSV row including image_url for a full-gallery product -> 200, updated=1, errors=[]"
+      ],
+      "code_locations": [
+        "app/services/product_image_service.py:257",
+        "app/services/product_image_service.py:277",
+        "app/routes/admin.py:617",
+        "app/routes/admin.py:620",
+        "app/routes/admin.py:624"
+      ],
+      "database_state": "product fields changed, image count stayed at six, and the submitted image URL was not persisted",
+      "likely_cause": "add_existing_image_url() uses None as a max-images sentinel, but admin_import_products() treats any non-exception return as success and does not check for None.",
+      "current_investigation_status": "Confirmed",
+      "related_bugs": [
+        "QA-012"
+      ],
+      "regression_test_recommendation": "Add a CSV import test for an existing product with six images and an image_url, asserting the row reports an error or a skipped-image status and does not claim an unqualified success."
     }
   ]
 }

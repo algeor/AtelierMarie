@@ -123,6 +123,17 @@ describe("Checkout Page", () => {
     });
   });
 
+  it("shows quiet legal disclosures linking to Terms & Conditions", () => {
+    renderWithIntl(<CheckoutPage />);
+
+    const termsLinks = screen.getAllByRole("link", { name: "Terms & Conditions" });
+    expect(termsLinks).toHaveLength(2);
+    for (const link of termsLinks) {
+      expect(link).toHaveAttribute("href", "/terms");
+    }
+    expect(screen.getAllByText(/including delivery, withdrawal, and returns information/i)).toHaveLength(2);
+  });
+
   it("successful submission calls createOrder and navigates", async () => {
     mockedCreateOrder.mockResolvedValue({
       id: "order-abc",

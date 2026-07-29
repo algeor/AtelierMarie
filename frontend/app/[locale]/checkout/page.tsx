@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import { useRouter } from "@/i18n/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 import { useCart } from "@/contexts/CartContext";
 import { createOrder } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
@@ -120,6 +120,19 @@ export default function CheckoutPage() {
       }
     },
     [email, name, notes, delivery, paymentMethod, validateEmail, router, t, tRoot, getLocalizedError],
+  );
+
+  const renderLegalDisclosure = () => (
+    <p className="mt-3 text-xs leading-5 text-soft-brown/75">
+      {tRoot("terms.checkoutPrefix")} {" "}
+      <Link
+        href="/terms"
+        className="font-medium text-soft-brown underline underline-offset-4 transition-colors hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand"
+      >
+        {tRoot("terms.checkoutLink")}
+      </Link>{" "}
+      {tRoot("terms.checkoutSuffix")}
+    </p>
   );
 
   if (isLoading) {
@@ -271,6 +284,7 @@ export default function CheckoutPage() {
             <Button type="submit" variant="primary" size="lg" isLoading={isSubmitting} className="w-full">
               {isSubmitting ? t("placingOrder") : t("placeOrder")}
             </Button>
+            {renderLegalDisclosure()}
           </div>
         </form>
 
@@ -310,6 +324,7 @@ export default function CheckoutPage() {
               >
                 {isSubmitting ? t("placingOrder") : t("placeOrder")}
               </Button>
+              {renderLegalDisclosure()}
             </div>
           </div>
         </aside>

@@ -92,6 +92,121 @@
       }
     ]
   },
+  "terms": {
+    "metaTitle": "Terms & Conditions | Atelier Marie",
+    "metaDescription": "Terms and conditions for Atelier Marie orders, delivery, withdrawal, returns, custom products, faulty items, and refunds.",
+    "eyebrow": "Atelier Marie",
+    "title": "Terms & Conditions",
+    "subtitle": "Please read these terms before placing an order. They explain ordering, delivery, withdrawal, returns, custom products, faulty items, and refunds.",
+    "lastUpdated": "Last updated: 29 July 2026",
+    "footerLink": "Terms & Conditions",
+    "checkoutPrefix": "By placing an order, you agree to our",
+    "checkoutLink": "Terms & Conditions",
+    "checkoutSuffix": "including delivery, withdrawal, and returns information.",
+    "navLabel": "Terms sections",
+    "sections": [
+      {
+        "id": "seller",
+        "title": "Seller information",
+        "nav": "Seller",
+        "body": [
+          "This website is operated by Atelier Marie, based in Bulgaria.",
+          "For order questions, withdrawal notices, returns, damaged items, or other support, contact us through the Contact Form or by email at contacts@theateliermarie.com."
+        ]
+      },
+      {
+        "id": "products",
+        "title": "Products and handmade variations",
+        "nav": "Products",
+        "body": [
+          "Atelier Marie candles are handmade. Small variations in colour, finish, decorative details, weight, or appearance may occur and are part of the handmade character of the product.",
+          "Product photos and descriptions are prepared carefully, but handmade items may not be identical to the exact photographed piece."
+        ]
+      },
+      {
+        "id": "orders",
+        "title": "Orders and payment",
+        "nav": "Orders",
+        "body": [
+          "When you place an order, you must provide accurate contact and delivery details so we can process and deliver it.",
+          "Available payment methods are shown during checkout. An order may require confirmation before dispatch."
+        ]
+      },
+      {
+        "id": "delivery",
+        "title": "Delivery",
+        "nav": "Delivery",
+        "body": [
+          "Delivery options, courier details, and any delivery charges are shown during checkout before you place the order.",
+          "If preparation or delivery is delayed, we will contact you using the details provided with the order."
+        ]
+      },
+      {
+        "id": "returns",
+        "title": "Right of withdrawal and returns",
+        "nav": "Returns",
+        "body": [
+          "For standard products bought online, consumers have the right to withdraw from the contract within 14 days from the day they receive the goods, without giving a reason.",
+          "To exercise the right of withdrawal, contact us by email or through the Contact Form before the 14-day period expires.",
+          "Any clear statement that you wish to withdraw from the order is sufficient. You may use the model withdrawal form below, but it is not required.",
+          "After you tell us that you withdraw, you generally have another 14 days to send the goods back. We will provide return instructions and the return address after receiving your message.",
+          "For ordinary withdrawal, photos are not required and you do not need to give a reason.",
+          "Please return items with their original packaging where possible. You may inspect the item as you would in a shop.",
+          "You may be responsible for any loss in value caused by handling beyond what is necessary to inspect the product, including lighting, using, damaging, or over-handling a candle.",
+          "Unless we agree otherwise or the item is faulty, damaged, or incorrect, you are responsible for the direct cost of returning goods under the right of withdrawal."
+        ],
+        "modelFormTitle": "Model withdrawal form",
+        "modelFormIntro": "You may copy this text into an email or contact-form message:",
+        "modelFormLines": [
+          "To Atelier Marie:",
+          "I hereby give notice that I withdraw from my contract of sale for the following goods:",
+          "Ordered on / received on:",
+          "Order number:",
+          "Consumer name:",
+          "Consumer address:",
+          "Date:"
+        ]
+      },
+      {
+        "id": "custom-products",
+        "title": "Custom and personalized products",
+        "nav": "Custom",
+        "body": [
+          "The statutory right of withdrawal does not apply, where legally permitted, to products made to your specifications or clearly personalized.",
+          "This includes candles with custom names, messages, logos, photos, bespoke colours, fragrances, or made-to-order designs requested by you.",
+          "This exception is used narrowly. Choosing a standard size, standard scent, or in-stock design does not by itself make a product personalized."
+        ]
+      },
+      {
+        "id": "faulty-items",
+        "title": "Faulty, damaged, or incorrect items",
+        "nav": "Faulty items",
+        "body": [
+          "The 14-day withdrawal right is separate from your statutory rights for faulty, damaged, incorrect, or non-conforming goods. Those rights remain unaffected.",
+          "If your item arrives damaged, faulty, or incorrect, contact us as soon as possible. Please include your order number and clear photos of the item, packaging, and courier label where relevant so we can resolve the issue quickly.",
+          "For faulty, damaged, or incorrect items, we will handle the appropriate remedy in accordance with applicable consumer law."
+        ]
+      },
+      {
+        "id": "refunds",
+        "title": "Refunds",
+        "nav": "Refunds",
+        "body": [
+          "For valid withdrawal, we will reimburse payments due to you within the required legal deadline. For goods, we may wait until we receive the goods back or you provide evidence that you sent them back, whichever happens first.",
+          "Where required, the refund includes the product price and the least expensive standard delivery option offered for the original order. Extra delivery upgrades, such as express delivery chosen by you, may not be refundable beyond the standard delivery cost.",
+          "Refunds are made using the original payment method where possible. For cash-on-delivery or bank-transfer orders, refunds may be made by bank transfer."
+        ]
+      },
+      {
+        "id": "contact",
+        "title": "Contact",
+        "nav": "Contact",
+        "body": [
+          "For questions about these terms, your order, withdrawal, returns, damaged items, or refunds, contact us through the Contact Form or by email at contacts@theateliermarie.com."
+        ]
+      }
+    ]
+  },
   "auth": {
     "signIn": "Sign In",
     "signInWithGoogle": "Sign In with Google",
