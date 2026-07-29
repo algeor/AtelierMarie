@@ -1,5 +1,5 @@
 import React from "react";
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { renderWithIntl } from "../../test-utils";
@@ -45,6 +45,17 @@ describe("UserMenu", () => {
     const img = document.querySelector("img");
     // next/image proxies external URLs through /_next/image?url=<encoded>&...
     expect(img?.getAttribute("src")).toContain(encodeURIComponent("https://example.com/avatar.jpg"));
+  });
+
+  it("falls back to initial when avatar image fails to load", () => {
+    renderWithIntl(<UserMenu />);
+    const img = document.querySelector("img");
+
+    expect(img).toBeInTheDocument();
+    fireEvent.error(img as HTMLImageElement);
+
+    expect(screen.getByText("M")).toBeInTheDocument();
+    expect(document.querySelector("img")).not.toBeInTheDocument();
   });
 
   it("opens dropdown on click", async () => {
