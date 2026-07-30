@@ -150,6 +150,7 @@ class TestCheckoutSuccess:
         assert order["delivery_method"] == "office"
         assert order["delivery_courier"] == "econt"
         assert order["delivery_details"]["office_id"] == "econt-1029"
+        assert order["delivery_details"]["office_code"] == "1127"
         assert len(order["items"]) == 2
 
         # Price snapshots correct

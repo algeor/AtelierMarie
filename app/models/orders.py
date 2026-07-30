@@ -42,6 +42,12 @@ class OrderResponse(BaseModel):
     tracking_number: str | None = None
     tracking_carrier: str | None = None
     tracking_url: str | None = None
+    # Public-safe courier fulfillment fields. Raw courier errors stay admin-only.
+    courier_provider: str | None = None
+    courier_order_id: str | None = None
+    courier_shipment_number: str | None = None
+    courier_sync_status: str | None = None
+    courier_last_synced_at: str | None = None
     notes: str | None = None
     # Payment fields (payment-integration).
     payment_method: PaymentMethod = "cod"

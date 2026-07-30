@@ -387,6 +387,11 @@
         "selectCityFirst": "Въведете град, за да видите офисите",
         "selected": "Избран офис",
         "change": "Промени",
+        "locatorTitle": "Еконт офис локатор",
+        "locatorFrameTitle": "Избор на офис на Еконт",
+        "locatorLoading": "Зареждане на офиси на Еконт...",
+        "locatorFallback": "Търси по град",
+        "locatorUnavailable": "Еконт локаторът не е достъпен. Използвайте търсенето по град.",
         "required": "Моля, изберете офис"
       },
       "door": {
@@ -461,6 +466,17 @@
     "carrier": "Куриер",
     "trackingNumber": "Товарителница",
     "trackPackage": "Проследете пратката",
+    "tracking": {
+      "sectionTitle": "Пратка",
+      "shipmentNumber": "Пратка на Еконт",
+      "statusLabel": "Статус на проследяване",
+      "trackLink": "Проследи в Еконт",
+      "status": {
+        "labelCreated": "Създадена товарителница",
+        "traceSynced": "Проследяването е обновено",
+        "pending": "Очаква обновяване"
+      }
+    },
     "payment": {
       "sectionTitle": "Плащане",
       "method": {
@@ -499,6 +515,7 @@
     "dashboard": "Табло",
     "products": "Продукти",
     "orders": "Поръчки",
+    "econtNav": "Еконт",
     "atelierNav": "Ателие",
     "faqNav": "Въпроси",
     "manageOrders": "Управление на клиентски поръчки",
@@ -663,6 +680,137 @@
       "cancel": "Отказ",
       "confirm": "Маркирай като изпратена",
       "trackingRequired": "Товарителницата е задължителна"
+    },
+    "econt": {
+      "title": "Настройки на Еконт",
+      "subtitle": "Настройте изпълнение, подател, стойности по подразбиране и проверки.",
+      "sections": {
+        "integration": "Интеграция",
+        "sender": "Подател",
+        "defaults": "Настройки за пратка",
+        "toggles": "Автоматизация"
+      },
+      "fields": {
+        "enabled": "Активирай изпълнение с Еконт",
+        "environment": "Среда",
+        "shopId": "Shop ID",
+        "credentialSource": "Източник на credentials",
+        "privateKey": "Private key",
+        "shopIdConfigured": "Shop ID настроен",
+        "encryptionKey": "Ключ за криптиране",
+        "senderMode": "Тип подател",
+        "senderOfficeCode": "Код на офис подател",
+        "senderCity": "Град на подателя",
+        "senderPostCode": "Пощенски код",
+        "senderStreet": "Улица",
+        "senderNum": "Номер",
+        "senderQuarter": "Квартал",
+        "senderOther": "Друго",
+        "senderAddress": "Адрес",
+        "packCount": "Брой пакети по подразбиране",
+        "description": "Описание на пратката",
+        "paymentSide": "Платец по подразбиране",
+        "currency": "Валута за куриера",
+        "conversionRate": "Курс за превалутиране",
+        "declaredValue": "Изпращай обявена стойност",
+        "officeLocator": "Активирай office locator",
+        "autoConfirm": "Автоматично потвърждение след товарителница",
+        "autoDelivered": "Автоматично доставяне от trace"
+      },
+      "options": {
+        "demo": "Демо",
+        "production": "Продукция",
+        "env": "Променливи на средата",
+        "stored": "Запазена тайна",
+        "office": "Офис",
+        "door": "Адрес",
+        "sender": "Подател",
+        "receiver": "Получател"
+      },
+      "configured": "Настроен",
+      "missing": "Липсва",
+      "save": "Запази настройките",
+      "saving": "Запазване...",
+      "saveSuccess": "Настройките на Еконт са запазени",
+      "saveError": "Настройките на Еконт не бяха запазени",
+      "loadError": "Настройките на Еконт не се заредиха",
+      "testConnection": "Тествай връзката",
+      "testing": "Тестване...",
+      "testError": "Връзката с Еконт не беше тествана",
+      "validation": {
+        "descriptionRequired": "Описание на пратката е задължително",
+        "packCountRange": "Броят пакети трябва да е между 1 и 99"
+      },
+      "connectionStatus": {
+        "success": "Успех",
+        "missing_configuration": "Липсва настройка",
+        "authentication_failed": "Грешна автентикация",
+        "validation_failed": "Невалидни данни",
+        "timeout": "Timeout",
+        "service_outage": "Проблем с услугата"
+      }
+    },
+    "econtFulfillment": {
+      "title": "Изпълнение с Еконт",
+      "notEligible": "Тази поръчка не е с доставка чрез Еконт.",
+      "checking": "Проверка на готовността за Еконт...",
+      "ready": "Готова за създаване на товарителница",
+      "blocked": "Блокирана преди товарителница",
+      "loadError": "Готовността за Еконт не се зареди",
+      "actionError": "Действието към Еконт не бе успешно",
+      "readiness": "Готовност",
+      "readyChecklist": "Всички задължителни данни за Еконт са налични.",
+      "shipment": "Пратка",
+      "empty": "Няма",
+      "working": "Изпълнение...",
+      "fields": {
+        "syncStatus": "Sync статус",
+        "shipmentNumber": "Номер на пратка",
+        "lastSync": "Последен sync",
+        "lastError": "Последна грешка"
+      },
+      "actions": {
+        "validate": "Провери",
+        "sync": "Синхронизирай",
+        "createLabel": "Създай товарителница",
+        "refreshTrace": "Обнови trace",
+        "markShipped": "Маркирай изпратена",
+        "deleteLabel": "Изтрий товарителница",
+        "openLabel": "Отвори PDF",
+        "openTracking": "Отвори проследяване"
+      },
+      "success": {
+        "validate": "Готовността е обновена",
+        "repair": "Корекциите за Еконт са запазени",
+        "sync": "Поръчката е синхронизирана с Еконт",
+        "create": "Товарителницата е създадена",
+        "delete": "Товарителницата е изтрита",
+        "trace": "Trace-ът е обновен",
+        "ship": "Поръчката е маркирана като изпратена"
+      },
+      "repair": {
+        "title": "Корекция преди товарителница",
+        "officeCode": "Код на офис",
+        "recipientPhone": "Телефон получател",
+        "packCount": "Брой пакети",
+        "description": "Описание на пратката",
+        "paymentSide": "Платец",
+        "useDefault": "По подразбиране",
+        "sender": "Подател",
+        "receiver": "Получател",
+        "apply": "Запази корекции"
+      },
+      "blockers": {
+        "settingsDisabled": "Интеграцията с Еконт е изключена.",
+        "privateKeyMissing": "Липсва private key за Еконт.",
+        "shopIdMissing": "Липсва Shop ID за Еконт.",
+        "senderOfficeMissing": "Липсва код на офис подател.",
+        "orderNotEcont": "Поръчката не е към Еконт.",
+        "officeCodeMissing": "Липсва код на офис получател.",
+        "phoneMissing": "Липсва телефон на получател.",
+        "statusNotSupported": "Статусът не позволява създаване на товарителница.",
+        "unknown": "Непознат блокер. Проверете поръчката и настройките."
+      }
     },
     "taxonomy": {
       "navLabel": "Таксономия",

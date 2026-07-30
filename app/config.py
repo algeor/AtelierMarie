@@ -96,6 +96,15 @@ class Settings(BaseSettings):
     bank_bic: str = ""
     bank_name: str = ""
 
+    # Econt Delivery integration. Secrets are env-backed by default; admin
+    # responses expose only configured/not-configured state.
+    econt_delivery_base_url: str = ""
+    econt_delivery_private_key: SecretStr = SecretStr("")
+    econt_delivery_shop_id: str = ""
+    econt_office_locator_url: str = ""
+    econt_office_locator_origins: list[str] = []
+    econt_secret_encryption_key: SecretStr = SecretStr("")
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
     @model_validator(mode="after")

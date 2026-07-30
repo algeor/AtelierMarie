@@ -2,8 +2,8 @@
 
 Reads data/econt_offices_raw.json (raw {"offices": [...]} from Econt's
 NomenclaturesService.getOffices) and writes data/econt_offices.json in the
-6-field schema from design.md Decision 8, with bilingual name/city fields
-kept as additive extras for i18n.
+unified office schema, preserving Econt's courier-native code for later AWB
+creation. Bilingual name/city fields are kept as additive extras for i18n.
 
 Run standalone:
     .venv/bin/python scripts/normalize_econt_office_data.py
@@ -90,6 +90,7 @@ def normalize_econt(raw: dict) -> list[dict]:
         out.append(
             {
                 "id": f"econt-{o['id']}",
+                "code": o.get("code"),
                 "name": o["name"],
                 "name_en": o.get("nameEn"),
                 "type": "apt" if (o.get("isAPS") or o.get("isMPS")) else "office",

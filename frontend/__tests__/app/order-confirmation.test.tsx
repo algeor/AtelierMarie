@@ -99,6 +99,57 @@ describe("Order Confirmation Page", () => {
     expect(screen.getAllByText("Delivery").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/No separate delivery charge in this order/)).toBeInTheDocument();
     expect(screen.getAllByText("€50.00").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("Shipment")).not.toBeInTheDocument();
+  });
+
+  it("shows Econt shipment tracking when a label exists", async () => {
+    mockedGetOrder.mockResolvedValue({
+      id: "test-order-123",
+      status: "confirmed",
+      payment_method: "cod",
+      payment_status: "cod_pending",
+      stripe_checkout_url: null,
+      items_total_cents: 2500,
+      shipping_cents: 0,
+      total_cents: 2500,
+      customer_email: "buyer@example.com",
+      customer_name: "Test Buyer",
+      delivery_method: "office",
+      delivery_courier: "econt",
+      delivery_details: {
+        courier: "econt",
+        office_id: "econt-1029",
+        office_code: "1127",
+        office_name: "Econt Sofia Center",
+        office_type: "office",
+        phone: "+359888123456",
+      },
+      notes: null,
+      items: [
+        { product_id: "candle-1", product_name: "Rose Candle", price_cents: 2500, quantity: 1 },
+      ],
+      tracking_number: "1234567890",
+      tracking_carrier: "econt",
+      tracking_url: "https://www.econt.com/services/track-shipment/1234567890",
+      courier_provider: "econt",
+      courier_shipment_number: "1234567890",
+      courier_sync_status: "trace_synced",
+      courier_last_synced_at: "2026-07-01T12:00:00Z",
+      created_at: "2026-07-01T00:00:00Z",
+      updated_at: "2026-07-01T00:00:00Z",
+    });
+
+    renderWithIntl(<OrderConfirmationPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Shipment")).toBeInTheDocument();
+    });
+    expect(screen.getByText("1234567890")).toBeInTheDocument();
+    expect(screen.getByText("Tracking refreshed")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Track with Econt" })).toHaveAttribute(
+      "href",
+      "https://www.econt.com/services/track-shipment/1234567890"
+    );
   });
 
   it("shows 'Order not found' on error", async () => {

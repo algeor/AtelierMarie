@@ -13,6 +13,7 @@ import { formatPrice } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { DeliveryDetails } from "@/components/checkout/DeliveryDetails";
+import { CourierTrackingSummary } from "@/components/orders/CourierTrackingSummary";
 import type { OrderResponse } from "@/lib/types";
 
 export default function OrderConfirmationPage() {
@@ -180,6 +181,7 @@ export default function OrderConfirmationPage() {
         </p>
 
         {/* Delivery details */}
+        <CourierTrackingSummary order={order} />
         <DeliveryDetails order={order} />
 
         {/* Continue shopping */}

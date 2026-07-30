@@ -25,15 +25,17 @@ OfficeType = Literal["office", "apt"]
 _PHONE_REGEX = r"^\+?\d{8,15}$"
 
 
-def _validate_phone(value: str) -> str:
-    """Strip whitespace/dashes/parens, then apply the phone regex.
-
-    Users paste numbers with all kinds of formatting — normalize before storing.
-    """
+def normalize_phone(value: str) -> str:
+    """Strip whitespace/dashes/parens, then apply the phone regex."""
     normalized = "".join(ch for ch in value if ch.isdigit() or ch == "+")
     if not re.match(_PHONE_REGEX, normalized):
         raise ValueError("phone must be 8–15 digits with optional leading '+'")
     return normalized
+
+
+def _validate_phone(value: str) -> str:
+    """Normalize user-entered courier phone numbers before storing."""
+    return normalize_phone(value)
 
 
 class DeliveryOffice(BaseModel):
@@ -41,6 +43,7 @@ class DeliveryOffice(BaseModel):
 
     courier: Courier
     office_id: str = Field(..., min_length=1, max_length=64)
+    office_code: str | None = Field(default=None, max_length=64)
     office_name: str = Field(..., min_length=1, max_length=255)
     office_type: OfficeType
     phone: str = Field(..., min_length=8, max_length=20)
@@ -77,11 +80,26 @@ class OfficeResponse(BaseModel):
     """
 
     id: str
+    code: str | None = None
     name: str
     type: OfficeType
     city: str
     address: str
     working_hours: str
+
+
+class EcontCheckoutConfig(BaseModel):
+    """Public-safe Econt checkout behavior flags."""
+
+    office_locator_enabled: bool
+    office_locator_url: str
+    office_locator_origins: list[str]
+
+
+class DeliveryConfigResponse(BaseModel):
+    """Public delivery configuration consumed by checkout UI."""
+
+    econt: EcontCheckoutConfig
 
 
 class DeliveryInfo(BaseModel):

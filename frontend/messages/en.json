@@ -387,6 +387,11 @@
         "selectCityFirst": "Enter a city to see offices",
         "selected": "Selected office",
         "change": "Change",
+        "locatorTitle": "Econt Office Locator",
+        "locatorFrameTitle": "Choose an Econt office",
+        "locatorLoading": "Loading Econt offices...",
+        "locatorFallback": "Use city search",
+        "locatorUnavailable": "Econt locator is unavailable. Use city search below.",
         "required": "Please select an office"
       },
       "door": {
@@ -461,6 +466,17 @@
     "carrier": "Carrier",
     "trackingNumber": "Tracking number",
     "trackPackage": "Track your package",
+    "tracking": {
+      "sectionTitle": "Shipment",
+      "shipmentNumber": "Econt shipment",
+      "statusLabel": "Tracking update",
+      "trackLink": "Track with Econt",
+      "status": {
+        "labelCreated": "Label created",
+        "traceSynced": "Tracking refreshed",
+        "pending": "Tracking update pending"
+      }
+    },
     "payment": {
       "sectionTitle": "Payment",
       "method": {
@@ -499,6 +515,7 @@
     "dashboard": "Dashboard",
     "products": "Products",
     "orders": "Orders",
+    "econtNav": "Econt",
     "atelierNav": "Atelier",
     "faqNav": "FAQ",
     "manageOrders": "Manage customer orders",
@@ -663,6 +680,137 @@
       "cancel": "Cancel",
       "confirm": "Mark as shipped",
       "trackingRequired": "Tracking number is required"
+    },
+    "econt": {
+      "title": "Econt Settings",
+      "subtitle": "Configure Econt fulfillment, sender origin, defaults, and health checks.",
+      "sections": {
+        "integration": "Integration",
+        "sender": "Sender origin",
+        "defaults": "Shipment defaults",
+        "toggles": "Automation"
+      },
+      "fields": {
+        "enabled": "Enable Econt fulfillment",
+        "environment": "Environment",
+        "shopId": "Shop ID",
+        "credentialSource": "Credential source",
+        "privateKey": "Private key",
+        "shopIdConfigured": "Shop ID configured",
+        "encryptionKey": "Encryption key",
+        "senderMode": "Sender mode",
+        "senderOfficeCode": "Sender office code",
+        "senderCity": "Sender city",
+        "senderPostCode": "Sender post code",
+        "senderStreet": "Sender street",
+        "senderNum": "Sender number",
+        "senderQuarter": "Sender quarter",
+        "senderOther": "Sender other",
+        "senderAddress": "Sender address",
+        "packCount": "Default package count",
+        "description": "Shipment description",
+        "paymentSide": "Default payment side",
+        "currency": "Courier currency",
+        "conversionRate": "Currency conversion rate",
+        "declaredValue": "Send declared value",
+        "officeLocator": "Enable office locator",
+        "autoConfirm": "Auto-confirm after label",
+        "autoDelivered": "Auto-deliver from trace"
+      },
+      "options": {
+        "demo": "Demo",
+        "production": "Production",
+        "env": "Environment variables",
+        "stored": "Stored secret",
+        "office": "Office",
+        "door": "Door",
+        "sender": "Sender",
+        "receiver": "Receiver"
+      },
+      "configured": "Configured",
+      "missing": "Missing",
+      "save": "Save settings",
+      "saving": "Saving...",
+      "saveSuccess": "Econt settings saved",
+      "saveError": "Could not save Econt settings",
+      "loadError": "Could not load Econt settings",
+      "testConnection": "Test connection",
+      "testing": "Testing...",
+      "testError": "Could not test Econt connection",
+      "validation": {
+        "descriptionRequired": "Shipment description is required",
+        "packCountRange": "Package count must be between 1 and 99"
+      },
+      "connectionStatus": {
+        "success": "Success",
+        "missing_configuration": "Missing configuration",
+        "authentication_failed": "Authentication failed",
+        "validation_failed": "Validation failed",
+        "timeout": "Timeout",
+        "service_outage": "Service outage"
+      }
+    },
+    "econtFulfillment": {
+      "title": "Econt fulfillment",
+      "notEligible": "This order is not an Econt delivery.",
+      "checking": "Checking Econt readiness...",
+      "ready": "Ready for Econt label creation",
+      "blocked": "Blocked before label creation",
+      "loadError": "Could not load Econt readiness",
+      "actionError": "Econt action failed",
+      "readiness": "Readiness",
+      "readyChecklist": "All required Econt fields are present.",
+      "shipment": "Shipment",
+      "empty": "None",
+      "working": "Working...",
+      "fields": {
+        "syncStatus": "Sync status",
+        "shipmentNumber": "Shipment number",
+        "lastSync": "Last sync",
+        "lastError": "Last error"
+      },
+      "actions": {
+        "validate": "Validate",
+        "sync": "Sync order",
+        "createLabel": "Create label",
+        "refreshTrace": "Refresh trace",
+        "markShipped": "Mark shipped",
+        "deleteLabel": "Delete label",
+        "openLabel": "Open label PDF",
+        "openTracking": "Open tracking"
+      },
+      "success": {
+        "validate": "Readiness refreshed",
+        "repair": "Econt repair fields saved",
+        "sync": "Econt order synced",
+        "create": "Econt label created",
+        "delete": "Econt label deleted",
+        "trace": "Econt trace refreshed",
+        "ship": "Order marked as shipped"
+      },
+      "repair": {
+        "title": "Repair before label",
+        "officeCode": "Office code",
+        "recipientPhone": "Recipient phone",
+        "packCount": "Package count",
+        "description": "Shipment description",
+        "paymentSide": "Payment side",
+        "useDefault": "Use default",
+        "sender": "Sender",
+        "receiver": "Receiver",
+        "apply": "Apply repairs"
+      },
+      "blockers": {
+        "settingsDisabled": "Econt integration is disabled.",
+        "privateKeyMissing": "Econt private key is missing.",
+        "shopIdMissing": "Econt Shop ID is missing.",
+        "senderOfficeMissing": "Sender office code is missing.",
+        "orderNotEcont": "Order is not assigned to Econt.",
+        "officeCodeMissing": "Recipient office code is missing.",
+        "phoneMissing": "Recipient phone is missing.",
+        "statusNotSupported": "Order status is not supported for label creation.",
+        "unknown": "Unknown blocker. Check order and Econt settings."
+      }
     },
     "taxonomy": {
       "navLabel": "Taxonomy",

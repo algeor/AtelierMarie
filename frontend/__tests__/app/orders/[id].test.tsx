@@ -74,6 +74,57 @@ describe("OrderDetailPage", () => {
     expect(screen.getByText("Midnight Amber")).toBeInTheDocument();
     expect(screen.getByText("€77.00")).toBeInTheDocument();
     expect(screen.getByText("alice@example.com")).toBeInTheDocument();
+    expect(screen.queryByText("Shipment")).not.toBeInTheDocument();
+  });
+
+  it("shows public Econt tracking and hides raw courier errors", async () => {
+    mockedGetOrder.mockResolvedValueOnce({
+      ...mockOrder,
+      delivery_courier: "econt",
+      tracking_number: "1234567890",
+      tracking_carrier: "econt",
+      tracking_url: "https://www.econt.com/services/track-shipment/1234567890",
+      courier_provider: "econt",
+      courier_shipment_number: "1234567890",
+      courier_sync_status: "trace_failed",
+      courier_last_error: "Authorization private-demo-key timeout",
+    } as OrderResponse & { courier_last_error: string });
+
+    renderWithIntl(<OrderDetailPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Shipment")).toBeInTheDocument();
+    });
+    expect(screen.getByText("1234567890")).toBeInTheDocument();
+    expect(screen.getByText("Tracking update pending")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Track with Econt" })).toHaveAttribute(
+      "href",
+      "https://www.econt.com/services/track-shipment/1234567890"
+    );
+    expect(screen.queryByText(/private-demo-key/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/timeout/)).not.toBeInTheDocument();
+  });
+
+  it("hides Econt tracking after label deletion", async () => {
+    mockedGetOrder.mockResolvedValueOnce({
+      ...mockOrder,
+      delivery_courier: "econt",
+      tracking_number: null,
+      tracking_carrier: null,
+      tracking_url: null,
+      courier_provider: "econt",
+      courier_order_id: "remote-order-1",
+      courier_shipment_number: null,
+      courier_sync_status: "label_deleted",
+    } as OrderResponse);
+
+    renderWithIntl(<OrderDetailPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Order #a1b2c3d4")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Shipment")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Track with Econt" })).not.toBeInTheDocument();
   });
 
   it("shows status timeline", async () => {

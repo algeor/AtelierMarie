@@ -91,6 +91,169 @@ class TestProductImagesSchema:
         assert "zoom_url" in columns
 
 
+class TestEcontIntegrationSchema:
+    """Database foundation for Econt settings, fulfillment metadata, and audit events."""
+
+    ORDER_COURIER_COLUMNS = {
+        "courier_provider",
+        "courier_order_id",
+        "courier_shipment_number",
+        "courier_label_url",
+        "courier_label_created_at",
+        "courier_sync_status",
+        "courier_last_error",
+        "courier_last_synced_at",
+    }
+
+    def test_fresh_db_has_econt_settings_defaults(self, db_conn: sqlite3.Connection):
+        columns = {row[1] for row in db_conn.execute("PRAGMA table_info(econt_settings)")}
+
+        assert {
+            "id",
+            "enabled",
+            "environment",
+            "shop_id",
+            "credential_source",
+            "sender_delivery_mode",
+            "sender_office_code",
+            "default_pack_count",
+            "shipment_description",
+            "default_payment_side",
+            "courier_currency",
+            "office_locator_enabled",
+            "auto_confirm_on_label",
+            "auto_delivered_on_trace",
+        }.issubset(columns)
+
+        row = db_conn.execute(
+            """
+            SELECT id, enabled, environment, credential_source, default_pack_count,
+                   shipment_description, default_payment_side, courier_currency
+            FROM econt_settings
+            WHERE id = 'default'
+            """
+        ).fetchone()
+
+        assert row == (
+            "default",
+            0,
+            "demo",
+            "env",
+            1,
+            "Atelier Marie order",
+            "receiver",
+            "EUR",
+        )
+
+    def test_fresh_db_has_order_courier_metadata_columns(self, db_conn: sqlite3.Connection):
+        columns = {row[1] for row in db_conn.execute("PRAGMA table_info(orders)")}
+
+        assert self.ORDER_COURIER_COLUMNS.issubset(columns)
+
+    def test_order_courier_events_store_redacted_payloads_and_cascade(
+        self, db_conn: sqlite3.Connection
+    ):
+        db_conn.execute(
+            "INSERT INTO orders (id, session_id, status, total_cents, customer_email) "
+            "VALUES ('order-econt-1', 'session-1', 'confirmed', 1000, 'test@example.com')"
+        )
+        db_conn.execute(
+            """
+            INSERT INTO order_courier_events (
+                order_id, courier, action, status, request_json, response_json, actor_user_id
+            ) VALUES (
+                'order-econt-1', 'econt', 'create_awb', 'success',
+                '{"headers":{"Authorization":"<redacted>"}}',
+                '{"shipmentNumber":"1234567890"}',
+                NULL
+            )
+            """
+        )
+        db_conn.commit()
+
+        row = db_conn.execute(
+            "SELECT courier, action, status, request_json FROM order_courier_events"
+        ).fetchone()
+        assert row == (
+            "econt",
+            "create_awb",
+            "success",
+            '{"headers":{"Authorization":"<redacted>"}}',
+        )
+
+        db_conn.execute("DELETE FROM orders WHERE id = 'order-econt-1'")
+        db_conn.commit()
+        count = db_conn.execute("SELECT COUNT(*) FROM order_courier_events").fetchone()[0]
+        assert count == 0
+
+    def test_existing_db_migration_adds_econt_schema(self, tmp_path):
+        db_path = str(tmp_path / "legacy-econt.db")
+        conn = sqlite3.connect(db_path)
+        conn.executescript(
+            """
+            CREATE TABLE orders (
+                id          TEXT PRIMARY KEY,
+                session_id  TEXT NOT NULL,
+                user_id     TEXT,
+                status      TEXT NOT NULL DEFAULT 'pending',
+                total_cents INTEGER NOT NULL,
+                customer_email TEXT NOT NULL,
+                customer_name  TEXT,
+                delivery_method TEXT,
+                delivery_courier TEXT,
+                delivery_details TEXT,
+                tracking_number  TEXT,
+                tracking_carrier TEXT,
+                tracking_url     TEXT,
+                locale      TEXT NOT NULL DEFAULT 'en',
+                notes       TEXT,
+                payment_method  TEXT NOT NULL DEFAULT 'cod',
+                payment_status  TEXT NOT NULL DEFAULT 'cod_pending',
+                stripe_checkout_session_id TEXT,
+                stripe_payment_intent_id   TEXT,
+                created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            INSERT INTO orders (
+                id, session_id, status, total_cents, customer_email, delivery_courier
+            ) VALUES (
+                'legacy-order-1', 'legacy-session-1', 'confirmed', 1200,
+                'legacy@example.com', 'econt'
+            );
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        init_db(db_path)
+        init_db(db_path)
+
+        migrated = sqlite3.connect(db_path)
+        try:
+            order_columns = {row[1] for row in migrated.execute("PRAGMA table_info(orders)")}
+            assert self.ORDER_COURIER_COLUMNS.issubset(order_columns)
+            assert {row[0] for row in migrated.execute("SELECT id FROM orders")} == {
+                "legacy-order-1"
+            }
+            assert migrated.execute("SELECT id FROM econt_settings").fetchone()[0] == "default"
+            assert (
+                migrated.execute(
+                    "SELECT COUNT(*) FROM econt_settings WHERE id = 'default'"
+                ).fetchone()[0]
+                == 1
+            )
+            assert (
+                migrated.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type = 'table' AND name = 'order_courier_events'"
+                ).fetchone()[0]
+                == "order_courier_events"
+            )
+        finally:
+            migrated.close()
+
+
 class TestDatabaseConstraints:
     """Verify CHECK constraints enforce data integrity at the DB level."""
 

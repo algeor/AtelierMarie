@@ -36,14 +36,16 @@ repos:
         language: pygrep
         entry: 'os\.(environ|getenv)'
         types: [python]
-        exclude: '^(tests/|conftest\.py)'
+        exclude: '^(tests/|scripts/|conftest\.py)'
 
       - id: no-float-prices
         name: no float prices (use int cents)
         language: pygrep
         entry: 'price\s*[:=]\s*(float|Decimal|\d+\.\d+)'
         types: [python]
-        exclude: '^tests/'
+        # app/models/econt.py holds external Econt API DTOs; the courier's JSON
+        # contract expresses prices as decimals, not our internal int cents.
+        exclude: '^(tests/|app/models/econt\.py)'
 
   # --- Secrets detection ---
   - repo: https://github.com/Yelp/detect-secrets

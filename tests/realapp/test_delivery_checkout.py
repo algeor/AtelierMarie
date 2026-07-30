@@ -21,6 +21,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.config import get_settings
+from app.services import delivery_service
 
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
 
@@ -152,6 +153,7 @@ class TestOfficeDeliveryPersistence:
         assert body["delivery_courier"] == "econt"
         # Cyrillic preserved through ensure_ascii=False JSON serialization
         assert body["delivery_details"]["office_name"] == "София"
+        assert body["delivery_details"]["office_code"] == "1127"
         assert body["delivery_details"]["phone"] == "+359888123456"
 
 
@@ -290,3 +292,69 @@ class TestCheckoutDeliveryValidation:
         body = resp.json()
         assert body["error"]["code"] == "INVALID_DELIVERY_OFFICE"
         assert body["error"]["details"]["office_id"] == "econt-missing"
+
+    async def test_econt_office_code_mismatch_returns_422(self, order_client):
+        payload = {
+            "customer_email": "t@t.com",
+            "delivery": {
+                "method": "office",
+                "office": {
+                    **DELIVERY_OFFICE_ECONT["office"],
+                    "office_code": "9999",
+                },
+            },
+        }
+
+        resp = await order_client.post("/v1/orders", json=payload)
+
+        assert resp.status_code == 422
+        body = resp.json()
+        assert body["error"]["code"] == "INVALID_DELIVERY_OFFICE"
+        assert body["error"]["details"] == {
+            "courier": "econt",
+            "office_id": "econt-1029",
+            "reason": "office_code mismatch",
+        }
+
+    async def test_econt_office_without_catalog_or_payload_code_returns_422(
+        self, order_client, monkeypatch
+    ):
+        monkeypatch.setitem(
+            delivery_service._offices_by_courier,
+            "econt",
+            [
+                {
+                    "id": "econt-legacy",
+                    "name": "София Legacy",
+                    "name_en": "Sofia Legacy",
+                    "type": "office",
+                    "city": "София",
+                    "city_en": "Sofia",
+                    "address": "ул. Тест 1",
+                    "working_hours": "Пон-Пет 09:00-18:00",
+                    "working_hours_en": "Mon-Fri 09:00-18:00",
+                }
+            ],
+        )
+
+        resp = await order_client.post(
+            "/v1/orders",
+            json={
+                "customer_email": "t@t.com",
+                "delivery": {
+                    "method": "office",
+                    "office": {
+                        "courier": "econt",
+                        "office_id": "econt-legacy",
+                        "office_name": "София Legacy",
+                        "office_type": "office",
+                        "phone": "+359888123456",
+                    },
+                },
+            },
+        )
+
+        assert resp.status_code == 422
+        body = resp.json()
+        assert body["error"]["code"] == "INVALID_DELIVERY_OFFICE"
+        assert body["error"]["details"]["reason"] == "office_code required"

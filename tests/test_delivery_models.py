@@ -28,11 +28,23 @@ class TestDeliveryOffice:
         office = DeliveryOffice(
             courier="econt",
             office_id="econt-2",
+            office_code="1234",
             office_name="Автомат София",
             office_type="apt",
             phone="+359888999888",
         )
         assert office.office_type == "apt"
+        assert office.office_code == "1234"
+
+    def test_office_code_is_optional_at_model_layer(self):
+        office = DeliveryOffice(
+            courier="econt",
+            office_id="econt-2",
+            office_name="София",
+            office_type="office",
+            phone="+359888999888",
+        )
+        assert office.office_code is None
 
     @pytest.mark.parametrize(
         "raw,normalized",

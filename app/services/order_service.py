@@ -163,6 +163,14 @@ class OrderData(TypedDict):
     tracking_number: str | None
     tracking_carrier: str | None
     tracking_url: str | None
+    courier_provider: str | None
+    courier_order_id: str | None
+    courier_shipment_number: str | None
+    courier_label_url: str | None
+    courier_label_created_at: str | None
+    courier_sync_status: str | None
+    courier_last_error: str | None
+    courier_last_synced_at: str | None
     locale: str
     notes: str | None
     payment_method: str
@@ -228,9 +236,29 @@ def checkout(
                 delivery_sub.courier,
                 reason=f"office_type must be {catalogue_office['type']}",
             )
-        delivery_details = delivery_sub.model_dump()
+        delivery_details = delivery_sub.model_dump(exclude_none=True)
         delivery_details["office_name"] = catalogue_office["name"]
         delivery_details["office_type"] = catalogue_office["type"]
+        if delivery_sub.courier == "econt":
+            catalogue_code = catalogue_office.get("code")
+            if (
+                catalogue_code
+                and delivery_sub.office_code
+                and delivery_sub.office_code != catalogue_code
+            ):
+                raise InvalidDeliveryOfficeError(
+                    delivery_sub.office_id,
+                    delivery_sub.courier,
+                    reason="office_code mismatch",
+                )
+            office_code = catalogue_code or delivery_sub.office_code
+            if not office_code:
+                raise InvalidDeliveryOfficeError(
+                    delivery_sub.office_id,
+                    delivery_sub.courier,
+                    reason="office_code required",
+                )
+            delivery_details["office_code"] = office_code
         delivery_courier = delivery_sub.courier
     else:
         delivery_sub = delivery.door
@@ -433,6 +461,14 @@ def checkout(
         tracking_number=None,
         tracking_carrier=None,
         tracking_url=None,
+        courier_provider=None,
+        courier_order_id=None,
+        courier_shipment_number=None,
+        courier_label_url=None,
+        courier_label_created_at=None,
+        courier_sync_status=None,
+        courier_last_error=None,
+        courier_last_synced_at=None,
         locale=locale,
         notes=notes,
         payment_method=payment_method,
@@ -504,6 +540,24 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
         tracking_number=row["tracking_number"] if "tracking_number" in row_keys else None,
         tracking_carrier=row["tracking_carrier"] if "tracking_carrier" in row_keys else None,
         tracking_url=row["tracking_url"] if "tracking_url" in row_keys else None,
+        courier_provider=row["courier_provider"] if "courier_provider" in row_keys else None,
+        courier_order_id=row["courier_order_id"] if "courier_order_id" in row_keys else None,
+        courier_shipment_number=(
+            row["courier_shipment_number"] if "courier_shipment_number" in row_keys else None
+        ),
+        courier_label_url=row["courier_label_url"] if "courier_label_url" in row_keys else None,
+        courier_label_created_at=(
+            row["courier_label_created_at"] if "courier_label_created_at" in row_keys else None
+        ),
+        courier_sync_status=(
+            row["courier_sync_status"] if "courier_sync_status" in row_keys else None
+        ),
+        courier_last_error=(
+            row["courier_last_error"] if "courier_last_error" in row_keys else None
+        ),
+        courier_last_synced_at=(
+            row["courier_last_synced_at"] if "courier_last_synced_at" in row_keys else None
+        ),
         locale=(row["locale"] if "locale" in row_keys and row["locale"] else "en"),
         notes=row["notes"],
         payment_method=row["payment_method"] if "payment_method" in row_keys else "cod",
@@ -659,9 +713,7 @@ def update_status(
     is auto-generated from a known carrier when not supplied, and persisted
     alongside the status. Restores stock on cancellation (from pending/confirmed).
     """
-    row = conn.execute(
-        "SELECT id, status, payment_method FROM orders WHERE id = ?", (order_id,)
-    ).fetchone()
+    row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
 
     if not row:
         raise OrderNotFoundError(order_id)
@@ -674,6 +726,19 @@ def update_status(
         raise InvalidStateTransitionError(order_id, current_status, new_status)
 
     if new_status == "shipped":
+        row_keys = row.keys()
+        tracking_number = (
+            tracking_number
+            or (row["tracking_number"] if "tracking_number" in row_keys else None)
+            or (row["courier_shipment_number"] if "courier_shipment_number" in row_keys else None)
+        )
+        tracking_carrier = (
+            tracking_carrier
+            or (row["tracking_carrier"] if "tracking_carrier" in row_keys else None)
+            or (row["courier_provider"] if "courier_provider" in row_keys else None)
+        )
+        tracking_url = tracking_url or (row["tracking_url"] if "tracking_url" in row_keys else None)
+
         # Tracking is required on ship; url is optional (auto-generated below).
         missing = []
         if not tracking_number:

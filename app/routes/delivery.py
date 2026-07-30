@@ -8,12 +8,23 @@ from typing import Literal
 
 from fastapi import APIRouter, Query
 
-from app.models.delivery import Courier, OfficeResponse, OfficeType
-from app.services import delivery_service
+from app.models.delivery import Courier, DeliveryConfigResponse, OfficeResponse, OfficeType
+from app.services import delivery_service, econt_settings_service
 
 router = APIRouter()
 
 Locale = Literal["en", "bg"]
+
+
+@router.get(
+    "/config",
+    response_model=DeliveryConfigResponse,
+    summary="Get public delivery configuration",
+    description="Return checkout-safe delivery settings such as Econt Office Locator behavior.",
+)
+async def get_delivery_config() -> DeliveryConfigResponse:
+    """Return public-safe delivery configuration for checkout."""
+    return econt_settings_service.get_public_delivery_config()
 
 
 @router.get(

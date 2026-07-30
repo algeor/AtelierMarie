@@ -431,6 +431,56 @@ class TestAdminInvalidStatusFilter:
 # ===========================================================================
 
 
+class TestCourierMetadataVisibility:
+    """Customer responses hide operational courier ids; admin detail keeps them."""
+
+    async def test_customer_order_responses_hide_courier_order_id(
+        self, order_client, admin_order_client, db_path
+    ):
+        create = await order_client.post(
+            "/v1/orders",
+            json={
+                "customer_email": "marie@example.com",
+                "customer_name": "Marie",
+                "delivery": DELIVERY_OFFICE_ECONT,
+            },
+        )
+        assert create.status_code == 201
+        order_id = create.json()["id"]
+
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            """
+            UPDATE orders
+            SET courier_provider = 'econt', courier_order_id = 'remote-order-1',
+                courier_shipment_number = '1234567890', courier_sync_status = 'label_created',
+                tracking_number = '1234567890', tracking_carrier = 'econt',
+                tracking_url = 'https://www.econt.com/services/track-shipment/1234567890'
+            WHERE id = ?
+            """,
+            (order_id,),
+        )
+        conn.commit()
+        conn.close()
+
+        detail = await order_client.get(f"/v1/orders/{order_id}")
+        assert detail.status_code == 200
+        public_order = detail.json()
+        assert public_order["courier_order_id"] is None
+        assert public_order["courier_shipment_number"] == "1234567890"
+        assert public_order["tracking_carrier"] == "econt"
+
+        listing = await order_client.get("/v1/orders")
+        assert listing.status_code == 200
+        listed_order = listing.json()["items"][0]
+        assert listed_order["id"] == order_id
+        assert listed_order["courier_order_id"] is None
+
+        admin_detail = await admin_order_client.get(f"/v1/admin/orders/{order_id}")
+        assert admin_detail.status_code == 200
+        assert admin_detail.json()["courier_order_id"] == "remote-order-1"
+
+
 class TestAdminGetOrderDetail:
     """Integration tests for GET /v1/admin/orders/{id}."""
 
@@ -455,6 +505,7 @@ class TestAdminGetOrderDetail:
         assert data["delivery_method"] == "office"
         assert data["delivery_courier"] == "econt"
         assert data["delivery_details"]["office_id"] == "econt-1029"
+        assert data["delivery_details"]["office_code"] == "1127"
         assert len(data["items"]) == 2
 
     async def test_non_admin_gets_401(self, order_client):

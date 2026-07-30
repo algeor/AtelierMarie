@@ -31,11 +31,18 @@ import type {
   ContactRequest,
   ContactResponse,
   Courier,
+  DeliveryConfigResponse,
   CreateOrderRequest,
   CreateAboutItemRequest,
   CreateFaqItemRequest,
   CreateProductRequest,
   CreateTaxonomyTermRequest,
+  EcontConnectionTestResponse,
+  EcontFulfillmentActionResponse,
+  EcontOrderFulfillmentResponse,
+  EcontOrderRepairRequest,
+  EcontSettingsResponse,
+  EcontSettingsUpdate,
   FaqAdminResponse,
   FaqItemAdminResponse,
   FaqResponse,
@@ -792,12 +799,34 @@ const MOCK_OFFICES: Record<Courier, OfficeResponse[]> = {
     { id: "speedy-varna-001", name: "Speedy офис Варна Център", type: "office", city: "Варна", address: "бул. Сливница 10", working_hours: "Mon-Fri 09:00-18:00" },
   ],
   econt: [
-    { id: "econt-sf-001", name: "Econt София Център", type: "office", city: "София", address: "ул. Раковски 100", working_hours: "Mon-Fri 09:00-19:00, Sat 09:00-15:00" },
-    { id: "econt-apt-sf-01", name: "Econt Автомат Люлин", type: "apt", city: "София", address: "ж.к. Люлин, до Билла", working_hours: "24/7" },
-    { id: "econt-plovdiv-001", name: "Econt Пловдив Централ", type: "office", city: "Пловдив", address: "бул. Шести септември 20", working_hours: "Mon-Fri 09:00-19:00" },
-    { id: "econt-burgas-001", name: "Econt Бургас Център", type: "office", city: "Бургас", address: "ул. Александровска 45", working_hours: "Mon-Fri 09:00-18:00" },
+    { id: "econt-sf-001", code: "1127", name: "Econt София Център", type: "office", city: "София", address: "ул. Раковски 100", working_hours: "Mon-Fri 09:00-19:00, Sat 09:00-15:00" },
+    { id: "econt-apt-sf-01", code: "7538", name: "Econt Автомат Люлин", type: "apt", city: "София", address: "ж.к. Люлин, до Билла", working_hours: "24/7" },
+    { id: "econt-plovdiv-001", code: "4001", name: "Econt Пловдив Централ", type: "office", city: "Пловдив", address: "бул. Шести септември 20", working_hours: "Mon-Fri 09:00-19:00" },
+    { id: "econt-burgas-001", code: "8001", name: "Econt Бургас Център", type: "office", city: "Бургас", address: "ул. Александровска 45", working_hours: "Mon-Fri 09:00-18:00" },
   ],
 };
+
+export async function getDeliveryConfig(): Promise<DeliveryConfigResponse> {
+  await delay();
+  const envEnabled = process.env.NEXT_PUBLIC_ECONT_OFFICE_LOCATOR_ENABLED === "true";
+  const envOrigins = process.env.NEXT_PUBLIC_ECONT_OFFICE_LOCATOR_ORIGINS;
+  const isProduction = mockEcontSettings.environment === "production";
+  const defaultLocatorUrl = isProduction
+    ? "https://delivery.econt.com/customer_info.php"
+    : "https://delivery-demo.econt.com/customer_info.php";
+  const defaultLocatorOrigin = isProduction
+    ? "https://delivery.econt.com"
+    : "https://delivery-demo.econt.com";
+  return {
+    econt: {
+      office_locator_enabled: mockEcontSettings.office_locator_enabled || envEnabled,
+      office_locator_url: process.env.NEXT_PUBLIC_ECONT_OFFICE_LOCATOR_URL || defaultLocatorUrl,
+      office_locator_origins: envOrigins
+        ? envOrigins.split(",").map((origin) => origin.trim()).filter(Boolean)
+        : [defaultLocatorOrigin],
+    },
+  };
+}
 
 export async function getDeliveryOffices(
   courier: Courier,
@@ -929,6 +958,90 @@ export function mockLogin(): void {
 
 // --- Admin Functions ---
 
+let mockEcontSettings: EcontSettingsResponse = {
+  enabled: false,
+  environment: "demo",
+  shop_id: "demo-shop-1",
+  credential_source: "env",
+  sender_delivery_mode: "office",
+  sender_office_code: "1127",
+  sender_city: "София",
+  sender_post_code: "1000",
+  sender_address: "ул. Раковски 100",
+  sender_quarter: null,
+  sender_street: "Раковски",
+  sender_num: "100",
+  sender_other: null,
+  default_pack_count: 1,
+  shipment_description: "Atelier Marie order",
+  declared_value_enabled: false,
+  default_payment_side: "receiver",
+  courier_currency: "EUR",
+  currency_conversion_rate: null,
+  office_locator_enabled: false,
+  auto_confirm_on_label: false,
+  auto_delivered_on_trace: false,
+  base_url: "https://delivery-demo.econt.com/services/",
+  office_locator_url: "https://delivery-demo.econt.com/customer_info.php",
+  office_locator_origins: ["https://delivery-demo.econt.com"],
+  secret_state: {
+    credential_source: "env",
+    private_key_configured: true,
+    shop_id_configured: true,
+    encryption_key_configured: false,
+  },
+  last_health_status: null,
+  last_health_checked_at: null,
+  last_health_error: null,
+  updated_at: new Date().toISOString(),
+};
+
+export async function getEcontSettings(): Promise<EcontSettingsResponse> {
+  await delay();
+  return { ...mockEcontSettings, secret_state: { ...mockEcontSettings.secret_state } };
+}
+
+export async function updateEcontSettings(
+  data: EcontSettingsUpdate
+): Promise<EcontSettingsResponse> {
+  await delay();
+  mockEcontSettings = {
+    ...mockEcontSettings,
+    ...data,
+    secret_state: {
+      ...mockEcontSettings.secret_state,
+      credential_source: data.credential_source ?? mockEcontSettings.credential_source,
+      shop_id_configured: Boolean(data.shop_id ?? mockEcontSettings.shop_id),
+    },
+    updated_at: new Date().toISOString(),
+  };
+  return getEcontSettings();
+}
+
+export async function testEcontConnection(): Promise<EcontConnectionTestResponse> {
+  await delay();
+  const ok = Boolean(
+    mockEcontSettings.enabled &&
+      mockEcontSettings.shop_id &&
+      mockEcontSettings.secret_state.private_key_configured &&
+      mockEcontSettings.sender_office_code,
+  );
+  const response: EcontConnectionTestResponse = {
+    status: ok ? "success" : "missing_configuration",
+    ok,
+    message: ok ? "Econt demo configuration is ready" : "Missing Econt configuration",
+    checked_at: new Date().toISOString(),
+    details: null,
+  };
+  mockEcontSettings = {
+    ...mockEcontSettings,
+    last_health_status: response.status,
+    last_health_checked_at: response.checked_at,
+    last_health_error: ok ? null : response.message,
+  };
+  return response;
+}
+
 const MOCK_ORDERS_SEEDED: OrderResponse[] = [
   {
     id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
@@ -1009,6 +1122,7 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     delivery_details: {
       courier: "econt",
       office_id: "econt-plovdiv-001",
+      office_code: "4001",
       office_name: "Econt Пловдив Централ",
       office_type: "office",
       phone: "+359877111222",
@@ -1404,6 +1518,159 @@ export async function getAdminOrder(orderId: string): Promise<OrderResponse> {
   const order = allOrders.find((o) => o.id === orderId);
   if (!order) mockError("NOT_FOUND", `Order ${orderId} not found`);
   return order;
+}
+
+type MockEcontOrder = OrderResponse & {
+  courier_label_url?: string | null;
+  courier_last_error?: string | null;
+};
+
+function findMockEcontOrder(orderId: string): MockEcontOrder {
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders] as MockEcontOrder[];
+  const order = allOrders.find((o) => o.id === orderId);
+  if (!order) mockError("NOT_FOUND", `Order ${orderId} not found`);
+  return order;
+}
+
+function econtBlockers(order: OrderResponse): string[] {
+  const blockers: string[] = [];
+  if (!mockEcontSettings.enabled) blockers.push("settings_disabled");
+  if (!mockEcontSettings.secret_state.private_key_configured) blockers.push("settings_private_key_missing");
+  if (!mockEcontSettings.shop_id) blockers.push("settings_shop_id_missing");
+  if (!mockEcontSettings.sender_office_code) blockers.push("settings_sender_office_code_missing");
+  if (order.delivery_courier !== "econt") blockers.push("order_not_econt");
+  if (order.delivery_method === "office") {
+    const details = order.delivery_details;
+    if (!details || !("office_code" in details) || !details.office_code) {
+      blockers.push("order_office_code_missing");
+    }
+  }
+  if (!["pending", "confirmed"].includes(order.status)) blockers.push("order_status_not_supported");
+  return blockers;
+}
+
+export async function getEcontOrderReadiness(
+  orderId: string
+): Promise<EcontOrderFulfillmentResponse> {
+  await delay();
+  const order = findMockEcontOrder(orderId);
+  const blockers = econtBlockers(order);
+  return {
+    order_id: orderId,
+    ready: blockers.length === 0,
+    blockers,
+    courier_provider: order.courier_provider ?? null,
+    courier_order_id: order.courier_order_id ?? null,
+    courier_shipment_number: order.courier_shipment_number ?? null,
+    courier_label_url: order.courier_label_url ?? null,
+    courier_sync_status: order.courier_sync_status ?? null,
+    courier_last_error: order.courier_last_error ?? null,
+    courier_last_synced_at: order.courier_last_synced_at ?? null,
+    tracking_number: order.tracking_number ?? null,
+    tracking_url: order.tracking_url ?? null,
+  };
+}
+
+export async function repairEcontOrder(
+  orderId: string,
+  data: EcontOrderRepairRequest
+): Promise<EcontOrderFulfillmentResponse> {
+  await delay();
+  const order = findMockEcontOrder(orderId);
+  if (order.courier_shipment_number) mockError("ECONT_REPAIR_BLOCKED", "label already created");
+  if (order.delivery_courier !== "econt") mockError("ECONT_REPAIR_BLOCKED", "not an Econt order");
+  const details = { ...(order.delivery_details ?? {}) } as Record<string, unknown>;
+  if (data.office_code !== undefined && data.office_code !== null) {
+    details.office_code = data.office_code;
+  }
+  const overrides = { ...((details.econt_overrides as Record<string, unknown> | undefined) ?? {}) };
+  if (data.pack_count !== undefined && data.pack_count !== null) overrides.pack_count = data.pack_count;
+  if (data.shipment_description !== undefined && data.shipment_description !== null) {
+    overrides.shipment_description = data.shipment_description;
+  }
+  if (data.payment_side !== undefined && data.payment_side !== null) {
+    overrides.payment_side = data.payment_side;
+  }
+  details.econt_overrides = overrides;
+  order.delivery_details = details as unknown as OrderResponse["delivery_details"];
+  order.courier_sync_status = "repaired";
+  order.courier_last_synced_at = new Date().toISOString();
+  return getEcontOrderReadiness(orderId);
+}
+
+function econtActionResponse(
+  order: MockEcontOrder,
+  action: string,
+  status: string
+): EcontFulfillmentActionResponse {
+  return {
+    order_id: order.id,
+    action,
+    status,
+    courier_order_id: order.courier_order_id ?? null,
+    shipment_number: order.courier_shipment_number ?? null,
+    label_url: order.courier_label_url ?? null,
+    tracking_url: order.tracking_url ?? null,
+    ready: econtBlockers(order).length === 0,
+    blockers: econtBlockers(order),
+  };
+}
+
+export async function syncEcontOrder(orderId: string): Promise<EcontFulfillmentActionResponse> {
+  await delay();
+  const order = findMockEcontOrder(orderId);
+  const blockers = econtBlockers(order);
+  if (blockers.length) mockError("ECONT_NOT_READY", blockers.join(", "));
+  order.courier_provider = "econt";
+  order.courier_order_id = `mock-${order.id.slice(0, 8)}`;
+  order.courier_sync_status = "synced";
+  order.courier_last_synced_at = new Date().toISOString();
+  return econtActionResponse(order, "sync_order", "synced");
+}
+
+export async function createEcontLabel(orderId: string): Promise<EcontFulfillmentActionResponse> {
+  await delay();
+  const order = findMockEcontOrder(orderId);
+  const blockers = econtBlockers(order);
+  if (blockers.length) mockError("ECONT_NOT_READY", blockers.join(", "));
+  if (order.courier_shipment_number) {
+    return econtActionResponse(order, "create_label", "already_created");
+  }
+  const shipment = "1234567890";
+  order.courier_provider = "econt";
+  order.courier_order_id = order.courier_order_id ?? `mock-${order.id.slice(0, 8)}`;
+  order.courier_shipment_number = shipment;
+  order.courier_label_url = "https://label.test/1234567890.pdf";
+  order.courier_sync_status = "label_created";
+  order.courier_last_synced_at = new Date().toISOString();
+  order.tracking_number = shipment;
+  order.tracking_carrier = "econt";
+  order.tracking_url = buildTrackingUrl("econt", shipment);
+  return econtActionResponse(order, "create_label", "label_created");
+}
+
+export async function refreshEcontTrace(orderId: string): Promise<EcontFulfillmentActionResponse> {
+  await delay();
+  const order = findMockEcontOrder(orderId);
+  if (!order.courier_shipment_number) mockError("ECONT_NOT_READY", "shipment number missing");
+  order.courier_sync_status = "trace_synced";
+  order.courier_last_synced_at = new Date().toISOString();
+  return econtActionResponse(order, "refresh_trace", "trace_synced");
+}
+
+export async function deleteEcontLabel(orderId: string): Promise<EcontFulfillmentActionResponse> {
+  await delay();
+  const order = findMockEcontOrder(orderId);
+  if (["shipped", "delivered"].includes(order.status)) {
+    mockError("ECONT_NOT_READY", "label cannot be deleted after shipping");
+  }
+  order.courier_shipment_number = null;
+  order.courier_label_url = null;
+  order.courier_sync_status = "label_deleted";
+  order.tracking_number = null;
+  order.tracking_carrier = null;
+  order.tracking_url = null;
+  return econtActionResponse(order, "delete_label", "label_deleted");
 }
 
 export async function updateOrderStatus(

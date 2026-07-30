@@ -42,6 +42,15 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    labelKey: "econtNav",
+    href: "/admin/econt",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM17.25 18.75a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM3.75 6.75h10.5v8.25H6.75l-3-3V6.75zM14.25 9.75h3.75l2.25 2.25v3H14.25V9.75z" />
+      </svg>
+    ),
+  },
+  {
     labelKey: "taxonomy.navLabel",
     href: "/admin/taxonomy",
     icon: (

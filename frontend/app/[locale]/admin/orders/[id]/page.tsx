@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
@@ -9,6 +9,7 @@ import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
 import { formatPrice } from "@/lib/utils";
 import { DeliveryDetails } from "@/components/checkout/DeliveryDetails";
+import { EcontFulfillmentPanel } from "@/components/admin/EcontFulfillmentPanel";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
 import { StatusTimeline } from "@/components/orders/StatusTimeline";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -39,20 +40,15 @@ export default function AdminOrderDetailPage() {
   const [state, setState] = useState<PageState>("loading");
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchOrder() {
+  const fetchOrder = useCallback(
+    async (showLoading = true) => {
       try {
-        setState("loading");
+        if (showLoading) setState("loading");
         setError(null);
         const data = (await getAdminOrder(orderId)) as AdminOrderResponse;
-        if (!cancelled) {
-          setOrder(data);
-          setState("success");
-        }
+        setOrder(data);
+        setState("success");
       } catch (err) {
-        if (cancelled) return;
         if (
           err instanceof ApiError &&
           (err.code === "NOT_FOUND" || err.code === "ORDER_NOT_FOUND")
@@ -67,13 +63,13 @@ export default function AdminOrderDetailPage() {
         );
         setState("error");
       }
-    }
+    },
+    [getLocalizedError, orderId, tAdmin],
+  );
 
+  useEffect(() => {
     fetchOrder();
-    return () => {
-      cancelled = true;
-    };
-  }, [getLocalizedError, orderId, tAdmin]);
+  }, [fetchOrder]);
 
   if (state === "loading") {
     return (
@@ -220,6 +216,8 @@ export default function AdminOrderDetailPage() {
         </section>
 
         <DeliveryDetails order={order} />
+
+        <EcontFulfillmentPanel order={order} onRefreshOrder={() => fetchOrder(false)} />
 
         {order.notes && (
           <section className="mt-8 border-t border-champagne-beige pt-6">

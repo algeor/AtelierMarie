@@ -9,6 +9,82 @@ Uses the module-scoped app/client from conftest.py (FakeSessionMiddleware).
 
 import pytest
 
+from app.config import get_settings
+from app.services import delivery_service
+
+
+class TestDeliveryConfig:
+    @pytest.mark.asyncio
+    async def test_public_config_defaults_to_demo_locator_for_demo_environment(
+        self, client, db, monkeypatch
+    ):
+        settings = get_settings()
+        monkeypatch.setattr(settings, "econt_office_locator_url", "")
+        monkeypatch.setattr(settings, "econt_office_locator_origins", [])
+        db.execute("UPDATE econt_settings SET office_locator_enabled = 1 WHERE id = 'default'")
+        db.commit()
+
+        resp = await client.get("/v1/delivery/config")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body == {
+            "econt": {
+                "office_locator_enabled": True,
+                "office_locator_url": "https://delivery-demo.econt.com/customer_info.php",
+                "office_locator_origins": ["https://delivery-demo.econt.com"],
+            }
+        }
+        assert "private" not in str(body).lower()
+
+    @pytest.mark.asyncio
+    async def test_public_config_defaults_to_production_locator_for_production_environment(
+        self, client, db, monkeypatch
+    ):
+        settings = get_settings()
+        monkeypatch.setattr(settings, "econt_office_locator_url", "")
+        monkeypatch.setattr(settings, "econt_office_locator_origins", [])
+        db.execute(
+            """
+            UPDATE econt_settings
+            SET office_locator_enabled = 1, environment = 'production'
+            WHERE id = 'default'
+            """
+        )
+        db.commit()
+
+        resp = await client.get("/v1/delivery/config")
+
+        assert resp.status_code == 200
+        assert resp.json()["econt"] == {
+            "office_locator_enabled": True,
+            "office_locator_url": "https://delivery.econt.com/customer_info.php",
+            "office_locator_origins": ["https://delivery.econt.com"],
+        }
+
+    @pytest.mark.asyncio
+    async def test_public_config_allows_explicit_locator_override(self, client, db, monkeypatch):
+        settings = get_settings()
+        monkeypatch.setattr(
+            settings,
+            "econt_office_locator_url",
+            "https://custom-locator.example/customer_info.php",
+        )
+        monkeypatch.setattr(
+            settings, "econt_office_locator_origins", ["https://custom-locator.example"]
+        )
+        db.execute("UPDATE econt_settings SET office_locator_enabled = 1 WHERE id = 'default'")
+        db.commit()
+
+        resp = await client.get("/v1/delivery/config")
+
+        assert resp.status_code == 200
+        assert resp.json()["econt"] == {
+            "office_locator_enabled": True,
+            "office_locator_url": "https://custom-locator.example/customer_info.php",
+            "office_locator_origins": ["https://custom-locator.example"],
+        }
+
 
 class TestListOffices:
     """`GET /v1/delivery/offices` — covers courier-offices-data spec scenarios."""
@@ -20,11 +96,35 @@ class TestListOffices:
         data = resp.json()
         assert isinstance(data, list)
         assert len(data) > 0
-        # 6-field API-shape contract
-        expected_keys = {"id", "name", "type", "city", "address", "working_hours"}
+        # Public API-shape contract includes the Econt-native code needed for AWB creation.
+        expected_keys = {"id", "code", "name", "type", "city", "address", "working_hours"}
         for office in data:
             assert set(office.keys()) == expected_keys
+            assert office["code"]
             assert office["city"].casefold() == "софия".casefold()
+
+    @pytest.mark.asyncio
+    async def test_legacy_econt_office_without_code_still_serializes(self, client, monkeypatch):
+        monkeypatch.setitem(
+            delivery_service._offices_by_courier,
+            "econt",
+            [
+                {
+                    "id": "econt-legacy",
+                    "name": "София Legacy",
+                    "name_en": "Sofia Legacy",
+                    "type": "office",
+                    "city": "София",
+                    "city_en": "Sofia",
+                    "address": "ул. Тест 1",
+                    "working_hours": "Пон-Пет 09:00-18:00",
+                    "working_hours_en": "Mon-Fri 09:00-18:00",
+                }
+            ],
+        )
+        resp = await client.get("/v1/delivery/offices?courier=econt&city=София")
+        assert resp.status_code == 200
+        assert resp.json()[0]["code"] is None
 
     @pytest.mark.asyncio
     async def test_speedy_offices_in_sofia(self, client):

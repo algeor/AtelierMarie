@@ -7,6 +7,7 @@ import { Link } from "@/i18n/navigation";
 import { getOrder } from "@/lib/api";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
 import { StatusTimeline } from "@/components/orders/StatusTimeline";
+import { CourierTrackingSummary } from "@/components/orders/CourierTrackingSummary";
 import { DeliveryDetails } from "@/components/checkout/DeliveryDetails";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { formatPrice } from "@/lib/utils";
@@ -222,6 +223,8 @@ export default function OrderDetailPage() {
             </div>
           )}
         </div>
+
+        <CourierTrackingSummary order={order} />
 
         {/* Delivery details */}
         <DeliveryDetails order={order} />
