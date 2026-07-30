@@ -1,6 +1,6 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import { renderWithIntl } from "../test-utils";
 import { ProductCard } from "@/components/products/ProductCard";
 import { ProductGallery } from "@/components/products/ProductGallery";
@@ -91,7 +91,7 @@ beforeEach(() => {
 
 describe("product video rendering", () => {
   it("inserts the video thumbnail at the configured gallery position", () => {
-    const { container } = render(
+    const { container } = renderWithIntl(
       <ProductGallery
         name="Candle"
         images={[image("first", 0), image("second", 1)]}
@@ -112,7 +112,7 @@ describe("product video rendering", () => {
   });
 
   it("places the video thumbnail last when sort order exceeds image count", () => {
-    const { container } = render(
+    const { container } = renderWithIntl(
       <ProductGallery
         name="Candle"
         images={[image("first", 0), image("second", 1)]}
@@ -144,7 +144,7 @@ describe("product video rendering", () => {
       dispatchEvent: vi.fn(),
     }));
 
-    const { container } = render(
+    const { container } = renderWithIntl(
       <ProductGallery
         name="Candle"
         images={[image("first", 0)]}

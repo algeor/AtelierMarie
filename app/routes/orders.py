@@ -110,10 +110,12 @@ def create_order(
             if not resolved_email:
                 return JSONResponse(
                     status_code=422,
-                    content={"error": {
-                        "code": "EMAIL_REQUIRED",
-                        "message": "An email is required to place an order",
-                    }},
+                    content={
+                        "error": {
+                            "code": "EMAIL_REQUIRED",
+                            "message": "An email is required to place an order",
+                        }
+                    },
                 )
 
             order_data = checkout(

@@ -44,6 +44,8 @@ class OrderResponse(BaseModel):
     tracking_number: str | None = None
     tracking_carrier: str | None = None
     tracking_url: str | None = None
+    courier_status: str | None = None
+    label_url: str | None = None
     notes: str | None = None
     # Payment fields (payment-integration).
     payment_method: PaymentMethod = "cod"

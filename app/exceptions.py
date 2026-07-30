@@ -79,9 +79,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             "request_validation_failed",
             method=request.method,
             path=request.url.path,
-            fields=[
-                {"loc": e.get("loc"), "msg": e.get("msg")} for e in sanitized_errors
-            ],
+            fields=[{"loc": e.get("loc"), "msg": e.get("msg")} for e in sanitized_errors],
         )
 
         return JSONResponse(

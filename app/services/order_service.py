@@ -91,9 +91,7 @@ class WrongPaymentMethodError(OrderServiceError):
 
     def __init__(self, order_id: str, expected: str, actual: str) -> None:
         self.order_id = order_id
-        super().__init__(
-            f"Order {order_id} payment method is '{actual}', expected '{expected}'"
-        )
+        super().__init__(f"Order {order_id} payment method is '{actual}', expected '{expected}'")
 
 
 class EmptyCartError(OrderServiceError):
@@ -170,6 +168,65 @@ class TrackingRequiredError(OrderServiceError):
         super().__init__(f"Tracking information required when shipping: {', '.join(missing)}")
 
 
+def _create_speedy_waybill(row: sqlite3.Row) -> tuple[str, str | None]:
+    """Create a Speedy waybill from an order row; return (tracking_number, label_url).
+
+    Raises speedy_client.ShipmentCreationError on failure (surfaced to admin as a
+    502 by the route). Called inside the ship transaction BEFORE the UPDATE, so a
+    failure aborts the transaction (design Decision 3). Imported lazily to keep
+    Layer-1 order state free of a hard courier-module dependency at import time.
+    """
+    from app.config import get_settings
+    from app.services import speedy_client
+
+    settings = get_settings()
+    details_raw = row["delivery_details"] if "delivery_details" in row.keys() else None
+    details: dict = {}
+    if details_raw:
+        try:
+            details = json.loads(details_raw)
+        except json.JSONDecodeError:
+            details = {}
+
+    method = row["delivery_method"] if "delivery_method" in row.keys() else None
+    recipient_name = details.get("office_name") or row["customer_name"] or "Recipient"
+    phone = details.get("phone") or ""
+    # COD orders collect the full order total (items + shipping) on delivery.
+    payment_method = row["payment_method"] if "payment_method" in row.keys() else "cod"
+    payment_status = row["payment_status"] if "payment_status" in row.keys() else ""
+    cod_cents = row["total_cents"] if payment_method == "cod" and payment_status != "paid" else None
+
+    if method == "office":
+        tracking = speedy_client.create_shipment_sync(
+            client_id=settings.speedy_client_id,
+            recipient_name=recipient_name,
+            recipient_phone=phone,
+            weight_grams=0,
+            username=settings.speedy_api_username,
+            password=settings.speedy_api_password.get_secret_value(),
+            order_ref=row["id"],
+            recipient_office_id=details.get("office_id"),
+            recipient_city=details.get("city"),
+            cod_amount_cents=cod_cents,
+        )
+    else:
+        tracking = speedy_client.create_shipment_sync(
+            client_id=settings.speedy_client_id,
+            recipient_name=recipient_name,
+            recipient_phone=phone,
+            weight_grams=0,
+            username=settings.speedy_api_username,
+            password=settings.speedy_api_password.get_secret_value(),
+            order_ref=row["id"],
+            recipient_city=details.get("city"),
+            recipient_postcode=details.get("postal_code"),
+            recipient_street=details.get("street"),
+            recipient_building=details.get("building"),
+            cod_amount_cents=cod_cents,
+        )
+    return tracking, None
+
+
 # ---------------------------------------------------------------------------
 # TypedDict return types
 # ---------------------------------------------------------------------------
@@ -201,6 +258,8 @@ class OrderData(TypedDict):
     tracking_number: str | None
     tracking_carrier: str | None
     tracking_url: str | None
+    courier_status: str | None
+    label_url: str | None
     locale: str
     notes: str | None
     payment_method: str
@@ -491,6 +550,8 @@ def checkout(
         tracking_number=None,
         tracking_carrier=None,
         tracking_url=None,
+        courier_status=None,
+        label_url=None,
         locale=locale,
         notes=notes,
         payment_method=payment_method,
@@ -575,17 +636,17 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
         tracking_number=row["tracking_number"] if "tracking_number" in row_keys else None,
         tracking_carrier=row["tracking_carrier"] if "tracking_carrier" in row_keys else None,
         tracking_url=row["tracking_url"] if "tracking_url" in row_keys else None,
+        courier_status=row["courier_status"] if "courier_status" in row_keys else None,
+        label_url=row["label_url"] if "label_url" in row_keys else None,
         locale=(row["locale"] if "locale" in row_keys and row["locale"] else "en"),
         notes=row["notes"],
         payment_method=row["payment_method"] if "payment_method" in row_keys else "cod",
         payment_status=row["payment_status"] if "payment_status" in row_keys else "cod_pending",
         stripe_checkout_session_id=(
-            row["stripe_checkout_session_id"]
-            if "stripe_checkout_session_id" in row_keys else None
+            row["stripe_checkout_session_id"] if "stripe_checkout_session_id" in row_keys else None
         ),
         stripe_payment_intent_id=(
-            row["stripe_payment_intent_id"]
-            if "stripe_payment_intent_id" in row_keys else None
+            row["stripe_payment_intent_id"] if "stripe_payment_intent_id" in row_keys else None
         ),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
@@ -731,9 +792,21 @@ def update_status(
     required (raises TrackingRequiredError → 422 TRACKING_REQUIRED). tracking_url
     is auto-generated from a known carrier when not supplied, and persisted
     alongside the status. Restores stock on cancellation (from pending/confirmed).
+
+    Speedy waybill automation (speedy-integration Decision 3): on the
+    confirmed→shipped transition, when the order's courier is Speedy AND no
+    tracking number was supplied, a waybill is created via the Speedy API and its
+    returned id becomes the tracking number. Creation runs BEFORE the UPDATE, so a
+    failure raises ShipmentCreationError and the transaction never commits — the
+    order stays `confirmed`, never `shipped` without a waybill. A manually supplied
+    tracking number skips the courier call (idempotent re-ship, and manual/offline
+    fallback both preserved).
     """
     row = conn.execute(
-        "SELECT id, status, payment_method FROM orders WHERE id = ?", (order_id,)
+        "SELECT id, status, payment_method, delivery_method, delivery_courier,"
+        " delivery_details, customer_name, total_cents, shipping_cents, payment_status"
+        " FROM orders WHERE id = ?",
+        (order_id,),
     ).fetchone()
 
     if not row:
@@ -746,7 +819,18 @@ def update_status(
     if new_status not in VALID_TRANSITIONS.get(current_status, set()):
         raise InvalidStateTransitionError(order_id, current_status, new_status)
 
+    label_url: str | None = None
+
     if new_status == "shipped":
+        # Speedy waybill automation: create the waybill and birth the tracking
+        # number ourselves when this is a Speedy order with no number supplied.
+        # Runs before the tracking-required guard so a Speedy ship needs no manual
+        # number, but a non-Speedy / manual ship still must supply one.
+        delivery_courier = row["delivery_courier"] if "delivery_courier" in row.keys() else None
+        if not tracking_number and delivery_courier == "speedy":
+            tracking_number, label_url = _create_speedy_waybill(row)
+            tracking_carrier = tracking_carrier or "speedy"
+
         # Tracking is required on ship; url is optional (auto-generated below).
         missing = []
         if not tracking_number:
@@ -763,10 +847,11 @@ def update_status(
         conn.execute(
             """
             UPDATE orders
-            SET status = ?, tracking_number = ?, tracking_carrier = ?, tracking_url = ?
+            SET status = ?, tracking_number = ?, tracking_carrier = ?, tracking_url = ?,
+                label_url = COALESCE(?, label_url)
             WHERE id = ?
             """,
-            (new_status, tracking_number, tracking_carrier, tracking_url, order_id),
+            (new_status, tracking_number, tracking_carrier, tracking_url, label_url, order_id),
         )
     else:
         conn.execute(

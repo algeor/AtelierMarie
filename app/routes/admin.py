@@ -82,6 +82,12 @@ from app.services.product_service import (
     DuplicateError,
     NotFoundError,
 )
+from app.services.speedy_client import (
+    LabelPrintError,
+    SpeedyError,
+    print_label,
+    track_shipment,
+)
 from app.services.taxonomy_service import TaxonomyValidationError
 from app.services.video_service import (
     FfmpegUnavailableError,
@@ -771,17 +777,34 @@ def admin_get_order_emails(order_id: str) -> OrderEmailAuditResponse:
 def admin_update_order_status(
     order_id: str,
     body: UpdateOrderStatusRequest,
-) -> OrderResponse:
-    """Update order status (admin-only, state machine enforced)."""
+) -> OrderResponse | JSONResponse:
+    """Update order status (admin-only, state machine enforced).
+
+    On the Speedy ship transition a waybill is created automatically; a Speedy
+    failure surfaces as 502 (the order stays `confirmed`, never shipped without a
+    waybill — speedy-integration Decision 3).
+    """
     with get_db() as conn:
-        order_data = update_status(
-            conn=conn,
-            order_id=order_id,
-            new_status=body.status,
-            tracking_number=body.tracking_number,
-            tracking_carrier=body.tracking_carrier,
-            tracking_url=body.tracking_url,
-        )
+        try:
+            order_data = update_status(
+                conn=conn,
+                order_id=order_id,
+                new_status=body.status,
+                tracking_number=body.tracking_number,
+                tracking_carrier=body.tracking_carrier,
+                tracking_url=body.tracking_url,
+            )
+        except SpeedyError as exc:
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "error": {
+                        "code": "SHIPMENT_CREATION_FAILED",
+                        "message": str(exc),
+                        "details": {"context": exc.context},
+                    }
+                },
+            )
         # Durable outbox: queue the customer email for this transition in the
         # SAME connection/commit as the status UPDATE (email-notifications 8.3).
         # The map returns None for 'confirmed' (internal step — no email).
@@ -790,6 +813,109 @@ def admin_update_order_status(
             queue_order_email(conn, order_id, event, order_data["customer_email"])
 
     return OrderResponse.model_validate(order_data)
+
+
+@router.get(
+    "/orders/{order_id}/label",
+    summary="Print Speedy shipment label (admin)",
+    description="Streams the Speedy PDF label for an order's waybill.",
+    responses={
+        404: {"description": "Order or tracking number not found"},
+        502: {"description": "Speedy label print failed"},
+    },
+)
+async def admin_print_order_label(order_id: str) -> Response:
+    """Fetch and stream the Speedy PDF label for an order (admin-only)."""
+    with get_db() as conn:
+        order = get_order_admin(conn, order_id)
+    tracking_number = order["tracking_number"]
+    if not tracking_number or order["tracking_carrier"] != "speedy":
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": {
+                    "code": "NO_SPEEDY_WAYBILL",
+                    "message": "Order has no Speedy tracking number",
+                }
+            },
+        )
+    settings = get_settings()
+    try:
+        pdf = await print_label(
+            tracking_number=tracking_number,
+            username=settings.speedy_api_username,
+            password=settings.speedy_api_password.get_secret_value(),
+        )
+    except LabelPrintError as exc:
+        return JSONResponse(
+            status_code=502,
+            content={
+                "error": {
+                    "code": "LABEL_PRINT_FAILED",
+                    "message": str(exc),
+                    "details": {"context": exc.context},
+                }
+            },
+        )
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="label-{tracking_number}.pdf"'},
+    )
+
+
+@router.post(
+    "/orders/{order_id}/track",
+    response_model=OrderResponse,
+    summary="Refresh Speedy courier status (admin)",
+    description="Polls Speedy /track and stores the normalized courier_status. "
+    "Read-only: never changes the order's own status (speedy-integration Decision 4).",
+    responses={
+        404: {"description": "Order or tracking number not found"},
+        502: {"description": "Speedy track failed"},
+    },
+)
+async def admin_track_order(order_id: str) -> OrderResponse | JSONResponse:
+    """Refresh the order's courier_status from Speedy (admin-only, display-only)."""
+    with get_db() as conn:
+        order = get_order_admin(conn, order_id)
+    tracking_number = order["tracking_number"]
+    if not tracking_number or order["tracking_carrier"] != "speedy":
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": {
+                    "code": "NO_SPEEDY_WAYBILL",
+                    "message": "Order has no Speedy tracking number",
+                }
+            },
+        )
+    settings = get_settings()
+    try:
+        courier_status = await track_shipment(
+            tracking_number=tracking_number,
+            username=settings.speedy_api_username,
+            password=settings.speedy_api_password.get_secret_value(),
+        )
+    except SpeedyError as exc:
+        return JSONResponse(
+            status_code=502,
+            content={
+                "error": {
+                    "code": "TRACK_FAILED",
+                    "message": str(exc),
+                    "details": {"context": exc.context},
+                }
+            },
+        )
+    # Persist the display status ONLY — the order's own status is untouched.
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE orders SET courier_status = ? WHERE id = ?",
+            (courier_status, order_id),
+        )
+        order = get_order_admin(conn, order_id)
+    return OrderResponse.model_validate(order)
 
 
 @router.get(

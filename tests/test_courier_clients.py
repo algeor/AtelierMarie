@@ -17,10 +17,12 @@ from app.services import econt_client, speedy_client
 
 
 class _FakeResponse:
-    def __init__(self, status_code: int, payload: dict):
+    def __init__(self, status_code: int, payload: dict, *, content=b"", headers=None):
         self.status_code = status_code
         self._payload = payload
         self.text = ""
+        self.content = content
+        self.headers = headers or {}
 
     def json(self) -> dict:
         return self._payload
@@ -414,3 +416,284 @@ class TestEcontClient:
         )
         assert quote.is_fallback is True
         assert quote.price_source == "flat"
+
+
+# ===========================================================================
+# Speedy shipment / track / print (Sections 3-6)
+#
+# These are real operations, NOT the best-effort pricing path: on failure they
+# raise a typed SpeedyError with the Speedy error `context`/`message` mapped in,
+# never a silent fallback (design Decision 6).
+# ===========================================================================
+
+
+class _FakeSyncClient:
+    """Sync counterpart of _FakeAsyncClient for create_shipment_sync."""
+
+    def __init__(self, *, response=None, raises=None, captured=None):
+        self._response = response
+        self._raises = raises
+        self._captured = captured
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def post(self, *args, **kwargs):
+        if self._captured is not None and "json" in kwargs:
+            self._captured.append(kwargs["json"])
+        if self._raises is not None:
+            raise self._raises
+        return self._response
+
+
+def _patch_httpx_sync(monkeypatch, *, response=None, raises=None, captured=None):
+    def _factory(*args, **kwargs):
+        return _FakeSyncClient(response=response, raises=raises, captured=captured)
+
+    monkeypatch.setattr(httpx, "Client", _factory)
+
+
+class TestSpeedyShipmentPayloadContract:
+    """Assert the assembled /shipment payload carries the REAL recipient."""
+
+    def test_office_mode_real_recipient_and_numeric_ids(self):
+        payload = speedy_client.build_shipment_payload(
+            client_id="12345678901234",
+            recipient_name="Иван Петров",
+            recipient_phone="0888123456",
+            weight_grams=500,
+            username="u",
+            password="p",
+            order_ref="order-1",
+            recipient_office_id="42",
+        )
+        assert payload["sender"]["clientId"] == 12345678901234
+        assert payload["recipient"]["clientName"] == "Иван Петров"
+        assert payload["recipient"]["phone1"] == {"number": "0888123456"}
+        assert payload["recipient"]["pickupOfficeId"] == 42
+        assert payload["ref1"] == "order-1"
+        # No COD → sender pays the courier service, no cod block.
+        assert payload["payment"]["courierServicePayer"] == "SENDER"
+        assert "cod" not in payload["service"]["additionalServices"]
+
+    def test_door_mode_builds_address_and_cod(self):
+        payload = speedy_client.build_shipment_payload(
+            client_id="12345678901234",
+            recipient_name="Иван Петров",
+            recipient_phone="0888123456",
+            weight_grams=500,
+            username="u",
+            password="p",
+            order_ref="order-2",
+            recipient_city="София",
+            recipient_postcode="1000",
+            recipient_street="Витоша",
+            recipient_building="5",
+            cod_amount_cents=2599,
+        )
+        addr = payload["recipient"]["address"]
+        assert addr == {
+            "siteName": "София",
+            "postCode": "1000",
+            "streetName": "Витоша",
+            "streetNo": "5",
+        }
+        # COD → recipient pays, amount in BGN (cents / 100).
+        assert payload["payment"]["courierServicePayer"] == "RECIPIENT"
+        assert payload["service"]["additionalServices"]["cod"]["amount"] == 25.99
+
+
+class TestSpeedyCreateShipment:
+    @pytest.mark.asyncio
+    async def test_happy_path_returns_shipment_id(self, monkeypatch):
+        _patch_httpx(
+            monkeypatch,
+            response=_FakeResponse(200, {"id": 63689182611, "parcels": [{"id": 1}]}),
+        )
+        tracking = await speedy_client.create_shipment(
+            client_id="12345678901234",
+            recipient_name="Иван",
+            recipient_phone="0888123456",
+            weight_grams=500,
+            username="u",
+            password="p",
+            order_ref="order-1",
+            recipient_office_id="42",
+        )
+        assert tracking == "63689182611"
+
+    @pytest.mark.asyncio
+    async def test_http_error_maps_speedy_context(self, monkeypatch):
+        _patch_httpx(
+            monkeypatch,
+            response=_FakeResponse(
+                400, {"error": {"context": "recipient.phone", "message": "phone required"}}
+            ),
+        )
+        with pytest.raises(speedy_client.ShipmentCreationError) as exc:
+            await speedy_client.create_shipment(
+                client_id="12345678901234",
+                recipient_name="Иван",
+                recipient_phone="",
+                weight_grams=500,
+                username="u",
+                password="p",
+                order_ref="order-1",
+                recipient_office_id="42",
+            )
+        assert exc.value.context == "recipient.phone"
+        assert "phone required" in str(exc.value)
+
+    @pytest.mark.asyncio
+    async def test_transport_error_raises_typed(self, monkeypatch):
+        _patch_httpx(monkeypatch, raises=httpx.ConnectError("no route"))
+        with pytest.raises(speedy_client.ShipmentCreationError):
+            await speedy_client.create_shipment(
+                client_id="12345678901234",
+                recipient_name="Иван",
+                recipient_phone="0888",
+                weight_grams=500,
+                username="u",
+                password="p",
+                order_ref="order-1",
+                recipient_office_id="42",
+            )
+
+    @pytest.mark.asyncio
+    async def test_missing_id_raises(self, monkeypatch):
+        _patch_httpx(monkeypatch, response=_FakeResponse(200, {"parcels": []}))
+        with pytest.raises(speedy_client.ShipmentCreationError):
+            await speedy_client.create_shipment(
+                client_id="12345678901234",
+                recipient_name="Иван",
+                recipient_phone="0888",
+                weight_grams=500,
+                username="u",
+                password="p",
+                order_ref="order-1",
+                recipient_office_id="42",
+            )
+
+    def test_sync_happy_path_returns_id(self, monkeypatch):
+        _patch_httpx_sync(monkeypatch, response=_FakeResponse(200, {"id": 999}))
+        tracking = speedy_client.create_shipment_sync(
+            client_id="12345678901234",
+            recipient_name="Иван",
+            recipient_phone="0888",
+            weight_grams=500,
+            username="u",
+            password="p",
+            order_ref="order-1",
+            recipient_office_id="42",
+        )
+        assert tracking == "999"
+
+    def test_sync_error_maps_typed(self, monkeypatch):
+        _patch_httpx_sync(
+            monkeypatch,
+            response=_FakeResponse(400, {"error": {"message": "bad office"}}),
+        )
+        with pytest.raises(speedy_client.ShipmentCreationError):
+            speedy_client.create_shipment_sync(
+                client_id="12345678901234",
+                recipient_name="Иван",
+                recipient_phone="0888",
+                weight_grams=500,
+                username="u",
+                password="p",
+                order_ref="order-1",
+                recipient_office_id="42",
+            )
+
+
+class TestSpeedyTrack:
+    @pytest.mark.parametrize(
+        "description,expected",
+        [
+            ("Пратката е доставена", "delivered"),
+            ("Delivered to recipient", "delivered"),
+            ("Товар за разнос", "out_for_delivery"),
+            ("Пратката е върната", "returned"),
+            ("Delivery unsuccessful", "failed"),
+            ("Приета в сортиращ център", "in_transit"),
+            (None, "in_transit"),
+        ],
+    )
+    def test_normalize_status(self, description, expected):
+        assert speedy_client.normalize_track_status(description) == expected
+
+    @pytest.mark.asyncio
+    async def test_happy_path_maps_last_operation(self, monkeypatch):
+        _patch_httpx(
+            monkeypatch,
+            response=_FakeResponse(
+                200,
+                {"parcels": [{"operations": [{"description": "Пратката е доставена"}]}]},
+            ),
+        )
+        status = await speedy_client.track_shipment(
+            tracking_number="123", username="u", password="p"
+        )
+        assert status == "delivered"
+
+    @pytest.mark.asyncio
+    async def test_no_operations_is_in_transit(self, monkeypatch):
+        _patch_httpx(monkeypatch, response=_FakeResponse(200, {"parcels": [{"operations": []}]}))
+        status = await speedy_client.track_shipment(
+            tracking_number="123", username="u", password="p"
+        )
+        assert status == "in_transit"
+
+    @pytest.mark.asyncio
+    async def test_http_error_raises_tracking_error(self, monkeypatch):
+        _patch_httpx(
+            monkeypatch,
+            response=_FakeResponse(404, {"error": {"message": "unknown parcel"}}),
+        )
+        with pytest.raises(speedy_client.TrackingError):
+            await speedy_client.track_shipment(tracking_number="x", username="u", password="p")
+
+    @pytest.mark.asyncio
+    async def test_transport_error_raises_tracking_error(self, monkeypatch):
+        _patch_httpx(monkeypatch, raises=httpx.TimeoutException("t"))
+        with pytest.raises(speedy_client.TrackingError):
+            await speedy_client.track_shipment(tracking_number="x", username="u", password="p")
+
+
+class TestSpeedyPrintLabel:
+    @pytest.mark.asyncio
+    async def test_happy_path_returns_pdf_bytes(self, monkeypatch):
+        _patch_httpx(
+            monkeypatch,
+            response=_FakeResponse(
+                200, {}, content=b"%PDF-1.4 ...", headers={"content-type": "application/pdf"}
+            ),
+        )
+        pdf = await speedy_client.print_label(tracking_number="123", username="u", password="p")
+        assert pdf.startswith(b"%PDF")
+
+    @pytest.mark.asyncio
+    async def test_non_pdf_body_raises(self, monkeypatch):
+        # A JSON error body with a 200 must not be handed back as a "PDF".
+        _patch_httpx(
+            monkeypatch,
+            response=_FakeResponse(
+                200,
+                {"error": {"message": "no label"}},
+                headers={"content-type": "application/json"},
+            ),
+        )
+        with pytest.raises(speedy_client.LabelPrintError):
+            await speedy_client.print_label(tracking_number="123", username="u", password="p")
+
+    @pytest.mark.asyncio
+    async def test_http_error_raises_label_error(self, monkeypatch):
+        _patch_httpx(
+            monkeypatch,
+            response=_FakeResponse(400, {"error": {"message": "bad size"}}),
+        )
+        with pytest.raises(speedy_client.LabelPrintError):
+            await speedy_client.print_label(tracking_number="123", username="u", password="p")

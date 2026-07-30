@@ -16,6 +16,39 @@ vi.mock("@/i18n/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 
+vi.mock("@/lib/api", () => ({
+  getAdminTaxonomy: vi.fn((kind: string) => {
+    const terms = {
+      "product-types": [
+        {
+          slug: "candles",
+          name_en: "Candles",
+          name_bg: null,
+          sort_order: 0,
+          is_active: true,
+          product_count: 1,
+          created_at: "2024-06-01T10:00:00Z",
+          updated_at: "2024-06-01T10:00:00Z",
+        },
+      ],
+      categories: [
+        {
+          slug: "floral",
+          name_en: "Floral",
+          name_bg: null,
+          sort_order: 0,
+          is_active: true,
+          product_count: 1,
+          created_at: "2024-06-01T10:00:00Z",
+          updated_at: "2024-06-01T10:00:00Z",
+        },
+      ],
+      labels: [],
+    } as const;
+    return Promise.resolve(terms[kind as keyof typeof terms] ?? []);
+  }),
+}));
+
 const product: AdminProductResponse = {
   id: "lavender-dreams-300ml",
   name_en: "Lavender Dreams",
@@ -31,6 +64,8 @@ const product: AdminProductResponse = {
   effective_price_cents: 3200,
   discount_active: false,
   category: "Floral",
+  product_type: "candles",
+  labels: [],
   images: [],
   primary_image_url: null,
   primary_thumbnail_url: null,

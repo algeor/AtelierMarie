@@ -21,27 +21,27 @@
 - [x] Verify office-mode quote returns live price (no more 400 / €5 fallback). → OFFICE 3.56 EUR live, DOOR 5.94 EUR live (verified 2026-07-31).
 
 ## 3. Shipment creation (waybill)
-- [ ] `create_shipment(...)` → `POST {base}/shipment`, real recipient from order snapshot.
-- [ ] Wire into `update_status(order, "shipped")` (confirmed→shipped), NOT confirm: call only when courier is Speedy AND no tracking number supplied; use returned id as tracking_number. Extends the existing shipped-path + `TrackingRequiredError` guard.
-- [ ] Idempotent: existing `if not tracking_number` guard skips the courier call when a number already exists (re-ship never creates a 2nd waybill).
-- [ ] Failure raises `ShipmentCreationError` before the `UPDATE orders` — order stays `confirmed`, never `shipped` without a waybill; manual tracking-entry fallback preserved.
-- [ ] Persist `courier` (+ optional label id/url) on order; add DB column(s) if missing (`tracking_*` already exist).
+- [x] `create_shipment(...)` → `POST {base}/shipment`, real recipient from order snapshot.
+- [x] Wire into `update_status(order, "shipped")` (confirmed→shipped), NOT confirm: call only when courier is Speedy AND no tracking number supplied; use returned id as tracking_number. Extends the existing shipped-path + `TrackingRequiredError` guard.
+- [x] Idempotent: existing `if not tracking_number` guard skips the courier call when a number already exists (re-ship never creates a 2nd waybill).
+- [x] Failure raises `ShipmentCreationError` before the `UPDATE orders` — order stays `confirmed`, never `shipped` without a waybill; manual tracking-entry fallback preserved.
+- [x] Persist `courier` (+ optional label id/url) on order; add DB column(s) if missing (`tracking_*` already exist).
 
 ## 4. Tracking
-- [ ] `track_shipment(tracking_number)` → `POST {base}/track`; normalize Speedy code → our `courier_status` display enum (`in_transit`/`out_for_delivery`/`delivered`/`returned`/`failed`).
-- [ ] Read-only/display-only: MUST NOT call `update_status` — the state machine stays admin-driven (delivery = human confirm through the guarded transition).
-- [ ] Surface `courier_status` on order detail (admin + customer).
+- [x] `track_shipment(tracking_number)` → `POST {base}/track`; normalize Speedy code → our `courier_status` display enum (`in_transit`/`out_for_delivery`/`delivered`/`returned`/`failed`).
+- [x] Read-only/display-only: MUST NOT call `update_status` — the state machine stays admin-driven (delivery = human confirm through the guarded transition).
+- [x] Surface `courier_status` on order detail (admin + customer).
 
 ## 5. Label printing
-- [ ] `print_label(tracking_number)` → `POST {base}/print` (PDF bytes).
-- [ ] Admin-only route streams the PDF.
+- [x] `print_label(tracking_number)` → `POST {base}/print` (PDF bytes).
+- [x] Admin-only route streams the PDF.
 
 ## 6. Error handling
-- [ ] Map documented Speedy error codes (errorsExplanation) to typed exceptions for shipment/track/print.
-- [ ] Keep pricing fallback behavior unchanged; log truncated Speedy error body everywhere.
+- [x] Map documented Speedy error codes (errorsExplanation) to typed exceptions for shipment/track/print.
+- [x] Keep pricing fallback behavior unchanged; log truncated Speedy error body everywhere.
 
 ## 7. Tests + verification
 - [x] Payload-contract test: assert assembled Speedy calculate payload has numeric `sender.clientId` (+ numeric `pickupOfficeId` in office mode) — independent of the mocked HTTP response, so a bad payload can't stay green.
-- [ ] Unit tests: shipment/track/print happy path + error mapping (mock httpx).
+- [x] Unit tests: shipment/track/print happy path + error mapping (mock httpx).
 - [ ] Live verification (section "Verification plan" in design.md) against demo account.
-- [ ] Full backend suite + ruff green; frontend order-detail tracking render test.
+- [x] Full backend suite + ruff green; frontend order-detail tracking render test.

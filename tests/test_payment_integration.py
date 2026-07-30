@@ -314,10 +314,12 @@ def stripe_app(tmp_path):
 
     get_settings.cache_clear()
     import os
+
     os.environ["STRIPE_WEBHOOK_SECRET"] = "whsec_test"
     os.environ["DATABASE_PATH"] = db_path
 
     from app.main import create_app
+
     app = create_app()
     yield app
 
@@ -330,6 +332,7 @@ class TestStripeWebhookRoute:
     @pytest.mark.anyio
     async def test_invalid_signature_returns_400(self, stripe_app):
         from httpx import ASGITransport, AsyncClient
+
         async with AsyncClient(
             transport=ASGITransport(app=stripe_app), base_url="http://test"
         ) as client:
@@ -346,9 +349,13 @@ class TestStripeWebhookRoute:
         import sys
         import types
 
-        body = json.dumps({
-            "id": "evt_unknown", "type": "some.unknown.event", "data": {"object": {}},
-        }).encode()
+        body = json.dumps(
+            {
+                "id": "evt_unknown",
+                "type": "some.unknown.event",
+                "data": {"object": {}},
+            }
+        ).encode()
 
         mock_event = MagicMock()
         mock_event.id = "evt_unknown"
@@ -362,6 +369,7 @@ class TestStripeWebhookRoute:
 
         with patch.dict(sys.modules, {"stripe": fake_stripe}):
             from httpx import ASGITransport, AsyncClient
+
             async with AsyncClient(
                 transport=ASGITransport(app=stripe_app), base_url="http://test"
             ) as client:
@@ -381,6 +389,7 @@ class TestStripeWebhookRoute:
 class TestAutoCancel:
     def _run(self, conn):
         from app.main import _cancel_abandoned_card_orders
+
         with patch("app.main.get_db") as m:
             m.return_value.__enter__ = lambda s: conn
             m.return_value.__exit__ = MagicMock(return_value=False)
@@ -391,8 +400,13 @@ class TestAutoCancel:
         sid = uuid.uuid4().hex
         _add_cart(conn, sid, pid, qty=2)
         order = checkout(
-            conn, session_id=sid, customer_email="x@x.com", customer_name=None,
-            delivery=delivery, notes=None, payment_method="card",
+            conn,
+            session_id=sid,
+            customer_email="x@x.com",
+            customer_name=None,
+            delivery=delivery,
+            notes=None,
+            payment_method="card",
         )
         stock_after_order = conn.execute(
             "SELECT stock FROM products WHERE id = ?", (pid,)
@@ -403,9 +417,10 @@ class TestAutoCancel:
         self._run(conn)
         updated = get_order(conn, order["id"])
         assert updated["status"] == "cancelled"
-        assert conn.execute(
-            "SELECT stock FROM products WHERE id = ?", (pid,)
-        ).fetchone()[0] == stock_after_order + 2
+        assert (
+            conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0]
+            == stock_after_order + 2
+        )
 
     def test_does_not_cancel_cod_orders(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="cod")

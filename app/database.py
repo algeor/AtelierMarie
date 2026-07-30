@@ -218,6 +218,12 @@ CREATE TABLE IF NOT EXISTS orders (
     tracking_number  TEXT,
     tracking_carrier TEXT,
     tracking_url     TEXT,
+    -- Courier transit status (Speedy /track normalized; display-only, does NOT
+    -- drive the order state machine — speedy-integration Decision 4). NULL until
+    -- a track poll runs.
+    courier_status   TEXT,
+    -- Printable-label URL/id when a waybill was created via the courier API.
+    label_url        TEXT,
     -- Customer locale snapshotted at checkout (email language is a fact of the
     -- order, not a session lookup — see email-notifications design Decision 8).
     locale      TEXT NOT NULL DEFAULT 'en',
@@ -773,6 +779,11 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
             conn, "orders", order_columns, "tracking_carrier", "tracking_carrier TEXT"
         )
         _add_column_if_missing(conn, "orders", order_columns, "tracking_url", "tracking_url TEXT")
+        # Courier transit status + label url (speedy-integration).
+        _add_column_if_missing(
+            conn, "orders", order_columns, "courier_status", "courier_status TEXT"
+        )
+        _add_column_if_missing(conn, "orders", order_columns, "label_url", "label_url TEXT")
         _add_column_if_missing(
             conn, "orders", order_columns, "locale", "locale TEXT NOT NULL DEFAULT 'en'"
         )

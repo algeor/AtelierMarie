@@ -30,9 +30,11 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
@@ -114,6 +116,49 @@ def _fetch_speedy() -> dict:
     return _post_json(SPEEDY_URL, payload)
 
 
+def _extract_city_en_candidate(name_en: str) -> str:
+    """Pull the English city name out of an office's `nameEn`.
+
+    Speedy names its offices `"<CITY> - <BRANCH>"` in English (e.g.
+    "SOFIA - SOMAT", "PLOVDIV - WAREHOUSE SOUTH"), or just `"<CITY>"` for a
+    town's sole office. The city is the leading segment before the first
+    hyphen/comma/paren. Returns an upper-cased, whitespace-collapsed token
+    (canonicalized later by majority vote in `_build_speedy_city_en_map`), or
+    "" when `name_en` is absent.
+    """
+    if not name_en:
+        return ""
+    normalized = name_en.replace("–", "-").replace("—", "-")
+    # Leading segment before the first branch delimiter (hyphen/comma/paren).
+    head = re.split(r"[-,(]", normalized, maxsplit=1)[0]
+    return " ".join(head.split()).strip().upper()
+
+
+def _build_speedy_city_en_map(offices: list[dict]) -> dict[str, str]:
+    """Map each Bulgarian `siteName` → its canonical English city name.
+
+    Speedy's feed carries no English *city* field (only English office `nameEn`),
+    so the English city is derived from `nameEn`. Per Bulgarian city we take the
+    MOST COMMON extracted candidate: the bare city name dominates because it is
+    the shared prefix of every office there, so majority vote discards one-off
+    locker suffixes ("(LOCKER)"), typos ("PLODVIV"), and branch noise. Values
+    are Title-cased ("Sofia", "Stara Zagora") to match the conventional English
+    exonyms Speedy itself uses.
+    """
+    candidates_by_city: dict[str, Counter[str]] = {}
+    for o in offices:
+        site_name = (o.get("address") or {}).get("siteName")
+        candidate = _extract_city_en_candidate(o.get("nameEn") or "")
+        if not site_name or not candidate:
+            continue
+        candidates_by_city.setdefault(site_name, Counter())[candidate] += 1
+
+    return {
+        city: " ".join(word.capitalize() for word in counter.most_common(1)[0][0].split())
+        for city, counter in candidates_by_city.items()
+    }
+
+
 def _normalize_speedy(raw: dict) -> list[dict]:
     """Speedy office payload → unified 6-field schema with bilingual extras.
 
@@ -125,11 +170,16 @@ def _normalize_speedy(raw: dict) -> list[dict]:
 
     The city lives in the nested `address.siteName`; `type` is the string
     "OFFICE" or "APS" (automated parcel station / locker). Speedy's feed has no
-    English city or English working-hours field, so `city_en`/`working_hours_en`
-    fall back to the Bulgarian value at read time (delivery_service._resolve_locale).
+    English *city* field, so `city_en` is derived from the English office name
+    via majority vote (see `_build_speedy_city_en_map`); this powers cross-language
+    /offices and /cities search. English working-hours has no source, so
+    `working_hours_en` stays null and falls back to Bulgarian at read time
+    (delivery_service._resolve_locale).
     """
+    offices = raw.get("offices", [])
+    city_en_map = _build_speedy_city_en_map(offices)
     out: list[dict] = []
-    for o in raw.get("offices", []):
+    for o in offices:
         office_id = o.get("id")
         address = o.get("address") or {}
         city = address.get("siteName")
@@ -148,7 +198,7 @@ def _normalize_speedy(raw: dict) -> list[dict]:
                 "name_en": o.get("nameEn"),
                 "type": office_type,
                 "city": city,
-                "city_en": None,
+                "city_en": city_en_map.get(city),
                 "address": address.get("localAddressString")
                 or address.get("fullAddressString", ""),
                 "working_hours": working_hours,

@@ -262,9 +262,7 @@ class TestEcontCityTranslation:
         assert seen["recipient_city"] == "София"
 
     @pytest.mark.asyncio
-    async def test_door_mode_city_translated_without_mutating_shared_address(
-        self, monkeypatch
-    ):
+    async def test_door_mode_city_translated_without_mutating_shared_address(self, monkeypatch):
         """Door address city is translated for Econt but Speedy sees it unchanged."""
         from app.models.shipping import ShippingAddress
 

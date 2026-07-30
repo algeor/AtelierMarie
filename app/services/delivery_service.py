@@ -85,6 +85,12 @@ _places_by_courier: dict[Courier, list[dict]] = {}
 # from the same office data the /offices and /cities endpoints already expose.
 _city_bg_by_courier: dict[Courier, dict[str, str]] = {}
 
+# Cross-courier Bulgarian city spelling -> English display/alias. Speedy's live
+# office feed does not include English city names, but the frontend/API contract
+# still supports Latin city lookup (e.g. "Sofia"). Seed this from courier data
+# that does have translations, then use it as an in-memory fallback.
+_city_en_by_bg: dict[str, str] = {}
+
 
 def _load_courier_data(courier: Courier, path: Path) -> list[dict]:
     """Load one courier's JSON file. Missing file → empty list + warning."""
@@ -132,9 +138,24 @@ def _add_city_bg_entries(
         if not name_bg:
             continue
         mapping[name_bg.casefold()] = name_bg
-        name_en = r.get(en_key)
+        name_en = r.get(en_key) or _city_en_by_bg.get(name_bg.casefold())
         if name_en:
             mapping[name_en.casefold()] = name_bg
+
+
+def _add_city_en_entries(records: list[dict], *, bg_key: str, en_key: str) -> None:
+    """Seed fallback English city aliases from records that carry translations."""
+    for r in records:
+        name_bg = r.get(bg_key)
+        name_en = r.get(en_key)
+        if name_bg and name_en:
+            _city_en_by_bg.setdefault(name_bg.casefold(), name_en)
+
+
+def _city_en(raw: dict) -> str:
+    """Return English city display/alias, falling back to cross-courier data."""
+    city_bg = raw["city"]
+    return raw.get("city_en") or _city_en_by_bg.get(city_bg.casefold()) or city_bg
 
 
 def _load_all() -> None:
@@ -150,6 +171,12 @@ def _load_all() -> None:
 
     for courier, path in CITIES_FILES.items():
         _places_by_courier[courier] = _load_courier_data(courier, path)
+
+    _city_en_by_bg.clear()
+    for records in _offices_by_courier.values():
+        _add_city_en_entries(records, bg_key="city", en_key="city_en")
+    for records in _places_by_courier.values():
+        _add_city_en_entries(records, bg_key="name", en_key="name_en")
 
     for courier in COURIER_FILES:
         mapping: dict[str, str] = {}
@@ -174,7 +201,7 @@ def _resolve_locale(raw: dict, locale: Locale) -> Office:
             id=raw["id"],
             name=raw.get("name_en") or raw["name"],
             type=raw["type"],
-            city=raw.get("city_en") or raw["city"],
+            city=_city_en(raw),
             address=raw["address"],
             working_hours=raw.get("working_hours_en") or raw["working_hours"],
         )
@@ -209,7 +236,7 @@ def get_offices(
     matched = [
         o
         for o in offices
-        if o["city"].casefold() == city_folded or (o.get("city_en") or "").casefold() == city_folded
+        if o["city"].casefold() == city_folded or _city_en(o).casefold() == city_folded
     ]
 
     if office_type is not None:
@@ -240,7 +267,7 @@ def get_cities(
 
     for o in offices:
         city_bg = o["city"]
-        city_en = o.get("city_en") or city_bg
+        city_en = _city_en(o)
         display = city_en if locale == "en" else city_bg
         if display in seen:
             continue
@@ -316,6 +343,7 @@ def reload_data() -> None:
     _offices_by_courier.clear()
     _places_by_courier.clear()
     _city_bg_by_courier.clear()
+    _city_en_by_bg.clear()
     _load_all()
 
 

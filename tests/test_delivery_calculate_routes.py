@@ -31,12 +31,14 @@ def cart_with_weight(db, session_id):
 @pytest.fixture()
 def patch_couriers(monkeypatch):
     async def _speedy(**kwargs):
-        return ShippingQuote(courier="speedy", cents=650, price_source="live",
-                             estimated_delivery_days=2)
+        return ShippingQuote(
+            courier="speedy", cents=650, price_source="live", estimated_delivery_days=2
+        )
 
     async def _econt(**kwargs):
-        return ShippingQuote(courier="econt", cents=590, price_source="live",
-                            estimated_delivery_days=1)
+        return ShippingQuote(
+            courier="econt", cents=590, price_source="live", estimated_delivery_days=1
+        )
 
     monkeypatch.setattr(shipping_service.speedy_client, "calculate", _speedy)
     monkeypatch.setattr(shipping_service.econt_client, "calculate", _econt)
