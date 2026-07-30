@@ -38,6 +38,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 from scripts.normalize_econt_office_data import normalize_econt
@@ -55,12 +56,17 @@ _HTTP_TIMEOUT_S = 30
 
 
 class CourierFetchSettings(BaseSettings):
-    """Credentials for one-off courier office fetches."""
+    """Credentials for one-off courier office fetches.
 
-    speedy_username: str = ""
-    speedy_password: str = ""
-    econt_username: str = ""
-    econt_password: str = ""
+    Reads the same `SPEEDY_API_*` / `ECONT_API_*` names the app config uses
+    (via validation aliases) so a single `.env` drives both. The bare
+    `SPEEDY_USERNAME` / `ECONT_USERNAME` names still work for older setups.
+    """
+
+    speedy_username: str = Field(default="", validation_alias="SPEEDY_API_USERNAME")
+    speedy_password: str = Field(default="", validation_alias="SPEEDY_API_PASSWORD")
+    econt_username: str = Field(default="", validation_alias="ECONT_API_USERNAME")
+    econt_password: str = Field(default="", validation_alias="ECONT_API_PASSWORD")
 
     model_config = {
         "env_file": ".env",
@@ -111,31 +117,42 @@ def _fetch_speedy() -> dict:
 def _normalize_speedy(raw: dict) -> list[dict]:
     """Speedy office payload → unified 6-field schema with bilingual extras.
 
-    NOTE: This is a scaffold. Speedy's exact response schema needs verification
-    once credentials are available (see design.md Open Questions). Fields below
-    are the documented shape from their public docs; adjust when real data arrives.
+    Verified against the live `POST /v1/location/office` feed (2026-07-31, 1284
+    records). Each record carries a numeric `id` — which is what Speedy's
+    `calculate.pickupOfficeId` expects — so we store it AS the `id` (stringified)
+    rather than the synthetic `speedy-*` slugs the old scaffold used. The Phase A
+    office-mode 400 was caused by those slugs; a numeric id fixes it at the source.
+
+    The city lives in the nested `address.siteName`; `type` is the string
+    "OFFICE" or "APS" (automated parcel station / locker). Speedy's feed has no
+    English city or English working-hours field, so `city_en`/`working_hours_en`
+    fall back to the Bulgarian value at read time (delivery_service._resolve_locale).
     """
     out: list[dict] = []
     for o in raw.get("offices", []):
-        site = o.get("site") or {}
-        city = site.get("name") or site.get("nameBg")
-        name = o.get("name") or o.get("nameBg")
-        if not city or not name:
+        office_id = o.get("id")
+        address = o.get("address") or {}
+        city = address.get("siteName")
+        name = o.get("name")
+        if office_id is None or not city or not name:
             continue
-        # Speedy exposes `type`: 1 = office, 2 = APS (locker). Fall back to office.
-        office_type = "apt" if o.get("type") == 2 else "office"
+        # `type`: "APS" = automated parcel locker; anything else is a staffed office.
+        office_type = "apt" if o.get("type") == "APS" else "office"
+        working_from = o.get("workingTimeFrom")
+        working_to = o.get("workingTimeTo")
+        working_hours = f"{working_from}-{working_to}" if working_from and working_to else "N/A"
         out.append(
             {
-                "id": f"speedy-{o.get('id')}",
+                "id": str(office_id),
                 "name": name,
                 "name_en": o.get("nameEn"),
                 "type": office_type,
                 "city": city,
-                "city_en": site.get("nameEn"),
-                "address": (o.get("address") or {}).get("localAddressString")
-                or o.get("addressString", ""),
-                "working_hours": o.get("workingTime", "N/A"),
-                "working_hours_en": o.get("workingTimeEn"),
+                "city_en": None,
+                "address": address.get("localAddressString")
+                or address.get("fullAddressString", ""),
+                "working_hours": working_hours,
+                "working_hours_en": None,
             }
         )
     return out

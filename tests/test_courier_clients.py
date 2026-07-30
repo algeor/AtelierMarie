@@ -82,7 +82,7 @@ class TestSpeedyClient:
             ),
         )
         quote = await speedy_client.calculate(
-            sender_office_id="sofia-1",
+            client_id="12345678901234",
             recipient_city="Пловдив",
             recipient_office_id="speedy-pdv-01",
             weight_grams=1400,
@@ -101,7 +101,7 @@ class TestSpeedyClient:
     async def test_timeout_returns_flat_fallback(self, monkeypatch):
         _patch_httpx(monkeypatch, raises=httpx.TimeoutException("timed out"))
         quote = await speedy_client.calculate(
-            sender_office_id="sofia-1",
+            client_id="12345678901234",
             recipient_city="Пловдив",
             recipient_office_id=None,
             weight_grams=800,
@@ -119,7 +119,7 @@ class TestSpeedyClient:
     async def test_5xx_returns_flat_fallback(self, monkeypatch):
         _patch_httpx(monkeypatch, response=_FakeResponse(503, {}))
         quote = await speedy_client.calculate(
-            sender_office_id="sofia-1",
+            client_id="12345678901234",
             recipient_city="Пловдив",
             recipient_office_id=None,
             weight_grams=800,
@@ -134,7 +134,7 @@ class TestSpeedyClient:
         """A 401 (bad credentials) degrades to fallback, never raises."""
         _patch_httpx(monkeypatch, response=_FakeResponse(401, {"error": "unauthorized"}))
         quote = await speedy_client.calculate(
-            sender_office_id="sofia-1",
+            client_id="12345678901234",
             recipient_city="Пловдив",
             recipient_office_id=None,
             weight_grams=800,
@@ -148,7 +148,7 @@ class TestSpeedyClient:
     async def test_empty_calculations_returns_fallback(self, monkeypatch):
         _patch_httpx(monkeypatch, response=_FakeResponse(200, {"calculations": []}))
         quote = await speedy_client.calculate(
-            sender_office_id="sofia-1",
+            client_id="12345678901234",
             recipient_city="Пловдив",
             recipient_office_id=None,
             weight_grams=800,
@@ -164,7 +164,7 @@ class TestSpeedyClient:
             response=_FakeResponse(200, {"calculations": [{"price": {}}]}),
         )
         quote = await speedy_client.calculate(
-            sender_office_id="sofia-1",
+            client_id="12345678901234",
             recipient_city="Пловдив",
             recipient_office_id=None,
             weight_grams=800,
@@ -173,6 +173,62 @@ class TestSpeedyClient:
         )
         assert quote.is_fallback is True
         assert quote.price_source == "flat"
+
+
+# ===========================================================================
+# Speedy payload contract (transport-independent)
+# ===========================================================================
+
+
+class TestSpeedyPayloadContract:
+    """Assert the assembled calculate payload directly — no mocked HTTP.
+
+    A canned 200 response must not be able to hide a payload Speedy would
+    reject (spec: payload contract). These call `build_calculate_payload`.
+    """
+
+    def test_office_mode_sends_numeric_client_id_and_pickup_office_id(self):
+        from app.models.shipping import ShippingAddress  # noqa: F401 (import parity)
+
+        payload = speedy_client.build_calculate_payload(
+            client_id="12345678901234",
+            recipient_city="София",
+            recipient_office_id="42",
+            weight_grams=800,
+            username="u",
+            password="p",
+        )
+        assert payload["sender"]["clientId"] == 12345678901234
+        assert isinstance(payload["sender"]["clientId"], int)
+        assert payload["recipient"]["pickupOfficeId"] == 42
+        assert isinstance(payload["recipient"]["pickupOfficeId"], int)
+        # An empty serviceIds list 400s live (task 0) — a concrete service is named.
+        assert payload["service"]["serviceIds"] == [speedy_client._DEFAULT_SERVICE_ID]
+
+    def test_empty_client_id_yields_null_sender_client_id(self):
+        payload = speedy_client.build_calculate_payload(
+            client_id="",
+            recipient_city="София",
+            recipient_office_id=None,
+            weight_grams=800,
+            username="u",
+            password="p",
+        )
+        # Empty/non-numeric clientId must NOT reach Speedy as a slug — it is None
+        # (and _sender_client_id logs speedy_sender_client_id_invalid).
+        assert payload["sender"]["clientId"] is None
+
+    def test_slug_office_id_dropped_not_sent_as_string(self):
+        payload = speedy_client.build_calculate_payload(
+            client_id="12345678901234",
+            recipient_city="Пловдив",
+            recipient_office_id="speedy-pdv-01",  # slug, not numeric
+            weight_grams=800,
+            username="u",
+            password="p",
+        )
+        # A non-numeric office ref is dropped rather than sent as an invalid value.
+        assert "pickupOfficeId" not in payload["recipient"]
 
 
 # ===========================================================================

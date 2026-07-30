@@ -10,12 +10,30 @@ because a courier is down (design Decision 3).
 import httpx
 import structlog
 
+from app.config import get_settings
 from app.constants import COURIER_TIMEOUT_SECONDS, FALLBACK_SHIPPING_CENTS
 from app.models.shipping import ShippingAddress, ShippingQuote, parse_price_cents
 
 logger = structlog.get_logger(__name__)
 
-_CALCULATE_URL = "https://api.speedy.bg/v1/calculate"
+# Speedy's standard "24h to address/office" service. An empty `serviceIds` list
+# is rejected with a 400 (verified live, task 0) — a concrete service must be
+# named, so calculate always filters to this one.
+_DEFAULT_SERVICE_ID = 505
+
+
+def _sender_client_id(client_id: str) -> int | None:
+    """Return the numeric sender clientId, or None (with a distinct warning).
+
+    Speedy's `sender.clientId` is a numeric registered-client id. An empty or
+    non-numeric value is a misconfiguration, NOT a Speedy outage — it gets its
+    own `speedy_sender_client_id_invalid` warning so the two are distinguishable
+    in logs (design Decision 1 / spec: diagnosable sender).
+    """
+    if client_id and client_id.isdigit():
+        return int(client_id)
+    logger.warning("speedy_sender_client_id_invalid", client_id_present=bool(client_id))
+    return None
 
 
 def _fallback_quote(quoted_at: str | None = None) -> ShippingQuote:
@@ -30,24 +48,22 @@ def _fallback_quote(quoted_at: str | None = None) -> ShippingQuote:
     )
 
 
-async def calculate(
+def build_calculate_payload(
     *,
-    sender_office_id: str,
+    client_id: str,
     recipient_city: str,
     recipient_office_id: str | None,
     weight_grams: int,
     username: str,
     password: str,
     address: ShippingAddress | None = None,
-    quoted_at: str | None = None,
-) -> ShippingQuote:
-    """Return a live Speedy shipping quote, or a flat fallback on any failure.
+) -> dict:
+    """Assemble the Speedy `/calculate` request body.
 
-    Speedy's calculate API takes credentials in the JSON body (not headers).
-    Weight is sent in kilograms. In door mode (`address` set) the full street
-    address is sent so the quote reflects the real destination; otherwise the
-    city-level `addressLocation` is used. The per-request timeout is
-    COURIER_TIMEOUT_SECONDS; anything slower degrades to the flat fallback.
+    Split out from `calculate` so a unit test can assert the payload shape
+    (numeric `sender.clientId`, numeric `pickupOfficeId` in office mode)
+    independent of any mocked HTTP response — a canned price must not be able
+    to hide a payload Speedy would reject (spec: payload contract).
     """
     if address is not None:
         # postal_code/street/building are optional on a preview address; only
@@ -64,25 +80,69 @@ async def calculate(
             "addressLocation": address_location,
         }
     else:
-        recipient = {
-            "privatePerson": True,
-            "addressLocation": {"siteName": recipient_city},
-            "pickupOfficeId": recipient_office_id,
-        }
+        # Office mode: send ONLY `pickupOfficeId`, never alongside an
+        # `addressLocation`. Speedy rejects a recipient carrying both with
+        # `calculation.recipient.address.forbidden` ("населено място не се
+        # изисква ако е подаден офис до поискване" — verified live 2026-07-31),
+        # which silently degraded every office quote to the flat fallback.
+        # `pickupOfficeId` must be a numeric int (the Phase A 400 root cause);
+        # a non-numeric office ref is dropped and we fall back to a city address
+        # so Speedy still gets a resolvable recipient.
+        if recipient_office_id is not None and str(recipient_office_id).isdigit():
+            recipient = {
+                "privatePerson": True,
+                "pickupOfficeId": int(recipient_office_id),
+            }
+        else:
+            recipient = {
+                "privatePerson": True,
+                "addressLocation": {"siteName": recipient_city},
+            }
 
-    payload = {
+    return {
         "userName": username,
         "password": password,
-        "service": {"serviceIds": []},
-        "sender": {"clientId": sender_office_id},
+        "service": {"serviceIds": [_DEFAULT_SERVICE_ID]},
+        "sender": {"clientId": _sender_client_id(client_id)},
         "recipient": recipient,
         "content": {"parcelsCount": 1, "totalWeight": weight_grams / 1000.0},
         "payment": {"courierServicePayer": "RECIPIENT"},
     }
 
+
+async def calculate(
+    *,
+    client_id: str,
+    recipient_city: str,
+    recipient_office_id: str | None,
+    weight_grams: int,
+    username: str,
+    password: str,
+    address: ShippingAddress | None = None,
+    quoted_at: str | None = None,
+) -> ShippingQuote:
+    """Return a live Speedy shipping quote, or a flat fallback on any failure.
+
+    Speedy's calculate API takes credentials in the JSON body (not headers).
+    Weight is sent in kilograms. In door mode (`address` set) the full street
+    address is sent so the quote reflects the real destination; otherwise the
+    numeric `pickupOfficeId` is used. The per-request timeout is
+    COURIER_TIMEOUT_SECONDS; anything slower degrades to the flat fallback.
+    """
+    payload = build_calculate_payload(
+        client_id=client_id,
+        recipient_city=recipient_city,
+        recipient_office_id=recipient_office_id,
+        weight_grams=weight_grams,
+        username=username,
+        password=password,
+        address=address,
+    )
+    calculate_url = f"{get_settings().speedy_base_url}/calculate"
+
     try:
         async with httpx.AsyncClient(timeout=COURIER_TIMEOUT_SECONDS) as client:
-            response = await client.post(_CALCULATE_URL, json=payload)
+            response = await client.post(calculate_url, json=payload)
         if response.status_code >= 400:
             # Log Speedy's error body (truncated) so a 400 is diagnosable — the
             # status alone doesn't say WHY it was rejected (bad creds, payload

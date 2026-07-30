@@ -115,7 +115,7 @@ async def calculate_quotes(
     async def _quote_for(courier: Courier) -> ShippingQuote:
         if courier == "speedy":
             return await speedy_client.calculate(
-                sender_office_id=settings.speedy_sender_office_id,
+                client_id=settings.speedy_client_id,
                 recipient_city=city,
                 recipient_office_id=office,
                 weight_grams=weight_grams,
