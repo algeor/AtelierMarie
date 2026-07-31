@@ -1,0 +1,14 @@
+Payment review required for order #{{ order_number }}
+
+A Stripe payment needs admin review.
+
+Order: #{{ order_number }}
+Reason: {{ payment_review_reason }}
+Admin link: {{ admin_order_url }}
+
+Safe payment identifiers:
+- Stripe event: {{ payment_review_stripe_event_id or 'unknown' }}
+- Checkout Session: {{ payment_review_checkout_session_id or 'unknown' }}
+- PaymentIntent: {{ payment_review_payment_intent_id or 'unknown' }}
+
+No customer address, phone, notes, or raw webhook payload is included in this alert.

@@ -8,6 +8,7 @@ import type { Locale } from "@/i18n/routing";
 import type {
   AdminProductListResponse,
   AdminProductResponse,
+  AdminOrderDetailResponse,
   AdminStats,
   AdminTaxonomyTerm,
   AboutAdminResponse,
@@ -55,8 +56,14 @@ import type {
   OrderListResponse,
   OrderResponse,
   OrderStatus,
+  PaymentMethod,
+  PaymentSettingsResponse,
+  PaymentSettingsUpdate,
+  PaymentStatus,
+  ManualPaymentAction,
   ProductListResponse,
   ProductAnalyticsResponse,
+  PublicPaymentSettingsResponse,
   ProductResponse,
   ReactionCountsResponse,
   ReactionToggleRequest,
@@ -455,6 +462,23 @@ export async function getDeliverySettings(): Promise<DeliverySettingsResponse> {
   return apiClient.get<DeliverySettingsResponse>("/v1/delivery/settings");
 }
 
+export async function getPublicPaymentSettings(): Promise<PublicPaymentSettingsResponse> {
+  if (USE_MOCK) return (await getMock()).getPublicPaymentSettings();
+  return apiClient.get<PublicPaymentSettingsResponse>("/v1/settings/payments");
+}
+
+export async function getAdminPaymentSettings(): Promise<PaymentSettingsResponse> {
+  if (USE_MOCK) return (await getMock()).getAdminPaymentSettings();
+  return apiClient.get<PaymentSettingsResponse>("/v1/admin/settings/payments");
+}
+
+export async function updateAdminPaymentSettings(
+  data: PaymentSettingsUpdate
+): Promise<PaymentSettingsResponse> {
+  if (USE_MOCK) return (await getMock()).updateAdminPaymentSettings(data);
+  return apiClient.put<PaymentSettingsResponse>("/v1/admin/settings/payments", data);
+}
+
 export async function getAdminDeliverySettings(): Promise<DeliverySettingsResponse> {
   if (USE_MOCK) return (await getMock()).getAdminDeliverySettings();
   return apiClient.get<DeliverySettingsResponse>("/v1/admin/delivery-settings");
@@ -477,11 +501,15 @@ export async function getOrders(
 }
 
 export async function getOrder(
-  orderId: string
+  orderId: string,
+  paymentReturnToken?: string | null
 ): Promise<OrderResponse> {
   if (USE_MOCK) return (await getMock()).getOrder(orderId);
+  const params = new URLSearchParams();
+  if (paymentReturnToken) params.set("payment_return_token", paymentReturnToken);
+  const query = params.size > 0 ? `?${params}` : "";
   return apiClient.get<OrderResponse>(
-    `/v1/orders/${encodeURIComponent(orderId)}`
+    `/v1/orders/${encodeURIComponent(orderId)}${query}`
   );
 }
 
@@ -737,18 +765,36 @@ export async function updateProductVideoSortOrder(
 export async function getAdminOrders(
   page = 1,
   limit = 20,
-  status?: string
+  status?: string,
+  paymentStatus?: PaymentStatus | "",
+  paymentMethod?: PaymentMethod | ""
 ): Promise<OrderListResponse> {
-  if (USE_MOCK) return (await getMock()).getAdminOrders(page, limit, status);
+  if (USE_MOCK) {
+    return (await getMock()).getAdminOrders(page, limit, status, paymentStatus, paymentMethod);
+  }
   const params = new URLSearchParams({ page: String(page), limit: String(limit) });
   if (status) params.set("status", status);
+  if (paymentStatus) params.set("payment_status", paymentStatus);
+  if (paymentMethod) params.set("payment_method", paymentMethod);
   return apiClient.get<OrderListResponse>(`/v1/admin/orders?${params}`);
 }
 
-export async function getAdminOrder(orderId: string): Promise<OrderResponse> {
+export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailResponse> {
   if (USE_MOCK) return (await getMock()).getAdminOrder(orderId);
-  return apiClient.get<OrderResponse>(
+  return apiClient.get<AdminOrderDetailResponse>(
     `/v1/admin/orders/${encodeURIComponent(orderId)}`
+  );
+}
+
+export async function applyManualPaymentAction(
+  orderId: string,
+  action: ManualPaymentAction,
+  note: string
+): Promise<OrderResponse> {
+  if (USE_MOCK) return (await getMock()).applyManualPaymentAction(orderId, action, note);
+  return apiClient.post<OrderResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/payment-actions`,
+    { action, note }
   );
 }
 

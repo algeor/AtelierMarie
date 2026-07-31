@@ -111,6 +111,18 @@ export default function OrderDetailPage() {
     month: "long",
     day: "numeric",
   });
+  const paymentStatusMessage =
+    order.payment_method === "card"
+      ? order.payment_status === "paid"
+        ? tPayment("returnPaid")
+        : order.payment_status === "failed"
+          ? tPayment("returnFailed")
+          : tPayment("returnPending")
+      : order.payment_method === "cod"
+        ? tPayment("codConfirmation")
+        : order.payment_method === "bank_transfer" && order.payment_status === "pending"
+          ? tPayment("bankInstructions")
+          : null;
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-12">
@@ -198,6 +210,9 @@ export default function OrderDetailPage() {
               {tPayment(`status.${order.payment_status}` as Parameters<typeof tPayment>[0])}
             </span>
           </div>
+          {paymentStatusMessage && (
+            <p className="mb-3 text-sm leading-6 text-soft-brown">{paymentStatusMessage}</p>
+          )}
 
           {/* Retry payment link for card orders with pending/failed payment */}
           {order.payment_method === "card" && (order.payment_status === "pending" || order.payment_status === "failed") && (

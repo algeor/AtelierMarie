@@ -58,6 +58,7 @@ vi.mock("@/contexts/AuthContext", () => ({
 
 vi.mock("@/lib/api", () => ({
   createOrder: vi.fn(),
+  getPublicPaymentSettings: vi.fn(),
   calculateShipping: vi.fn().mockResolvedValue({
     quotes: [
       {
@@ -122,17 +123,28 @@ vi.mock("next/link", () => ({
 }));
 
 vi.mock("next/image", () => ({
-  default: (props: Record<string, unknown>) => <img {...props} />,
+  default: ({ alt = "", ...props }: Record<string, unknown>) => (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img alt={String(alt)} {...props} />
+  ),
 }));
 
-import { createOrder } from "@/lib/api";
+import { createOrder, getPublicPaymentSettings } from "@/lib/api";
 import CheckoutPage from "@/app/[locale]/checkout/page";
 
 const mockedCreateOrder = vi.mocked(createOrder);
+const mockedGetPublicPaymentSettings = vi.mocked(getPublicPaymentSettings);
 
 describe("Checkout Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockedGetPublicPaymentSettings.mockResolvedValue({
+      card_payments_enabled: false,
+      pay_on_delivery_enabled: true,
+      pay_on_delivery_max_cents: 5000,
+      bank_transfer_enabled: false,
+      available_payment_methods: ["cod"],
+    });
     mockCartState.isLoading = false;
     mockCartState.items = [
       {
@@ -206,6 +218,44 @@ describe("Checkout Page", () => {
     expect(screen.getByText("Calculated at delivery step")).toBeInTheDocument();
   });
 
+  it("renders enabled payment methods from backend settings", async () => {
+    mockedGetPublicPaymentSettings.mockResolvedValue({
+      card_payments_enabled: true,
+      pay_on_delivery_enabled: true,
+      pay_on_delivery_max_cents: 5000,
+      bank_transfer_enabled: false,
+      available_payment_methods: ["card", "cod"],
+    });
+
+    renderWithIntl(<CheckoutPage />);
+
+    expect(await screen.findByRole("radio", { name: "Card (pay online)" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Cash on delivery" })).toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "Bank transfer" })).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Your items are reserved for 15 minutes while you complete card payment.")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Payment is collected when your order is delivered. Available up to €50.00.")
+    ).toBeInTheDocument();
+  });
+
+  it("shows unavailable payment message when backend exposes no methods", async () => {
+    mockedGetPublicPaymentSettings.mockResolvedValue({
+      card_payments_enabled: false,
+      pay_on_delivery_enabled: false,
+      pay_on_delivery_max_cents: 5000,
+      bank_transfer_enabled: false,
+      available_payment_methods: [],
+    });
+
+    renderWithIntl(<CheckoutPage />);
+
+    expect(
+      await screen.findByText("Payment is currently unavailable. Please contact us to place this order.")
+    ).toBeInTheDocument();
+  });
+
   it("successful submission calls createOrder and navigates", async () => {
     mockedCreateOrder.mockResolvedValue({
       id: "order-abc",
@@ -243,6 +293,9 @@ describe("Checkout Page", () => {
     await waitFor(() => {
       expect(screen.getByRole("radio", { name: /speedy/i })).toBeChecked();
     });
+    await waitFor(() => {
+      expect(screen.getByRole("radio", { name: "Cash on delivery" })).toBeChecked();
+    });
 
     const submitButtons = screen.getAllByRole("button", { name: /place order/i });
     fireEvent.click(submitButtons[0]!);
@@ -252,6 +305,7 @@ describe("Checkout Page", () => {
         expect.objectContaining({
           customer_email: "test@example.com",
           customer_name: "Test Buyer",
+          payment_method: "cod",
         })
       );
     });

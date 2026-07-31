@@ -22,20 +22,35 @@ from app.services.order_service import (
     InvalidDeliveryOfficeError,
     InvalidShippingPriceError,
     OrderNotFoundError,
+    PayOnDeliveryLimitError,
     ProductUnavailableError,
     checkout,
     get_order,
     list_orders,
 )
+from app.services.payment_rate_limit_service import (
+    PaymentRateLimitExceededError,
+    assert_stripe_session_rate_limit_available,
+    consume_checkout_order_rate_limit,
+    consume_pay_on_delivery_rate_limit,
+    consume_payment_status_poll_rate_limit,
+    consume_stripe_session_rate_limit,
+)
 from app.services.payment_service import (
     InvalidRetryStateError,
+    InvalidRetryTokenError,
     PaymentAlreadyPaidError,
     StripeSessionError,
     create_checkout_session,
     create_retry_session,
 )
+from app.services.payment_settings_service import get_payment_settings
 
 router = APIRouter()
+
+
+def _client_ip(request: Request) -> str | None:
+    return request.client.host if request.client else None
 
 
 @router.post(
@@ -57,6 +72,25 @@ def create_order(
     if "application/json" not in content_type:
         return error_response(422, "INVALID_CONTENT_TYPE", "Content-Type must be application/json")
 
+    try:
+        with get_db() as conn:
+            consume_checkout_order_rate_limit(
+                conn,
+                session_id=session_id,
+                ip_address=_client_ip(request),
+            )
+    except PaymentRateLimitExceededError as exc:
+        return error_response(
+            429,
+            "RATE_LIMITED",
+            str(exc),
+            {
+                "scope": exc.scope,
+                "limit": exc.limit,
+                "window_seconds": exc.window_seconds,
+            },
+        )
+
     settings = get_settings()
 
     # Validate card payments: Stripe must be configured.
@@ -65,6 +99,42 @@ def create_order(
     # Validate bank_transfer: IBAN must be configured.
     if body.payment_method == "bank_transfer" and not settings.bank_iban:
         return error_response(422, "PAYMENT_METHOD_UNAVAILABLE", "Bank transfer is not configured")
+
+    if body.payment_method == "cod":
+        try:
+            with get_db() as conn:
+                consume_pay_on_delivery_rate_limit(
+                    conn,
+                    session_id=session_id,
+                    ip_address=_client_ip(request),
+                )
+        except PaymentRateLimitExceededError as exc:
+            return error_response(
+                429,
+                "RATE_LIMITED",
+                str(exc),
+                {
+                    "scope": exc.scope,
+                    "limit": exc.limit,
+                    "window_seconds": exc.window_seconds,
+                },
+            )
+
+    if body.payment_method == "card":
+        try:
+            with get_db() as conn:
+                assert_stripe_session_rate_limit_available(conn, session_id=session_id)
+        except PaymentRateLimitExceededError as exc:
+            return error_response(
+                429,
+                "RATE_LIMITED",
+                str(exc),
+                {
+                    "scope": exc.scope,
+                    "limit": exc.limit,
+                    "window_seconds": exc.window_seconds,
+                },
+            )
 
     try:
         with get_db() as conn:
@@ -99,6 +169,16 @@ def create_order(
                     },
                 )
 
+            payment_settings = get_payment_settings(conn)
+            pay_on_delivery_max_cents = (
+                int(payment_settings["pay_on_delivery_max_cents"])
+                if body.payment_method == "cod"
+                else None
+            )
+            # get_payment_settings() may lazily insert defaults; close that
+            # transaction before checkout() starts its explicit BEGIN IMMEDIATE.
+            conn.commit()
+
             order_data = checkout(
                 conn=conn,
                 session_id=session_id,
@@ -115,6 +195,7 @@ def create_order(
                 shipping_price_source=body.shipping_price_source,
                 shipping_is_fallback=body.shipping_is_fallback,
                 shipping_quoted_at=body.shipping_quoted_at,
+                pay_on_delivery_max_cents=pay_on_delivery_max_cents,
             )
 
             analytics_service.record_purchase_confirmed(
@@ -132,6 +213,11 @@ def create_order(
             stripe_checkout_url: str | None = None
             if body.payment_method == "card":
                 try:
+                    consume_stripe_session_rate_limit(
+                        conn,
+                        order_id=order_data["id"],
+                        session_id=session_id,
+                    )
                     stripe_checkout_url = create_checkout_session(
                         conn=conn,
                         order=order_data,
@@ -139,12 +225,25 @@ def create_order(
                         cancel_url=settings.stripe_cancel_url,
                         stripe_secret_key=settings.stripe_secret_key,
                     )
+                except PaymentRateLimitExceededError as exc:
+                    return error_response(
+                        429,
+                        "RATE_LIMITED",
+                        str(exc),
+                        {
+                            "scope": exc.scope,
+                            "limit": exc.limit,
+                            "window_seconds": exc.window_seconds,
+                        },
+                    )
                 except StripeSessionError as exc:
                     # Order was created; return it without a checkout URL so retry flow works.
                     import structlog
 
                     structlog.get_logger(__name__).error(
-                        "stripe_session_create_failed", order_id=order_data["id"], error=str(exc)
+                        "stripe_session_create_failed",
+                        order_id=order_data["id"],
+                        error_type=type(exc).__name__,
                     )
 
     except EmptyCartError:
@@ -173,6 +272,13 @@ def create_order(
                     "details": {"shipping_cents": e.shipping_cents, "max_cents": e.max_cents},
                 }
             },
+        )
+    except PayOnDeliveryLimitError as e:
+        return error_response(
+            422,
+            "PAY_ON_DELIVERY_LIMIT_EXCEEDED",
+            str(e),
+            {"total_cents": e.total_cents, "max_cents": e.max_cents},
         )
     except InsufficientStockError as e:
         return JSONResponse(
@@ -209,7 +315,7 @@ def create_order(
     description="Create a fresh Stripe session for a card order whose previous session expired. "
     "Requires session ownership. Returns {stripe_checkout_url}.",
 )
-def create_stripe_retry_session(
+async def create_stripe_retry_session(
     order_id: str,
     request: Request,
     session_id: Annotated[str, Depends(require_session)],
@@ -223,6 +329,14 @@ def create_stripe_retry_session(
     if not settings.stripe_secret_key:
         return error_response(422, "PAYMENT_METHOD_UNAVAILABLE", "Card payments are not configured")
 
+    try:
+        payload = await request.json()
+    except ValueError:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    payment_return_token = payload.get("payment_return_token") or payload.get("token") or ""
+
     with get_db() as conn:
         # Ownership check.
         row = conn.execute("SELECT user_id FROM sessions WHERE id = ?", (session_id,)).fetchone()
@@ -233,17 +347,28 @@ def create_stripe_retry_session(
             return error_response(404, "NOT_FOUND", "Order not found")
 
         try:
+            consume_stripe_session_rate_limit(conn, order_id=order_id, session_id=session_id)
             url = create_retry_session(
                 conn=conn,
                 order_id=order_id,
+                payment_return_token=payment_return_token,
                 success_url=settings.stripe_success_url,
                 cancel_url=settings.stripe_cancel_url,
                 stripe_secret_key=settings.stripe_secret_key,
             )
         except PaymentAlreadyPaidError:
             return error_response(409, "ALREADY_PAID", "Order is already paid")
+        except InvalidRetryTokenError:
+            return error_response(404, "NOT_FOUND", "Order not found")
         except InvalidRetryStateError as e:
             return error_response(409, "INVALID_PAYMENT_STATE", str(e))
+        except PaymentRateLimitExceededError as e:
+            return error_response(
+                429,
+                "RATE_LIMITED",
+                str(e),
+                {"scope": e.scope, "limit": e.limit, "window_seconds": e.window_seconds},
+            )
         except StripeSessionError as e:
             return error_response(502, "STRIPE_ERROR", str(e))
 
@@ -292,9 +417,29 @@ def list_my_orders(
 )
 def get_order_detail(
     order_id: str,
+    request: Request,
     session_id: Annotated[str, Depends(require_session)],
-) -> OrderResponse:
+) -> OrderResponse | JSONResponse:
     """Get a specific order by ID (with ownership check)."""
+    return_token = request.query_params.get("payment_return_token") or request.query_params.get(
+        "token"
+    )
+    if return_token:
+        try:
+            with get_db() as conn:
+                consume_payment_status_poll_rate_limit(
+                    conn,
+                    session_id=session_id,
+                    ip_address=_client_ip(request),
+                )
+        except PaymentRateLimitExceededError as exc:
+            return error_response(
+                429,
+                "RATE_LIMITED",
+                str(exc),
+                {"scope": exc.scope, "limit": exc.limit, "window_seconds": exc.window_seconds},
+            )
+
     with get_db() as conn:
         row = conn.execute("SELECT user_id FROM sessions WHERE id = ?", (session_id,)).fetchone()
         user_id = row["user_id"] if row else None

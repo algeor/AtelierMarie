@@ -1,5 +1,7 @@
-## ADDED Requirements
+## Purpose
 
+Defines the storefront checkout user interface, delivery selection, order summary, and submission behavior.
+## Requirements
 ### Requirement: Checkout page layout
 The system SHALL provide a `/checkout` page with a two-column layout on desktop (form left, order summary right) and single-column stacked layout on mobile (summary first, form below). The page SHALL be accessible only when the cart has items — if the cart is empty, it SHALL redirect to `/products`.
 
@@ -152,3 +154,56 @@ The system SHALL use semantic form elements with associated labels, required fie
 #### Scenario: Required fields indicated
 - **WHEN** the checkout page renders
 - **THEN** the email field has a visible required indicator (asterisk) and `aria-required="true"`
+
+### Requirement: Checkout legal disclosure
+The checkout page SHALL display a small legal disclosure near every visible Place Order button. The disclosure SHALL link to `/[locale]/terms` and SHALL state that placing an order means the customer agrees to the Terms & Conditions, including delivery, withdrawal, and returns information.
+
+#### Scenario: Desktop checkout shows disclosure
+- **WHEN** a customer views checkout on a desktop viewport with items in cart
+- **THEN** a legal disclosure is visible near the desktop Place Order button
+- **AND** the Terms & Conditions text links to the localized terms page
+
+#### Scenario: Mobile checkout shows disclosure
+- **WHEN** a customer views checkout on a mobile viewport with items in cart
+- **THEN** a legal disclosure is visible near the mobile Place Order button
+- **AND** the Terms & Conditions text links to the localized terms page
+
+#### Scenario: Disclosure remains quiet
+- **WHEN** the checkout page renders
+- **THEN** the disclosure uses subdued styling compared with form labels and the primary order button
+- **AND** it does not advertise returns as a commercial benefit
+
+#### Scenario: Disclosure is present before submit
+- **WHEN** a customer is ready to place an order
+- **THEN** the disclosure is visible before order submission without requiring a separate modal or hidden accordion
+
+### Requirement: Checkout legal and privacy disclosure
+The checkout page SHALL display a small legal/privacy disclosure near every visible Place Order button. The disclosure SHALL link to localized Terms & Conditions and Privacy Policy pages and SHALL state that order submission involves processing the provided contact and delivery data.
+
+#### Scenario: Desktop checkout disclosure includes policy links
+- **WHEN** checkout renders on desktop
+- **THEN** the disclosure near the desktop Place Order button links to Terms & Conditions and Privacy Policy
+
+#### Scenario: Mobile checkout disclosure includes policy links
+- **WHEN** checkout renders on mobile
+- **THEN** the disclosure near the mobile Place Order button links to Terms & Conditions and Privacy Policy
+
+### Requirement: Checkout order summary uses charged item prices
+The checkout order summary SHALL use each cart item's effective charged price for line totals and subtotal display. If a product has an active discount, the summary SHALL NOT calculate line totals from the original list price.
+
+#### Scenario: Discounted cart item summary uses effective price
+- **WHEN** a cart item has `price_cents = 4000`, `effective_price_cents = 3000`, and quantity 2
+- **THEN** checkout displays the line total as 6000 cents equivalent
+- **AND** the subtotal matches the cart total returned by the cart API
+
+### Requirement: Checkout shipping and total clarity
+Checkout SHALL show shipping cost information only when it is known and included in the order total. If shipping pricing is not implemented or shipping is zero, the UI SHALL avoid implying that a paid courier delivery charge is included.
+
+#### Scenario: Known shipping is shown before submission
+- **WHEN** checkout has a known `shipping_cents` value
+- **THEN** the order summary displays item subtotal, shipping, and final total before order submission
+
+#### Scenario: Unknown shipping is not misrepresented
+- **WHEN** checkout does not have a real shipping price
+- **THEN** the UI does not present a paid shipping amount as included in the order total
+

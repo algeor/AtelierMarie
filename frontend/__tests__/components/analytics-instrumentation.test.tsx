@@ -85,6 +85,13 @@ vi.mock("@/lib/api", () => ({
     econt_door_enabled: true,
     updated_at: "2026-07-31 12:00:00",
   }),
+  getPublicPaymentSettings: vi.fn().mockResolvedValue({
+    card_payments_enabled: true,
+    pay_on_delivery_enabled: true,
+    pay_on_delivery_max_cents: 5000,
+    bank_transfer_enabled: false,
+    available_payment_methods: ["card", "cod"],
+  }),
 }));
 
 vi.mock("@/contexts/CartContext", () => ({
@@ -146,7 +153,10 @@ vi.mock("@/components/checkout/DeliverySection", () => ({
 }));
 
 vi.mock("next/image", () => ({
-  default: (props: Record<string, unknown>) => <img {...props} />,
+  default: ({ alt = "", ...props }: Record<string, unknown>) => (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img alt={String(alt)} {...props} />
+  ),
 }));
 
 import { AddToCartButton } from "@/components/cart/AddToCartButton";
@@ -300,7 +310,7 @@ describe("storefront analytics instrumentation", () => {
 
     await waitFor(() => expect(mockTrackAnalytics).toHaveBeenCalledWith(
       "order_submit",
-      expect.objectContaining({ payment_method: "cod", delivery_method: "office" })
+      expect.objectContaining({ payment_method: "card", delivery_method: "office" })
     ));
     await waitFor(() => expect(mockTrackAnalytics).toHaveBeenCalledWith(
       "payment_redirect",

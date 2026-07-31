@@ -8,12 +8,21 @@ import { useAuth } from "@/contexts/AuthContext";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { formatPrice } from "@/lib/utils";
-import type { OrderResponse } from "@/lib/types";
+import type { OrderResponse, PaymentStatus } from "@/lib/types";
 
 type PageState = "loading" | "success" | "error";
 
+const PAYMENT_STATUS_COLORS: Record<PaymentStatus, string> = {
+  pending: "bg-amber-100 text-amber-800",
+  paid: "bg-green-100 text-green-800",
+  cod_pending: "bg-gray-100 text-gray-700",
+  failed: "bg-red-100 text-red-800",
+  refunded: "bg-blue-100 text-blue-800",
+};
+
 export default function OrdersPage() {
   const t = useTranslations("orders");
+  const tPayment = useTranslations("orders.payment");
   const tCommon = useTranslations("common");
   const tAuth = useTranslations("auth");
   const locale = useLocale();
@@ -139,6 +148,13 @@ export default function OrdersPage() {
                   </div>
                   <p className="text-sm text-soft-brown">
                     {date} · {t("item", { count: itemCount })}
+                  </p>
+                  <p className="mt-2">
+                    <span className={`inline-flex items-center rounded-pill px-2.5 py-0.5 text-xs font-medium ${PAYMENT_STATUS_COLORS[order.payment_status]}`}>
+                      {tPayment(`method.${order.payment_method}` as Parameters<typeof tPayment>[0])}
+                      {" · "}
+                      {tPayment(`status.${order.payment_status}` as Parameters<typeof tPayment>[0])}
+                    </span>
                   </p>
                 </div>
                 <span className="text-charcoal font-medium whitespace-nowrap">

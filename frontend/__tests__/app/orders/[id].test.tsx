@@ -79,6 +79,24 @@ describe("OrderDetailPage", () => {
     expect(screen.getByText("Midnight Amber")).toBeInTheDocument();
     expect(screen.getByText("€77.00")).toBeInTheDocument();
     expect(screen.getByText("alice@example.com")).toBeInTheDocument();
+    expect(screen.getByText("Order received. Payment will be collected on delivery.")).toBeInTheDocument();
+  });
+
+  it("shows failed card payment copy and retry link", async () => {
+    mockedGetOrder.mockResolvedValueOnce({
+      ...mockOrder,
+      payment_method: "card",
+      payment_status: "failed",
+    });
+    renderWithIntl(<OrderDetailPage />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Payment failed").length).toBeGreaterThanOrEqual(2);
+    });
+    expect(screen.getByText("Retry payment")).toHaveAttribute(
+      "href",
+      `/orders/${mockOrder.id}/retry-payment`
+    );
   });
 
   it("shows status timeline", async () => {

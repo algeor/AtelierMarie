@@ -287,6 +287,10 @@ async function startManagedServers() {
           ECONT_CALCULATE_URL: `${fakeEcont.url}/calculate`,
           ECONT_API_USERNAME: "chrome-smoke",
           ECONT_API_PASSWORD: "chrome-smoke",
+          EMAIL_PROVIDER: "console",
+          EMAIL_API_KEY: "",
+          ADMIN_NOTIFICATION_EMAIL: "",
+          ZEPTOMAIL_WEBHOOK_AUTH_KEY: "",
         },
       }
     );
@@ -304,7 +308,6 @@ async function startManagedServers() {
           ...process.env,
           NEXT_PUBLIC_API_URL: BACKEND_URL,
           NEXT_PUBLIC_USE_MOCK_API: "false",
-          NEXT_PUBLIC_STRIPE_ENABLED: "false",
         },
       }
     );

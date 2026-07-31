@@ -1,5 +1,8 @@
-## Requirements
+## Purpose
 
+Defines storefront product detail behavior, including product presentation, media, FAQ links, safety information, and add-to-cart interactions.
+
+## Requirements
 ### Requirement: Product detail page displays full product information
 The system SHALL render a product detail page at /products/[id] showing the product image, name, price, description, category, materials, and crafting time.
 
@@ -136,3 +139,41 @@ The product detail page SHALL display the `effective_price_cents` as the primary
 #### Scenario: Detail page without discount unchanged
 - **WHEN** the detail page renders for a product with `discount_active` = false
 - **THEN** the page shows only the regular price with no strikethrough or badge
+
+### Requirement: FAQ links on product detail
+
+The product detail page SHALL surface contextual links to the relevant FAQ sections — "Candle Care" (`/[locale]/faq#care`), "Custom Orders" (`/[locale]/faq#custom`), and "Shipping & Returns" (`/[locale]/faq#shipping`) — so customers can find answers where they naturally look.
+
+#### Scenario: Contextual FAQ links present
+- **WHEN** a visitor views a product detail page
+- **THEN** links to the Candle Care, Custom Orders, and Shipping & Returns FAQ sections are shown, each navigating to the matching FAQ section anchor
+
+### Requirement: Questions link near Add to Cart
+
+The product detail page SHALL include a small "Questions?" link near the Add to Cart button that navigates to the relevant FAQ section anchor.
+
+#### Scenario: Questions link jumps to FAQ
+- **WHEN** a visitor clicks the "Questions?" link near Add to Cart
+- **THEN** they navigate to the FAQ page at the relevant section anchor (e.g. `/[locale]/faq#care`)
+
+### Requirement: Product detail renders safety and responsible-party information
+The product detail page SHALL render a product safety section containing localized safety warnings, care/use instructions, product identifier, and responsible-party/trader information when available.
+
+#### Scenario: Safety section renders on product detail
+- **WHEN** a product detail page receives product safety warnings or care instructions
+- **THEN** it displays them in a visible product safety section
+
+#### Scenario: Product identifier renders
+- **WHEN** a product detail page renders
+- **THEN** it shows or makes available the product identifier using the product ID unless a separate SKU exists
+
+#### Scenario: Responsible party renders
+- **WHEN** legal identity values are configured
+- **THEN** the product detail page displays the responsible-party or trader name, geographic address, and contact email in the safety/legal section
+
+### Requirement: Product detail safety section is accessible and localized
+The safety section SHALL use localized headings and copy and SHALL remain readable on mobile and desktop layouts.
+
+#### Scenario: Bulgarian safety section renders localized labels
+- **WHEN** a Bulgarian product detail page renders safety metadata
+- **THEN** the safety section uses Bulgarian labels and text where available

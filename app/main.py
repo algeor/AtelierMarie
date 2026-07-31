@@ -1,6 +1,8 @@
 """FastAPI application factory and lifespan management."""
 
 import asyncio
+import json
+import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -30,6 +32,7 @@ from app.routes import (
     faq,
     locale,
     orders,
+    payment_settings,
     products,
     promotions,
     reactions,
@@ -47,6 +50,7 @@ from app.services.product_video_service import drain_video_transcodes
 
 logger = structlog.get_logger(__name__)
 SESSION_CLEANUP_INTERVAL_SECONDS = 3600
+PAYMENT_RESERVATION_CLEANUP_INTERVAL_SECONDS = 60
 # Poll interval for the email outbox sweeper. ~15s keeps "shipped" mail prompt
 # without hammering the DB (design Decision 25); not 60s.
 EMAIL_OUTBOX_INTERVAL_SECONDS = 15
@@ -76,40 +80,69 @@ def cleanup_runtime_records() -> int:
         settings.contact_message_retention_days
     )
     count += cleanup_expired_events(settings.analytics_retention_days)
-    count += _cancel_abandoned_card_orders()
     return count
 
 
 def _cancel_abandoned_card_orders() -> int:
-    """Auto-cancel card orders with payment_status in ('pending','failed') older than 24h.
+    """Auto-cancel expired/abandoned unpaid card orders.
 
     Restores stock for each cancelled order. Must NOT touch COD or bank_transfer orders.
     """
     from app.services.order_service import VALID_TRANSITIONS
+    from app.services.payment_service import expire_checkout_session
 
     cancelled = 0
+    settings = get_settings()
     with get_db() as conn:
         rows = conn.execute(
             """
-            SELECT id FROM orders
+            SELECT id, status, payment_status, stripe_checkout_session_id
+            FROM orders
             WHERE payment_method = 'card'
               AND payment_status IN ('pending', 'failed')
-              AND created_at < datetime('now', '-24 hours')
+              AND (
+                  (reserved_until IS NOT NULL AND reserved_until < datetime('now'))
+                  OR created_at < datetime('now', '-24 hours')
+              )
               AND status NOT IN ('cancelled', 'delivered')
             """
         ).fetchall()
 
         for row in rows:
             order_id = row["id"]
-            order_row = conn.execute(
-                "SELECT status FROM orders WHERE id = ?", (order_id,)
-            ).fetchone()
-            if not order_row:
-                continue
-            current = order_row["status"]
+            current = row["status"]
             if "cancelled" not in VALID_TRANSITIONS.get(current, set()):
                 continue
-            conn.execute("UPDATE orders SET status = 'cancelled' WHERE id = ?", (order_id,))
+            payment_row = conn.execute(
+                """
+                SELECT id FROM payments
+                WHERE order_id = ? AND provider = 'stripe'
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (order_id,),
+            ).fetchone()
+            payment_id = payment_row["id"] if payment_row else None
+            stripe_session_id = row["stripe_checkout_session_id"]
+            stripe_expire_attempted = bool(stripe_session_id and settings.stripe_secret_key)
+            stripe_expired = expire_checkout_session(stripe_session_id, settings.stripe_secret_key)
+            conn.execute(
+                """
+                UPDATE orders
+                SET status = 'cancelled', payment_status = 'failed', updated_at = datetime('now')
+                WHERE id = ?
+                """,
+                (order_id,),
+            )
+            if payment_id:
+                conn.execute(
+                    """
+                    UPDATE payments
+                    SET provider_status = 'failed', updated_at = datetime('now')
+                    WHERE id = ?
+                    """,
+                    (payment_id,),
+                )
             item_rows = conn.execute(
                 "SELECT product_id, quantity FROM order_items WHERE order_id = ?",
                 (order_id,),
@@ -119,6 +152,33 @@ def _cancel_abandoned_card_orders() -> int:
                     "UPDATE products SET stock = stock + ? WHERE id = ?",
                     (item["quantity"], item["product_id"]),
                 )
+            conn.execute(
+                """
+                INSERT INTO payment_events (
+                    id, order_id, payment_id, event_type, source, provider,
+                    provider_status, processing_status, details
+                ) VALUES (?, ?, ?, 'reservation_expired', 'system', 'stripe',
+                          'failed', 'processed', ?)
+                """,
+                (
+                    str(uuid.uuid4()),
+                    order_id,
+                    payment_id,
+                    json.dumps(
+                        {
+                            "old_order_status": current,
+                            "old_payment_status": row["payment_status"],
+                            "new_order_status": "cancelled",
+                            "new_payment_status": "failed",
+                            "restored_item_count": len(item_rows),
+                            "stripe_checkout_session_id": stripe_session_id,
+                            "stripe_expire_attempted": stripe_expire_attempted,
+                            "stripe_expired": stripe_expired,
+                        },
+                        separators=(",", ":"),
+                    ),
+                ),
+            )
             cancelled += 1
             logger.info("auto_cancelled_abandoned_card_order", order_id=order_id)
 
@@ -143,6 +203,26 @@ async def session_cleanup_loop(
                 logger.info("Cleaned up expired sessions", count=count)
         except Exception:
             logger.exception("Session cleanup failed")
+
+
+async def payment_reservation_cleanup_loop(
+    *,
+    interval_seconds: float = PAYMENT_RESERVATION_CLEANUP_INTERVAL_SECONDS,
+    sleep: Callable[[float], Awaitable[object]] | None = None,
+    cleanup: Callable[[], int] | None = None,
+) -> None:
+    """Cancel expired unpaid card reservations on a 60-second tick."""
+    sleep_fn = sleep or asyncio.sleep
+    cleanup_fn = cleanup or _cancel_abandoned_card_orders
+
+    while True:
+        await sleep_fn(interval_seconds)
+        try:
+            count = await asyncio.to_thread(cleanup_fn)
+            if count:
+                logger.info("Cleaned up expired payment reservations", count=count)
+        except Exception:
+            logger.exception("Payment reservation cleanup failed")
 
 
 async def email_outbox_loop(
@@ -209,13 +289,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Background task: clean expired sessions every hour
     task = asyncio.create_task(session_cleanup_loop())
+    payment_task = asyncio.create_task(payment_reservation_cleanup_loop())
     # Background task: drain the durable email outbox (~15s tick, per worker)
     email_task = asyncio.create_task(email_outbox_loop())
     video_task = asyncio.create_task(video_transcode_loop())
     yield
     if settings.analytics_enabled:
         await asyncio.to_thread(load_jsonl_to_duckdb)
-    for background_task in (task, email_task, video_task):
+    for background_task in (task, payment_task, email_task, video_task):
         background_task.cancel()
         try:
             await asyncio.wait_for(background_task, timeout=5.0)
@@ -322,9 +403,17 @@ def create_app() -> FastAPI:
     application.include_router(products.router, prefix="/v1/products", tags=["products"])
     application.include_router(cart.router, prefix="/v1/cart", tags=["cart"])
     application.include_router(orders.router, prefix="/v1/orders", tags=["orders"])
+    application.include_router(
+        payment_settings.public_router, prefix="/v1/settings", tags=["settings"]
+    )
     application.include_router(analytics.router, prefix="/v1/analytics", tags=["analytics"])
     application.include_router(auth.router, prefix="/v1/auth", tags=["auth"])
     application.include_router(admin.router, prefix="/v1/admin", tags=["admin"])
+    application.include_router(
+        payment_settings.admin_router,
+        prefix="/v1/admin/settings",
+        tags=["admin-settings"],
+    )
     application.include_router(about.public_router, prefix="/v1/about", tags=["about"])
     application.include_router(about.admin_router, prefix="/v1/admin/about", tags=["admin-about"])
     application.include_router(taxonomy.public_router, prefix="/v1/taxonomy", tags=["taxonomy"])

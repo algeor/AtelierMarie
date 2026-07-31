@@ -173,7 +173,7 @@ describe("Admin Orders List", () => {
     });
 
     // Check filter pill buttons by aria-pressed attribute
-    const allButton = screen.getByRole("button", { name: "All" });
+    const allButton = screen.getAllByRole("button", { name: "All" })[0]!;
     const pendingButton = screen.getByRole("button", { name: "Pending" });
     const shippedButton = screen.getByRole("button", { name: "Shipped" });
     const deliveredButton = screen.getByRole("button", { name: "Delivered" });

@@ -5,9 +5,9 @@ import io
 import re
 import sqlite3
 from pathlib import Path
-from typing import get_args
+from typing import Annotated, get_args
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 
@@ -15,7 +15,13 @@ from app.config import get_settings
 from app.constants import MAX_CSV_ROWS, MAX_CSV_UPLOAD_BYTES, MAX_PRICE_CENTS, MAX_STOCK
 from app.database import get_db
 from app.dependencies.auth import require_admin
-from app.models.admin import DashboardResponse, LowStockProductsResponse
+from app.middleware.request_id import request_id_var
+from app.models.admin import (
+    AdminAlertListResponse,
+    AdminAlertResponse,
+    DashboardResponse,
+    LowStockProductsResponse,
+)
 from app.models.analytics import (
     AnalyticsFunnelResponse,
     AnalyticsHealthResponse,
@@ -27,12 +33,15 @@ from app.models.comments import AdminCommentListResponse, AdminCommentResponse
 from app.models.common import PRODUCT_ID_PATTERN
 from app.models.delivery import DeliverySettingsResponse, DeliverySettingsUpdate
 from app.models.orders import (
+    AdminOrderDetailResponse,
+    ManualPaymentActionRequest,
     MarkPaymentPaidRequest,
     OrderEmailAudit,
     OrderEmailAuditResponse,
     OrderListResponse,
     OrderResponse,
     OrderStatus,
+    PaymentMethod,
     PaymentStatus,
     UpdateOrderStatusRequest,
 )
@@ -57,8 +66,10 @@ from app.models.products import (
     UpdateProductVideoRequest,
 )
 from app.models.promotions import BulkDiscountRequest, BulkDiscountResponse
+from app.models.users import UserResponse
 from app.responses import error_response
 from app.services import (
+    admin_alert_service,
     admin_service,
     analytics_service,
     delivery_settings_service,
@@ -82,10 +93,14 @@ from app.services.image_service import (
     FileTooLargeError as ImageFileTooLargeError,
 )
 from app.services.order_service import (
+    InvalidStateTransitionError,
+    ManualPaymentActionError,
     PaymentAlreadyPaidError,
     WrongPaymentMethodError,
+    apply_manual_payment_action,
     get_order_admin,
     list_orders_admin,
+    list_payment_events,
     mark_bank_transfer_paid,
     update_status,
 )
@@ -678,6 +693,7 @@ async def admin_import_products(
 def admin_list_orders(
     status: str | None = Query(default=None, description="Filter by order status"),
     payment_status: str | None = Query(default=None, description="Filter by payment status"),
+    payment_method: str | None = Query(default=None, description="Filter by payment method"),
     page: int = Query(default=1, ge=1, description="Page number"),
     limit: int = Query(default=20, ge=1, le=100, description="Items per page"),
 ) -> OrderListResponse | JSONResponse:
@@ -699,10 +715,24 @@ def admin_list_orders(
                 "Invalid payment_status "
                 f"'{payment_status}'. Must be one of: {', '.join(valid_payment_statuses)}",
             )
+    if payment_method is not None:
+        valid_payment_methods = get_args(PaymentMethod)
+        if payment_method not in valid_payment_methods:
+            return error_response(
+                422,
+                "INVALID_PAYMENT_METHOD",
+                "Invalid payment_method "
+                f"'{payment_method}'. Must be one of: {', '.join(valid_payment_methods)}",
+            )
 
     with get_db() as conn:
         result = list_orders_admin(
-            conn=conn, status=status, payment_status=payment_status, page=page, limit=limit
+            conn=conn,
+            status=status,
+            payment_status=payment_status,
+            payment_method=payment_method,
+            page=page,
+            limit=limit,
         )
 
     return OrderListResponse(
@@ -715,17 +745,20 @@ def admin_list_orders(
 
 @router.get(
     "/orders/{order_id}",
-    response_model=OrderResponse,
+    response_model=AdminOrderDetailResponse,
     summary="Get order detail (admin)",
     description="Get full order details including items, customer info, shipping address, "
     "and notes. No ownership check — admin can view any order.",
 )
-def admin_get_order_detail(order_id: str) -> OrderResponse:
+def admin_get_order_detail(order_id: str) -> AdminOrderDetailResponse:
     """Get full order detail for admin (no ownership check)."""
     with get_db() as conn:
         order_data = get_order_admin(conn=conn, order_id=order_id)
+        payment_events = list_payment_events(conn, order_id)
 
-    return OrderResponse.model_validate(order_data)
+    payload = dict(order_data)
+    payload["payment_events"] = payment_events
+    return AdminOrderDetailResponse.model_validate(payload)
 
 
 @router.patch(
@@ -751,6 +784,43 @@ def admin_mark_payment_paid(
             return error_response(409, "ALREADY_PAID", "Order is already paid")
         except WrongPaymentMethodError as e:
             return error_response(409, "WRONG_PAYMENT_METHOD", str(e))
+
+    return OrderResponse.model_validate(order_data)
+
+
+@router.post(
+    "/orders/{order_id}/payment-actions",
+    response_model=OrderResponse,
+    summary="Apply a manual payment action (admin)",
+    description="Apply note-required manual payment actions using the current payment statuses.",
+)
+def admin_apply_manual_payment_action(
+    order_id: str,
+    body: ManualPaymentActionRequest,
+    request: Request,
+    admin_user: Annotated[UserResponse | None, Depends(require_admin)],
+) -> OrderResponse | JSONResponse:
+    """Apply a note-required manual payment action and write payment_events audit."""
+    request_id = request_id_var.get() or request.headers.get("x-request-id")
+    with get_db() as conn:
+        try:
+            order_data = apply_manual_payment_action(
+                conn=conn,
+                order_id=order_id,
+                action=body.action,
+                note=body.note,
+                admin_id=admin_user.id if admin_user else None,
+                admin_email=admin_user.email if admin_user else None,
+                request_id=request_id,
+            )
+        except PaymentAlreadyPaidError:
+            return error_response(409, "ALREADY_PAID", "Order is already paid")
+        except WrongPaymentMethodError as e:
+            return error_response(422, "WRONG_PAYMENT_METHOD", str(e))
+        except InvalidStateTransitionError as e:
+            return error_response(422, "INVALID_TRANSITION", str(e))
+        except ManualPaymentActionError as e:
+            return error_response(e.status_code, e.code, str(e))
 
     return OrderResponse.model_validate(order_data)
 
@@ -942,6 +1012,29 @@ async def admin_track_order(order_id: str) -> OrderResponse | JSONResponse:
         )
         order = get_order_admin(conn, order_id)
     return OrderResponse.model_validate(order)
+
+
+@router.get(
+    "/alerts",
+    response_model=AdminAlertListResponse,
+    summary="List admin alerts",
+    description="Return recent in-app admin alerts such as payment review notices.",
+)
+async def admin_list_alerts(
+    limit: int = Query(default=20, ge=1, le=100),
+    unread_only: bool = Query(default=False),
+) -> AdminAlertListResponse:
+    """List recent admin alerts for the in-app alert surface."""
+    with get_db() as conn:
+        alerts, total = admin_alert_service.list_admin_alerts(
+            conn,
+            limit=limit,
+            unread_only=unread_only,
+        )
+    return AdminAlertListResponse(
+        alerts=[AdminAlertResponse.model_validate(alert) for alert in alerts],
+        total=total,
+    )
 
 
 @router.get(

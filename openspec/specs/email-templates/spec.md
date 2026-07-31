@@ -1,5 +1,7 @@
-## ADDED Requirements
+## Purpose
 
+Defines transactional email template content, localization, rendering, and safety requirements.
+## Requirements
 ### Requirement: Bilingual email templates rendered via Jinja2
 
 The system SHALL render email content from Jinja2 template files organized by locale (en/bg). Each template file contains the subject on the first line, a blank line separator, and the email body.
@@ -106,3 +108,22 @@ The "order_cancelled" template SHALL inform the customer that a refund is being 
 
 - **WHEN** an "order cancelled" email is rendered in either locale
 - **THEN** the body includes a sentence telling the customer their refund is being processed
+
+### Requirement: Order emails include legal policy references
+Order placed and payment-pending email templates SHALL include concise localized references to Terms & Conditions, withdrawal/returns information, trader contact details, and Privacy Policy links. The emails SHALL use stable public site URLs from template context instead of hardcoded localhost URLs.
+
+#### Scenario: English order placed email includes legal references
+- **WHEN** the English order placed email is rendered
+- **THEN** it includes the order summary, total, Terms & Conditions link, Privacy Policy link, and trader contact email
+
+#### Scenario: Bulgarian payment pending email includes legal references
+- **WHEN** the Bulgarian payment pending email is rendered
+- **THEN** it includes localized legal/policy references and payment instructions without removing the existing order summary
+
+### Requirement: Email template context includes legal URL values
+The email rendering path SHALL provide templates with public URLs for Terms & Conditions, Privacy Policy, Cookie Policy, and Contact pages, plus trader identity/contact values from the centralized legal identity source.
+
+#### Scenario: Template receives public policy URLs
+- **WHEN** an order email is rendered in either locale
+- **THEN** template context includes localized public URLs for Terms, Privacy, Cookies, and Contact pages
+

@@ -88,6 +88,7 @@ class Settings(BaseSettings):
     # Stripe (payment-integration)
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
+    stripe_publishable_key: str = ""
     stripe_success_url: str = ""
     stripe_cancel_url: str = ""
 

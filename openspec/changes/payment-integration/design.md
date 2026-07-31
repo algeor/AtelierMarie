@@ -89,6 +89,12 @@ Creating a Stripe payment order atomically validates stock, creates the order an
 payment row, decrements stock, clears the cart, and sets `reserved_until = now +
 15 minutes`.
 
+Stripe Checkout Session `expires_at` cannot be set to 15 minutes: Stripe's API
+requires it to be between 30 minutes and 24 hours after creation. The app keeps
+the 15-minute local reservation as the source of truth, omits custom Stripe
+`expires_at` for MVP sessions, and attempts to expire the active Stripe Checkout
+Session from local cleanup when the reservation is cancelled.
+
 An expiry cleanup runs every 1 minute. For expired unpaid card orders it cancels
 the payment/order attempt, restores stock, records a `payment_events` row, and
 attempts to expire the Stripe Checkout Session. The cart is not restored in MVP.

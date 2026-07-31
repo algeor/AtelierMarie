@@ -1,5 +1,8 @@
-## Requirements
+## Purpose
 
+Defines public product API behavior and response contracts used by storefront listing and detail views.
+
+## Requirements
 ### Requirement: List products endpoint
 The system SHALL expose `GET /v1/products` returning a paginated list of active products. The endpoint SHALL accept query parameters: `category` (string filter), `q` (search query), `sort` (one of: price_asc, price_desc, name, newest), `in_stock` (boolean, filter to stock > 0), `page` (integer, default 1), `limit` (integer, default 20, max 100), `locale` (one of: `en`, `bg`, default `en`). The response SHALL match the ProductListResponse schema with product name and description in the requested locale (falling back to the other language if the requested locale's content is NULL). The list operation SHALL capture `now` once and use it for all effective-price calculations and price sorting in the response. Each product SHALL include `price_cents` (original list price), `effective_price_cents` (discounted price, equal to `price_cents` when no discount is active), `discount_percent` (active display percent or null), and `discount_active` (boolean). Public product responses SHALL NOT expose `discount_starts_at` or `discount_ends_at`.
 
@@ -62,3 +65,19 @@ Public product list and detail responses SHALL include the ordered `images` arra
 #### Scenario: List response includes primary image
 - **WHEN** `GET /v1/products` is called
 - **THEN** each product includes `primary_image_url` (or `null` when it has no images)
+
+### Requirement: Public product responses include safety metadata
+Public product list and detail responses SHALL include localized safety warning and care instruction fields needed by the storefront. The fields SHALL resolve according to the requested locale with fallback behavior consistent with product name/description localization.
+
+#### Scenario: Detail response includes localized safety metadata
+- **WHEN** `GET /v1/products/{id}?locale=bg` is called for a product with Bulgarian safety metadata
+- **THEN** the response includes Bulgarian safety warnings and care instructions
+
+#### Scenario: Safety metadata falls back to English
+- **WHEN** `GET /v1/products/{id}?locale=bg` is called and Bulgarian safety metadata is empty
+- **THEN** the response falls back to English safety metadata when available
+
+#### Scenario: List response includes safety metadata without admin-only fields
+- **WHEN** `GET /v1/products` is called
+- **THEN** each public product may include resolved safety metadata
+- **AND** the response does not expose admin-only translation staleness fields

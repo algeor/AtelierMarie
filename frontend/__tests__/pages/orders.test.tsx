@@ -83,16 +83,37 @@ describe("OrdersPage", () => {
   });
 
   it("renders order list with correct fields", async () => {
-    mockedGetOrders.mockResolvedValueOnce(ordersResponse);
+    mockedGetOrders.mockResolvedValueOnce({
+      ...ordersResponse,
+      items: [
+        ordersResponse.items[0]!,
+        {
+          ...ordersResponse.items[0]!,
+          id: "cardpending-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+          payment_method: "card",
+          payment_status: "pending",
+        },
+        {
+          ...ordersResponse.items[0]!,
+          id: "cardfailed-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+          payment_method: "card",
+          payment_status: "failed",
+        },
+      ],
+      total: 3,
+    });
     renderWithIntl(<OrdersPage />);
 
     await waitFor(() => {
       expect(screen.getByText("#a1b2c3d4")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Pending")).toBeInTheDocument();
-    expect(screen.getByText("€77.00")).toBeInTheDocument();
-    expect(screen.getByText(/item/)).toBeInTheDocument();
+    expect(screen.getAllByText("Pending").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Cash on delivery · Pay on delivery")).toBeInTheDocument();
+    expect(screen.getByText("Card · Awaiting payment")).toBeInTheDocument();
+    expect(screen.getByText("Card · Payment failed")).toBeInTheDocument();
+    expect(screen.getAllByText("€77.00").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/item/).length).toBeGreaterThanOrEqual(1);
   });
 
   it("shows empty state when no orders", async () => {

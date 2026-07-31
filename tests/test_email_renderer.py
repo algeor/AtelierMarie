@@ -64,6 +64,24 @@ class TestRendering:
         assert "- Address: Vitosha, building 1, apt. 5" in body
         assert "- Phone: +359888123456" in body
 
+    def test_shipping_line_does_not_merge_with_following_labels(self):
+        cases = [
+            ("placed", "en", _CTX, "Shipping: €6.50 (estimated)\nTotal: €91.50"),
+            ("payment_pending", "en", _CTX, "Shipping: €6.50 (estimated)\nTotal: €91.50"),
+            ("admin_new_order", "en", _CTX, "Shipping: €6.50 (estimated)\nDelivery:"),
+            ("placed", "bg", _CTX, "Доставка: €6.50 (ориентировъчна)\nОбщо: €91.50"),
+            ("payment_pending", "bg", _CTX, "Доставка: €6.50 (ориентировъчна)\nОбщо: €91.50"),
+        ]
+        for event, locale, ctx, expected in cases:
+            _, body = render_template(event, locale, ctx)
+            assert expected in body
+
+    def test_shipping_line_keeps_newline_when_not_estimated(self):
+        ctx = {**_CTX, "shipping_is_fallback": False}
+        _, body = render_template("placed", "en", ctx)
+        assert "Shipping: €6.50\nTotal: €91.50" in body
+        assert "€6.50Total" not in body
+
     def test_autoescape_off_ampersand_literal(self):
         # Decision 20: plain text must NOT HTML-escape "&".
         _, body = render_template("placed", "en", _CTX)
@@ -115,6 +133,25 @@ class TestRendering:
         assert "https://admin.example/orders/1234abcd" in body
         assert "Shipping: €6.50 (estimated)" in body
         assert "- Courier: Speedy" in body
+
+    def test_admin_payment_review_template(self):
+        ctx = {
+            **_CTX,
+            "order_number": "AM-123ABC",
+            "payment_review_reason": "reservation_expired",
+            "payment_review_stripe_event_id": "evt_review",
+            "payment_review_checkout_session_id": "cs_review",
+            "payment_review_payment_intent_id": "pi_review",
+        }
+
+        subject, body = render_template("admin_payment_review_required", "en", ctx)
+
+        assert "AM-123ABC" in subject
+        assert "reservation_expired" in body
+        assert "evt_review" in body
+        assert "cs_review" in body
+        assert "pi_review" in body
+        assert "ben@example.com" not in body
 
     def test_placed_email_includes_legal_references(self):
         _, body = render_template("placed", "en", _CTX)
