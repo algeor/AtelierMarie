@@ -32,6 +32,14 @@ from app.models.analytics import (
 from app.models.comments import AdminCommentListResponse, AdminCommentResponse
 from app.models.common import PRODUCT_ID_PATTERN
 from app.models.delivery import DeliverySettingsResponse, DeliverySettingsUpdate
+from app.models.econt import (
+    EcontConnectionTestResponse,
+    EcontFulfillmentActionResponse,
+    EcontOrderFulfillmentResponse,
+    EcontOrderRepairRequest,
+    EcontSettingsResponse,
+    EcontSettingsUpdate,
+)
 from app.models.orders import (
     AdminOrderDetailResponse,
     ManualPaymentActionRequest,
@@ -73,6 +81,8 @@ from app.services import (
     admin_service,
     analytics_service,
     delivery_settings_service,
+    econt_fulfillment_service,
+    econt_settings_service,
     product_image_service,
     product_service,
     product_video_service,
@@ -81,6 +91,8 @@ from app.services import (
 from app.services.auth_service import get_oauth_circuit_breaker
 from app.services.comment_service import CommentNotFoundError, list_all_comments
 from app.services.comment_service import delete_comment as delete_comment_service
+from app.services.econt_delivery_client import EcontDeliveryError, get_econt_circuit_breaker
+from app.services.econt_fulfillment_service import EcontFulfillmentValidationError
 from app.services.email_service import event_for_status, queue_order_email
 from app.services.image_service import (
     MAX_FILE_SIZE,
@@ -154,6 +166,192 @@ async def admin_update_delivery_settings(
     """Persist admin-managed Speedy/Econt office/door availability switches."""
     settings = delivery_settings_service.update_delivery_settings(body.model_dump())
     return DeliverySettingsResponse(**settings)
+
+
+@router.get(
+    "/econt/settings",
+    response_model=EcontSettingsResponse,
+    summary="Get Econt integration settings",
+    description="Return admin-safe Econt settings and credential configured state. "
+    "Raw private keys are never returned.",
+)
+def admin_get_econt_settings() -> EcontSettingsResponse:
+    """Read Econt settings for the admin settings panel."""
+    return econt_settings_service.get_econt_settings()
+
+
+@router.patch(
+    "/econt/settings",
+    response_model=EcontSettingsResponse,
+    summary="Update Econt integration settings",
+    description="Patch non-secret Econt settings. Private keys remain env-backed or encrypted "
+    "through separate secret storage.",
+)
+def admin_update_econt_settings(body: EcontSettingsUpdate) -> EcontSettingsResponse:
+    """Update non-secret Econt settings."""
+    return econt_settings_service.update_econt_settings(body)
+
+
+@router.post(
+    "/econt/test-connection",
+    response_model=EcontConnectionTestResponse,
+    summary="Validate Econt configuration",
+    description="Validate current Econt settings without creating a shipment and store the "
+    "admin-safe health result.",
+)
+def admin_test_econt_connection() -> EcontConnectionTestResponse:
+    """Run a safe Econt configuration readiness check."""
+    return econt_settings_service.test_econt_configuration()
+
+
+def _econt_error_response(exc: EcontDeliveryError) -> JSONResponse:
+    if exc.category in {"config", "auth", "validation"}:
+        status_code = 422
+    elif exc.category == "unexpected_response":
+        status_code = 502
+    else:
+        status_code = 503
+    return error_response(
+        status_code,
+        f"ECONT_{exc.category.upper()}",
+        str(exc),
+        exc.to_safe_dict(),
+    )
+
+
+def _admin_actor_id(current_admin: UserResponse | None) -> str | None:
+    return current_admin.id if current_admin else None
+
+
+@router.get(
+    "/orders/{order_id}/econt/readiness",
+    response_model=EcontOrderFulfillmentResponse,
+    summary="Validate Econt readiness for an order",
+    description="Return admin-safe readiness blockers and current Econt shipment metadata.",
+)
+def admin_get_econt_order_readiness(order_id: str) -> EcontOrderFulfillmentResponse:
+    with get_db() as conn:
+        state = econt_fulfillment_service.get_fulfillment_state(conn, order_id)
+    return EcontOrderFulfillmentResponse(**state)
+
+
+@router.patch(
+    "/orders/{order_id}/econt/repair",
+    response_model=EcontOrderFulfillmentResponse,
+    summary="Repair Econt fulfillment fields before label creation",
+)
+def admin_repair_econt_order(
+    order_id: str,
+    body: EcontOrderRepairRequest,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> EcontOrderFulfillmentResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            state = econt_fulfillment_service.repair_order_fields(
+                conn,
+                order_id,
+                office_code=body.office_code,
+                recipient_phone=body.recipient_phone,
+                pack_count=body.pack_count,
+                shipment_description=body.shipment_description,
+                payment_side=body.payment_side,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except EcontFulfillmentValidationError as exc:
+            return error_response(422, "ECONT_REPAIR_BLOCKED", str(exc), {"blockers": exc.blockers})
+    return EcontOrderFulfillmentResponse(**state)
+
+
+@router.post(
+    "/orders/{order_id}/econt/sync",
+    response_model=EcontFulfillmentActionResponse,
+    summary="Sync local order to Econt",
+)
+def admin_sync_econt_order(
+    order_id: str,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> EcontFulfillmentActionResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = econt_fulfillment_service.sync_order(
+                conn,
+                order_id,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except EcontFulfillmentValidationError as exc:
+            return error_response(422, "ECONT_NOT_READY", str(exc), {"blockers": exc.blockers})
+        except EcontDeliveryError as exc:
+            return _econt_error_response(exc)
+    return EcontFulfillmentActionResponse(order_id=order_id, action="sync_order", **result)
+
+
+@router.post(
+    "/orders/{order_id}/econt/label",
+    response_model=EcontFulfillmentActionResponse,
+    summary="Create Econt AWB label",
+)
+def admin_create_econt_label(
+    order_id: str,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> EcontFulfillmentActionResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = econt_fulfillment_service.create_label(
+                conn,
+                order_id,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except EcontFulfillmentValidationError as exc:
+            return error_response(422, "ECONT_NOT_READY", str(exc), {"blockers": exc.blockers})
+        except EcontDeliveryError as exc:
+            return _econt_error_response(exc)
+    return EcontFulfillmentActionResponse(order_id=order_id, action="create_label", **result)
+
+
+@router.delete(
+    "/orders/{order_id}/econt/label",
+    response_model=EcontFulfillmentActionResponse,
+    summary="Delete Econt AWB label where safe",
+)
+def admin_delete_econt_label(
+    order_id: str,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> EcontFulfillmentActionResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = econt_fulfillment_service.delete_label(
+                conn,
+                order_id,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except EcontFulfillmentValidationError as exc:
+            return error_response(422, "ECONT_NOT_READY", str(exc), {"blockers": exc.blockers})
+        except EcontDeliveryError as exc:
+            return _econt_error_response(exc)
+    return EcontFulfillmentActionResponse(order_id=order_id, action="delete_label", **result)
+
+
+@router.post(
+    "/orders/{order_id}/econt/trace",
+    response_model=EcontFulfillmentActionResponse,
+    summary="Refresh Econt shipment trace",
+)
+def admin_refresh_econt_trace(
+    order_id: str,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> EcontFulfillmentActionResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = econt_fulfillment_service.refresh_trace(
+                conn,
+                order_id,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except EcontFulfillmentValidationError as exc:
+            return error_response(422, "ECONT_NOT_READY", str(exc), {"blockers": exc.blockers})
+        except EcontDeliveryError as exc:
+            return _econt_error_response(exc)
+    return EcontFulfillmentActionResponse(order_id=order_id, action="refresh_trace", **result)
 
 
 @router.post(
@@ -1176,6 +1374,18 @@ async def admin_analytics_export_csv(
 async def admin_health_oauth() -> JSONResponse:
     """Expose Google OAuth circuit breaker state for admin diagnostics."""
     breaker = get_oauth_circuit_breaker()
+    return JSONResponse(content=breaker.get_health())
+
+
+@router.get(
+    "/health/econt",
+    summary="Econt circuit breaker health",
+    description="Returns the current state of the Econt Delivery circuit breaker, "
+    "including failure count and recovery timing. Admin-only.",
+)
+async def admin_health_econt() -> JSONResponse:
+    """Expose Econt Delivery circuit breaker state for admin diagnostics."""
+    breaker = get_econt_circuit_breaker()
     return JSONResponse(content=breaker.get_health())
 
 

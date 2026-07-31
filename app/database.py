@@ -243,6 +243,17 @@ CREATE TABLE IF NOT EXISTS orders (
     courier_status   TEXT,
     -- Printable-label URL/id when a waybill was created via the courier API.
     label_url        TEXT,
+    -- Courier fulfillment metadata (Econt integration). These nullable fields
+    -- stay separate from delivery_details so labels, tracking sync, and failures
+    -- remain queryable and repairable by admins.
+    courier_provider          TEXT CHECK (courier_provider IN ('speedy', 'econt')),
+    courier_order_id          TEXT,
+    courier_shipment_number   TEXT,
+    courier_label_url         TEXT,
+    courier_label_created_at  TEXT,
+    courier_sync_status       TEXT,
+    courier_last_error        TEXT,
+    courier_last_synced_at    TEXT,
     -- Customer locale snapshotted at checkout (email language is a fact of the
     -- order, not a session lookup — see email-notifications design Decision 8).
     locale      TEXT NOT NULL DEFAULT 'en',
@@ -349,6 +360,11 @@ CREATE TABLE IF NOT EXISTS admin_alerts (
 CREATE INDEX IF NOT EXISTS idx_orders_session_id ON orders(session_id);
 CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+CREATE INDEX IF NOT EXISTS idx_orders_courier_provider ON orders(courier_provider);
+CREATE INDEX IF NOT EXISTS idx_orders_courier_shipment_number
+    ON orders(courier_shipment_number);
+CREATE INDEX IF NOT EXISTS idx_orders_courier_sync_status
+    ON orders(courier_sync_status);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_internal_sequence ON orders(internal_sequence);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_order_number ON orders(order_number);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_payment_return_token
@@ -377,6 +393,26 @@ CREATE INDEX IF NOT EXISTS idx_admin_alerts_order_id
     ON admin_alerts(order_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_site_setting_events_key_created
     ON site_setting_events(setting_key, created_at);
+
+-- Courier fulfillment audit trail and trace-event storage. Payload/error JSON
+-- must be redacted before insert by service code.
+CREATE TABLE IF NOT EXISTS order_courier_events (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id      TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    courier       TEXT NOT NULL CHECK (courier IN ('speedy', 'econt')),
+    action        TEXT NOT NULL,
+    status        TEXT NOT NULL,
+    request_json  TEXT,
+    response_json TEXT,
+    error_json    TEXT,
+    actor_user_id TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_courier_events_order_created
+    ON order_courier_events(order_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_order_courier_events_courier_action
+    ON order_courier_events(courier, action, status);
 
 -- Transactional email outbox + audit trail (email-notifications Decisions 11, 25).
 -- A 'queued' row is written in the same transaction as the order state change
@@ -565,6 +601,45 @@ CREATE TABLE IF NOT EXISTS delivery_settings (
     updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Econt integration settings. This table intentionally stores only non-secret
+-- operational configuration; private connection codes are env-backed or stored
+-- later through encrypted secret storage, never as plaintext here.
+CREATE TABLE IF NOT EXISTS econt_settings (
+    id                         TEXT PRIMARY KEY DEFAULT 'default'
+                               CHECK (id = 'default'),
+    enabled                    INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+    environment                TEXT NOT NULL DEFAULT 'demo'
+                               CHECK (environment IN ('demo', 'production')),
+    shop_id                    TEXT,
+    credential_source          TEXT NOT NULL DEFAULT 'env'
+                               CHECK (credential_source IN ('env', 'stored')),
+    sender_delivery_mode       TEXT NOT NULL DEFAULT 'office'
+                               CHECK (sender_delivery_mode IN ('office', 'door')),
+    sender_office_code         TEXT,
+    sender_city                TEXT,
+    sender_post_code           TEXT,
+    sender_address             TEXT,
+    sender_quarter             TEXT,
+    sender_street              TEXT,
+    sender_num                 TEXT,
+    sender_other               TEXT,
+    default_pack_count         INTEGER NOT NULL DEFAULT 1 CHECK (default_pack_count BETWEEN 1 AND 99),
+    shipment_description       TEXT NOT NULL DEFAULT 'Atelier Marie order',
+    declared_value_enabled     INTEGER NOT NULL DEFAULT 0 CHECK (declared_value_enabled IN (0, 1)),
+    default_payment_side       TEXT NOT NULL DEFAULT 'receiver'
+                               CHECK (default_payment_side IN ('sender', 'receiver')),
+    courier_currency           TEXT NOT NULL DEFAULT 'EUR'
+                               CHECK (courier_currency IN ('EUR', 'BGN')),
+    currency_conversion_rate   REAL CHECK (currency_conversion_rate IS NULL OR currency_conversion_rate > 0),
+    office_locator_enabled     INTEGER NOT NULL DEFAULT 0 CHECK (office_locator_enabled IN (0, 1)),
+    auto_confirm_on_label      INTEGER NOT NULL DEFAULT 0 CHECK (auto_confirm_on_label IN (0, 1)),
+    auto_delivered_on_trace    INTEGER NOT NULL DEFAULT 0 CHECK (auto_delivered_on_trace IN (0, 1)),
+    last_health_status         TEXT,
+    last_health_checked_at     TEXT,
+    last_health_error          TEXT,
+    updated_at                 TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Atelier story page content (about-management). Slugs and types are fixed
 -- server vocabulary; admin can edit text/images, publish state, and order.
 CREATE TABLE IF NOT EXISTS about_sections (
@@ -633,6 +708,11 @@ END;
 CREATE TRIGGER IF NOT EXISTS delivery_settings_updated_at AFTER UPDATE ON delivery_settings
 BEGIN
     UPDATE delivery_settings SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS econt_settings_updated_at AFTER UPDATE ON econt_settings
+BEGIN
+    UPDATE econt_settings SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
 END;
 
 CREATE TRIGGER IF NOT EXISTS faq_sections_updated_at AFTER UPDATE ON faq_sections
@@ -824,6 +904,7 @@ def init_db(path: str) -> None:
         _migrate_product_label_assignments_table(conn)
         _seed_site_banner(conn)
         _seed_delivery_settings(conn)
+        _seed_econt_settings(conn)
         _seed_about_content(conn)
         _migrate_faq(conn)
         _migrate_faq_returns_policy_reference(conn)
@@ -865,6 +946,16 @@ def _seed_delivery_settings(conn: sqlite3.Connection) -> None:
             id, speedy_office_enabled, speedy_door_enabled,
             econt_office_enabled, econt_door_enabled, updated_at
         ) VALUES ('default', 1, 1, 1, 1, datetime('now'))
+        """
+    )
+
+
+def _seed_econt_settings(conn: sqlite3.Connection) -> None:
+    """Seed the singleton Econt settings row without overwriting admin edits."""
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO econt_settings (id)
+        VALUES ('default')
         """
     )
 
@@ -1496,6 +1587,44 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
             conn, "orders", order_columns, "courier_status", "courier_status TEXT"
         )
         _add_column_if_missing(conn, "orders", order_columns, "label_url", "label_url TEXT")
+        # Courier fulfillment metadata (Econt integration). CHECK constraints
+        # are omitted on ALTER ADD COLUMN; service/model validation owns values.
+        _add_column_if_missing(
+            conn, "orders", order_columns, "courier_provider", "courier_provider TEXT"
+        )
+        _add_column_if_missing(
+            conn, "orders", order_columns, "courier_order_id", "courier_order_id TEXT"
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "courier_shipment_number",
+            "courier_shipment_number TEXT",
+        )
+        _add_column_if_missing(
+            conn, "orders", order_columns, "courier_label_url", "courier_label_url TEXT"
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "courier_label_created_at",
+            "courier_label_created_at TEXT",
+        )
+        _add_column_if_missing(
+            conn, "orders", order_columns, "courier_sync_status", "courier_sync_status TEXT"
+        )
+        _add_column_if_missing(
+            conn, "orders", order_columns, "courier_last_error", "courier_last_error TEXT"
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "courier_last_synced_at",
+            "courier_last_synced_at TEXT",
+        )
         _add_column_if_missing(
             conn, "orders", order_columns, "locale", "locale TEXT NOT NULL DEFAULT 'en'"
         )

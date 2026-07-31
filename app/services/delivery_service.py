@@ -7,7 +7,7 @@ file must never cause a startup failure.
 
 Records on disk carry bilingual fields (`name`/`name_en`, `city`/`city_en`,
 `working_hours`/`working_hours_en`). The service resolves these to the
-6-field API shape (`id`, `name`, `type`, `city`, `address`, `working_hours`)
+API shape (`id`, optional `code`, `name`, `type`, `city`, `address`, `working_hours`)
 using the caller-supplied locale, matching the pattern in
 `product_service._resolve_locale_fields`. English falls back to Bulgarian
 when a translation is missing.
@@ -64,6 +64,7 @@ class Office(TypedDict):
     """API-shape office record — matches courier-offices-data spec exactly."""
 
     id: str
+    code: str | None
     name: str
     type: str  # "office" | "apt"
     city: str
@@ -294,6 +295,7 @@ def _resolve_locale(raw: dict, locale: Locale) -> Office:
     if locale == "en":
         return Office(
             id=raw["id"],
+            code=raw.get("code"),
             name=raw.get("name_en") or raw["name"],
             type=raw["type"],
             city=_city_en(raw),
@@ -302,6 +304,7 @@ def _resolve_locale(raw: dict, locale: Locale) -> Office:
         )
     return Office(
         id=raw["id"],
+        code=raw.get("code"),
         name=raw["name"],
         type=raw["type"],
         city=raw["city"],

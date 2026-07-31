@@ -61,6 +61,17 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    labelKey: "econtNav",
+    href: "/admin/econt",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm10.5 0a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 7.5h10.5v8.25H2.25V7.5zm10.5 2.25h3.25c.38 0 .74.18.97.49l2.78 3.76v1.75h-7V9.75zM4.5 18.75H3a.75.75 0 01-.75-.75v-2.25h19.5V18a.75.75 0 01-.75.75h-2.25m-10.5 0h7.5" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 10.5h4.5M5.25 12.75H9" />
+      </svg>
+    ),
+  },
+  {
     labelKey: "paymentSettingsNav",
     href: "/admin/settings/payments",
     icon: (

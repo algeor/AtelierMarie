@@ -408,6 +408,14 @@ class OrderData(TypedDict):
     tracking_url: str | None
     courier_status: str | None
     label_url: str | None
+    courier_provider: str | None
+    courier_order_id: str | None
+    courier_shipment_number: str | None
+    courier_label_url: str | None
+    courier_label_created_at: str | None
+    courier_sync_status: str | None
+    courier_last_error: str | None
+    courier_last_synced_at: str | None
     locale: str
     notes: str | None
     payment_method: str
@@ -492,6 +500,15 @@ def checkout(
         delivery_details = delivery_sub.model_dump()
         delivery_details["office_name"] = catalogue_office["name"]
         delivery_details["office_type"] = catalogue_office["type"]
+        if delivery_sub.courier == "econt":
+            office_code = delivery_sub.office_code or catalogue_office.get("code")
+            if not office_code:
+                raise InvalidDeliveryOfficeError(
+                    delivery_sub.office_id,
+                    delivery_sub.courier,
+                    reason="office_code required for Econt office delivery",
+                )
+            delivery_details["office_code"] = office_code
         delivery_courier = delivery_sub.courier
     else:
         delivery_sub = delivery.door
@@ -787,6 +804,14 @@ def checkout(
         tracking_url=None,
         courier_status=None,
         label_url=None,
+        courier_provider=None,
+        courier_order_id=None,
+        courier_shipment_number=None,
+        courier_label_url=None,
+        courier_label_created_at=None,
+        courier_sync_status=None,
+        courier_last_error=None,
+        courier_last_synced_at=None,
         locale=locale,
         notes=notes,
         payment_method=payment_method,
@@ -880,6 +905,24 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
         tracking_url=row["tracking_url"] if "tracking_url" in row_keys else None,
         courier_status=row["courier_status"] if "courier_status" in row_keys else None,
         label_url=row["label_url"] if "label_url" in row_keys else None,
+        courier_provider=row["courier_provider"] if "courier_provider" in row_keys else None,
+        courier_order_id=row["courier_order_id"] if "courier_order_id" in row_keys else None,
+        courier_shipment_number=(
+            row["courier_shipment_number"] if "courier_shipment_number" in row_keys else None
+        ),
+        courier_label_url=row["courier_label_url"] if "courier_label_url" in row_keys else None,
+        courier_label_created_at=(
+            row["courier_label_created_at"] if "courier_label_created_at" in row_keys else None
+        ),
+        courier_sync_status=(
+            row["courier_sync_status"] if "courier_sync_status" in row_keys else None
+        ),
+        courier_last_error=(
+            row["courier_last_error"] if "courier_last_error" in row_keys else None
+        ),
+        courier_last_synced_at=(
+            row["courier_last_synced_at"] if "courier_last_synced_at" in row_keys else None
+        ),
         locale=(row["locale"] if "locale" in row_keys and row["locale"] else "en"),
         notes=row["notes"],
         payment_method=row["payment_method"] if "payment_method" in row_keys else "cod",
@@ -1074,6 +1117,7 @@ def update_status(
     row = conn.execute(
         "SELECT id, status, payment_method, delivery_method, delivery_courier,"
         " delivery_details, customer_name, total_cents, shipping_cents, payment_status"
+        ", tracking_number, tracking_carrier, tracking_url, courier_shipment_number"
         " FROM orders WHERE id = ?",
         (order_id,),
     ).fetchone()
@@ -1099,6 +1143,12 @@ def update_status(
         if not tracking_number and delivery_courier == "speedy":
             tracking_number, label_url = _create_speedy_waybill(row)
             tracking_carrier = tracking_carrier or "speedy"
+        elif not tracking_number and delivery_courier == "econt":
+            existing_tracking = row["tracking_number"] or row["courier_shipment_number"]
+            if existing_tracking:
+                tracking_number = existing_tracking
+                tracking_carrier = tracking_carrier or row["tracking_carrier"] or "econt"
+                tracking_url = tracking_url or row["tracking_url"]
 
         # Tracking is required on ship; url is optional (auto-generated below).
         missing = []

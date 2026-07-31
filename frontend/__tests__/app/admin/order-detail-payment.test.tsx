@@ -18,12 +18,20 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/api", () => ({
   getAdminOrder: vi.fn(),
   applyManualPaymentAction: vi.fn(),
+  getEcontOrderReadiness: vi.fn(),
+  repairEcontOrder: vi.fn(),
+  syncEcontOrder: vi.fn(),
+  createEcontLabel: vi.fn(),
+  deleteEcontLabel: vi.fn(),
+  refreshEcontTrace: vi.fn(),
+  updateOrderStatus: vi.fn(),
 }));
 
-import { applyManualPaymentAction, getAdminOrder } from "@/lib/api";
+import { applyManualPaymentAction, getAdminOrder, getEcontOrderReadiness } from "@/lib/api";
 
 const mockedGetAdminOrder = vi.mocked(getAdminOrder);
 const mockedApplyManualPaymentAction = vi.mocked(applyManualPaymentAction);
+const mockedGetEcontOrderReadiness = vi.mocked(getEcontOrderReadiness);
 
 const ORDER: AdminOrderDetailResponse = {
   id: "order-1",
@@ -89,6 +97,20 @@ describe("Admin order payment detail", () => {
     mockedGetAdminOrder.mockReset();
     mockedApplyManualPaymentAction.mockReset();
     mockedGetAdminOrder.mockResolvedValue(ORDER);
+    mockedGetEcontOrderReadiness.mockResolvedValue({
+      order_id: ORDER.id,
+      ready: false,
+      blockers: ["order_office_code_missing"],
+      courier_provider: null,
+      courier_order_id: null,
+      courier_shipment_number: null,
+      courier_label_url: null,
+      courier_sync_status: null,
+      courier_last_error: null,
+      courier_last_synced_at: null,
+      tracking_number: null,
+      tracking_url: null,
+    });
     mockedApplyManualPaymentAction.mockResolvedValue({
       ...ORDER,
       payment_status: "failed",

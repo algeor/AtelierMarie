@@ -20,8 +20,8 @@ class TestListOffices:
         data = resp.json()
         assert isinstance(data, list)
         assert len(data) > 0
-        # 6-field API-shape contract
-        expected_keys = {"id", "name", "type", "city", "address", "working_hours"}
+        # API-shape contract includes the raw courier office code when known.
+        expected_keys = {"id", "code", "name", "type", "city", "address", "working_hours"}
         for office in data:
             assert set(office.keys()) == expected_keys
             assert office["city"].casefold() == "софия".casefold()

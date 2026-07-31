@@ -9,6 +9,7 @@ import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
 import { cn, formatPrice } from "@/lib/utils";
 import { DeliveryDetails } from "@/components/checkout/DeliveryDetails";
+import { EcontFulfillmentPanel } from "@/components/admin/EcontFulfillmentPanel";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
 import { StatusTimeline } from "@/components/orders/StatusTimeline";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -150,6 +151,11 @@ export default function AdminOrderDetailPage() {
     } finally {
       setIsManualSaving(false);
     }
+  }
+
+  async function refreshOrder() {
+    const refreshed = await getAdminOrder(orderId);
+    setOrder(refreshed);
   }
 
   if (state === "loading") {
@@ -471,6 +477,8 @@ export default function AdminOrderDetailPage() {
         </section>
 
         <DeliveryDetails order={order} />
+
+        <EcontFulfillmentPanel order={order} onRefreshOrder={refreshOrder} />
 
         {order.notes && (
           <section className="mt-8 border-t border-champagne-beige pt-6">

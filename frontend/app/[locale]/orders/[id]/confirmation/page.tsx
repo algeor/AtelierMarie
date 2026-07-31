@@ -12,6 +12,7 @@ import { policyPath } from "@/lib/legal";
 import { formatPrice } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { CourierTrackingSummary } from "@/components/orders/CourierTrackingSummary";
 import { DeliveryDetails } from "@/components/checkout/DeliveryDetails";
 import type { OrderResponse } from "@/lib/types";
 
@@ -214,6 +215,7 @@ export default function OrderConfirmationPage() {
         </p>
 
         {/* Delivery details */}
+        <CourierTrackingSummary order={order} />
         <DeliveryDetails order={order} />
 
         {/* Continue shopping */}

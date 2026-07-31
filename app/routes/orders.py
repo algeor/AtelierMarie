@@ -54,6 +54,17 @@ def _client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
 
 
+def _public_order_response(order_data: object) -> OrderResponse:
+    """Build customer-safe order responses without operational courier internals."""
+    return OrderResponse.model_validate(order_data).model_copy(
+        update={
+            "courier_order_id": None,
+            "courier_label_url": None,
+            "courier_last_error": None,
+        }
+    )
+
+
 @router.post(
     "",
     response_model=OrderResponse,
@@ -316,7 +327,7 @@ def create_order(
             },
         )
 
-    response = OrderResponse.model_validate(order_data)
+    response = _public_order_response(order_data)
     if stripe_checkout_url:
         response = response.model_copy(update={"stripe_checkout_url": stripe_checkout_url})
     return response
@@ -429,7 +440,7 @@ def list_my_orders(
         )
 
     return OrderListResponse(
-        items=[OrderResponse.model_validate(o) for o in result["items"]],
+        items=[_public_order_response(o) for o in result["items"]],
         total=result["total"],
         page=result["page"],
         limit=result["limit"],
@@ -479,4 +490,4 @@ def get_order_detail(
             user_id=user_id,
         )
 
-    return OrderResponse.model_validate(order_data)
+    return _public_order_response(order_data)

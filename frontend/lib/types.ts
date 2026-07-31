@@ -386,6 +386,14 @@ export interface OrderResponse {
   tracking_url: string | null;
   courier_status: string | null;
   label_url: string | null;
+  courier_provider?: string | null;
+  courier_order_id?: string | null;
+  courier_shipment_number?: string | null;
+  courier_label_url?: string | null;
+  courier_label_created_at?: string | null;
+  courier_sync_status?: string | null;
+  courier_last_error?: string | null;
+  courier_last_synced_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -397,6 +405,133 @@ export interface OrderListResponse {
   limit: number;
 }
 
+// --- Econt admin settings ---
+
+export type EcontEnvironment = "demo" | "production";
+export type EcontCredentialSource = "env" | "stored";
+export type EcontDeliveryMode = "office" | "door";
+export type EcontPaymentSide = "sender" | "receiver";
+export type EcontCurrency = "EUR" | "BGN";
+export type EcontConnectionStatus =
+  | "success"
+  | "missing_configuration"
+  | "authentication_failed"
+  | "validation_failed"
+  | "timeout"
+  | "service_outage";
+
+export interface EcontSecretState {
+  credential_source: EcontCredentialSource;
+  private_key_configured: boolean;
+  shop_id_configured: boolean;
+  encryption_key_configured: boolean;
+}
+
+export interface EcontSettingsResponse {
+  enabled: boolean;
+  environment: EcontEnvironment;
+  shop_id: string | null;
+  credential_source: EcontCredentialSource;
+  sender_delivery_mode: EcontDeliveryMode;
+  sender_office_code: string | null;
+  sender_city: string | null;
+  sender_post_code: string | null;
+  sender_address: string | null;
+  sender_quarter: string | null;
+  sender_street: string | null;
+  sender_num: string | null;
+  sender_other: string | null;
+  default_pack_count: number;
+  shipment_description: string;
+  declared_value_enabled: boolean;
+  default_payment_side: EcontPaymentSide;
+  courier_currency: EcontCurrency;
+  currency_conversion_rate: number | null;
+  office_locator_enabled: boolean;
+  auto_confirm_on_label: boolean;
+  auto_delivered_on_trace: boolean;
+  base_url: string;
+  office_locator_url: string;
+  office_locator_origins: string[];
+  secret_state: EcontSecretState;
+  last_health_status: string | null;
+  last_health_checked_at: string | null;
+  last_health_error: string | null;
+  updated_at: string;
+}
+
+export type EcontSettingsUpdate = Partial<
+  Pick<
+    EcontSettingsResponse,
+    | "enabled"
+    | "environment"
+    | "shop_id"
+    | "credential_source"
+    | "sender_delivery_mode"
+    | "sender_office_code"
+    | "sender_city"
+    | "sender_post_code"
+    | "sender_address"
+    | "sender_quarter"
+    | "sender_street"
+    | "sender_num"
+    | "sender_other"
+    | "default_pack_count"
+    | "shipment_description"
+    | "declared_value_enabled"
+    | "default_payment_side"
+    | "courier_currency"
+    | "currency_conversion_rate"
+    | "office_locator_enabled"
+    | "auto_confirm_on_label"
+    | "auto_delivered_on_trace"
+  >
+>;
+
+export interface EcontConnectionTestResponse {
+  status: EcontConnectionStatus;
+  ok: boolean;
+  message: string;
+  checked_at: string;
+  details: Record<string, unknown> | null;
+}
+
+export interface EcontOrderFulfillmentResponse {
+  order_id: string;
+  ready: boolean;
+  blockers: string[];
+  courier_provider: string | null;
+  courier_order_id: string | null;
+  courier_shipment_number: string | null;
+  courier_label_url: string | null;
+  courier_sync_status: string | null;
+  courier_last_error: string | null;
+  courier_last_synced_at: string | null;
+  tracking_number: string | null;
+  tracking_url: string | null;
+}
+
+export interface EcontFulfillmentActionResponse {
+  order_id: string;
+  action: string;
+  status: string;
+  courier_order_id: string | null;
+  shipment_number: string | null;
+  label_url: string | null;
+  tracking_url: string | null;
+  status_updated_to?: OrderStatus | null;
+  ready?: boolean | null;
+  blockers?: string[] | null;
+}
+
+export interface EcontOrderRepairRequest {
+  office_code?: string | null;
+  recipient_phone?: string | null;
+  pack_count?: number | null;
+  shipment_description?: string | null;
+  payment_side?: EcontPaymentSide | null;
+}
+
 // --- Delivery ---
 
 export type DeliveryMethod = "office" | "door";
@@ -406,6 +541,7 @@ export type OfficeType = "office" | "apt";
 export interface DeliveryOffice {
   courier: Courier;
   office_id: string;
+  office_code?: string | null;
   office_name: string;
   office_type: OfficeType;
   city: string;
@@ -441,6 +577,16 @@ export interface DeliverySettingsUpdate {
   speedy_door_enabled: boolean;
   econt_office_enabled: boolean;
   econt_door_enabled: boolean;
+}
+
+export interface EcontCheckoutConfig {
+  office_locator_enabled: boolean;
+  office_locator_url: string;
+  office_locator_origins: string[];
+}
+
+export interface DeliveryConfigResponse {
+  econt: EcontCheckoutConfig;
 }
 
 export interface StripeConfigHealth {
@@ -502,6 +648,7 @@ export type ManualPaymentAction =
 
 export interface OfficeResponse {
   id: string;
+  code?: string | null;
   name: string;
   type: OfficeType;
   city: string;

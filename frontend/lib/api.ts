@@ -38,8 +38,15 @@ import type {
   ContactResponse,
   CheckoutAnalyticsResponse,
   Courier,
+  DeliveryConfigResponse,
   DeliverySettingsResponse,
   DeliverySettingsUpdate,
+  EcontConnectionTestResponse,
+  EcontFulfillmentActionResponse,
+  EcontOrderFulfillmentResponse,
+  EcontOrderRepairRequest,
+  EcontSettingsResponse,
+  EcontSettingsUpdate,
   CreateOrderRequest,
   CreateAboutItemRequest,
   CreateProductRequest,
@@ -414,6 +421,11 @@ export async function createStripeRetrySession(
 
 // --- Delivery ---
 
+export async function getDeliveryConfig(): Promise<DeliveryConfigResponse> {
+  if (USE_MOCK) return (await getMock()).getDeliveryConfig();
+  return apiClient.get<DeliveryConfigResponse>("/v1/delivery/config");
+}
+
 export async function getDeliveryOffices(
   courier: Courier,
   city: string,
@@ -490,6 +502,71 @@ export async function updateAdminDeliverySettings(
 ): Promise<DeliverySettingsResponse> {
   if (USE_MOCK) return (await getMock()).updateAdminDeliverySettings(data);
   return apiClient.put<DeliverySettingsResponse>("/v1/admin/delivery-settings", data);
+}
+
+export async function getEcontSettings(): Promise<EcontSettingsResponse> {
+  if (USE_MOCK) return (await getMock()).getEcontSettings();
+  return apiClient.get<EcontSettingsResponse>("/v1/admin/econt/settings");
+}
+
+export async function updateEcontSettings(
+  data: EcontSettingsUpdate
+): Promise<EcontSettingsResponse> {
+  if (USE_MOCK) return (await getMock()).updateEcontSettings(data);
+  return apiClient.patch<EcontSettingsResponse>("/v1/admin/econt/settings", data);
+}
+
+export async function testEcontConnection(): Promise<EcontConnectionTestResponse> {
+  if (USE_MOCK) return (await getMock()).testEcontConnection();
+  return apiClient.post<EcontConnectionTestResponse>("/v1/admin/econt/test-connection");
+}
+
+export async function getEcontOrderReadiness(
+  orderId: string
+): Promise<EcontOrderFulfillmentResponse> {
+  if (USE_MOCK) return (await getMock()).getEcontOrderReadiness(orderId);
+  return apiClient.get<EcontOrderFulfillmentResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/readiness`
+  );
+}
+
+export async function repairEcontOrder(
+  orderId: string,
+  data: EcontOrderRepairRequest
+): Promise<EcontOrderFulfillmentResponse> {
+  if (USE_MOCK) return (await getMock()).repairEcontOrder(orderId, data);
+  return apiClient.patch<EcontOrderFulfillmentResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/repair`,
+    data
+  );
+}
+
+export async function syncEcontOrder(orderId: string): Promise<EcontFulfillmentActionResponse> {
+  if (USE_MOCK) return (await getMock()).syncEcontOrder(orderId);
+  return apiClient.post<EcontFulfillmentActionResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/sync`
+  );
+}
+
+export async function createEcontLabel(orderId: string): Promise<EcontFulfillmentActionResponse> {
+  if (USE_MOCK) return (await getMock()).createEcontLabel(orderId);
+  return apiClient.post<EcontFulfillmentActionResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/label`
+  );
+}
+
+export async function deleteEcontLabel(orderId: string): Promise<EcontFulfillmentActionResponse> {
+  if (USE_MOCK) return (await getMock()).deleteEcontLabel(orderId);
+  return apiClient.del<EcontFulfillmentActionResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/label`
+  );
+}
+
+export async function refreshEcontTrace(orderId: string): Promise<EcontFulfillmentActionResponse> {
+  if (USE_MOCK) return (await getMock()).refreshEcontTrace(orderId);
+  return apiClient.post<EcontFulfillmentActionResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/trace`
+  );
 }
 
 export async function getOrders(
