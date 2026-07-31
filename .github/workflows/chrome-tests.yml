@@ -1,0 +1,37 @@
+name: Full Testing
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  chrome-stack-tests:
+    name: Complete Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Setup Backend
+        run: make setup-backend
+
+      - name: Setup Frontend
+        run: make setup-backend
+
+      - name: Run complete  tests
+        run: make test-chrome-stack

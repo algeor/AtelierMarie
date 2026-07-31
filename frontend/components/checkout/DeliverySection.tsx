@@ -13,12 +13,14 @@
  * intentionally out of scope — added by the sibling `shipping-pricing` change.
  */
 
-import { useCallback, useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
-import { getDeliveryCities, getDeliveryOffices } from "@/lib/api";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslations, useLocale } from "next-intl";
+import { getDeliveryCities, getDeliveryOffices, getDeliveryPlaces } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type {
+  CityPlace,
   Courier,
+  DeliverySettingsResponse,
   DeliveryDoor,
   DeliveryInfo,
   DeliveryMethod,
@@ -26,6 +28,7 @@ import type {
   OfficeResponse,
   OfficeType,
 } from "@/lib/types";
+import type { Locale } from "@/i18n/routing";
 
 const PHONE_REGEX = /^\+?[0-9]{8,15}$/;
 
@@ -54,6 +57,33 @@ interface DeliverySectionProps {
   onChange: (delivery: Partial<DeliveryInfo>) => void;
   errors?: DeliveryValidationErrors;
   onErrorsChange?: (errors: DeliveryValidationErrors) => void;
+  deliverySettings?: DeliverySettingsResponse | null;
+}
+
+const ALL_COURIERS: Courier[] = ["speedy", "econt"];
+const ALL_METHODS: DeliveryMethod[] = ["office", "door"];
+
+function methodEnabled(
+  settings: DeliverySettingsResponse | null | undefined,
+  courier: Courier,
+  method: DeliveryMethod,
+): boolean {
+  if (!settings) return true;
+  const key = `${courier}_${method}_enabled` as keyof Pick<
+    DeliverySettingsResponse,
+    | "speedy_office_enabled"
+    | "speedy_door_enabled"
+    | "econt_office_enabled"
+    | "econt_door_enabled"
+  >;
+  return settings[key];
+}
+
+function availableCouriersForMethod(
+  settings: DeliverySettingsResponse | null | undefined,
+  method: DeliveryMethod,
+): Courier[] {
+  return ALL_COURIERS.filter((courier) => methodEnabled(settings, courier, method));
 }
 
 // ---------------- DeliveryMethodSelector ----------------
@@ -61,12 +91,12 @@ interface DeliverySectionProps {
 interface DeliveryMethodSelectorProps {
   value: DeliveryMethod | undefined;
   onChange: (method: DeliveryMethod) => void;
+  methods: DeliveryMethod[];
   error?: string;
 }
 
-function DeliveryMethodSelector({ value, onChange, error }: DeliveryMethodSelectorProps) {
+function DeliveryMethodSelector({ value, onChange, methods, error }: DeliveryMethodSelectorProps) {
   const t = useTranslations("checkout.delivery.method");
-  const methods: DeliveryMethod[] = ["office", "door"];
 
   return (
     <fieldset className="mb-6">
@@ -110,12 +140,12 @@ function DeliveryMethodSelector({ value, onChange, error }: DeliveryMethodSelect
 interface CourierPickerProps {
   value: Courier | undefined;
   onChange: (courier: Courier) => void;
+  couriers: Courier[];
   error?: string;
 }
 
-function CourierPicker({ value, onChange, error }: CourierPickerProps) {
+function CourierPicker({ value, onChange, couriers, error }: CourierPickerProps) {
   const t = useTranslations("checkout.delivery.courier");
-  const couriers: Courier[] = ["speedy", "econt"];
 
   return (
     <fieldset className="mb-6">
@@ -163,9 +193,10 @@ interface OfficePickerProps {
   selectedOffice: OfficeResponse | null;
   onSelect: (office: OfficeResponse) => void;
   error?: string;
+  locale: Locale;
 }
 
-function OfficePicker({ courier, selectedOffice, onSelect, error }: OfficePickerProps) {
+function OfficePicker({ courier, selectedOffice, onSelect, error, locale }: OfficePickerProps) {
   const t = useTranslations("checkout.delivery.office");
   const tType = useTranslations("checkout.delivery.officeType");
 
@@ -195,7 +226,7 @@ function OfficePicker({ courier, selectedOffice, onSelect, error }: OfficePicker
     let cancelled = false;
     const t = setTimeout(async () => {
       try {
-        const results = await getDeliveryCities(courier, city);
+        const results = await getDeliveryCities(courier, city, locale);
         if (!cancelled) setCitySuggestions(results.slice(0, 10));
       } catch {
         if (!cancelled) setCitySuggestions([]);
@@ -205,7 +236,7 @@ function OfficePicker({ courier, selectedOffice, onSelect, error }: OfficePicker
       cancelled = true;
       clearTimeout(t);
     };
-  }, [city, courier, confirmedCity]);
+  }, [city, courier, confirmedCity, locale]);
 
   // Load offices when a city is confirmed
   useEffect(() => {
@@ -215,7 +246,7 @@ function OfficePicker({ courier, selectedOffice, onSelect, error }: OfficePicker
     }
     let cancelled = false;
     setLoading(true);
-    getDeliveryOffices(courier, confirmedCity)
+    getDeliveryOffices(courier, confirmedCity, undefined, locale)
       .then((res) => {
         if (!cancelled) setOffices(res);
       })
@@ -228,7 +259,7 @@ function OfficePicker({ courier, selectedOffice, onSelect, error }: OfficePicker
     return () => {
       cancelled = true;
     };
-  }, [confirmedCity, courier]);
+  }, [confirmedCity, courier, locale]);
 
   const confirmCity = useCallback((c: string) => {
     setCity(c);
@@ -395,16 +426,19 @@ interface DoorAddressFormProps {
   value: Partial<DeliveryDoor>;
   onChange: (patch: Partial<DeliveryDoor>) => void;
   errors: DeliveryValidationErrors;
+  locale: Locale;
 }
 
-function DoorAddressForm({ value, onChange, errors }: DoorAddressFormProps) {
+function DoorAddressForm({ value, onChange, errors, locale }: DoorAddressFormProps) {
   const t = useTranslations("checkout.delivery.door");
+  const courier = value.courier ?? "speedy";
 
   const field = (
     key: "city" | "postalCode" | "street" | "building" | "apartment",
     fieldKey: keyof DeliveryDoor,
     required: boolean,
     errorKey?: keyof DeliveryValidationErrors,
+    readOnly = false,
   ) => {
     const err = errorKey ? errors[errorKey] : undefined;
     return (
@@ -418,6 +452,7 @@ function DoorAddressForm({ value, onChange, errors }: DoorAddressFormProps) {
           value={(value[fieldKey] as string | null | undefined) ?? ""}
           onChange={(e) => onChange({ [fieldKey]: e.target.value })}
           placeholder={t(`${key}Placeholder`)}
+          readOnly={readOnly}
           maxLength={
             fieldKey === "street"
               ? 200
@@ -430,6 +465,7 @@ function DoorAddressForm({ value, onChange, errors }: DoorAddressFormProps) {
           aria-invalid={err ? "true" : undefined}
           className={cn(
             "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
+            readOnly && "cursor-not-allowed opacity-70",
             err ? "border-red-700" : "border-champagne-beige"
           )}
         />
@@ -444,14 +480,151 @@ function DoorAddressForm({ value, onChange, errors }: DoorAddressFormProps) {
 
   return (
     <div className="mb-6">
-      {field("city", "city", true, "city")}
-      {field("postalCode", "postal_code", true, "postalCode")}
+      <DoorPlaceField
+        courier={courier}
+        locale={locale}
+        city={value.city ?? ""}
+        postalCode={value.postal_code ?? ""}
+        onSelect={(place) =>
+          onChange({ city: place.name, postal_code: place.postal_code ?? "" })
+        }
+        onPostalCodeChange={(postal_code) => onChange({ postal_code })}
+        error={errors.city}
+      />
       {field("street", "street", true, "street")}
       <div className="grid gap-4 sm:grid-cols-2">
         {field("building", "building", false)}
         {field("apartment", "apartment", false)}
       </div>
     </div>
+  );
+}
+
+// ---------------- DoorPlaceField ----------------
+
+interface DoorPlaceFieldProps {
+  courier: Courier;
+  locale: Locale;
+  city: string;
+  postalCode: string;
+  onSelect: (place: CityPlace) => void;
+  onPostalCodeChange: (postalCode: string) => void;
+  error?: string;
+}
+
+// Debounced place typeahead for courier door delivery — mirrors the OfficePicker
+// city typeahead but consumes getDeliveryPlaces so suggestions carry region +
+// postcode. Selecting a place autofills a read-only postcode; ambiguous towns
+// (e.g. three "Садово") appear as distinct "name — region" rows.
+function DoorPlaceField({
+  courier,
+  locale,
+  city,
+  postalCode,
+  onSelect,
+  onPostalCodeChange,
+  error,
+}: DoorPlaceFieldProps) {
+  const t = useTranslations("checkout.delivery.door");
+  const [query, setQuery] = useState(city);
+  const [suggestions, setSuggestions] = useState<CityPlace[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [confirmed, setConfirmed] = useState<string | null>(city || null);
+  const [postalCodeLocked, setPostalCodeLocked] = useState(Boolean(postalCode));
+
+  useEffect(() => {
+    if (query.length < 1 || confirmed === query) {
+      setSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const results = await getDeliveryPlaces(courier, query, locale);
+        if (!cancelled) setSuggestions(results.slice(0, 10));
+      } catch {
+        if (!cancelled) setSuggestions([]);
+      }
+    }, 200);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query, courier, confirmed, locale]);
+
+  const confirmPlace = (place: CityPlace) => {
+    setQuery(place.name);
+    setConfirmed(place.name);
+    setPostalCodeLocked(Boolean(place.postal_code));
+    setShowSuggestions(false);
+    onSelect(place);
+  };
+
+  return (
+    <>
+      <div className="mb-4">
+        <label className="mb-1.5 block text-sm font-medium text-soft-brown">
+          {t("cityLabel")} <span className="text-red-700">*</span>
+        </label>
+        <div className="relative">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setConfirmed(null);
+              setPostalCodeLocked(false);
+              setShowSuggestions(true);
+            }}
+            onFocus={() => setShowSuggestions(true)}
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+            placeholder={t("cityPlaceholder")}
+            maxLength={100}
+            aria-invalid={error ? "true" : undefined}
+            className={cn(
+              "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
+              error ? "border-red-700" : "border-champagne-beige"
+            )}
+          />
+          {showSuggestions && suggestions.length > 0 && (
+            <ul className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-brand border border-champagne-beige bg-warm-ivory shadow-lg">
+              {suggestions.map((place) => (
+                <li key={`${place.name}-${place.postal_code}`}>
+                  <button
+                    type="button"
+                    onClick={() => confirmPlace(place)}
+                    className="block w-full px-4 py-2 text-left text-sm text-charcoal hover:bg-champagne-beige/30"
+                  >
+                    {place.region ? `${place.name} — ${place.region}` : place.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        {error && (
+          <p className="mt-1 text-sm text-red-700" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+      <div className="mb-4">
+        <label className="mb-1.5 block text-sm font-medium text-soft-brown">
+          {t("postalCodeLabel")} <span className="text-red-700">*</span>
+        </label>
+        <input
+          type="text"
+          value={postalCode}
+          readOnly={postalCodeLocked}
+          onChange={(e) => onPostalCodeChange(e.target.value)}
+          placeholder={t("postalCodePlaceholder")}
+          className={cn(
+            "w-full rounded-brand border border-champagne-beige bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
+            postalCodeLocked && "cursor-not-allowed opacity-70 focus:ring-0"
+          )}
+        />
+      </div>
+    </>
   );
 }
 
@@ -492,11 +665,25 @@ function PhoneField({ value, onChange, error }: PhoneFieldProps) {
 
 // ---------------- Main DeliverySection ----------------
 
-export function DeliverySection({ value, onChange, errors = {} }: DeliverySectionProps) {
+export function DeliverySection({
+  value,
+  onChange,
+  errors = {},
+  deliverySettings = null,
+}: DeliverySectionProps) {
   const t = useTranslations("checkout.delivery");
+  const locale = useLocale() as Locale;
   const method = value.method;
   const office = value.office ?? undefined;
   const door = value.door ?? undefined;
+  const availableMethods = useMemo(
+    () => ALL_METHODS.filter((m) => availableCouriersForMethod(deliverySettings, m).length > 0),
+    [deliverySettings],
+  );
+  const availableCouriers = useMemo(
+    () => (method ? availableCouriersForMethod(deliverySettings, method) : []),
+    [deliverySettings, method],
+  );
   // Courier lives inside office/door — track it at the section level for progressive disclosure
   const currentCourier: Courier | undefined = office?.courier ?? door?.courier;
 
@@ -504,6 +691,44 @@ export function DeliverySection({ value, onChange, errors = {} }: DeliverySectio
   // The checkout payload only stores the id/name/type/courier/phone the backend needs,
   // so we cache display fields here to keep the "selected" card populated after selection.
   const [selectedOfficeFull, setSelectedOfficeFull] = useState<OfficeResponse | null>(null);
+
+  useEffect(() => {
+    if (!method) return;
+    if (!availableMethods.includes(method)) {
+      const nextMethod = availableMethods[0];
+      setSelectedOfficeFull(null);
+      onChange(nextMethod ? { method: nextMethod, office: null, door: null } : {});
+      return;
+    }
+    if (currentCourier && !availableCouriers.includes(currentCourier)) {
+      const nextCourier = availableCouriers[0];
+      setSelectedOfficeFull(null);
+      if (!nextCourier) {
+        onChange({ method, office: null, door: null });
+      } else if (method === "office") {
+        onChange({
+          ...value,
+          office: { courier: nextCourier, phone: office?.phone ?? "" } as DeliveryOffice,
+          door: null,
+        });
+      } else {
+        onChange({
+          ...value,
+          door: { ...(door ?? {}), courier: nextCourier } as DeliveryDoor,
+          office: null,
+        });
+      }
+    }
+  }, [
+    availableCouriers,
+    availableMethods,
+    currentCourier,
+    door,
+    method,
+    office?.phone,
+    onChange,
+    value,
+  ]);
 
   const setMethod = (m: DeliveryMethod) => {
     if (m === value.method) return;
@@ -536,7 +761,7 @@ export function DeliverySection({ value, onChange, errors = {} }: DeliverySectio
       setSelectedOfficeFull(null);
       onChange({
         ...value,
-        office: { courier: currentCourier ?? "speedy", office_id: "", office_name: "", office_type: "office", phone: office?.phone ?? "" },
+        office: { courier: currentCourier ?? "speedy", office_id: "", office_name: "", office_type: "office", city: "", phone: office?.phone ?? "" },
       });
       return;
     }
@@ -548,6 +773,7 @@ export function DeliverySection({ value, onChange, errors = {} }: DeliverySectio
         office_id: o.id,
         office_name: o.name,
         office_type: o.type,
+        city: o.city,
         phone: office?.phone ?? "",
       },
     });
@@ -580,7 +806,7 @@ export function DeliverySection({ value, onChange, errors = {} }: DeliverySectio
             id: office.office_id,
             name: office.office_name,
             type: office.office_type,
-            city: "",
+            city: office.city ?? "",
             address: "",
             working_hours: "",
           }
@@ -590,10 +816,26 @@ export function DeliverySection({ value, onChange, errors = {} }: DeliverySectio
     <section className="mb-8">
       <h2 className="mb-4 font-heading text-xl text-charcoal">{t("sectionTitle")}</h2>
 
-      <DeliveryMethodSelector value={method} onChange={setMethod} error={errors.method} />
+      {availableMethods.length === 0 ? (
+        <p className="mb-6 rounded-brand border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {t("unavailable")}
+        </p>
+      ) : (
+        <DeliveryMethodSelector
+          value={method}
+          onChange={setMethod}
+          methods={availableMethods}
+          error={errors.method}
+        />
+      )}
 
       {method && (
-        <CourierPicker value={currentCourier} onChange={setCourier} error={errors.courier} />
+        <CourierPicker
+          value={currentCourier}
+          onChange={setCourier}
+          couriers={availableCouriers}
+          error={errors.courier}
+        />
       )}
 
       {method === "office" && currentCourier && (
@@ -602,11 +844,12 @@ export function DeliverySection({ value, onChange, errors = {} }: DeliverySectio
           selectedOffice={selectedOffice}
           onSelect={selectOffice}
           error={errors.office}
+          locale={locale}
         />
       )}
 
       {method === "door" && currentCourier && (
-        <DoorAddressForm value={door ?? { courier: currentCourier }} onChange={patchDoor} errors={errors} />
+        <DoorAddressForm value={door ?? { courier: currentCourier }} onChange={patchDoor} errors={errors} locale={locale} />
       )}
 
       {method && currentCourier && (method !== "office" || selectedOffice) && (

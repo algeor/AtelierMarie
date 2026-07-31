@@ -1,0 +1,20 @@
+[
+  {
+    "name": "Згориград",
+    "name_en": "Zgorigrad",
+    "postal_code": "3042",
+    "region": "Враца",
+    "region_en": "Vratsa",
+    "couriers": ["speedy", "econt"],
+    "source": "manual-verification"
+  },
+  {
+    "name": "Роман",
+    "name_en": "Roman",
+    "postal_code": "3130",
+    "region": "Враца",
+    "region_en": "Vratsa",
+    "couriers": ["speedy"],
+    "source": "speedy-office-backfill"
+  }
+]

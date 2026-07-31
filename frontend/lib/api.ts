@@ -18,6 +18,8 @@ import type {
   BannerUpdateRequest,
   BulkDiscountRequest,
   BulkDiscountResponse,
+  CalculateShippingRequest,
+  CalculateShippingResponse,
   CampaignCreateRequest,
   CampaignListResponse,
   CampaignResponse,
@@ -31,11 +33,14 @@ import type {
   ContactRequest,
   ContactResponse,
   Courier,
+  DeliverySettingsResponse,
+  DeliverySettingsUpdate,
   CreateOrderRequest,
   CreateAboutItemRequest,
   CreateProductRequest,
   CreateTaxonomyTermRequest,
   CreateFaqItemRequest,
+  CityPlace,
   FaqAdminResponse,
   FaqItemAdminResponse,
   FaqResponse,
@@ -399,22 +404,62 @@ export async function createStripeRetrySession(
 export async function getDeliveryOffices(
   courier: Courier,
   city: string,
-  type?: OfficeType
+  type?: OfficeType,
+  locale?: Locale
 ): Promise<OfficeResponse[]> {
   if (USE_MOCK) return (await getMock()).getDeliveryOffices(courier, city, type);
   const params = new URLSearchParams({ courier, city });
   if (type) params.set("type", type);
+  if (locale) params.set("locale", locale);
   return apiClient.get<OfficeResponse[]>(`/v1/delivery/offices?${params}`);
 }
 
 export async function getDeliveryCities(
   courier: Courier,
-  query?: string
+  query?: string,
+  locale?: Locale
 ): Promise<string[]> {
   if (USE_MOCK) return (await getMock()).getDeliveryCities(courier, query);
   const params = new URLSearchParams({ courier });
   if (query) params.set("q", query);
+  if (locale) params.set("locale", locale);
   return apiClient.get<string[]>(`/v1/delivery/cities?${params}`);
+}
+
+export async function getDeliveryPlaces(
+  courier: Courier,
+  query?: string,
+  locale?: Locale
+): Promise<CityPlace[]> {
+  if (USE_MOCK) return (await getMock()).getDeliveryPlaces(courier, query);
+  const params = new URLSearchParams({ courier });
+  if (query) params.set("q", query);
+  if (locale) params.set("locale", locale);
+  return apiClient.get<CityPlace[]>(`/v1/delivery/places?${params}`);
+}
+
+export async function calculateShipping(
+  payload: CalculateShippingRequest
+): Promise<CalculateShippingResponse> {
+  if (USE_MOCK) return (await getMock()).calculateShipping(payload);
+  return apiClient.calculateShipping(payload);
+}
+
+export async function getDeliverySettings(): Promise<DeliverySettingsResponse> {
+  if (USE_MOCK) return (await getMock()).getDeliverySettings();
+  return apiClient.get<DeliverySettingsResponse>("/v1/delivery/settings");
+}
+
+export async function getAdminDeliverySettings(): Promise<DeliverySettingsResponse> {
+  if (USE_MOCK) return (await getMock()).getAdminDeliverySettings();
+  return apiClient.get<DeliverySettingsResponse>("/v1/admin/delivery-settings");
+}
+
+export async function updateAdminDeliverySettings(
+  data: DeliverySettingsUpdate
+): Promise<DeliverySettingsResponse> {
+  if (USE_MOCK) return (await getMock()).updateAdminDeliverySettings(data);
+  return apiClient.put<DeliverySettingsResponse>("/v1/admin/delivery-settings", data);
 }
 
 export async function getOrders(

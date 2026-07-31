@@ -16,6 +16,13 @@ from app.services import auth_service
 
 # --- Fixtures with real middleware ---
 
+_TEST_COOKIE_DOMAIN = "test.local"
+
+
+def _set_client_cookie(client: AsyncClient, name: str, value: str) -> None:
+    """Set cookies for httpx's ASGI test host without creating duplicates."""
+    client.cookies.set(name, value, domain=_TEST_COOKIE_DOMAIN, path="/")
+
 
 @pytest.fixture(scope="module")
 def db_path(tmp_path_factory) -> str:
@@ -117,7 +124,7 @@ class TestOAuthSmokeTest:
             mock_exchange.return_value = "fake.id.token"
             mock_verify.return_value = google_claims
 
-            client.cookies.set(settings.session_cookie_name, session_cookie)
+            _set_client_cookie(client, settings.session_cookie_name, session_cookie)
             callback_resp = await client.get(
                 "/v1/auth/callback",
                 params={"code": "auth-code", "state": state_token},
@@ -136,7 +143,7 @@ class TestOAuthSmokeTest:
         assert jwt_cookie is not None
 
         # Step 3: me(200) with JWT
-        client.cookies.set(settings.jwt_cookie_name, jwt_cookie)
+        _set_client_cookie(client, settings.jwt_cookie_name, jwt_cookie)
         me_resp = await client.get("/v1/auth/me")
         assert me_resp.status_code == 200
         assert me_resp.json()["email"] == "smoke@test.com"
@@ -160,7 +167,7 @@ class TestOAuthSmokeTest:
         # Step 5: me(401) after logout — JWT cookie was cleared
         # Clear cookies and use new session
         client.cookies.clear()
-        client.cookies.set(settings.session_cookie_name, new_session)
+        _set_client_cookie(client, settings.session_cookie_name, new_session)
         me_after_resp = await client.get("/v1/auth/me")
         assert me_after_resp.status_code == 401
 
@@ -207,7 +214,7 @@ class TestJwtCookieAttributes:
                 },
             ),
         ):
-            client.cookies.set(settings.session_cookie_name, session_cookie)
+            _set_client_cookie(client, settings.session_cookie_name, session_cookie)
             callback_resp = await client.get(
                 "/v1/auth/callback",
                 params={"code": "code", "state": state_token},

@@ -44,12 +44,51 @@ vi.mock("@/contexts/CartContext", () => ({
   useCart: () => mockCartState,
 }));
 
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => ({ user: null, isLoading: false, error: null }),
+}));
+
 vi.mock("@/lib/api", () => ({
   createOrder: vi.fn(),
+  calculateShipping: vi.fn().mockResolvedValue({
+    quotes: [
+      {
+        courier: "speedy",
+        cents: 500,
+        estimated_delivery_days: 2,
+        is_fallback: false,
+        price_source: "live",
+        quoted_at: "2026-07-31 12:00:00",
+      },
+    ],
+  }),
+  getDeliverySettings: vi.fn().mockResolvedValue({
+    speedy_office_enabled: true,
+    speedy_door_enabled: true,
+    econt_office_enabled: true,
+    econt_door_enabled: true,
+    updated_at: "2026-07-31 12:00:00",
+  }),
 }));
 
 vi.mock("@/components/checkout/DeliverySection", () => ({
-  DeliverySection: () => <div data-testid="delivery-section" />,
+  DeliverySection: ({ onChange }: { onChange: (value: unknown) => void }) => {
+    React.useEffect(() => {
+      onChange({
+        method: "office",
+        office: {
+          courier: "speedy",
+          office_id: "SP-1",
+          office_name: "Speedy Office 1",
+          office_type: "office",
+          city: "Sofia",
+          phone: "+359888123456",
+        },
+        door: null,
+      });
+    }, [onChange]);
+    return <div data-testid="delivery-section" />;
+  },
   validateDelivery: () => ({
     valid: true,
     errors: {},
@@ -60,6 +99,7 @@ vi.mock("@/components/checkout/DeliverySection", () => ({
         office_id: "SP-1",
         office_name: "Speedy Office 1",
         office_type: "office",
+        city: "Sofia",
         phone: "+359888123456",
       },
       door: null,
@@ -123,7 +163,20 @@ describe("Checkout Page", () => {
     });
   });
 
-  it("shows legal disclosures, privacy links, and effective-price summary", () => {
+  it("shows 'Name is required' on submit with empty name", async () => {
+    renderWithIntl(<CheckoutPage />);
+    const emailInput = screen.getByLabelText(/email/i);
+    fireEvent.change(emailInput, { target: { value: "test@example.com" } });
+
+    const submitButtons = screen.getAllByRole("button", { name: /place order/i });
+    fireEvent.click(submitButtons[0]!);
+
+    await waitFor(() => {
+      expect(screen.getByText("Name is required")).toBeInTheDocument();
+    });
+  });
+
+  it("shows legal disclosures, privacy links, and effective-price summary", async () => {
     renderWithIntl(<CheckoutPage />);
 
     const termsLinks = screen.getAllByRole("link", { name: "Terms & Conditions" });
@@ -137,21 +190,28 @@ describe("Checkout Page", () => {
       expect(link).toHaveAttribute("href", "/privacy");
     }
     expect(screen.getAllByText(/process your contact and delivery data/i)).toHaveLength(2);
-    expect(screen.getByText("1 × €20.00")).toBeInTheDocument();
-    expect(screen.getAllByText("€20.00").length).toBeGreaterThanOrEqual(3);
-    expect(screen.getByText("Delivery")).toBeInTheDocument();
-    expect(screen.getByText("Not separately calculated in this checkout")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("1 × €20.00")).toBeInTheDocument();
+    });
+    expect(screen.getAllByText("€20.00").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("Shipping")).toBeInTheDocument();
+    expect(screen.getByText("Calculated at delivery step")).toBeInTheDocument();
   });
 
   it("successful submission calls createOrder and navigates", async () => {
     mockedCreateOrder.mockResolvedValue({
       id: "order-abc",
       status: "pending",
+      payment_method: "cod",
+      payment_status: "cod_pending",
+      stripe_checkout_url: null,
       items_total_cents: 2500,
       shipping_cents: 0,
+      shipping_price_source: "live",
+      shipping_is_fallback: false,
       total_cents: 2500,
       customer_email: "test@example.com",
-      customer_name: null,
+      customer_name: "Test Buyer",
       delivery_method: null,
       delivery_courier: null,
       delivery_details: null,
@@ -160,6 +220,8 @@ describe("Checkout Page", () => {
       tracking_number: null,
       tracking_carrier: null,
       tracking_url: null,
+      courier_status: null,
+      label_url: null,
       created_at: "2026-07-01T00:00:00Z",
       updated_at: "2026-07-01T00:00:00Z",
     });
@@ -167,13 +229,22 @@ describe("Checkout Page", () => {
     renderWithIntl(<CheckoutPage />);
     const emailInput = screen.getByLabelText(/email/i);
     fireEvent.change(emailInput, { target: { value: "test@example.com" } });
+    const nameInput = screen.getByLabelText(/name/i);
+    fireEvent.change(nameInput, { target: { value: "Test Buyer" } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("radio", { name: /speedy/i })).toBeChecked();
+    });
 
     const submitButtons = screen.getAllByRole("button", { name: /place order/i });
     fireEvent.click(submitButtons[0]!);
 
     await waitFor(() => {
       expect(mockedCreateOrder).toHaveBeenCalledWith(
-        expect.objectContaining({ customer_email: "test@example.com" })
+        expect.objectContaining({
+          customer_email: "test@example.com",
+          customer_name: "Test Buyer",
+        })
       );
     });
     await waitFor(() => {

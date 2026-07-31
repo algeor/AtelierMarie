@@ -9,9 +9,16 @@ Thank you for your order! Here's what you ordered:
 {% endfor %}
 
 Subtotal: {{ items_total_display }}
-Delivery: {{ shipping_display }}
+Shipping: {{ shipping_display }}{% if shipping_is_fallback %} (estimated){% endif %}
 Total: {{ total_display }}
 
+{% if delivery_method_display or delivery_courier_display or delivery_lines %}
+Delivery:
+{% if delivery_method_display %}- Method: {{ delivery_method_display }}
+{% endif %}{% if delivery_courier_display %}- Courier: {{ delivery_courier_display }}
+{% endif %}{% for line in delivery_lines %}- {{ line }}
+{% endfor %}
+{% endif %}
 Terms, withdrawal, returns, and refunds: {{ terms_url }}
 Privacy information: {{ privacy_url }}
 Cookie information: {{ cookies_url }}

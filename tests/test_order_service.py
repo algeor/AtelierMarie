@@ -1,5 +1,6 @@
 """Unit tests for the order service layer."""
 
+import json
 import sqlite3
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -49,6 +50,7 @@ def delivery() -> DeliveryInfo:
             office_id="econt-1029",
             office_name="София",
             office_type="office",
+            city="София",
             phone="+359888123456",
         ),
     )
@@ -941,6 +943,92 @@ class TestShippingTracking:
         from app.constants import tracking_url_for
 
         assert tracking_url_for(carrier, number) == expected
+
+
+class TestSpeedyWaybillAutomation:
+    """Speedy-specific ship transition creates and persists a waybill."""
+
+    def _speedy_order(self, conn, session_id):
+        order_id = _create_order_with_status(conn, session_id, "confirmed")
+        conn.execute(
+            """
+            UPDATE orders
+            SET delivery_method = 'door', delivery_courier = 'speedy',
+                customer_name = 'Mira', delivery_details = ?
+            WHERE id = ?
+            """,
+            (
+                json.dumps(
+                    {
+                        "courier": "speedy",
+                        "city": "София",
+                        "postal_code": "1000",
+                        "street": "Витоша",
+                        "building": "5",
+                        "phone": "+359888123456",
+                    },
+                    ensure_ascii=False,
+                ),
+                order_id,
+            ),
+        )
+        conn.commit()
+        return order_id
+
+    def test_ship_speedy_order_creates_waybill_and_tracking(
+        self, conn, session_a, monkeypatch
+    ):
+        from app.services import speedy_client
+
+        order_id = self._speedy_order(conn, session_a)
+        captured: dict = {}
+
+        def fake_create_shipment_sync(**kwargs):
+            captured.update(kwargs)
+            return "63689182611"
+
+        monkeypatch.setattr(speedy_client, "create_shipment_sync", fake_create_shipment_sync)
+
+        result = update_status(conn=conn, order_id=order_id, new_status="shipped")
+        conn.commit()
+
+        assert result["status"] == "shipped"
+        assert result["tracking_number"] == "63689182611"
+        assert result["tracking_carrier"] == "speedy"
+        assert result["tracking_url"] == (
+            "https://www.speedy.bg/en/track-shipment?shipmentNumber=63689182611"
+        )
+        assert captured["recipient_name"] == "Mira"
+        assert captured["recipient_phone"] == "+359888123456"
+        assert captured["recipient_city"] == "София"
+        assert captured["recipient_postcode"] == "1000"
+        assert captured["recipient_street"] == "Витоша"
+        assert captured["recipient_building"] == "5"
+        assert captured["cod_amount_cents"] == result["total_cents"]
+
+    def test_speedy_waybill_failure_leaves_order_confirmed(
+        self, conn, session_a, monkeypatch
+    ):
+        from app.services import speedy_client
+
+        order_id = self._speedy_order(conn, session_a)
+
+        def fail_create_shipment_sync(**kwargs):
+            raise speedy_client.ShipmentCreationError(
+                "phone required", context="recipient.phone"
+            )
+
+        monkeypatch.setattr(speedy_client, "create_shipment_sync", fail_create_shipment_sync)
+
+        with pytest.raises(speedy_client.ShipmentCreationError) as exc_info:
+            update_status(conn=conn, order_id=order_id, new_status="shipped")
+
+        assert exc_info.value.context == "recipient.phone"
+        row = conn.execute(
+            "SELECT status, tracking_number FROM orders WHERE id = ?", (order_id,)
+        ).fetchone()
+        assert row["status"] == "confirmed"
+        assert row["tracking_number"] is None
 
 
 class TestLocaleSnapshot:

@@ -53,8 +53,13 @@ describe("Order Confirmation Page", () => {
     mockedGetOrder.mockResolvedValue({
       id: "test-order-123",
       status: "pending",
+      payment_method: "cod",
+      payment_status: "cod_pending",
+      stripe_checkout_url: null,
       items_total_cents: 5000,
       shipping_cents: 0,
+      shipping_price_source: "live",
+      shipping_is_fallback: false,
       total_cents: 5000,
       customer_email: "buyer@example.com",
       customer_name: "Test Buyer",
@@ -76,6 +81,8 @@ describe("Order Confirmation Page", () => {
       tracking_number: null,
       tracking_carrier: null,
       tracking_url: null,
+      courier_status: null,
+      label_url: null,
       created_at: "2026-07-01T00:00:00Z",
       updated_at: "2026-07-01T00:00:00Z",
     });
@@ -97,7 +104,7 @@ describe("Order Confirmation Page", () => {
     );
     expect(screen.getByText("Subtotal")).toBeInTheDocument();
     expect(screen.getAllByText("Delivery").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText(/No separate delivery charge in this order/)).toBeInTheDocument();
+    expect(screen.getByText("Free")).toBeInTheDocument();
     expect(screen.getAllByText("€50.00").length).toBeGreaterThanOrEqual(2);
   });
 
@@ -115,8 +122,13 @@ describe("Order Confirmation Page", () => {
     mockedGetOrder.mockResolvedValue({
       id: "test-order-123",
       status: "pending",
+      payment_method: "cod",
+      payment_status: "cod_pending",
+      stripe_checkout_url: null,
       items_total_cents: 5000,
       shipping_cents: 0,
+      shipping_price_source: "live",
+      shipping_is_fallback: false,
       total_cents: 5000,
       customer_email: "buyer@example.com",
       customer_name: null,
@@ -128,6 +140,8 @@ describe("Order Confirmation Page", () => {
       tracking_number: null,
       tracking_carrier: null,
       tracking_url: null,
+      courier_status: null,
+      label_url: null,
       created_at: "2026-07-01T00:00:00Z",
       updated_at: "2026-07-01T00:00:00Z",
     });

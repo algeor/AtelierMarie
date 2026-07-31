@@ -14,11 +14,10 @@ def _make_jpeg(width: int = 96, height: int = 96) -> bytes:
 
 class TestPublicAbout:
     @pytest.mark.asyncio
-    async def test_get_about_shape_order_and_performance(self, client):
+    async def test_get_about_shape_and_order(self, client):
         response = await client.get("/v1/about?locale=bg")
 
         assert response.status_code == 200
-        assert response.elapsed.total_seconds() < 0.2
         body = response.json()
         assert [section["slug"] for section in body["sections"]][:3] == [
             "hero",

@@ -19,6 +19,7 @@ class TestDeliveryOffice:
             office_id="speedy-sf-001",
             office_name="София Център - бул. Витоша 50",
             office_type="office",
+            city="София",
             phone="+359888123456",
         )
         assert office.courier == "speedy"
@@ -30,6 +31,7 @@ class TestDeliveryOffice:
             office_id="econt-2",
             office_name="Автомат София",
             office_type="apt",
+            city="София",
             phone="+359888999888",
         )
         assert office.office_type == "apt"
@@ -49,6 +51,7 @@ class TestDeliveryOffice:
             office_id="x",
             office_name="Test",
             office_type="office",
+            city="София",
             phone=raw,
         )
         assert office.phone == normalized
@@ -171,6 +174,7 @@ class TestDeliveryInfo:
             "office_id": "1",
             "office_name": "Sofia",
             "office_type": "office",
+            "city": "София",
             "phone": "+359888123456",
         }
 

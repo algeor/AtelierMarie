@@ -96,6 +96,36 @@ class Settings(BaseSettings):
     bank_bic: str = ""
     bank_name: str = ""
 
+    # Courier pricing APIs (shipping-pricing). Credentials are validated lazily
+    # per-request — a misconfigured account produces fallback quotes with a
+    # logged warning, never a startup failure (design Risks table).
+    speedy_api_username: str = ""
+    speedy_api_password: SecretStr = SecretStr("")
+    # Speedy REST base URL — endpoints (/calculate, /shipment, /track, /print)
+    # derive from it, so demo↔prod is an env change (design Decision 1).
+    speedy_base_url: str = "https://api.speedy.bg/v1"
+    # Speedy's numeric registered-client/contract identifier, sent as
+    # `sender.clientId` on every calculate/shipment request. Distinct from the
+    # API login (`speedy_api_username`): renamed from the former
+    # `speedy_sender_office_id`, which was named/populated as an office slug and
+    # let an empty non-numeric value reach Speedy on every call (design Decision 1).
+    speedy_client_id: str = ""
+    econt_api_username: str = ""
+    econt_api_password: SecretStr = SecretStr("")
+    econt_sender_office_id: str = ""
+    econt_calculate_url: str = (
+        "https://ee.econt.com/services/Shipments/LabelService.createLabel.json"
+    )
+
+    # Econt sender identity — the shop's fixed origin, sent in every Econt
+    # calculate payload (name + phone + address). Not credentials: these are
+    # the public "from" details of the shipment, so plain str with real
+    # defaults (works in dev without a .env; still env-overridable).
+    econt_sender_name: str = "Atelier Marie"
+    econt_sender_phone: str = "0899869055"
+    econt_sender_address: str = "жк Красно село ул. Царица Елеонора №12"
+    econt_sender_city: str = "София"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
     @model_validator(mode="after")
@@ -130,6 +160,16 @@ class Settings(BaseSettings):
             _logger.warning(
                 "EMAIL_PROVIDER is set to zeptomail but EMAIL_API_KEY is empty. "
                 "Email sending will be unavailable."
+            )
+        if self.environment == "production" and not (
+            self.speedy_api_username
+            and self.speedy_api_password.get_secret_value()
+            and self.speedy_client_id.isdigit()
+        ):
+            _logger.warning(
+                "SPEEDY_API_USERNAME / SPEEDY_API_PASSWORD / SPEEDY_CLIENT_ID (numeric) "
+                "not fully set in production. Speedy live pricing and shipment "
+                "creation will be unavailable (quotes degrade to the flat fallback)."
             )
         return self
 

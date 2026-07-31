@@ -18,6 +18,7 @@ import type { OrderResponse } from "@/lib/types";
 export default function OrderConfirmationPage() {
   const t = useTranslations("orders");
   const tCart = useTranslations("cart");
+  const tDelivery = useTranslations("checkout.delivery");
   const tLegal = useTranslations("legal");
   const getLocalizedError = useLocalizedError();
   const params = useParams();
@@ -143,19 +144,22 @@ export default function OrderConfirmationPage() {
         </div>
 
         {/* Order total */}
-        <div className="mb-6 space-y-3 border-t border-champagne-beige pt-4 text-sm">
-          <div className="flex items-center justify-between gap-4">
-            <span className="text-soft-brown">{t("subtotal")}</span>
-            <span className="font-medium text-charcoal">{formatPrice(order.items_total_cents)}</span>
-          </div>
-          <div className="flex items-center justify-between gap-4">
-            <span className="text-soft-brown">{t("shipping")}</span>
-            <span className="text-right font-medium text-charcoal">
-              {formatPrice(order.shipping_cents)}
-              {order.shipping_cents === 0 ? ` (${t("shippingZero")})` : ""}
+        <div className="mb-6 space-y-2 border-t border-champagne-beige pt-4">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-soft-brown">{tCart("subtotal")}</span>
+            <span className="text-charcoal">
+              {formatPrice(order.items_total_cents)}
             </span>
           </div>
-          <div className="flex items-center justify-between gap-4 border-t border-champagne-beige pt-3">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-soft-brown">{tDelivery("shippingLabel")}</span>
+            <span className="text-charcoal">
+              {order.shipping_cents === 0
+                ? tDelivery("freeShipping")
+                : formatPrice(order.shipping_cents)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between border-t border-champagne-beige pt-2">
             <span className="font-heading text-xl text-charcoal">{t("total")}</span>
             <span className="font-heading text-xl text-charcoal">
               {formatPrice(order.total_cents)}

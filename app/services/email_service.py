@@ -70,6 +70,91 @@ def format_price(cents: int, locale: str) -> str:
     return f"€{amount}"
 
 
+def _delivery_method_label(method: str | None, locale: str) -> str | None:
+    if method == "office":
+        return "До офис/автомат" if locale == "bg" else "Office or locker pickup"
+    if method == "door":
+        return "До адрес" if locale == "bg" else "Door delivery"
+    return None
+
+
+def _office_type_label(office_type: str | None, locale: str) -> str | None:
+    if office_type == "apt":
+        return "Автомат" if locale == "bg" else "Locker"
+    if office_type == "office":
+        return "Офис" if locale == "bg" else "Office"
+    return None
+
+
+def _courier_label(courier: str | None) -> str | None:
+    if courier == "speedy":
+        return "Speedy"
+    if courier == "econt":
+        return "Econt"
+    return courier
+
+
+def _address_line(details: dict, locale: str) -> str | None:
+    street = details.get("street")
+    if not street:
+        return None
+    parts = [street]
+    building = details.get("building")
+    apartment = details.get("apartment")
+    if building:
+        label = "вх./сгр." if locale == "bg" else "building"
+        parts.append(f"{label} {building}")
+    if apartment:
+        label = "ап." if locale == "bg" else "apt."
+        parts.append(f"{label} {apartment}")
+    return ", ".join(parts)
+
+
+def _build_delivery_email_context(order_data: OrderData, locale: str) -> dict:
+    """Return localized delivery fields shared by customer/admin emails."""
+    method = order_data.get("delivery_method")
+    courier = order_data.get("delivery_courier")
+    details = order_data.get("delivery_details") or {}
+
+    labels = {
+        "office": "Офис" if locale == "bg" else "Office",
+        "type": "Тип" if locale == "bg" else "Type",
+        "city": "Град/населено място" if locale == "bg" else "City/place",
+        "address": "Адрес" if locale == "bg" else "Address",
+        "phone": "Телефон" if locale == "bg" else "Phone",
+    }
+
+    delivery_lines: list[str] = []
+    if method == "office":
+        office_name = details.get("office_name")
+        office_type = _office_type_label(details.get("office_type"), locale)
+        city = details.get("city")
+        if office_name:
+            delivery_lines.append(f"{labels['office']}: {office_name}")
+        if office_type:
+            delivery_lines.append(f"{labels['type']}: {office_type}")
+        if city:
+            delivery_lines.append(f"{labels['city']}: {city}")
+    elif method == "door":
+        address = _address_line(details, locale)
+        city_parts = [part for part in (details.get("postal_code"), details.get("city")) if part]
+        if address:
+            delivery_lines.append(f"{labels['address']}: {address}")
+        if city_parts:
+            delivery_lines.append(f"{labels['city']}: {' '.join(city_parts)}")
+
+    phone = details.get("phone")
+    if phone:
+        delivery_lines.append(f"{labels['phone']}: {phone}")
+
+    return {
+        "delivery_method_display": _delivery_method_label(method, locale),
+        "delivery_courier_display": _courier_label(courier),
+        "delivery_lines": delivery_lines,
+        "shipping_is_fallback": order_data.get("shipping_is_fallback", False),
+    }
+
+
 def _build_email_context(order_data: OrderData, locale: str, settings: Settings) -> dict:
     """Build the Jinja2 context for an order email.
 
@@ -86,7 +171,7 @@ def _build_email_context(order_data: OrderData, locale: str, settings: Settings)
         for item in order_data["items"]
     ]
     order_id = order_data["id"]
-    return {
+    context = {
         "order_id_short": order_id[:8],
         "customer_name": order_data["customer_name"],
         "customer_email": order_data["customer_email"],
@@ -116,6 +201,8 @@ def _build_email_context(order_data: OrderData, locale: str, settings: Settings)
         "bank_bic": settings.bank_bic,
         "bank_name": settings.bank_name,
     }
+    context.update(_build_delivery_email_context(order_data, locale))
+    return context
 
 
 def _recipient_for(order_data: OrderData, event: str, settings: Settings) -> str | None:

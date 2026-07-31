@@ -49,4 +49,31 @@ describe("StatusTimeline", () => {
     expect(screen.queryByText("Shipped")).not.toBeInTheDocument();
     expect(screen.queryByText("Delivered")).not.toBeInTheDocument();
   });
+
+  it("renders the Speedy tracking number and track link once shipped", () => {
+    renderWithIntl(
+      <StatusTimeline
+        currentStatus="shipped"
+        trackingNumber="63689182611"
+        trackingCarrier="speedy"
+        trackingUrl="https://www.speedy.bg/en/track-shipment?shipmentNumber=63689182611"
+      />,
+    );
+    // The Speedy-generated tracking number is surfaced on the shipped step.
+    expect(screen.getByText("63689182611")).toBeInTheDocument();
+    // And a track-package link points at the carrier URL.
+    const link = screen.getByRole("link");
+    expect(link).toHaveAttribute(
+      "href",
+      "https://www.speedy.bg/en/track-shipment?shipmentNumber=63689182611",
+    );
+  });
+
+  it("does not render tracking block before the order has shipped", () => {
+    renderWithIntl(
+      <StatusTimeline currentStatus="confirmed" trackingNumber="63689182611" />,
+    );
+    // Tracking is only shown on/after the reached shipped step.
+    expect(screen.queryByText("63689182611")).not.toBeInTheDocument();
+  });
 });
