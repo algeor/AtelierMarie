@@ -2,10 +2,18 @@ name: Frontend Lint Analysis
 
 on:
   push:
+    branches: [main]
   pull_request:
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend-lint.yml'
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   lint-frontend:

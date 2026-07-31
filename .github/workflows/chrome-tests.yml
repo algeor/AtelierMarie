@@ -27,11 +27,17 @@ jobs:
         with:
           node-version: '24.x'
 
+      - name: Set up Chrome
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v1
+
       - name: Setup Backend
         run: make setup-backend
 
       - name: Setup Frontend
-        run: make setup-backend
+        run: make setup-frontend
 
       - name: Run complete  tests
+        env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
         run: make test-chrome-stack
