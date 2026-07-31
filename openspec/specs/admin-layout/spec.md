@@ -1,5 +1,7 @@
-## ADDED Requirements
+## Purpose
 
+Defines the admin application shell, navigation, route protection, and responsive layout behavior.
+## Requirements
 ### Requirement: Admin layout with sidebar navigation
 The system SHALL render an admin-specific layout at `/admin` and all sub-paths with a sidebar navigation containing links to Dashboard, Products, and Orders. The layout SHALL NOT include the storefront header, footer, or announcement bar.
 
@@ -39,3 +41,16 @@ The system SHALL provide a responsive admin layout that works on desktop and tab
 #### Scenario: Tablet sidebar collapsed
 - **WHEN** viewport width is < 1024px
 - **THEN** sidebar collapses to icons only or is hidden behind a toggle button
+
+### Requirement: Admin navigation includes analytics
+The admin layout sidebar SHALL include an Analytics navigation item linking to `/admin/analytics`. The active link styling SHALL apply when the admin is on the analytics page.
+
+#### Scenario: Analytics nav item visible
+- **WHEN** an authenticated admin views the admin sidebar
+- **THEN** the sidebar includes an Analytics link
+
+#### Scenario: Analytics nav item navigates
+- **WHEN** an admin clicks the Analytics link
+- **THEN** the browser navigates to `/admin/analytics`
+- **AND** the Analytics link is visually active
+

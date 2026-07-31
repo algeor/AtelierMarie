@@ -9,7 +9,7 @@ We've received your order and are holding it for you. Here's what you ordered:
 {% endfor %}
 
 Subtotal: {{ items_total_display }}
-Shipping: {{ shipping_display }}{% if shipping_is_fallback %} (estimated){% endif %}
+Shipping: {{ shipping_display }}{{ " (estimated)" if shipping_is_fallback else "" }}
 Total: {{ total_display }}
 
 {% if delivery_method_display or delivery_courier_display or delivery_lines %}

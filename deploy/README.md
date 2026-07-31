@@ -54,6 +54,43 @@ Keep this at `27m` for image uploads; the app remains the source of truth for
 the 25 MB file cap. If product video uploads need a larger limit, set that only
 on the video-upload location so image uploads still fail fast at the proxy.
 
+Stripe and ZeptoMail webhook endpoints cap raw request bodies at 64 KB in the
+app. Keep the reverse-proxy limit aligned for `/v1/webhooks/stripe` and
+`/v1/webhooks/zeptomail` so oversized payloads fail before signature work:
+
+```nginx
+location /v1/webhooks/stripe {
+    client_max_body_size 64k;
+    proxy_pass http://127.0.0.1:8001;
+}
+
+location /v1/webhooks/zeptomail {
+    client_max_body_size 64k;
+    proxy_pass http://127.0.0.1:8001;
+}
+```
+
+## Stripe payments
+
+Stripe secrets are environment-only. Do not store them in admin settings or in
+frontend env files. Configure the backend environment with:
+
+```bash
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PUBLISHABLE_KEY=pk_live_...
+STRIPE_SUCCESS_URL=https://theateliermarie.com/orders/{order_id}/confirmation?token={payment_return_token}
+STRIPE_CANCEL_URL=https://theateliermarie.com/orders/{order_id}/retry-payment?token={payment_return_token}
+```
+
+Admin-managed payment method settings live at `/admin/settings/payments` and are
+stored in the database. Production card checkout cannot be enabled unless Stripe
+configuration health reports live keys and a webhook secret.
+
+Before enabling live card payments, verify local webhook handling with Stripe CLI
+and repeat the same flow against the production webhook endpoint after deployment.
+The local verification command record is in `docs/test-plans/payment-integration.md`.
+
 ### Memory headroom
 
 Each in-flight image upload is memory-heavy: the 25 MB body is buffered in

@@ -37,7 +37,7 @@ def _template_filename(event: str) -> str:
     admin_new_order keeps its own name; the customer events use the
     `order_{event}.txt` form (Decision 19).
     """
-    if event in {"admin_new_order", "contact_message"}:
+    if event in {"admin_new_order", "admin_payment_review_required", "contact_message"}:
         return f"{event}.txt"
     return f"order_{event}.txt"
 

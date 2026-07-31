@@ -12,7 +12,15 @@ from fastapi.responses import JSONResponse
 from app.config import get_settings
 from app.database import get_db
 from app.responses import error_response
-from app.services.payment_service import _now_str, handle_payment_succeeded, handle_session_expired
+from app.services.payment_service import (
+    StripeWebhookVerificationError,
+    _now_str,
+    construct_stripe_webhook_event,
+    handle_charge_refunded,
+    handle_payment_failed,
+    handle_payment_succeeded,
+    handle_session_expired,
+)
 from app.services.webhook_service import (
     WebhookVerificationError,
     handle_webhook_event,
@@ -24,6 +32,37 @@ logger = structlog.get_logger(__name__)
 router = APIRouter()
 
 _MAX_BODY_BYTES = 64 * 1024
+
+
+def _stripe_value(obj: object, key: str) -> object | None:
+    if isinstance(obj, dict):
+        return obj.get(key)
+    return getattr(obj, key, None)
+
+
+def _stripe_str(obj: object, key: str) -> str | None:
+    value = _stripe_value(obj, key)
+    return value if isinstance(value, str) and value else None
+
+
+def _stripe_int(obj: object, key: str) -> int | None:
+    value = _stripe_value(obj, key)
+    return value if isinstance(value, int) else None
+
+
+def _stripe_bool(obj: object, key: str) -> bool | None:
+    value = _stripe_value(obj, key)
+    return value if isinstance(value, bool) else None
+
+
+def _stripe_metadata_str(obj: object, key: str) -> str | None:
+    metadata = _stripe_value(obj, "metadata")
+    if isinstance(metadata, dict):
+        value = metadata.get(key)
+    else:
+        getter = getattr(metadata, "get", None)
+        value = getter(key) if callable(getter) else None
+    return value if isinstance(value, str) and value else None
 
 
 @router.post(
@@ -63,7 +102,7 @@ async def zeptomail_webhook(request: Request) -> JSONResponse:
 @router.post(
     "/stripe",
     summary="Stripe payment webhook",
-    description="Consumes checkout.session.completed and checkout.session.expired events. "
+    description="Consumes allowlisted Stripe payment events. "
     "Authenticated by Stripe-Signature header. Returns 200 for all valid requests "
     "(including unknown event types); 400 only on bad signature.",
 )
@@ -72,30 +111,38 @@ async def stripe_webhook(request: Request) -> JSONResponse:
 
     raw_body = await request.body()
     if len(raw_body) > _MAX_BODY_BYTES:
-        return JSONResponse(status_code=200, content={"status": "ignored"})
+        return error_response(413, "PAYLOAD_TOO_LARGE", "Body too large")
 
     sig_header = request.headers.get("stripe-signature", "")
     webhook_secret = settings.stripe_webhook_secret
 
     try:
-        import stripe  # local import — isolates the Stripe dependency
-
-        stripe.api_key = settings.stripe_secret_key
-        event = stripe.Webhook.construct_event(raw_body, sig_header, webhook_secret)
-    except Exception as exc:
+        event = construct_stripe_webhook_event(
+            raw_body,
+            sig_header,
+            webhook_secret,
+            settings.stripe_secret_key,
+        )
+    except StripeWebhookVerificationError as exc:
         logger.warning("stripe_webhook_signature_rejected", error=str(exc))
         return error_response(400, "INVALID_SIGNATURE", "Stripe signature rejected")
 
     now = _now_str()
     event_id = event.id
     event_type = event.type
-    session_obj = event.data.object
-    order_id = getattr(session_obj, "client_reference_id", None) or ""
+    event_obj = event.data.object
+    event_created = _stripe_int(event, "created")
+    livemode = _stripe_bool(event, "livemode")
 
     with get_db() as conn:
         if event_type == "checkout.session.completed":
-            payment_intent_id = getattr(session_obj, "payment_intent", None)
-            stripe_session_id = getattr(session_obj, "id", None)
+            order_id = (
+                _stripe_str(event_obj, "client_reference_id")
+                or _stripe_metadata_str(event_obj, "order_id")
+                or ""
+            )
+            payment_intent_id = _stripe_str(event_obj, "payment_intent")
+            stripe_session_id = _stripe_str(event_obj, "id")
             handle_payment_succeeded(
                 conn,
                 event_id,
@@ -103,10 +150,43 @@ async def stripe_webhook(request: Request) -> JSONResponse:
                 payment_intent_id,
                 now,
                 stripe_session_id,
+                settings.admin_notification_email,
             )
         elif event_type == "checkout.session.expired":
-            stripe_session_id = getattr(session_obj, "id", None) or ""
+            order_id = (
+                _stripe_str(event_obj, "client_reference_id")
+                or _stripe_metadata_str(event_obj, "order_id")
+                or ""
+            )
+            stripe_session_id = _stripe_str(event_obj, "id") or ""
             handle_session_expired(conn, event_id, order_id, stripe_session_id, now)
+        elif event_type == "payment_intent.payment_failed":
+            last_error = _stripe_value(event_obj, "last_payment_error")
+            error_code = _stripe_str(last_error, "code") or _stripe_str(
+                last_error, "decline_code"
+            )
+            handle_payment_failed(
+                conn,
+                event_id,
+                _stripe_metadata_str(event_obj, "order_id"),
+                _stripe_str(event_obj, "id"),
+                now,
+                error_code=error_code,
+                event_created=event_created,
+                livemode=livemode,
+            )
+        elif event_type == "charge.refunded":
+            handle_charge_refunded(
+                conn,
+                event_id,
+                _stripe_metadata_str(event_obj, "order_id"),
+                _stripe_str(event_obj, "id"),
+                _stripe_str(event_obj, "payment_intent"),
+                now,
+                amount_refunded=_stripe_int(event_obj, "amount_refunded"),
+                event_created=event_created,
+                livemode=livemode,
+            )
         else:
             logger.info("stripe_webhook_ignored", event_type=event_type, event_id=event_id)
 

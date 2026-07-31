@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { getOrder } from "@/lib/api";
@@ -17,12 +17,16 @@ import type { OrderResponse } from "@/lib/types";
 
 export default function OrderConfirmationPage() {
   const t = useTranslations("orders");
+  const tPayment = useTranslations("orders.payment");
   const tCart = useTranslations("cart");
   const tDelivery = useTranslations("checkout.delivery");
   const tLegal = useTranslations("legal");
   const getLocalizedError = useLocalizedError();
   const params = useParams();
+  const searchParams = useSearchParams();
   const orderId = params.id as string;
+  const paymentReturnToken =
+    searchParams.get("payment_return_token") ?? searchParams.get("token");
   const { refreshCart } = useCart();
 
   const [order, setOrder] = useState<OrderResponse | null>(null);
@@ -37,7 +41,7 @@ export default function OrderConfirmationPage() {
       setError(null);
 
       try {
-        const data = await getOrder(orderId);
+        const data = await getOrder(orderId, paymentReturnToken);
         if (!cancelled) {
           setOrder(data);
         }
@@ -65,7 +69,7 @@ export default function OrderConfirmationPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderId, getLocalizedError, t]);
+  }, [orderId, paymentReturnToken, getLocalizedError, t]);
 
   // Loading state
   if (isLoading) {
@@ -106,6 +110,23 @@ export default function OrderConfirmationPage() {
     );
   }
 
+  const paymentMessage =
+    order.payment_method === "card"
+      ? order.payment_status === "paid"
+        ? tPayment("returnPaid")
+        : order.payment_status === "failed"
+          ? tPayment("returnFailed")
+          : tPayment("returnPending")
+      : order.payment_method === "cod"
+        ? tPayment("codConfirmation")
+        : null;
+  const paymentMessageClass =
+    order.payment_status === "paid"
+      ? "border-green-200 bg-green-50 text-green-800"
+      : order.payment_status === "failed"
+        ? "border-red-200 bg-red-50 text-red-700"
+        : "border-amber-200 bg-amber-50 text-amber-800";
+
   // Success state
   return (
     <div className="mx-auto max-w-2xl px-4 py-12 sm:px-6">
@@ -114,6 +135,15 @@ export default function OrderConfirmationPage() {
           {t("orderConfirmationMessage")}
         </h1>
         <p className="mb-8 text-soft-brown">{t("orderNumber", { id: order.id })}</p>
+
+        {paymentMessage && (
+          <div
+            className={`mb-6 rounded-brand border px-4 py-3 text-sm font-medium ${paymentMessageClass}`}
+            role="status"
+          >
+            {paymentMessage}
+          </div>
+        )}
 
         {/* Order items */}
         <div className="mb-6">

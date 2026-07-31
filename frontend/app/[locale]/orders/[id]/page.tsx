@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { getOrder } from "@/lib/api";
@@ -31,7 +31,10 @@ export default function OrderDetailPage() {
   const tPayment = useTranslations("orders.payment");
   const locale = useLocale();
   const params = useParams();
+  const searchParams = useSearchParams();
   const orderId = params.id as string;
+  const paymentReturnToken =
+    searchParams.get("payment_return_token") ?? searchParams.get("token");
   const [order, setOrder] = useState<OrderResponse | null>(null);
   const [state, setState] = useState<PageState>("loading");
 
@@ -40,7 +43,7 @@ export default function OrderDetailPage() {
 
     async function fetchOrder() {
       try {
-        const data = await getOrder(orderId);
+        const data = await getOrder(orderId, paymentReturnToken);
         if (!cancelled) {
           setOrder(data);
           setState("success");
@@ -56,7 +59,7 @@ export default function OrderDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [orderId]);
+  }, [orderId, paymentReturnToken]);
 
   if (state === "loading") {
     return (
@@ -111,6 +114,18 @@ export default function OrderDetailPage() {
     month: "long",
     day: "numeric",
   });
+  const paymentStatusMessage =
+    order.payment_method === "card"
+      ? order.payment_status === "paid"
+        ? tPayment("returnPaid")
+        : order.payment_status === "failed"
+          ? tPayment("returnFailed")
+          : tPayment("returnPending")
+      : order.payment_method === "cod"
+        ? tPayment("codConfirmation")
+        : order.payment_method === "bank_transfer" && order.payment_status === "pending"
+          ? tPayment("bankInstructions")
+          : null;
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-12">
@@ -198,16 +213,21 @@ export default function OrderDetailPage() {
               {tPayment(`status.${order.payment_status}` as Parameters<typeof tPayment>[0])}
             </span>
           </div>
+          {paymentStatusMessage && (
+            <p className="mb-3 text-sm leading-6 text-soft-brown">{paymentStatusMessage}</p>
+          )}
 
           {/* Retry payment link for card orders with pending/failed payment */}
-          {order.payment_method === "card" && (order.payment_status === "pending" || order.payment_status === "failed") && (
-            <Link
-              href={`/orders/${order.id}/retry-payment`}
-              className="inline-flex items-center text-sm font-medium text-soft-brown underline underline-offset-2 hover:text-charcoal transition-colors duration-fast"
-            >
-              {tPayment("retryPayment")}
-            </Link>
-          )}
+          {order.payment_method === "card" &&
+            (order.payment_status === "pending" || order.payment_status === "failed") &&
+            paymentReturnToken && (
+              <Link
+                href={`/orders/${order.id}/retry-payment?token=${encodeURIComponent(paymentReturnToken)}`}
+                className="inline-flex items-center text-sm font-medium text-soft-brown underline underline-offset-2 hover:text-charcoal transition-colors duration-fast"
+              >
+                {tPayment("retryPayment")}
+              </Link>
+            )}
 
           {/* IBAN instructions for bank transfer orders awaiting payment */}
           {order.payment_method === "bank_transfer" && order.payment_status === "pending" && BANK_IBAN && (

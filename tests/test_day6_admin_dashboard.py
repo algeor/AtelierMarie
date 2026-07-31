@@ -27,14 +27,14 @@ def _seeded_data(db_path, app):
 
     # Orders
     conn.executemany(
-        "INSERT INTO orders (id, session_id, status, total_cents, customer_email) "
-        "VALUES (?, 'sess-1', ?, ?, ?)",
+        "INSERT INTO orders (id, session_id, status, total_cents, customer_email, "
+        "payment_method, payment_status) VALUES (?, 'sess-1', ?, ?, ?, ?, ?)",
         [
-            ("order-1", "pending", 5000, "a@test.com"),
-            ("order-2", "confirmed", 7000, "b@test.com"),
-            ("order-3", "shipped", 3500, "c@test.com"),
-            ("order-4", "delivered", 2500, "d@test.com"),
-            ("order-5", "cancelled", 4000, "e@test.com"),
+            ("order-1", "pending", 5000, "a@test.com", "card", "pending"),
+            ("order-2", "confirmed", 7000, "b@test.com", "card", "paid"),
+            ("order-3", "shipped", 3500, "c@test.com", "cod", "cod_pending"),
+            ("order-4", "delivered", 2500, "d@test.com", "cod", "paid"),
+            ("order-5", "cancelled", 4000, "e@test.com", "card", "failed"),
         ],
     )
 
@@ -56,6 +56,7 @@ class TestAdminDashboard:
         assert body["orders"]["total"] == 0
         assert body["orders"]["revenue_cents"] == 0
         assert body["orders"]["by_status"] == {}
+        assert body["orders"]["by_payment_status"] == {}
         assert body["low_stock_count"] == 0
         assert body["orders_today"] == 0
         assert body["revenue_this_week_cents"] == 0
@@ -74,17 +75,21 @@ class TestAdminDashboard:
 
         # Order stats
         assert body["orders"]["total"] == 5
-        assert body["orders"]["revenue_cents"] == 22000  # sum of all orders
+        assert body["orders"]["revenue_cents"] == 9500  # paid orders only
         assert body["orders"]["by_status"]["pending"] == 1
         assert body["orders"]["by_status"]["confirmed"] == 1
         assert body["orders"]["by_status"]["shipped"] == 1
         assert body["orders"]["by_status"]["delivered"] == 1
         assert body["orders"]["by_status"]["cancelled"] == 1
+        assert body["orders"]["by_payment_status"]["pending"] == 1
+        assert body["orders"]["by_payment_status"]["paid"] == 2
+        assert body["orders"]["by_payment_status"]["cod_pending"] == 1
+        assert body["orders"]["by_payment_status"]["failed"] == 1
 
         # Low stock (stock <= 5 AND active): candle-b (3), candle-c (0)
         assert body["low_stock_count"] == 2
         assert body["orders_today"] == 5
-        assert body["revenue_this_week_cents"] == 18000
+        assert body["revenue_this_week_cents"] == 9500
         assert body["active_product_count"] == 3
 
     @pytest.mark.asyncio

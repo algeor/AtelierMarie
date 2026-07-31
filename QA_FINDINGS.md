@@ -4,26 +4,27 @@ Source prompt: `its-showtime-prompts/QA.md`
 
 ## Progress Snapshot
 
-- Status: Complete QA snapshot; fixes started from the confirmed bug catalogue
+- Status: Active QA snapshot; fixes started from the confirmed bug catalogue and browser/full-stack smoke coverage continued
 - Started: 2026-07-29
 - Environment: local workspace `/Users/I551270/PycharmProjects/AtelierMarie`
-- Areas tested: initial prompt review, backend automated tests, backend lint, frontend lint/build, frontend unit test suite isolation, isolated cart/order API happy path and stock failure, admin product video update response consistency, route-level API error envelope consistency, backend discount contract tests, frontend checkout discount display consistency, frontend product listing discount sort consistency, auth returning-user profile persistence edge case, auth avatar fallback edge case, auth user-menu accessible-name check, auth logout session-cookie rotation, OAuth callback session rotation behavior, admin bank-transfer payment email outbox idempotency, admin order status/payment-status filter validation, Stripe retry content-type/CSRF validation, Stripe completed webhook out-of-order cancelled/non-card handling, admin CSV malformed encoding handling, admin CSV image max-count behavior, public comment sanitization and React text rendering behavior, public contact submission and owner-email subject handling, admin FAQ duplicate reorder handling, admin-managed atelier content entity rendering, admin atelier image clear file lifecycle, checkout office-delivery catalogue validation, public/legal/product safety legal identity placeholder propagation, backend email legal context placeholder propagation, mobile header navigation availability, checkout shipping price transparency and persisted shipping cents, product-detail structured data coverage, storefront product-listing first-page cap/filter omission, public FAQ invalid-locale handling, checkout door-delivery whitespace address handling, mock-mode product media URL resolution, current-code revalidation of prior product video, discount, auth, comment, contact, atelier text, payment, and delivery findings
-- Deferred QA scope: broader frontend browser workflows, frontend checkout submission in a real browser session, backend APIs beyond representative probes, auth/permissions beyond the tested admin bearer and OAuth/session paths, order email sweeper behavior, deeper database integrity, accessibility, performance, error handling outside representative route-level envelopes, and concurrency.
-- Confirmed risk themes: frontend test reliability; API response contract consistency; pricing display consistency; auth/session rotation; payment/email idempotency; upload/import validation; user/admin-authored text rendering; ordered-list integrity; checkout delivery validation; legal identity completeness; mobile navigation; storefront discovery; SEO structured data; mock media resolution; admin media file lifecycle.
+- Areas tested: initial prompt review, backend automated tests, backend lint, frontend lint/build, standalone frontend typecheck command, frontend unit test suite isolation, isolated cart/order API happy path and stock failure, admin product video update response consistency, route-level API error envelope consistency, backend discount contract tests, frontend checkout discount display consistency, frontend product listing discount sort consistency, auth returning-user profile persistence edge case, auth avatar fallback edge case, auth user-menu accessible-name check, auth logout session-cookie rotation, OAuth callback session rotation behavior, admin bank-transfer payment email outbox idempotency, admin order status/payment-status filter validation, Stripe retry content-type/CSRF validation, Stripe completed webhook out-of-order cancelled/non-card handling, admin CSV malformed encoding handling, admin CSV image max-count behavior, public comment sanitization and React text rendering behavior, public contact submission and owner-email subject handling, admin FAQ duplicate reorder handling, admin-managed atelier content entity rendering, admin atelier image clear file lifecycle, checkout office-delivery catalogue validation, checkout office-city mismatch persistence, checkout unsupported door served-place validation, checkout visual/mobile delivery field accessibility, checkout mobile order-summary placement, cart drawer empty/filled/low-stock/stale states, public/legal/product safety legal identity placeholder propagation, backend email legal context placeholder propagation, mobile header navigation availability, checkout shipping price transparency and persisted shipping cents, product-detail structured data coverage, storefront product-listing first-page cap/filter omission, public FAQ invalid-locale handling, checkout door-delivery whitespace address handling, mock-mode product media URL resolution, current-code revalidation of prior product video, discount, auth, comment, contact, atelier text, payment, and delivery findings, Chrome public-route smoke on home/products/checkout/legal/content pages, seeded full-stack Chrome checkout/admin shipping smoke with fake courier services, smoke-test external email side-effect isolation, transactional email plain-text line formatting, and desktop/mobile screenshot review of product listing/product detail media
+- Deferred QA scope: broader frontend browser workflows, frontend checkout submission in a real browser session, backend APIs beyond representative probes, auth/permissions beyond the tested admin bearer and OAuth/session paths, order email sweeper behavior, deeper database integrity, broader accessibility, performance, error handling outside representative route-level envelopes, and concurrency.
+- Confirmed risk themes: frontend test/typecheck reliability; API response contract consistency; pricing display consistency; auth/session rotation; payment/email idempotency; transactional email quality; product media integrity; cart recovery and inventory UX; checkout form accessibility; mobile checkout review flow; upload/import validation; user/admin-authored text rendering; ordered-list integrity; checkout delivery validation; legal identity completeness; mobile navigation; storefront discovery; SEO structured data; mock media resolution; admin media file lifecycle; local smoke-test isolation from real external providers.
 - Unresolved anomalies: full backend pytest once exceeded the `/v1/about` 200 ms assertion at 279 ms, but the focused test passed in isolation
 - Test accounts/data created: none yet
-- Services manipulated: Next mock dev server on `127.0.0.1:3002`
+- Services manipulated: Next mock dev server on `127.0.0.1:3002`; local frontend audit server on `127.0.0.1:3003`; existing local frontend/backend on `localhost:3000` and `127.0.0.1:8000`; isolated Chrome smoke stack on `127.0.0.1:3010` and `127.0.0.1:8010` with fake courier services; isolated checkout visual audit stack on dynamic localhost ports with a temporary copied catalog database and fake courier calculate endpoints
 - Fix backlog readiness: each catalogue entry includes reproduction steps, observed/expected behavior, evidence, likely cause, impact, and a suggested regression test.
 
 ## Executive QA Summary
 
-- Total confirmed bugs discovered: 30
-- Severity counts: Critical 0, High 1, Medium 24, Low 5
-- Major risk areas: frontend regression coverage reliability; admin product response consistency; API contract consistency; discount pricing consistency; auth profile persistence; auth/session rotation reliability; payment email outbox idempotency; admin filter validation consistency; payment retry request-hardening consistency; payment webhook state ordering; admin upload validation hardening; user-generated content rendering consistency; public-form email notification hardening; admin ordered-list data integrity; admin content rendering consistency; admin content media lifecycle; checkout delivery destination integrity; checkout delivery address integrity; public legal/compliance identity configuration; mobile storefront navigation; storefront catalogue discovery; checkout shipping price transparency; product-page SEO structured data; mock/deployment media reliability
+- Total confirmed bugs discovered: 41
+- Severity counts: Critical 0, High 3, Medium 32, Low 6
+- Major risk areas: frontend regression/typecheck reliability; admin product response consistency; API contract consistency; discount pricing consistency; auth profile persistence; auth/session rotation reliability; payment email outbox idempotency; transactional email content quality; product media integrity; cart recovery and inventory UX; checkout delivery form accessibility; mobile checkout order review; admin filter validation consistency; payment retry request-hardening consistency; payment webhook state ordering; admin upload validation hardening; user-generated content rendering consistency; public-form email notification hardening; admin ordered-list data integrity; admin content rendering consistency; admin content media lifecycle; checkout delivery destination integrity; checkout delivery address integrity; public legal/compliance identity configuration; mobile storefront navigation; storefront catalogue discovery; checkout shipping price transparency; product-page SEO structured data; mock/deployment media reliability; QA/smoke harness isolation from live external providers
 - Most fragile workflows: auth session rotation, checkout delivery integrity, payment/email side effects, admin import/media lifecycle, and storefront catalogue discovery
-- Systemic patterns: inconsistent reuse of backend/public pricing semantics in frontend UI code; duplicated cross-layer side effects between service and route code; duplicated frontend/backend legal identity constants without a launch-time completeness guard; client-side storefront filtering over a fixed first page; inconsistent locale validation between sibling public endpoints; delivery text fields lack shared whitespace normalization; admin media clear paths can update database pointers without removing public static files; route-level cookie rotation can be overwritten by middleware-set session cookies
+- Systemic patterns: inconsistent reuse of backend/public pricing semantics in frontend UI code; duplicated cross-layer side effects between service and route code; duplicated frontend/backend legal identity constants without a launch-time completeness guard; client-side storefront filtering over a fixed first page; inconsistent locale validation between sibling public endpoints; delivery text fields lack shared whitespace normalization and programmatic label associations; admin media clear paths can update database pointers without removing public static files; route-level cookie rotation can be overwritten by middleware-set session cookies
 - Areas that appear robust in this snapshot: focused backend discount pricing contracts and several previously reported issues now have current-code evidence indicating fixes, pending final browser or end-to-end revalidation where noted.
 - Areas difficult to validate: auth/OAuth and external integrations may require mocks or local-only probes
+- Current fix notes: QA-029, QA-030, QA-031, and QA-032 are fixed in the current worktree with focused or full-stack verification.
 - Current revalidation notes: QA-001, QA-002, QA-004, QA-005, QA-006, QA-007, QA-008, QA-009, QA-010, QA-011, QA-014, QA-015, QA-017, QA-018, QA-019, and QA-021 have current-run evidence indicating they may be fixed and should be revalidated before being treated as active defects.
 
 ## Complete Bug Catalogue
@@ -364,7 +365,7 @@ Source prompt: `its-showtime-prompts/QA.md`
 - Confidence: Confirmed
 - Area: Backend / API / Admin Products / CSV Import
 - Environment: isolated temp SQLite DB, local ASGI admin route probe, `raise_app_exceptions` true and false controls
-- Status: Confirmed
+- Status: Fixed in current worktree - seeded smoke passed with console email delivery and no ZeptoMail calls observed
 - Preconditions: admin bearer authentication is configured; upload a `.csv` file whose bytes are not valid UTF-8.
 - Reproduction steps:
   1. Start the app against a fresh temp SQLite DB with `ADMIN_API_KEY=test-admin-key-realapp`.
@@ -937,20 +938,333 @@ Source prompt: `its-showtime-prompts/QA.md`
 - Current fix note: 2026-07-29 current worktree: OAuth callback now rotates the pre-login session with the shared rotation path, migrates cart rows, issues the JWT for the new session, and sets one new `session_id` cookie; focused callback tests assert the old session is gone and the JWT claim matches the new cookie.
 - Suggested regression test: Keep OAuth callback integration coverage asserting successful login rotates `session_id`, migrates cart rows, deletes/unlinks the old session, and issues a JWT bound to the new cookie.
 
+### QA-031 — Seeded Chrome smoke test can send real transactional emails through ZeptoMail
+
+- Severity: High
+- Confidence: Confirmed
+- Area: Infrastructure / Tests / Integration Safety
+- Environment: local workspace, `CHROME_SMOKE_START_SERVERS=1`, isolated temp SQLite DB, fake Speedy/Econt servers, local environment with ZeptoMail email provider configured
+- Status: Confirmed
+- Preconditions: local `.env` or process environment configures `EMAIL_PROVIDER=zeptomail`, a ZeptoMail API key, and an admin notification recipient; run the seeded smoke harness with `CHROME_SMOKE_START_SERVERS=1`.
+- Reproduction steps:
+  1. Run `CHROME_SMOKE_START_SERVERS=1 CHROME_SMOKE_KEEP_DB=1 FRONTEND_URL=http://127.0.0.1:3010 BACKEND_URL=http://127.0.0.1:8010 node scripts/chrome_smoke.mjs` from the repository root.
+  2. Let the customer checkout and admin shipping smoke flows complete.
+  3. Inspect the backend log output from the smoke run.
+- Expected result: A local smoke test that creates fake orders must not contact real external email providers or send real customer/admin transactional emails. It should force console/no-op email settings or use a fake provider, the same way it fakes courier APIs.
+- Actual result: The isolated backend inherited the real local email configuration and sent queued order emails through ZeptoMail during the smoke flow.
+- Reproduction rate: 1/1 seeded Chrome smoke run.
+- Evidence:
+  - Smoke output included three external provider calls: `HTTP Request: POST https://api.zeptomail.eu/v1.1/email "HTTP/1.1 201 "`.
+  - Smoke output logged `email_sent` for `email_event=placed`, `email_event=admin_new_order`, and `email_event=shipped` for the fake smoke order.
+  - `scripts/chrome_smoke.mjs` starts the managed backend with fake courier settings and test auth/session settings, but does not override `EMAIL_PROVIDER`, `EMAIL_API_KEY`, `ADMIN_NOTIFICATION_EMAIL`, or related email side-effect settings.
+  - The local environment has ZeptoMail enabled; the specific API key value is intentionally not recorded here.
+  - Current fix: `scripts/chrome_smoke.mjs` now overrides the managed backend with `EMAIL_PROVIDER=console`, empty `EMAIL_API_KEY`, empty `ADMIN_NOTIFICATION_EMAIL`, and empty `ZEPTOMAIL_WEBHOOK_AUTH_KEY`.
+  - Post-fix verification: the same seeded smoke command completed with `email_console_send` and `email_skipped_no_recipient` logs and no ZeptoMail HTTP request observed.
+- API requests/responses: Browser checkout/admin flows created fake orders through the local backend; backend then made real outbound `POST https://api.zeptomail.eu/v1.1/email` requests that returned `201`.
+- Database state: The smoke harness used a temp SQLite database and fake order data; the external email calls were the non-isolated side effect.
+- Relevant logs: `email_sent email_event=placed`, `email_sent email_event=admin_new_order`, `email_sent email_event=shipped`, followed by `Drained email outbox count=3`.
+- Likely cause: `startManagedServers()` passes through the parent process environment and overrides courier/auth/database settings, but it does not force `EMAIL_PROVIDER=console`, clear `EMAIL_API_KEY`, clear `ADMIN_NOTIFICATION_EMAIL`, or otherwise replace outbound email delivery with a fake provider.
+- Impact: Running a local smoke test can contact a real third-party email service and potentially send test transactional emails to real admin/customer addresses. This violates the QA prompt's non-production/no-irreversible-external-side-effects rule, creates privacy/compliance risk, and can pollute provider reputation or production-like operational inboxes.
+- Suggested regression test: Add a smoke harness/self-test that starts the managed backend with side-effecting email env vars set and asserts the child process effective email provider is console/no-op and no outbound ZeptoMail request is possible. Also make the harness explicitly override email provider settings whenever `CHROME_SMOKE_START_SERVERS=1`.
+
+### QA-032 — Plain-text order emails concatenate shipping and total lines
+
+- Severity: Medium
+- Confidence: Confirmed
+- Area: Backend / Email / Customer Communications
+- Environment: seeded full-stack Chrome smoke with console email provider; direct template/source inspection
+- Status: Fixed in current worktree - renderer tests pass
+- Preconditions: render customer order placed or payment pending email templates with `shipping_is_fallback` false or true.
+- Reproduction steps:
+  1. Run the seeded full-stack smoke after forcing console email delivery.
+  2. Inspect the `email_console_send` body for the generated order placed emails.
+  3. Inspect `app/email/templates/en/order_placed.txt`, `app/email/templates/en/order_payment_pending.txt`, `app/email/templates/bg/order_placed.txt`, and `app/email/templates/bg/order_payment_pending.txt` with `app/email/renderer.py`.
+- Expected result: Plain-text transactional emails should show financial lines on separate lines, for example `Shipping: €6.50` followed by `Total: €31.50` on the next line.
+- Actual result: Rendered order emails concatenate the shipping and total lines, for example `Shipping: €6.50Total: €31.50` and `Shipping: €5.90Total: €40.90`.
+- Reproduction rate: 2/2 customer order placed emails observed in the seeded smoke run.
+- Evidence:
+  - Smoke output body for the Speedy order contained `Subtotal: €25.00\nShipping: €6.50Total: €31.50`.
+  - Smoke output body for the Econt order contained `Subtotal: €35.00\nShipping: €5.90Total: €40.90`.
+  - `app/email/renderer.py` configures Jinja with `trim_blocks=True`.
+  - The affected templates put an inline block tag at the end of the shipping line: `Shipping: {{ shipping_display }}{% if shipping_is_fallback %} (estimated){% endif %}` and Bulgarian equivalent. With `trim_blocks=True`, the newline after `{% endif %}` is removed.
+  - Existing renderer tests assert shipping substrings but do not assert that total/delivery labels start on a new line.
+  - Current fix: affected templates now use inline conditional expressions instead of inline block tags, preserving line breaks under `trim_blocks=True`.
+  - Post-fix verification: `.venv/bin/pytest tests/test_email_renderer.py -q` passed 17 tests, including new line-boundary checks for English/Bulgarian placed/payment-pending emails and the admin order email.
+- API requests/responses: not applicable; defect is in rendered email content produced after successful local order creation.
+- Database state: orders and outbox rows are valid; rendered plain-text body is malformed.
+- Relevant logs: `email_console_send` output from the seeded smoke run.
+- Likely cause: Plain-text templates use block tags inside line-oriented text while the global Jinja environment trims the following newline after a block.
+- Impact: Customer order emails present monetary totals in a visually broken way, reducing professionalism and making order totals harder to scan. For a small luxury store, transactional email polish directly affects trust after purchase.
+- Suggested regression test: Add renderer tests that assert `Total:`/`Общо:` and `Delivery:` labels start on their own lines after the shipping line for placed, payment-pending, and admin order templates.
+
+### QA-033 — Standalone frontend typecheck fails on stale `.next/types` references
+
+- Severity: Medium
+- Confidence: Confirmed
+- Area: Frontend / Build Tooling / Developer Experience
+- Environment: local workspace, `frontend`, TypeScript via `npm --prefix frontend run typecheck`, Next.js custom dist dirs `.next-build` and `.next-dev`
+- Status: Confirmed
+- Preconditions: repository contains a stale `.next/types` directory that references generated route type files no longer present in `.next/types/app/[locale]`.
+- Reproduction steps:
+  1. Run `npm --prefix frontend run typecheck` from the repository root.
+  2. Compare `frontend/tsconfig.json` includes with the generated type directories present after `npm --prefix frontend run build`.
+  3. Inspect `frontend/.next/types/validator.ts` and `frontend/.next/types/app`.
+- Expected result: the standalone typecheck command should complete or check the current generated type directory used by the configured Next build/dev scripts.
+- Actual result: `tsc --noEmit` exits with code 2 before checking the application because it tries to include missing generated files from stale `.next/types`.
+- Reproduction rate: 1/1 local command run.
+- Evidence:
+  - `npm --prefix frontend run typecheck` failed with `TS6053: File '/Users/I551270/PycharmProjects/AtelierMarie/frontend/.next/types/app/[locale]/admin/layout.ts' not found`, plus missing `.next/types/app/[locale]/layout.ts` and `.next/types/server.d.ts`.
+  - `frontend/tsconfig.json` includes `.next-build/types/**/*.ts`, `.next-dev/types/**/*.ts`, and `.next/types/**/*.ts`.
+  - `npm --prefix frontend run build` sets `NEXT_DIST_DIR=.next-build` and passed type validation/build successfully, proving current build-generated types live under `.next-build`.
+  - `frontend/.next/types/validator.ts` imports route/layout generated files that are not all present in `frontend/.next/types/app`, while `.next-build/types` is regenerated by the build.
+  - Backend pytest, backend ruff, frontend Vitest, and frontend build all passed in the same QA pass; the standalone typecheck command is the isolated failing validation command.
+- API requests/responses: not applicable.
+- Database state: not applicable.
+- Relevant logs: `error TS6053: File .../.next/types/app/[locale]/admin/layout.ts not found. The file is in the program because: Matched by include pattern '.next/types/**/*.ts' in frontend/tsconfig.json`.
+- Likely cause: the project uses custom Next output directories for dev/build, but `tsconfig.json` still includes the default `.next/types` directory. A stale generated `.next/types/validator.ts` can reference missing files and break `npm run typecheck` independently of the real build output.
+- Impact: the documented standalone frontend typecheck command is unreliable and can fail from local generated-artifact drift instead of real type errors. This blocks CI/local validation if the script is used directly and can hide actual TypeScript regressions behind stale artifact errors.
+- Suggested regression test: Update the typecheck script or `tsconfig` generated-type includes so it only targets the active dist dir, then add a clean-worktree validation that `npm --prefix frontend run typecheck` passes without requiring stale `.next` artifacts.
+
+### QA-034 — Checkout stores client-supplied city for validated courier office IDs
+
+- Severity: Medium
+- Confidence: Confirmed
+- Area: Backend / Checkout / Delivery Data Integrity
+- Environment: isolated temp SQLite DB, direct cart and checkout service probe, real courier office catalogue data
+- Status: Confirmed
+- Preconditions: cart contains an active product; checkout uses a real Econt office ID and the matching `office_type`, but supplies a city string that does not match the catalogue city.
+- Reproduction steps:
+  1. Initialize a temp DB, create session `sid-office-city`, seed active product `qa-office-city-candle`, and add it to the cart.
+  2. Resolve a real Econt office from `delivery_service.get_offices("econt", city, locale="bg")`; probe used `office_id=econt-100001255`, catalogue city `Абланица`, office type `apt`.
+  3. Build `DeliveryInfo(method="office")` with that valid office ID/type but `city="Definitely Not Абланица"`.
+  4. Call `order_service.checkout(...)` and inspect the persisted `orders.delivery_details` JSON.
+- Expected result: checkout should either reject the payload because the office city does not match the selected catalogue office, or persist the canonical catalogue city together with the canonical office name/type.
+- Actual result: checkout succeeds and persists the fake client-supplied city while canonicalizing only `office_name` and `office_type`.
+- Reproduction rate: 1/1 direct service probe.
+- Evidence:
+  - Probe output: `status=created`, `office_id=econt-100001255`, `catalogue_city=Абланица`, `submitted_city=Definitely Not Абланица`, `stored_city=Definitely Not Абланица`.
+  - The same persisted details used the catalogue `office_name` and `office_type`, proving the service looked up the office but did not canonicalize `city`.
+  - `app/services/order_service.py` validates `catalogue_office = delivery_service.get_office(...)` and overwrites `office_name`/`office_type`, but leaves `delivery_details["city"]` from `delivery_sub.model_dump()`.
+- API requests/responses: not applicable; direct service probe exercises the same checkout service used by `POST /v1/orders`.
+- Database state: `orders.delivery_details` contains a valid office ID paired with a fabricated city string.
+- Relevant logs: no backend error; order creation returned normally.
+- Likely cause: the office delivery branch normalizes selected fields from the catalogue after validation but omits `city`, allowing client-supplied display/address data to survive in the persisted order snapshot.
+- Impact: admin order detail, customer order detail, labels, emails, analytics, or later shipping reconciliation can show contradictory office destination data. A valid office ID may be paired with an impossible city, making fulfilment and customer support more error-prone.
+- Suggested regression test: Add checkout/service coverage with a valid office ID and mismatched city, asserting either `INVALID_DELIVERY_OFFICE` or persisted canonical `city` from `delivery_service.get_office()`.
+
+### QA-035 — Door checkout accepts unsupported city/postcode combinations
+
+- Severity: Medium
+- Confidence: Confirmed
+- Area: Backend / Checkout / Delivery Validation
+- Environment: isolated temp SQLite DB, direct cart and checkout service probe, real served-place catalogue data
+- Status: Confirmed
+- Preconditions: cart contains an active product; checkout uses door delivery for Econt with a city/postcode that is absent from `GET /v1/delivery/places` / `delivery_service.get_places()`.
+- Reproduction steps:
+  1. Initialize a temp DB, create session `sid-door-place`, seed active product `qa-door-place-candle`, and add it to the cart.
+  2. Confirm `delivery_service.get_places("econt", query="Not A Served Place QA", locale="bg")` returns `[]`.
+  3. Build `DeliveryInfo(method="door")` with `courier="econt"`, `city="Not A Served Place QA"`, `postal_code="0000"`, `street="Unknown Street 1"`, and a valid phone.
+  4. Call `order_service.checkout(...)` and inspect the persisted `orders.delivery_details` JSON.
+- Expected result: checkout should reject door delivery to a place/postcode that the courier served-place catalogue does not contain, or canonicalize against a selected served-place row before order creation.
+- Actual result: checkout creates the order and persists the unsupported city/postcode exactly as submitted.
+- Reproduction rate: 1/1 direct service probe.
+- Evidence:
+  - Probe output: `served_place_matches=[]`, `status=created`, `stored_city=Not A Served Place QA`, `stored_postal_code=0000`.
+  - `app/routes/delivery.py` exposes `/v1/delivery/places` specifically so door delivery can select a courier-served place with postcode/region disambiguation.
+  - `app/services/order_service.py` only checks whether the selected courier/method is enabled for door delivery; it does not validate `delivery.door.city` or `postal_code` against `delivery_service.get_places()`.
+- API requests/responses: not applicable; direct service probe exercises the same checkout service used by `POST /v1/orders`.
+- Database state: `orders.delivery_details` contains a door delivery destination with no matching served-place catalogue row.
+- Relevant logs: no backend error; order creation returned normally.
+- Likely cause: served-place lookup exists for the frontend and shipping quote flow, but checkout does not enforce that the final door-delivery payload still corresponds to a served place/postcode.
+- Impact: customers or scripted clients can create orders for destinations the courier data does not recognize. Fulfilment may fail later during quote reconciliation or waybill creation, after the cart is cleared and customer/admin emails are queued.
+- Suggested regression test: Add checkout/service coverage for unsupported door city/postcode values and assert `INVALID_DELIVERY_PLACE`/422 with no order, stock decrement, cart clear, or outbox enqueue.
+
+### QA-036 — Lavender Dream gallery shows unrelated pet and document images instead of candle photography
+
+- Severity: High
+- Confidence: Confirmed
+- Area: Frontend / Merchandising / Product Media
+- Environment: isolated visual stack on `127.0.0.1:3011` / `127.0.0.1:8011`, temporary copy of current `atelier_marie.db`, headless Chrome screenshots at 1440 desktop, 390 mobile, and 320 mobile widths
+- Status: Confirmed
+- Preconditions: current catalog data is copied from `atelier_marie.db`; product `lavender-dream-300ml` is active and has four `product_images` rows.
+- Reproduction steps:
+  1. Start the backend against a temporary copy of `atelier_marie.db` and the frontend against that backend.
+  2. Visit `/en/products` at mobile or desktop width.
+  3. Visit `/en/products/lavender-dream-300ml` at mobile or desktop width.
+  4. Inspect the product listing card and PDP gallery thumbnails.
+- Expected result: Active product media should accurately show the candle, vessel, packaging, scale, ingredients, or gift presentation for Lavender Dream.
+- Actual result: The product listing and PDP hero image show an unrelated pet/outdoor photo. The PDP thumbnail strip also includes other non-product images, including a document/screenshot-like image and unrelated people/pet imagery.
+- Reproduction rate: 5/5 screenshots across product listing desktop/mobile and PDP desktop/mobile/narrow-mobile captures.
+- Evidence:
+  - Screenshot: `/Users/I551270/PycharmProjects/AtelierMarie/qa-artifacts/screenshots/2026-07-31/clean-products-desktop-1440.png` shows the first product card image as an unrelated pet photo while other products show placeholders.
+  - Screenshot: `/Users/I551270/PycharmProjects/AtelierMarie/qa-artifacts/screenshots/2026-07-31/clean-products-mobile-390.png` shows the same unrelated pet photo above `Lavender Dream`.
+  - Screenshot: `/Users/I551270/PycharmProjects/AtelierMarie/qa-artifacts/screenshots/2026-07-31/clean-pdp-mobile-390.png` shows the PDP hero image and gallery thumbnails as unrelated pet/document/people imagery.
+  - Database query on the copied DB shows four `product_images` rows for `lavender-dream-300ml` and no image rows for other active products.
+  - Image dimension probe confirmed the current static files are real uploaded/generated media under `static/products/lavender-dream-300ml_*.webp`, not a missing-image fallback.
+  - The clean visual stack reported no route errors, no console errors, and no horizontal overflow, so this is content/media integrity, not a failed render.
+- API requests/responses: page/API requests returned normally on the isolated stack; defect is in displayed product media content.
+- Database state: `product_images` contains four rows for `lavender-dream-300ml`, with the unrelated pet photo marked primary through `is_primary=1`.
+- Relevant logs: screenshot capture output had `routeErrors: []` for the clean visual stack.
+- Likely cause: non-product files were uploaded or retained as product gallery media, and there is no owner/media-readiness review gate preventing an active product from using misleading images.
+- Impact: This is worse than a placeholder. It can make the shop look fake, careless, or compromised, and it actively misrepresents the product at the exact point where candle photography should build desire and trust.
+- Suggested regression test: Add a product media readiness workflow rather than trying to infer image semantics automatically: active products should require owner-reviewed media status, and launch checks should fail when active products have unreviewed or placeholder media. Keep screenshot review as a manual launch gate for catalog content.
+
+### QA-037 — Cart drawer hides unavailable items returned by the cart API
+
+- Severity: Medium
+- Confidence: Confirmed
+- Area: Frontend / Cart / Recovery
+- Environment: isolated cart audit stack on `127.0.0.1:3012` / `127.0.0.1:8012`, temporary copy of current catalog DB, headless Chrome mobile viewport 390x844
+- Status: Confirmed
+- Preconditions: cart contains `lavender-dream-300ml` and `honey-tobacco-oak-300ml`; `honey-tobacco-oak-300ml` is then deactivated in the database before the cart is reloaded.
+- Reproduction steps:
+  1. Add `lavender-dream-300ml` quantity 1 and `honey-tobacco-oak-300ml` quantity 8 to the cart.
+  2. Update the database so `honey-tobacco-oak-300ml.is_active = 0`.
+  3. Fetch `GET /v1/cart?locale=en`.
+  4. Reload `/en/products`, open the cart drawer, and compare the drawer to the API response.
+- Expected result: The cart drawer should show that Honey Tobacco & Oak is no longer available, explain why, and let the customer remove or recover the stale item.
+- Actual result: The API returns `unavailable_items: [{ product_id: "honey-tobacco-oak-300ml", product_name: "Honey Tobacco & Oak", reason: "deactivated" }]`, but the drawer silently shows only Lavender Dream with a reduced subtotal and no unavailable-item notice.
+- Reproduction rate: 1/1 isolated browser/API run.
+- Evidence:
+  - API response after deactivation contained `unavailable_items` with `Honey Tobacco & Oak` and reason `deactivated`.
+  - Screenshot: `/Users/I551270/PycharmProjects/AtelierMarie/qa-artifacts/screenshots/2026-07-31/cart-stale-item-mobile-390.png` shows only Lavender Dream, subtotal `€32.00`, and no stale-item message.
+  - `frontend/components/cart/CartDrawer.tsx` reads `items`, `total_cents`, and `item_count` from `useCart()` but never renders `unavailable_items`.
+  - `frontend/contexts/CartContext.tsx` does not expose unavailable items to the drawer state in the reviewed path.
+- API requests/responses: `GET /v1/cart?locale=en -> 200` with one active item and one `unavailable_items` entry.
+- Database state: `cart_items` still contained the stale product row; product row was deactivated; backend correctly identified it as unavailable.
+- Relevant logs: screenshot capture output had `routeErrors: []`.
+- Likely cause: The backend cart contract supports unavailable item recovery, but frontend cart state/drawer rendering drops that part of the response.
+- Impact: Customers can lose visible cart items without explanation when stock/catalog state changes. This creates confusion near checkout and removes the customer recovery path the backend already exposes.
+- Suggested regression test: Add `CartContext` and `CartDrawer` tests with mixed active and unavailable cart response data, asserting the unavailable product name/reason is visible and removable.
+
+### QA-038 — Cart quantity increment stays enabled at the product stock limit
+
+- Severity: Medium
+- Confidence: Confirmed
+- Area: Frontend / Cart / Inventory UX
+- Environment: isolated cart audit stack on `127.0.0.1:3012` / `127.0.0.1:8012`, temporary copy of current catalog DB, headless Chrome mobile viewport 390x844
+- Status: Confirmed
+- Preconditions: `honey-tobacco-oak-300ml` has stock 8; cart contains that product at quantity 8.
+- Reproduction steps:
+  1. Add `honey-tobacco-oak-300ml` quantity 8 to the cart.
+  2. Open the cart drawer on mobile.
+  3. Inspect the increase quantity button for Honey Tobacco & Oak.
+  4. Click the plus button.
+- Expected result: The plus button should be disabled or clearly explain that 8 is the available quantity. If a race still happens, the error should identify the product and available quantity.
+- Actual result: The plus button is enabled at quantity 8. Clicking it triggers a generic `Insufficient stock` banner, leaves the plus button enabled, and does not tell the customer the maximum available quantity.
+- Reproduction rate: 1/1 isolated browser/API run.
+- Evidence:
+  - Cart API product data for Honey Tobacco & Oak showed `stock: 8` and cart quantity `8`.
+  - Browser metrics before clicking plus showed the Honey Tobacco increase button had `disabled: false`.
+  - Screenshot: `/Users/I551270/PycharmProjects/AtelierMarie/qa-artifacts/screenshots/2026-07-31/cart-low-stock-after-plus-mobile-390.png` shows `Insufficient stock`, quantity still `8`, and the plus button still visible/enabled.
+  - `frontend/components/cart/CartItem.tsx` sets `canIncrement = quantity < 10`, independent of `product.stock`.
+- API requests/responses: the cart update request after clicking plus was rejected by backend stock validation; frontend surfaced only the generic stock message.
+- Database state: product stock remained 8 and cart quantity remained 8.
+- Relevant logs: screenshot capture output had `routeErrors: []`; backend protected stock integrity.
+- Likely cause: Frontend quantity controls only know the per-item quantity cap, not the product stock cap already present in embedded cart product data.
+- Impact: The UI invites customers to perform an action the system already knows will fail, creating avoidable checkout friction and weak inventory confidence.
+- Suggested regression test: Add cart item UI tests where product stock is below the per-item limit and quantity equals stock, asserting the increment button is disabled and a helpful limit message is shown.
+
+### QA-039 — Cart error dismiss control is only 16x16 pixels on mobile
+
+- Severity: Low
+- Confidence: Confirmed
+- Area: Frontend / Accessibility / Cart
+- Environment: isolated cart audit stack on `127.0.0.1:3012` / `127.0.0.1:8012`, headless Chrome mobile viewport 390x844
+- Status: Confirmed
+- Preconditions: cart drawer shows an error banner, reproduced by clicking plus on a cart item already at its stock limit.
+- Reproduction steps:
+  1. Add `honey-tobacco-oak-300ml` quantity 8 to the cart.
+  2. Open the cart drawer on mobile and click the enabled plus button.
+  3. Inspect the dismiss button in the `Insufficient stock` error banner.
+- Expected result: The error-dismiss control should have a practical mobile touch target, at least matching the app's other 44x44 icon buttons or the minimum target size policy used elsewhere.
+- Actual result: Browser metrics show the `Dismiss error` button is `16x16`, making it much smaller than the drawer close button and difficult to tap reliably.
+- Reproduction rate: 1/1 isolated browser run.
+- Evidence:
+  - Screenshot: `/Users/I551270/PycharmProjects/AtelierMarie/qa-artifacts/screenshots/2026-07-31/cart-low-stock-after-plus-mobile-390.png` shows the small dismiss X in the error banner.
+  - Browser metrics for the same state reported `{ name: "Dismiss error", width: 16, height: 16 }`.
+  - `frontend/components/cart/CartDrawer.tsx` gives the dismiss button `shrink-0 text-red-800/70...` but no minimum width/height, while the drawer close button uses `min-w-[44px] min-h-[44px]`.
+- API requests/responses: not applicable beyond triggering the stock error.
+- Database state: not applicable.
+- Relevant logs: screenshot capture output had `routeErrors: []`.
+- Likely cause: Error banner icon button lacks the minimum target-size styling used on the main drawer close button.
+- Impact: Mobile and motor-impaired users may struggle to dismiss cart errors, especially after an avoidable stock error. The rest of the drawer remains usable, so severity is low.
+- Suggested regression test: Add cart drawer accessibility/layout coverage asserting interactive error-dismiss controls meet the shared minimum target size.
+
+### QA-040 — Checkout delivery fields are visually labelled but programmatically named by placeholders
+
+- Severity: Medium
+- Confidence: Confirmed
+- Area: Frontend / Accessibility / Checkout
+- Environment: isolated checkout visual audit stack on dynamic localhost ports, temporary copy of current catalog DB, fake Speedy/Econt calculate endpoints, headless Chrome mobile viewport 390x844 and desktop viewport 1440x1000
+- Status: Confirmed
+- Preconditions: cart contains `lavender-dream-300ml` quantity 1; customer opens checkout and selects door delivery or office pickup.
+- Reproduction steps:
+  1. Start the storefront against a temporary copy of `atelier_marie.db` with `NEXT_PUBLIC_USE_MOCK_API=false` and fake courier calculate endpoints.
+  2. In headless Chrome mobile 390x844, add `lavender-dream-300ml` to the cart and open `/en/checkout`.
+  3. Select Door delivery, Speedy, Sofia, enter street and courier phone, and wait for the shipping quote to be ready.
+  4. Inspect the live DOM and Chrome accessibility tree for the delivery text/tel fields.
+  5. Repeat the office pickup path on desktop with Econt office selection and inspect the courier phone field.
+- Expected result: Every checkout delivery input should have a persistent programmatic label matching its visible label, such as City, Postal code, Street and number, Building, Floor/Apartment, and Phone for courier.
+- Actual result: The delivery inputs render visible label text, but the input elements have no `id`, no associated `label`, no `aria-label`, and no `aria-labelledby`. Chrome names the fields from placeholders or current values, e.g. `e.g., Sofia`, `1000`, `e.g., Vitosha Blvd 100`, `e.g., A`, `e.g., 12`, and `+359...`, rather than the visible field labels.
+- Reproduction rate: 1/1 isolated browser run across mobile door delivery and desktop office pickup states.
+- Evidence:
+  - Screenshot: `/Users/I551270/PycharmProjects/AtelierMarie/qa-artifacts/screenshots/2026-07-31/checkout-door-ready-mobile-390.png` captures the mobile door-delivery form after a ready quote.
+  - Screenshot: `/Users/I551270/PycharmProjects/AtelierMarie/qa-artifacts/screenshots/2026-07-31/checkout-office-ready-desktop-1440.png` captures the desktop office-pickup form after a ready quote.
+  - Live DOM metrics for six door-delivery text/tel inputs reported `id=null`, `ariaLabel=null`, `ariaLabelledby=null`, and `labels=[]` while visual labels such as `Postal code *`, `Street and number *`, `Building / Entrance (optional)`, `Floor / Apartment (optional)`, and `Phone for courier *` were visible nearby.
+  - Chrome accessibility tree reported textbox names from placeholders/current values: `Email *` and `Name *` were labelled correctly, but delivery fields were named `1000`, `e.g., Vitosha Blvd 100`, `e.g., A`, `e.g., 12`, `+359...`, and `e.g., Sofia`.
+  - Desktop office-pickup phone field showed the same pattern: `id=null`, `ariaLabel=null`, `labels=[]`, `visualLabel=Phone for courier *`.
+  - `frontend/components/checkout/DeliverySection.tsx` renders standalone visual `<label>` elements for delivery fields without `htmlFor`/`id` pairs or equivalent ARIA wiring; email, name, and order notes use the correct pattern in the checkout page.
+  - The isolated browser run recorded `routeErrors: []` and backend `/v1/delivery/calculate` returned `200`, so this is not a failed-render artifact.
+- API requests/responses: `POST /v1/cart?locale=en -> 201`; `POST /v1/delivery/calculate -> 200` for Speedy door quote; `POST /v1/delivery/calculate -> 200` for Econt office quote; `GET /v1/cart?locale=en -> 200` after checkout interactions.
+- Database state: temporary copied DB only; shared `atelier_marie.db` was not mutated.
+- Relevant logs: browser capture output had `routeErrors: []`; backend log tail included successful delivery settings, city/office lookup, cart, and calculate requests.
+- Likely cause: `DeliverySection` renders standalone visual label elements without `htmlFor`/`id` pairs and without `aria-labelledby`/`aria-describedby` wiring for the associated inputs.
+- Impact: Screen-reader and voice-input users cannot reliably identify required delivery fields during checkout. Placeholder-derived names are especially weak once fields are filled or examples disappear, and checkout accessibility defects can directly block revenue.
+- Suggested regression test: Add checkout/DeliverySection accessibility tests using Testing Library `getByRole`/`getByLabelText` for every delivery input in door and office states, plus a browser accessibility-tree or axe check asserting delivery text/tel inputs are named by visible labels, not placeholders.
+
+### QA-041 — Mobile checkout shows Place Order before the order summary and final total
+
+- Severity: Medium
+- Confidence: Confirmed
+- Area: Frontend / UX / Checkout / Mobile
+- Environment: isolated checkout visual audit stack on dynamic localhost ports, temporary copy of current catalog DB, fake Speedy/Econt calculate endpoints, headless Chrome mobile viewport 390x844
+- Status: Confirmed
+- Preconditions: cart contains `lavender-dream-300ml` quantity 1; customer completes delivery enough for a shipping quote on mobile checkout.
+- Reproduction steps:
+  1. Start the storefront against a temporary copy of `atelier_marie.db` with fake courier calculate endpoints.
+  2. In headless Chrome mobile 390x844, add `lavender-dream-300ml` to the cart and open `/en/checkout`.
+  3. Fill email/name, choose Door delivery, Speedy, Sofia, street, and courier phone, then wait for the quote to be ready.
+  4. Inspect the mobile page order and viewport positions for the `Place Order` button and `Order Summary` block.
+- Expected result: Before the customer can submit the order on mobile, the order summary and final payable total should be visible before or directly above the `Place Order` action, or the action should live inside a clearly reviewed summary step.
+- Actual result: On mobile, the primary `Place Order` button appears before the `Order Summary` block and before the final total. Browser metrics at 390x844 showed the visible `Place Order` button at `top=731` while the `Order Summary` heading started below the viewport at `top=924`.
+- Reproduction rate: 1/1 isolated mobile browser run.
+- Evidence:
+  - Screenshot: `/Users/I551270/PycharmProjects/AtelierMarie/qa-artifacts/screenshots/2026-07-31/checkout-door-ready-mobile-390.png` shows the `Place Order` button and legal text before the `Order Summary` card and final `Total` row.
+  - Browser layout metrics reported viewport height `844`, visible `Place Order` button `top=731`, `height=48`, and `Order Summary` heading `top=924`.
+  - `frontend/app/[locale]/checkout/page.tsx` renders the `lg:hidden` mobile submit button inside the form before the sibling `<aside>` that contains the order summary. On mobile, the grid stacks the form before the aside.
+  - The isolated browser run recorded `routeErrors: []` and successful delivery quote calls, so this is the intended rendered layout, not a loading/error state.
+- API requests/responses: `POST /v1/cart?locale=en -> 201`; `POST /v1/delivery/calculate -> 200` for Speedy door quote.
+- Database state: temporary copied DB only; shared `atelier_marie.db` was not mutated.
+- Relevant logs: browser capture output had `routeErrors: []`; backend log tail included successful delivery calculate requests before screenshot capture.
+- Likely cause: The responsive layout renders the mobile submit control inside the form before the aside. Since the aside contains the summary and follows the form in DOM order, mobile stacking puts the submit action before the final review block.
+- Impact: Mobile customers can submit before seeing the final order summary, shipping line, and payable total in the natural page flow. That weakens checkout trust and increases the risk of order-review hesitation or post-order support questions.
+- Suggested regression test: Add mobile checkout layout coverage asserting the final total/order summary is visible before the primary submit action, or that the submit action is placed inside/after a mobile summary review block.
+
 ## Coverage Map
 
 | Feature / Area | Status | Notes |
 | --- | --- | --- |
-| Build, lint, type checks, automated tests | Partially tested | Backend ruff passed; frontend Vitest passed in the current run; Next build passed with existing `<img>` warnings; full backend pytest failed once on the `/v1/about` 200 ms assertion, while the focused test passed in isolation |
-| Public storefront | Partially tested | Mobile navigation availability, first-100 product listing cap, mock-mode media URL behavior, discount price sort semantics, atelier text entity rendering, legal/product-safety placeholder propagation, and Product/Offer structured-data coverage inspected/probed; broader browser workflows pending |
-| Product detail, gallery, and social proof | Partially tested | Comment sanitization/rendering probed, see QA-014; gallery and broader product detail browser behavior pending |
-| Cart and checkout | Partially tested | Backend cart/order discount contract passed; QA-004 and QA-018 have current evidence indicating fixes; unresolved shipping price transparency recorded in QA-022; whitespace-only door address acceptance recorded in QA-026 |
+| Build, lint, type checks, automated tests | Partially tested | Backend pytest and ruff passed; frontend Vitest passed; Next build passed with existing `<img>` warnings; standalone frontend typecheck failed on stale `.next/types` references, see QA-033 |
+| Public storefront | Partially tested | Chrome smoke passed for home, products, empty-cart checkout redirect, atelier, FAQ, contact, terms, privacy, and cookies; desktop/mobile screenshots of product listing found misleading Lavender Dream media, see QA-036; mobile navigation availability, first-100 product listing cap, mock-mode media URL behavior, discount price sort semantics, atelier text entity rendering, legal/product-safety placeholder propagation, and Product/Offer structured-data coverage inspected/probed; broader browser workflows pending |
+| Product detail, gallery, and social proof | Partially tested | Desktop/mobile PDP screenshots found misleading Lavender Dream gallery media, see QA-036; comment sanitization/rendering probed, see QA-014; broader product detail browser behavior pending |
+| Cart and checkout | Partially tested | Seeded full-stack Chrome smoke passed Speedy door-delivery and Econt office-delivery checkout flows against fake courier APIs; checkout visual/mobile screenshots covered initial, door-ready, and office-ready states; cart drawer screenshots covered empty, item, low-stock, stock-error, and stale-item states; backend cart/order discount contract passed; QA-004 and QA-018 have current evidence indicating fixes; unresolved shipping price transparency recorded in QA-022; whitespace-only door address acceptance recorded in QA-026; office city mismatch persistence recorded in QA-034; unsupported door place acceptance recorded in QA-035; stale cart item hiding recorded in QA-037; stock-limit control failure recorded in QA-038; checkout delivery label accessibility recorded in QA-040; mobile submit-before-summary layout recorded in QA-041 |
 | Orders and payment retry | Partially tested | Current tests/code indicate QA-007, QA-008, QA-009, and QA-019 may be fixed; frontend payment retry browser workflow still pending |
 | Auth and account | Partially tested | QA-006, QA-010, QA-011, QA-029, and QA-030 now have current code/test evidence indicating fixes; broader auth/permissions remain pending |
-| Admin products, uploads, taxonomy, FAQ, promotions, atelier content, orders | Partially tested | Admin product video response now has current evidence indicating a fix; CSV malformed encoding/image max-count behavior, FAQ duplicate reorder handling, atelier text rendering, and atelier image file cleanup remain recorded; taxonomy/promotions deeper flows pending |
+| Admin products, uploads, taxonomy, FAQ, promotions, atelier content, orders | Partially tested | Seeded full-stack Chrome smoke passed admin confirm/ship/tracking/label checks for Speedy and manual Econt shipping; admin product video response now has current evidence indicating a fix; CSV malformed encoding/image max-count behavior, FAQ duplicate reorder handling, atelier text rendering, and atelier image file cleanup remain recorded; taxonomy/promotions deeper flows pending |
 | Backend API validation and error handling | Partially tested | Cart/order happy path, over-stock response, checkout delivery office validation, checkout door address whitespace validation, invalid FAQ locale behavior, discount pricing contract, admin auth basics, public comments entity handling, contact newline/header-like input handling, admin CSV malformed encoding/image feedback, current admin order/payment/webhook validation, backend email legal context placeholders, and representative custom error envelopes probed |
 | Database integrity | Partially tested | CSV image URL partial-success behavior recorded in QA-013; broader schema and persistence probes pending |
-| Accessibility and responsive layout | Partially tested | User-menu accessible name probed, see QA-011; broader browser/screenshot checks pending |
+| Accessibility and responsive layout | Partially tested | Seeded Chrome mobile smoke passed product-detail and checkout body rendering; checkout delivery fields are visually labelled but programmatically named by placeholders, see QA-040; cart error dismiss target-size issue recorded in QA-039; user-menu accessible name probed, see QA-011; broader browser/screenshot checks pending |
 | Performance and resource behavior | Not tested | Pending after functional surface mapping |
 
 ## Scenario Inventory
@@ -990,6 +1304,17 @@ Source prompt: `its-showtime-prompts/QA.md`
 - Ran isolated ASGI OAuth callback probe with mocked Google exchange/verification showing login binds the user and JWT to the same pre-login anonymous session ID instead of rotating it.
 - Implemented current-worktree fixes for QA-029 and QA-030, then ran focused auth/session tests covering logout duplicate-cookie prevention, OAuth session rotation, JWT session claim alignment, cart migration, and existing rotation rollback behavior.
 - Revalidated current code/tests for prior product-video, discount-price, auth-profile, user-menu, comment text, contact-name, atelier text, payment, and delivery findings; several older entries now need revalidation before being treated as active.
+- Ran Chrome public-route smoke against the existing local stack on `localhost:3000`, covering home, products, empty-cart checkout redirect, atelier, FAQ, contact, terms, privacy, and cookies with no browser/page/server errors.
+- Ran seeded full-stack Chrome smoke with a temp database and fake courier APIs, covering Speedy door checkout, Econt office checkout, admin confirm/ship/tracking/label flows, and mobile product/checkout rendering.
+- Observed the seeded smoke backend inherit real ZeptoMail settings and make external `POST https://api.zeptomail.eu/v1.1/email` calls while sending fake order emails, recorded as QA-031.
+- Observed console-rendered order emails concatenate `Shipping` and `Total` labels, then traced the issue to Jinja `trim_blocks=True` plus inline block tags in plain-text templates, recorded as QA-032.
+- Ran `npm --prefix frontend run typecheck` and observed `TS6053` failures from stale `.next/types` references while backend pytest/ruff, frontend Vitest, and the configured Next build passed, recorded as QA-033.
+- Ran a direct checkout service probe with a valid Econt office ID/type but mismatched city and observed a created order whose `delivery_details.city` retained the fake city, recorded as QA-034.
+- Ran a direct checkout service probe with an Econt door city/postcode that returned no served-place matches and observed a created order persisting that unsupported destination, recorded as QA-035.
+- Ran an isolated visual stack from a temporary copy of the current catalog and captured desktop/mobile product listing plus PDP screenshots; observed Lavender Dream displaying unrelated pet/document/people images instead of candle photography, recorded as QA-036.
+- Ran an isolated cart audit stack and captured mobile cart drawer screenshots for empty, one-item, low-stock, post-stock-error, and stale-item states; recorded QA-037 through QA-039.
+- Ran an isolated checkout visual/accessibility stack with a temporary copied catalog database and fake courier calculate endpoints; captured mobile initial, mobile door-ready, and desktop office-ready screenshots, then inspected live DOM and Chrome accessibility-tree field names; recorded QA-040.
+- Used the same mobile checkout screenshot and layout metrics to confirm the primary `Place Order` button appears before the order summary/final total on mobile; recorded QA-041.
 
 ## Systemic Findings
 
@@ -1021,6 +1346,16 @@ Source prompt: `its-showtime-prompts/QA.md`
 - Admin content media lifecycle is database-only for atelier clear operations; generated static files are not removed with the content pointer.
 - Session cookie ownership between auth routes and middleware was split; current worktree now prevents middleware from appending a stale request-session cookie when routes rotate the session.
 - Login and logout paths did not share one session-rotation mechanism; current worktree routes OAuth callback through the shared rotation path.
+- The managed browser smoke harness isolates database and courier dependencies but not email delivery settings, so local test runs can still trigger real provider side effects.
+- Plain-text email templates use Jinja block tags inside single text lines while the renderer trims block newlines, which can join adjacent customer-facing labels.
+- Frontend type validation is split between custom Next output directories and a default `.next/types` include, so stale generated artifacts can break the standalone typecheck command.
+- Checkout office validation canonicalizes some catalogue fields but not all persisted destination fields, leaving client-supplied city data attached to validated office IDs.
+- Checkout door delivery uses the served-place catalogue for discovery but not as a final server-side invariant before order creation.
+- Product media publication has no reviewed/approved state or launch gate, allowing active products to carry unrelated uploaded media into the storefront.
+- Backend cart responses include recovery data that the frontend cart state/drawer does not preserve or render.
+- Cart controls use a generic quantity cap instead of product-specific stock data already present in cart item responses.
+- Checkout delivery subcomponents render visual labels without programmatic label associations, unlike the main checkout contact fields.
+- Mobile checkout stacks the form submit action before the order-summary review block, so the final total is not in the natural pre-submit flow.
 
 ## Missing Safeguards
 
@@ -1035,6 +1370,16 @@ Source prompt: `its-showtime-prompts/QA.md`
 - Atelier section/item image clear operations do not unlink generated public static derivatives.
 - Logout/session-rotation tests now include current-worktree coverage for exactly one rotated `session_id` `Set-Cookie` header.
 - OAuth callback tests now include current-worktree coverage that the authenticated session ID rotates away from the pre-login anonymous session.
+- Seeded smoke tests do not force no-op email delivery, so test orders can leave the local machine through a real provider when the parent environment has email configured.
+- Renderer tests do not currently assert line-boundary formatting for financial totals and delivery labels in transactional emails.
+- The standalone frontend typecheck command does not guard against stale default `.next/types` artifacts when the app's dev/build scripts use `.next-dev` and `.next-build`.
+- Office-delivery checkout does not reject or canonicalize mismatched city data after resolving the selected courier office from the catalogue.
+- Door-delivery checkout does not enforce that the final submitted city/postcode matches a served-place catalogue row before clearing the cart and queueing emails.
+- Active product media can be technically present but commercially wrong; there is no media-review safeguard distinguishing accurate product photography from arbitrary uploaded files.
+- Cart drawer has no customer-visible stale-item recovery state even though the backend exposes `unavailable_items`.
+- Cart drawer error controls do not consistently inherit the app's minimum touch-target styling.
+- Checkout delivery fields do not have a tested label-accessibility contract, allowing placeholder-derived names to reach a core purchase form.
+- Mobile checkout does not enforce a clear final order-review-before-submit layout.
 
 ## Recommended Regression Tests
 
@@ -1068,7 +1413,18 @@ Source prompt: `its-showtime-prompts/QA.md`
 - QA-028: Add atelier section/item image upload-clear coverage asserting generated main, thumbnail, and zoom files are removed from static storage.
 - QA-029: Added current-worktree logout coverage asserting exactly one `session_id` cookie is emitted and its value is the rotated session ID, not the request session ID.
 - QA-030: Added current-worktree OAuth callback coverage asserting login rotates the session ID, migrates cart rows, and issues a JWT bound to the rotated session.
+- QA-031: Add smoke-harness coverage that side-effecting parent email env vars are overridden to console/no-op delivery and no ZeptoMail request can be made during `CHROME_SMOKE_START_SERVERS=1` runs.
+- QA-032: Add renderer coverage asserting shipping, total, and delivery labels stay on separate lines in English and Bulgarian customer/admin email templates.
+- QA-033: Add clean-artifact typecheck coverage asserting `npm --prefix frontend run typecheck` passes with the active Next generated types and cannot read stale `.next/types` references.
+- QA-034: Add checkout/service coverage with a valid office ID and mismatched city, asserting either validation failure or persisted canonical city from the courier catalogue.
+- QA-035: Add checkout/service coverage for unsupported door city/postcode values, asserting 422 and no order, stock decrement, cart clear, or outbox enqueue.
+- QA-036: Add a catalog media readiness gate: active products should require owner-reviewed media status, and launch checks should fail when active products have unreviewed, placeholder, or obviously non-product media. Keep manual screenshot review for semantic image accuracy.
+- QA-037: Add `CartContext` and `CartDrawer` coverage for `unavailable_items`, asserting stale product name/reason are visible and removable.
+- QA-038: Add cart item UI coverage where product stock is lower than the per-item limit, asserting increment is disabled at stock and errors name the affected product/available quantity.
+- QA-039: Add cart drawer accessibility/layout coverage asserting the error dismiss button meets the shared minimum mobile target size.
+- QA-040: Add checkout/DeliverySection accessibility coverage asserting every door and office delivery input is reachable by its visible label and is not named only by placeholder/example text.
+- QA-041: Add mobile checkout layout coverage asserting the order summary and final total precede the primary submit action or are included in the same reviewed submit block.
 
 ## Deferred Attack Surface
 
-This document is complete as an actionable QA snapshot. Future QA should continue into broader browser workflows, concurrency, performance, and deeper API/database coverage, but the confirmed findings above are ready to drive fix work now.
+This document is an active actionable QA snapshot. Future QA should continue into broader browser workflows, concurrency, performance, accessibility, and deeper API/database coverage, while the confirmed findings above are ready to drive fix work now.

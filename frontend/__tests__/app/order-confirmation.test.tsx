@@ -11,6 +11,7 @@ vi.mock("@/contexts/CartContext", () => ({
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "test-order-123" }),
+  useSearchParams: () => new URLSearchParams("token=return-token"),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -106,6 +107,47 @@ describe("Order Confirmation Page", () => {
     expect(screen.getAllByText("Delivery").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Free")).toBeInTheDocument();
     expect(screen.getAllByText("€50.00").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("Order received. Payment will be collected on delivery.")).toBeInTheDocument();
+    expect(mockedGetOrder).toHaveBeenCalledWith("test-order-123", "return-token");
+  });
+
+  it.each([
+    ["paid", "Payment received"],
+    ["pending", "Payment processing"],
+    ["failed", "Payment failed"],
+  ] as const)("shows card payment status from fetched %s response", async (paymentStatus, message) => {
+    mockedGetOrder.mockResolvedValue({
+      id: "test-order-123",
+      status: "pending",
+      payment_method: "card",
+      payment_status: paymentStatus,
+      stripe_checkout_url: null,
+      items_total_cents: 2500,
+      shipping_cents: 0,
+      shipping_price_source: "live",
+      shipping_is_fallback: false,
+      total_cents: 2500,
+      customer_email: "buyer@example.com",
+      customer_name: "Test Buyer",
+      delivery_method: null,
+      delivery_courier: null,
+      delivery_details: null,
+      notes: null,
+      items: [
+        { product_id: "candle-1", product_name: "Rose Candle", price_cents: 2500, quantity: 1 },
+      ],
+      tracking_number: null,
+      tracking_carrier: null,
+      tracking_url: null,
+      courier_status: null,
+      label_url: null,
+      created_at: "2026-07-01T00:00:00Z",
+      updated_at: "2026-07-01T00:00:00Z",
+    });
+
+    renderWithIntl(<OrderConfirmationPage />);
+
+    expect(await screen.findByText(message)).toBeInTheDocument();
   });
 
   it("shows 'Order not found' on error", async () => {

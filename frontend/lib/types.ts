@@ -357,9 +357,16 @@ export interface OrderItemResponse {
 
 export interface OrderResponse {
   id: string;
+  internal_sequence?: number | null;
+  order_number?: string | null;
   status: OrderStatus;
   payment_method: PaymentMethod;
   payment_status: PaymentStatus;
+  reserved_until?: string | null;
+  paid_at?: string | null;
+  collected_at?: string | null;
+  payment_return_token?: string | null;
+  stripe_checkout_session_id?: string | null;
   stripe_checkout_url: string | null;
   analytics_consent?: boolean;
   items_total_cents: number;
@@ -435,6 +442,63 @@ export interface DeliverySettingsUpdate {
   econt_office_enabled: boolean;
   econt_door_enabled: boolean;
 }
+
+export interface StripeConfigHealth {
+  mode: "not_configured" | "test" | "live" | "unknown";
+  secret_key_configured: boolean;
+  webhook_secret_configured: boolean;
+  publishable_key_configured: boolean;
+  ready_for_card_payments: boolean;
+  problems: string[];
+}
+
+export interface PaymentSettingsUpdate {
+  card_payments_enabled: boolean;
+  pay_on_delivery_enabled: boolean;
+  pay_on_delivery_max_cents: number;
+}
+
+export interface PaymentSettingsResponse extends PaymentSettingsUpdate {
+  stripe: StripeConfigHealth;
+}
+
+export interface PublicPaymentSettingsResponse {
+  card_payments_enabled: boolean;
+  pay_on_delivery_enabled: boolean;
+  pay_on_delivery_max_cents: number;
+  bank_transfer_enabled: boolean;
+  available_payment_methods: PaymentMethod[];
+}
+
+export interface PaymentEventResponse {
+  id: string;
+  order_id?: string | null;
+  payment_id?: string | null;
+  event_type: string;
+  source: "stripe" | "admin" | "system" | "customer";
+  stripe_event_id?: string | null;
+  stripe_event_type?: string | null;
+  provider?: string | null;
+  provider_status?: string | null;
+  processing_status: string;
+  details?: string | null;
+  admin_email?: string | null;
+  admin_note?: string | null;
+  request_id?: string | null;
+  created_at: string;
+}
+
+export interface AdminOrderDetailResponse extends OrderResponse {
+  payment_events: PaymentEventResponse[];
+}
+
+export type ManualPaymentAction =
+  | "mark_paid"
+  | "mark_collected"
+  | "mark_refunded"
+  | "mark_failed"
+  | "mark_review"
+  | "cancel";
 
 export interface OfficeResponse {
   id: string;

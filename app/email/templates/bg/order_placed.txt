@@ -9,7 +9,7 @@
 {% endfor %}
 
 Междинна сума: {{ items_total_display }}
-Доставка: {{ shipping_display }}{% if shipping_is_fallback %} (ориентировъчна){% endif %}
+Доставка: {{ shipping_display }}{{ " (ориентировъчна)" if shipping_is_fallback else "" }}
 Общо: {{ total_display }}
 
 {% if delivery_method_display or delivery_courier_display or delivery_lines %}

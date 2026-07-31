@@ -13,6 +13,7 @@ no send-level idempotency key (design Decisions 11, 14, 25). Logs bind
 (Decision 22).
 """
 
+import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
 
@@ -155,7 +156,39 @@ def _build_delivery_email_context(order_data: OrderData, locale: str) -> dict:
     }
 
 
-def _build_email_context(order_data: OrderData, locale: str, settings: Settings) -> dict:
+def _latest_payment_review_context(conn: sqlite3.Connection, order_id: str) -> dict:
+    """Return safe metadata for the latest payment review event."""
+    row = conn.execute(
+        """
+        SELECT stripe_event_id, details
+        FROM payment_events
+        WHERE order_id = ? AND processing_status = 'requires_review'
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """,
+        (order_id,),
+    ).fetchone()
+    if row is None:
+        return {}
+    try:
+        details = json.loads(row["details"] or "{}")
+    except json.JSONDecodeError:
+        details = {}
+    return {
+        "reason": details.get("ignored_reason") or details.get("reason") or "requires_review",
+        "checkout_session_id": details.get("checkout_session_id"),
+        "payment_intent_id": details.get("payment_intent_id"),
+        "stripe_event_id": row["stripe_event_id"],
+    }
+
+
+def _build_email_context(
+    order_data: OrderData,
+    locale: str,
+    settings: Settings,
+    *,
+    payment_review: dict | None = None,
+) -> dict:
     """Build the Jinja2 context for an order email.
 
     Prices are converted to display strings here — templates never do
@@ -171,8 +204,11 @@ def _build_email_context(order_data: OrderData, locale: str, settings: Settings)
         for item in order_data["items"]
     ]
     order_id = order_data["id"]
+    display_order_number = order_data.get("order_number") or order_id[:8]
+    payment_review = payment_review or {}
     context = {
         "order_id_short": order_id[:8],
+        "order_number": display_order_number,
         "customer_name": order_data["customer_name"],
         "customer_email": order_data["customer_email"],
         "items": items,
@@ -196,6 +232,14 @@ def _build_email_context(order_data: OrderData, locale: str, settings: Settings)
         # Payment fields (payment-integration) — safe defaults for legacy rows.
         "payment_method": order_data.get("payment_method", "cod"),
         "payment_status": order_data.get("payment_status", "cod_pending"),
+        "stripe_checkout_session_id": order_data.get("stripe_checkout_session_id"),
+        "stripe_payment_intent_id": order_data.get("stripe_payment_intent_id"),
+        "payment_review_reason": payment_review.get("reason") or "requires_review",
+        "payment_review_checkout_session_id": payment_review.get("checkout_session_id")
+        or order_data.get("stripe_checkout_session_id"),
+        "payment_review_payment_intent_id": payment_review.get("payment_intent_id")
+        or order_data.get("stripe_payment_intent_id"),
+        "payment_review_stripe_event_id": payment_review.get("stripe_event_id"),
         # Bank transfer details from config — only populated when method is bank_transfer.
         "bank_iban": settings.bank_iban,
         "bank_bic": settings.bank_bic,
@@ -448,7 +492,17 @@ def _process_outbox_row(
             return
 
         locale = order["locale"]
-        context = _build_email_context(order, locale, settings)
+        payment_review = (
+            _latest_payment_review_context(conn, order_id)
+            if event == "admin_payment_review_required"
+            else None
+        )
+        context = _build_email_context(
+            order,
+            locale,
+            settings,
+            payment_review=payment_review,
+        )
 
     # Phase 2: render + network (no DB connection held).
     try:

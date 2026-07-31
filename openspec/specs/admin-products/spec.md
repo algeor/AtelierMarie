@@ -1,5 +1,8 @@
-## Requirements
+## Purpose
 
+Defines admin product management behavior, including product editing, media controls, catalog fields, and admin-facing product workflows.
+
+## Requirements
 ### Requirement: Product list table
 The admin product list at `/admin/products` SHALL display all products in a table with columns: Name, Category, Price, Stock, Status (active/inactive), and Actions (edit, deactivate/activate).
 
@@ -35,7 +38,7 @@ The product list SHALL include a "Create Product" button that navigates to the p
 - **THEN** the browser navigates to `/admin/products/new`
 
 ### Requirement: Product create/edit form
-The system SHALL provide a form at `/admin/products/new` (create) and `/admin/products/[id]/edit` (edit) with fields: name, description, price (EUR input converted to cents), category (dropdown), stock (number), image URL, is_featured (checkbox).
+The system SHALL provide a form at `/admin/products/new` (create) and `/admin/products/[id]/edit` (edit) with fields: name, description, price (EUR input converted to cents), category (dropdown), stock (number), weight (grams, number), image URL, is_featured (checkbox), and is_active (toggle). The weight field SHALL default to 300 grams for new products. The is_active toggle SHALL let admins set active/inactive state directly while editing, in addition to the list-table toggle.
 
 #### Scenario: Create a new product
 - **WHEN** admin fills in the product form with valid data and submits
@@ -45,7 +48,7 @@ The system SHALL provide a form at `/admin/products/new` (create) and `/admin/pr
 
 #### Scenario: Edit an existing product
 - **WHEN** admin navigates to `/admin/products/[id]/edit`
-- **THEN** the form is pre-filled with the product's current data
+- **THEN** the form is pre-filled with the product's current data, including weight and active state
 - **AND** admin can modify fields and submit to update
 
 #### Scenario: Form validation
@@ -56,6 +59,14 @@ The system SHALL provide a form at `/admin/products/new` (create) and `/admin/pr
 #### Scenario: Price input in EUR displayed, stored as cents
 - **WHEN** admin enters "32.50" in the price field
 - **THEN** the value is stored as 3250 (cents) when submitted to the API
+
+#### Scenario: Weight defaults to 300 grams for new products
+- **WHEN** admin opens the create form
+- **THEN** the weight field is pre-populated with 300 grams
+
+#### Scenario: Toggle active state while editing
+- **WHEN** admin flips the is_active toggle off and submits the edit form
+- **THEN** the product is updated to inactive without needing the list-table action
 
 ### Requirement: Product form manages multiple images
 The admin product create/edit form SHALL let admins upload up to 6 images, reorder them, delete individual images, and choose which image is primary. The form SHALL reflect the current gallery state and enforce the 6-image cap in the UI.
@@ -126,3 +137,72 @@ When a product selection is active, the admin products list SHALL show a bulk ac
 #### Scenario: Partial failure surfaced inline
 - **WHEN** a bulk apply from the products list returns some failed products
 - **THEN** the UI shows a summary such as "N updated, M failed" and does not report the whole action as a plain success or a raw error
+
+### Requirement: Admin can manage a product's video
+Admin product management SHALL allow uploading, replacing, and deleting a single product video, and SHALL display its processing status and any failure reason. The upload endpoint SHALL require admin authorization. Uploading a video for a product that already has one SHALL replace the existing video.
+
+#### Scenario: Admin uploads a video
+- **WHEN** an authorized admin uploads a valid video for a product
+- **THEN** the video is accepted for processing and the admin view shows status `processing`
+
+#### Scenario: Admin sees a failure reason
+- **WHEN** a product's video is in status `failed`
+- **THEN** the admin product view shows the human-readable `failure_reason`
+- **AND** offers a re-upload action
+
+#### Scenario: Admin deletes a video
+- **WHEN** an authorized admin deletes a product's video
+- **THEN** the video row and its output files are removed and the product has no video
+
+#### Scenario: Non-admin cannot upload
+- **WHEN** an unauthenticated or non-admin caller attempts to upload a product video
+- **THEN** the request is rejected with `401`/`403`
+
+### Requirement: Admin controls the video's gallery position
+Admin SHALL be able to set the video's `sort_order` so it appears at a chosen position among the product's gallery images. The image gallery ordering (`product_images`) is unaffected by this control.
+
+#### Scenario: Admin positions the video in the gallery
+- **WHEN** an admin sets the video's `sort_order`
+- **THEN** the public product's `video.sort_order` reflects the new position
+- **AND** the detail-page gallery renders the video slide at that position among the images
+
+### Requirement: Large image upload soft-warning and hard block
+The admin image upload UI SHALL check a selected file's size on the client before uploading and apply a tiered response: files under 15MB upload without prompting; files from 15MB up to and including 25MB trigger a confirmation dialog warning that the image is large before proceeding; files over 25MB are blocked client-side with an inline error and never uploaded. These client checks are UX only — the backend independently enforces the 25MB hard limit.
+
+#### Scenario: Small file uploads silently
+- **WHEN** the admin selects an image smaller than 15MB
+- **THEN** the upload proceeds without any warning dialog
+
+#### Scenario: Large file triggers confirmation
+- **WHEN** the admin selects an image between 15MB and 25MB (inclusive)
+- **THEN** a confirmation dialog appears warning the image is large and stating its size, with Cancel and "Add anyway" actions
+- **AND** the upload proceeds only if the admin confirms; cancelling aborts the upload
+
+#### Scenario: Oversized file blocked before upload
+- **WHEN** the admin selects an image larger than 25MB
+- **THEN** an inline error states the 25MB maximum and no upload request is made
+
+### Requirement: Product image crop/rotate/zoom editor
+When an admin selects an image file in the product form, the system SHALL present an interactive editor that allows cropping, rotating, and zooming/panning the image, with the crop frame locked to the storefront display aspect ratio of `4/5`. On confirmation, the framed result SHALL be exported (client-side, via canvas) to an image blob, and that blob — not the originally selected file — SHALL enter the upload flow. On cancel, the selected file SHALL be discarded and not uploaded.
+
+The editor SHALL sit in front of the existing image-management rules without weakening them: the 6-image-per-product limit, image ordering, primary-image selection, the 15–25MB soft-warning confirmation, and the >25MB client-side block all continue to apply to the exported blob.
+
+#### Scenario: Editor opens on image selection
+- **WHEN** an admin selects a JPEG or PNG file in the product form
+- **THEN** a crop/rotate/zoom editor opens with the crop frame locked to a `4/5` aspect ratio
+
+#### Scenario: Confirmed edit uploads the framed image
+- **WHEN** the admin adjusts crop/rotation/zoom and confirms
+- **THEN** the framed image is exported to a blob and that blob is added to the pending upload set (the original selected file is not uploaded)
+
+#### Scenario: Cancelled edit discards the file
+- **WHEN** the admin cancels the editor
+- **THEN** no image is added to the pending upload set and no upload occurs
+
+#### Scenario: Framed output matches storefront framing
+- **WHEN** the framed blob is uploaded and later displayed on the storefront card
+- **THEN** the visible framing matches what the admin saw in the editor (no additional `object-cover` cropping surprises), because both use the `4/5` aspect ratio
+
+#### Scenario: Existing image limits still apply to the exported blob
+- **WHEN** adding the exported blob would exceed 6 images, or the blob exceeds 25MB
+- **THEN** the existing limit/size rules reject or warn exactly as they do for a directly selected file
