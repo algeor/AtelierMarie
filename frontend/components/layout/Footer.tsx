@@ -1,6 +1,7 @@
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { INSTAGRAM_URL, TIKTOK_URL } from "@/lib/social";
+import { policyPath } from "@/lib/legal";
 
 function InstagramIcon({ className }: { className?: string }) {
   return (
@@ -62,12 +63,12 @@ export function Footer() {
                 </Link>
               </li>
               <li>
-                <a
-                  href="#"
+                <Link
+                  href="/atelier"
                   className="text-soft-brown hover:text-charcoal transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand px-1 py-0.5"
                 >
-                  {t("nav.about")}
-                </a>
+                  {t("nav.atelier")}
+                </Link>
               </li>
               <li>
                 <Link
@@ -83,6 +84,30 @@ export function Footer() {
                   className="text-soft-brown hover:text-charcoal transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand px-1 py-0.5"
                 >
                   {t("faq.footerLink")}
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href={policyPath("terms")}
+                  className="text-soft-brown hover:text-charcoal transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand px-1 py-0.5"
+                >
+                  {t("terms.footerLink")}
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href={policyPath("privacy")}
+                  className="text-soft-brown hover:text-charcoal transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand px-1 py-0.5"
+                >
+                  {t("legal.privacyPolicy")}
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href={policyPath("cookies")}
+                  className="text-soft-brown hover:text-charcoal transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand px-1 py-0.5"
+                >
+                  {t("legal.cookiePolicy")}
                 </Link>
               </li>
               </ul>

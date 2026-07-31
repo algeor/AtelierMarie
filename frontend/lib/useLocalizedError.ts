@@ -40,11 +40,10 @@ export function useLocalizedError() {
     if (!t) return getStaticErrorMessage(code);
     if (!code) return t("UNKNOWN");
 
-    // Try to find the error code in translations; fall back to UNKNOWN
-    try {
+    const messages = getPathLocale() === "bg" ? bgMessages.errors : enMessages.errors;
+    if (code in messages) {
       return t(code as Parameters<typeof t>[0]);
-    } catch {
-      return t("UNKNOWN");
     }
+    return t("UNKNOWN");
   }, [t]);
 }

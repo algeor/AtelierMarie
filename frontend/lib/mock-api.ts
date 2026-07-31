@@ -8,6 +8,10 @@ import type {
   AdminProductResponse,
   AdminStats,
   AdminTaxonomyTerm,
+  AboutAdminResponse,
+  AboutItemAdmin,
+  AboutPublicResponse,
+  AboutSectionAdmin,
   AuthTokenResponse,
   BannerAdminResponse,
   BannerUpdateRequest,
@@ -31,6 +35,7 @@ import type {
   Courier,
   CityPlace,
   CreateOrderRequest,
+  CreateAboutItemRequest,
   CreateFaqItemRequest,
   CreateProductRequest,
   CreateTaxonomyTermRequest,
@@ -44,6 +49,8 @@ import type {
   OrderListResponse,
   OrderResponse,
   OrderStatus,
+  PatchAboutItemRequest,
+  PatchAboutSectionRequest,
   ProductListResponse,
   ProductImage,
   ShippingQuote,
@@ -89,28 +96,45 @@ function generateOrderId(): string {
 
 // The mock store carries admin-only fields even though ProductResponse omits them.
 type MockProduct = ProductResponse & {
+  safety_warnings_en: string | null;
+  safety_warnings_bg: string | null;
+  care_instructions_en: string | null;
+  care_instructions_bg: string | null;
   weight_grams: number;
   discount_starts_at: string | null;
   discount_ends_at: string | null;
 };
 
 /** Strip admin-only fields so public responses match the real API. */
-function toPublicProduct(product: MockProduct): ProductResponse {
+function toPublicProduct(product: MockProduct, locale = "en"): ProductResponse {
   const {
+    safety_warnings_en,
+    safety_warnings_bg,
+    care_instructions_en,
+    care_instructions_bg,
     weight_grams: _weight_grams,
     discount_starts_at: _discount_starts_at,
     discount_ends_at: _discount_ends_at,
     ...pub
   } = product;
-  return pub;
+  const preferredWarnings = locale === "bg" ? safety_warnings_bg : safety_warnings_en;
+  const fallbackWarnings = locale === "bg" ? safety_warnings_en : safety_warnings_bg;
+  const preferredCare = locale === "bg" ? care_instructions_bg : care_instructions_en;
+  const fallbackCare = locale === "bg" ? care_instructions_en : care_instructions_bg;
+  return {
+    ...pub,
+    safety_warnings: preferredWarnings ?? fallbackWarnings,
+    care_instructions: preferredCare ?? fallbackCare,
+  };
 }
 
 function mockProductImage(productId: string, sortOrder = 0, isPrimary = true): ProductImage {
+  const imageUrl = `/static/products/${productId}.webp`;
   return {
     id: `${productId}-${sortOrder}`,
-    image_url: `/static/products/${productId}.webp`,
-    thumbnail_url: `/static/products/${productId}_thumb.webp`,
-    zoom_url: `/static/products/${productId}_zoom.webp`,
+    image_url: imageUrl,
+    thumbnail_url: imageUrl,
+    zoom_url: imageUrl,
     sort_order: sortOrder,
     is_primary: isPrimary,
   };
@@ -120,11 +144,11 @@ function mockProductVideo(productId: string, sortOrder = 1): ProductVideo {
   return {
     id: `${productId}-video`,
     product_id: productId,
-    status: "ready",
-    video_url: `/static/products/${productId}_video.mp4`,
-    poster_url: `/static/products/${productId}_thumb.webp`,
+    status: "queued",
+    video_url: null,
+    poster_url: `/static/products/${productId}.webp`,
     sort_order: sortOrder,
-    duration_secs: 18,
+    duration_secs: null,
     failure_reason: null,
     created_at: "2024-06-01T10:00:00Z",
     updated_at: "2024-06-01T10:00:00Z",
@@ -159,6 +183,12 @@ const MOCK_PRODUCTS: MockProduct[] = [
     id: "lavender-dreams-300ml",
     name: "Lavender Dreams",
     description: "Hand-poured soy candle with French lavender essential oil.",
+    safety_warnings: "Never leave a burning candle unattended. Keep away from children, pets, and flammable materials.",
+    care_instructions: "Burn on a stable, heat-resistant surface. Trim the wick before each use.",
+    safety_warnings_en: "Never leave a burning candle unattended. Keep away from children, pets, and flammable materials.",
+    safety_warnings_bg: "Never leave a burning candle unattended. Keep away from children, pets, and flammable materials.",
+    care_instructions_en: "Burn on a stable, heat-resistant surface. Trim the wick before each use.",
+    care_instructions_bg: "Burn on a stable, heat-resistant surface. Trim the wick before each use.",
     materials: "Soy wax, French lavender essential oil, cotton wick",
     days_to_craft: 3,
     price_cents: 3200,
@@ -172,10 +202,14 @@ const MOCK_PRODUCTS: MockProduct[] = [
     product_type: "candles",
     product_type_name: "Candles",
     labels: [{ slug: "floral", name: "Floral" }],
-    images: [mockProductImage("lavender-dreams-300ml")],
-    video: mockProductVideo("lavender-dreams-300ml"),
+    images: [
+      mockProductImage("lavender-dreams-300ml", 0, true),
+      mockProductImage("lavender-dreams-300ml", 1, false),
+      mockProductImage("lavender-dreams-300ml", 3, false),
+    ],
+    video: mockProductVideo("lavender-dreams-300ml", 2),
     primary_image_url: "/static/products/lavender-dreams-300ml.webp",
-    primary_thumbnail_url: "/static/products/lavender-dreams-300ml_thumb.webp",
+    primary_thumbnail_url: "/static/products/lavender-dreams-300ml.webp",
     stock: 24,
     weight_grams: 300,
     is_active: true,
@@ -187,6 +221,12 @@ const MOCK_PRODUCTS: MockProduct[] = [
     id: "midnight-amber-300ml",
     name: "Midnight Amber",
     description: "Warm amber and sandalwood in a black ceramic vessel.",
+    safety_warnings: "Never leave a burning candle unattended. Ceramic vessel may become hot during use.",
+    care_instructions: "Place on a heat-resistant surface and allow wax to cool before handling.",
+    safety_warnings_en: "Never leave a burning candle unattended. Ceramic vessel may become hot during use.",
+    safety_warnings_bg: null,
+    care_instructions_en: "Place on a heat-resistant surface and allow wax to cool before handling.",
+    care_instructions_bg: null,
     materials: "Coconut wax, amber resin, sandalwood oil",
     days_to_craft: 5,
     price_cents: 4500,
@@ -206,7 +246,7 @@ const MOCK_PRODUCTS: MockProduct[] = [
     images: [mockProductImage("midnight-amber-300ml")],
     video: null,
     primary_image_url: "/static/products/midnight-amber-300ml.webp",
-    primary_thumbnail_url: "/static/products/midnight-amber-300ml_thumb.webp",
+    primary_thumbnail_url: "/static/products/midnight-amber-300ml.webp",
     stock: 12,
     weight_grams: 450,
     is_active: true,
@@ -218,6 +258,12 @@ const MOCK_PRODUCTS: MockProduct[] = [
     id: "citrus-garden-200ml",
     name: "Citrus Garden",
     description: "Bright blend of bergamot, lemon, and grapefruit.",
+    safety_warnings: null,
+    care_instructions: null,
+    safety_warnings_en: null,
+    safety_warnings_bg: null,
+    care_instructions_en: null,
+    care_instructions_bg: null,
     materials: null,
     days_to_craft: 2,
     price_cents: 2800,
@@ -249,6 +295,12 @@ const MOCK_PRODUCTS: MockProduct[] = [
     id: "vanilla-bourbon-300ml",
     name: "Vanilla Bourbon",
     description: null,
+    safety_warnings: null,
+    care_instructions: null,
+    safety_warnings_en: null,
+    safety_warnings_bg: null,
+    care_instructions_en: null,
+    care_instructions_bg: null,
     materials: null,
     days_to_craft: null,
     price_cents: 3800,
@@ -265,7 +317,7 @@ const MOCK_PRODUCTS: MockProduct[] = [
     images: [mockProductImage("vanilla-bourbon-300ml")],
     video: null,
     primary_image_url: "/static/products/vanilla-bourbon-300ml.webp",
-    primary_thumbnail_url: "/static/products/vanilla-bourbon-300ml_thumb.webp",
+    primary_thumbnail_url: "/static/products/vanilla-bourbon-300ml.webp",
     stock: 0,
     weight_grams: 500,
     is_active: false,
@@ -274,6 +326,145 @@ const MOCK_PRODUCTS: MockProduct[] = [
     updated_at: "2024-06-05T08:00:00Z",
   },
 ];
+
+const nowIso = () => new Date().toISOString();
+
+let nextAboutItemId = 18;
+
+const MOCK_ABOUT_SECTIONS: AboutSectionAdmin[] = [
+  mockAboutSection("hero", "hero", 0, "The Atelier Marie", "The Atelier Marie", "Handcrafted Elegance for Beautiful Spaces", "Ръчно изработена елегантност за красиви пространства", "At The Atelier Marie, we create handcrafted candles designed to bring beauty, warmth, and a touch of luxury into your home.", "В The Atelier Marie създаваме ръчно изработени свещи, замислени да внесат красота, топлина и лек досег на лукс във вашия дом.", "Explore our collection", "Разгледайте нашата колекция", "/products"),
+  mockAboutSection("story", "text_image", 1, "Our Story", "Нашата история", "From a Creative Idea to a Handmade Atelier", "От творческа идея до ръчно ателие", "The Atelier Marie began with a simple thought:\n\n> I want something this beautiful in my own home.", "The Atelier Marie започна с една проста мисъл:\n\n> Искам нещо толкова красиво в собствения си дом."),
+  mockAboutSection("philosophy", "text_band", 2, "Our Philosophy", "Нашата философия", "Candles Designed to Be Admired", "Свещи, създадени, за да им се възхищавате", "We believe candles can be more than a source of light or fragrance.", "Вярваме, че свещите могат да бъдат повече от източник на светлина или аромат."),
+  mockAboutSection("differentiators", "cards", 3, "What Makes Our Candles Different", "Какво отличава нашите свещи", "More Than a Candle — A Piece of Art for Your Home", "Повече от свещ — произведение на изкуството за вашия дом", null, null),
+  mockAboutSection("process", "timeline", 4, "The Art of Making", "Изкуството на създаването", "Crafted Slowly, Made With Care", "Изработени бавно, създадени с грижа", "Every creation begins with an idea.\n\nBefore a candle reaches your home, it goes through a careful process of design and craftsmanship.", "Всяко творение започва с идея.\n\nПреди една свещ да стигне до вашия дом, тя преминава през внимателен процес на проектиране и изработка."),
+  mockAboutSection("atelier", "text_image", 5, "Inside Our Atelier", "Вътре в нашето ателие", "Where Every Candle Comes to Life", "Където всяка свещ оживява", "Behind every creation are countless small details.", "Зад всяко творение стоят безброй малки детайли."),
+  mockAboutSection("values", "cards", 6, "Our Values", "Нашите ценности", "The Principles Behind Every Creation", "Принципите зад всяко творение", null, null),
+  mockAboutSection("collections", "collections", 7, "Our Collections", "Нашите колекции", "Designed to Suit Every Space and Story", "Създадени да подхождат на всяко пространство и история", null, null),
+  mockAboutSection("emotional", "text_band", 8, "A Little Beauty for Everyday Moments", "Малко красота за ежедневните мигове", "Designed to Become Part of Your Story", "Създадени да станат част от вашата история", "We believe the most beautiful objects are the ones that create a feeling.", "Вярваме, че най-красивите предмети са тези, които създават усещане.", "Discover the collection", "Открийте колекцията", "/products"),
+  mockAboutSection("custom_cta", "cta_band", 9, "Looking for Something Unique?", "Търсите нещо уникално?", null, null, "Create a personalised candle designed especially for you — a bespoke piece for a meaningful moment, or a truly one-of-a-kind gift.", "Създайте персонализирана свещ, замислена специално за вас — изделие по поръчка за значим миг или наистина уникален подарък.", "Request a Custom Order", "Заявете индивидуална поръчка", "/contact"),
+];
+
+MOCK_ABOUT_SECTIONS.find((s) => s.slug === "differentiators")!.items = [
+  mockAboutItem(1, "differentiators", 0, "Handcrafted With Attention to Detail", "Ръчна изработка с внимание към детайла", "Every candle is individually created in our atelier.", "Всяка свещ се създава индивидуално в нашето ателие."),
+  mockAboutItem(2, "differentiators", 1, "Designed as Home Décor", "Замислени като декор за дома", "Our candles are created to complement beautiful interiors.", "Нашите свещи са създадени да допълват красивите интериори."),
+  mockAboutItem(3, "differentiators", 2, "A Luxury Fragrance Experience", "Луксозно ароматно изживяване", "Beautiful design deserves a beautiful scent.", "Красивият дизайн заслужава красив аромат."),
+  mockAboutItem(4, "differentiators", 3, "Personalised Creations", "Персонализирани творения", "Some moments deserve something truly unique.", "Някои мигове заслужават нещо наистина уникално."),
+];
+MOCK_ABOUT_SECTIONS.find((s) => s.slug === "process")!.items = [
+  mockAboutItem(5, "process", 0, "Design", "Дизайн", "Every creation begins with an idea, a shape, and a vision.", "Всяко творение започва с идея, форма и визия."),
+  mockAboutItem(6, "process", 1, "Moulds", "Калъпи", "Each shape is carefully prepared.", "Всяка форма се подготвя грижливо."),
+  mockAboutItem(7, "process", 2, "Colours", "Цветове", "Shades are selected and blended by hand.", "Нюансите се подбират и смесват на ръка."),
+];
+MOCK_ABOUT_SECTIONS.find((s) => s.slug === "values")!.items = [
+  mockAboutItem(11, "values", 0, "Craftsmanship", "Майсторство", "True beauty comes from attention to detail.", "Истинската красота идва от вниманието към детайла."),
+  mockAboutItem(12, "values", 1, "Elegance", "Елегантност", "Our creations are inspired by timeless aesthetics.", "Нашите творения са вдъхновени от вечната естетика."),
+];
+MOCK_ABOUT_SECTIONS.find((s) => s.slug === "collections")!.items = [
+  mockAboutItem(15, "collections", 0, "Floral Collection", "Флорална колекция", "Romantic designs inspired by nature.", "Романтични дизайни, вдъхновени от природата.", "/products?category=floral"),
+  mockAboutItem(16, "collections", 1, "Sculptural Collection", "Скулптурна колекция", "Statement pieces designed to decorate your space.", "Акцентни изделия, създадени да украсят вашето пространство.", "/products?category=sculptural"),
+  mockAboutItem(17, "collections", 2, "Bespoke Collection", "Колекция по поръчка", "Custom creations made for meaningful moments.", "Творения по поръчка за значими мигове.", "/products?category=bespoke"),
+];
+
+function mockAboutSection(
+  slug: AboutSectionAdmin["slug"],
+  type: AboutSectionAdmin["type"],
+  sortOrder: number,
+  headingEn: string,
+  headingBg: string | null,
+  subheadingEn: string | null,
+  subheadingBg: string | null,
+  bodyEn: string | null,
+  bodyBg: string | null,
+  ctaLabelEn: string | null = null,
+  ctaLabelBg: string | null = null,
+  ctaHref: string | null = null
+): AboutSectionAdmin {
+  const timestamp = nowIso();
+  return {
+    slug,
+    type,
+    heading_en: headingEn,
+    heading_bg: headingBg,
+    subheading_en: subheadingEn,
+    subheading_bg: subheadingBg,
+    body_en: bodyEn,
+    body_bg: bodyBg,
+    cta_label_en: ctaLabelEn,
+    cta_label_bg: ctaLabelBg,
+    cta_href: ctaHref,
+    image_id: null,
+    image: null,
+    sort_order: sortOrder,
+    is_published: true,
+    created_at: timestamp,
+    updated_at: timestamp,
+    items: [],
+  };
+}
+
+function mockAboutItem(
+  id: number,
+  section: string,
+  sortOrder: number,
+  titleEn: string,
+  titleBg: string | null,
+  textEn: string | null,
+  textBg: string | null,
+  linkHref: string | null = null
+): AboutItemAdmin {
+  const timestamp = nowIso();
+  return {
+    id,
+    section,
+    title_en: titleEn,
+    title_bg: titleBg,
+    text_en: textEn,
+    text_bg: textBg,
+    image_id: null,
+    image: null,
+    link_href: linkHref,
+    sort_order: sortOrder,
+    is_published: true,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+}
+
+function publicAbout(locale: string = "en"): AboutPublicResponse {
+  return {
+    sections: MOCK_ABOUT_SECTIONS.filter((section) => section.is_published)
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((section) => ({
+        slug: section.slug,
+        type: section.type,
+        heading: locale === "bg" ? section.heading_bg || section.heading_en : section.heading_en,
+        subheading:
+          locale === "bg" ? section.subheading_bg || section.subheading_en : section.subheading_en,
+        body: locale === "bg" ? section.body_bg || section.body_en : section.body_en,
+        cta:
+          section.cta_href && (locale === "bg" ? section.cta_label_bg || section.cta_label_en : section.cta_label_en)
+            ? {
+                label:
+                  (locale === "bg"
+                    ? section.cta_label_bg || section.cta_label_en
+                    : section.cta_label_en) || "",
+                href: section.cta_href,
+              }
+            : null,
+        image: section.image,
+        items: section.items
+          .filter((item) => item.is_published)
+          .sort((a, b) => a.sort_order - b.sort_order)
+          .map((item) => ({
+            id: item.id,
+            title: locale === "bg" ? item.title_bg || item.title_en : item.title_en,
+            text: locale === "bg" ? item.text_bg || item.text_en : item.text_en,
+            image: item.image,
+            link: item.link_href,
+          })),
+      })),
+  };
+}
 
 // --- In-Memory Taxonomy State (mock) ---
 
@@ -327,7 +518,7 @@ const MOCK_USER: UserResponse = {
 
 // --- In-Memory FAQ State ---
 
-const nowIso = "2024-06-01T10:00:00Z";
+const mockFaqTimestamp = "2024-06-01T10:00:00Z";
 
 let mockFaqNextId = 7;
 
@@ -338,8 +529,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
     title_bg: "За нашите свещи",
     icon: "🕯",
     sort_order: 0,
-    created_at: nowIso,
-    updated_at: nowIso,
+    created_at: mockFaqTimestamp,
+    updated_at: mockFaqTimestamp,
     items: [
       {
         id: 1,
@@ -350,8 +541,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
         answer_bg: "Да. Всяка свещ е изработена с любов на ръка в нашето ателие.",
         sort_order: 0,
         is_published: true,
-        created_at: nowIso,
-        updated_at: nowIso,
+        created_at: mockFaqTimestamp,
+        updated_at: mockFaqTimestamp,
       },
     ],
   },
@@ -361,8 +552,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
     title_bg: "Грижа и безопасност",
     icon: "✨",
     sort_order: 1,
-    created_at: nowIso,
-    updated_at: nowIso,
+    created_at: mockFaqTimestamp,
+    updated_at: mockFaqTimestamp,
     items: [
       {
         id: 2,
@@ -375,8 +566,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
           "* Никога не оставяйте горяща свещ без надзор.\n* Дръжте свещите далеч от деца и домашни любимци.",
         sort_order: 0,
         is_published: true,
-        created_at: nowIso,
-        updated_at: nowIso,
+        created_at: mockFaqTimestamp,
+        updated_at: mockFaqTimestamp,
       },
     ],
   },
@@ -386,8 +577,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
     title_bg: "Поръчки по заявка и подаръци",
     icon: "🎁",
     sort_order: 2,
-    created_at: nowIso,
-    updated_at: nowIso,
+    created_at: mockFaqTimestamp,
+    updated_at: mockFaqTimestamp,
     items: [
       {
         id: 3,
@@ -398,8 +589,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
         answer_bg: "Да. Обичаме да претворяваме идеите на нашите клиенти.",
         sort_order: 0,
         is_published: true,
-        created_at: nowIso,
-        updated_at: nowIso,
+        created_at: mockFaqTimestamp,
+        updated_at: mockFaqTimestamp,
       },
     ],
   },
@@ -409,8 +600,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
     title_bg: "Поръчки, доставка и връщане",
     icon: "📦",
     sort_order: 3,
-    created_at: nowIso,
-    updated_at: nowIso,
+    created_at: mockFaqTimestamp,
+    updated_at: mockFaqTimestamp,
     items: [
       {
         id: 4,
@@ -421,8 +612,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
         answer_bg: "Времето за подготовка варира в зависимост от продукта.",
         sort_order: 0,
         is_published: true,
-        created_at: nowIso,
-        updated_at: nowIso,
+        created_at: mockFaqTimestamp,
+        updated_at: mockFaqTimestamp,
       },
     ],
   },
@@ -498,7 +689,7 @@ export async function getProducts(
   const start = (page - 1) * limit;
   const slice = active.slice(start, start + limit);
   return {
-    products: slice.map(toPublicProduct),
+    products: slice.map((product) => toPublicProduct(product, _locale)),
     total: active.length,
     page,
     limit,
@@ -523,7 +714,7 @@ export async function getProduct(
   await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId && p.is_active);
   if (!product) mockError("NOT_FOUND", `Product ${productId} not found`);
-  return toPublicProduct(product);
+  return toPublicProduct(product, _locale);
 }
 
 export async function getCart(): Promise<CartResponse> {
@@ -1066,6 +1257,10 @@ function toAdminProduct(product: MockProduct): AdminProductResponse {
     name_bg: null,
     description_en: product.description,
     description_bg: null,
+    safety_warnings_en: product.safety_warnings_en,
+    safety_warnings_bg: product.safety_warnings_bg,
+    care_instructions_en: product.care_instructions_en,
+    care_instructions_bg: product.care_instructions_bg,
     materials: product.materials,
     days_to_craft: product.days_to_craft,
     price_cents: product.price_cents,
@@ -1136,6 +1331,12 @@ export async function createProduct(data: CreateProductRequest): Promise<AdminPr
     id: data.id,
     name: data.name_en,
     description: data.description_en ?? null,
+    safety_warnings: data.safety_warnings_en ?? data.safety_warnings_bg ?? null,
+    care_instructions: data.care_instructions_en ?? data.care_instructions_bg ?? null,
+    safety_warnings_en: data.safety_warnings_en ?? null,
+    safety_warnings_bg: data.safety_warnings_bg ?? null,
+    care_instructions_en: data.care_instructions_en ?? null,
+    care_instructions_bg: data.care_instructions_bg ?? null,
     materials: data.materials ?? null,
     days_to_craft: data.days_to_craft ?? null,
     price_cents: data.price_cents,
@@ -1177,6 +1378,12 @@ export async function updateProduct(
   // Map bilingual fields to the mock's single-language store
   if (data.name_en !== undefined) product.name = data.name_en;
   if (data.description_en !== undefined) product.description = data.description_en;
+  if (data.safety_warnings_en !== undefined) product.safety_warnings_en = data.safety_warnings_en;
+  if (data.safety_warnings_bg !== undefined) product.safety_warnings_bg = data.safety_warnings_bg;
+  if (data.care_instructions_en !== undefined) product.care_instructions_en = data.care_instructions_en;
+  if (data.care_instructions_bg !== undefined) product.care_instructions_bg = data.care_instructions_bg;
+  product.safety_warnings = product.safety_warnings_en ?? product.safety_warnings_bg;
+  product.care_instructions = product.care_instructions_en ?? product.care_instructions_bg;
   if (data.materials !== undefined) product.materials = data.materials;
   if (data.days_to_craft !== undefined) product.days_to_craft = data.days_to_craft;
   if (data.price_cents !== undefined) product.price_cents = data.price_cents;
@@ -1223,12 +1430,12 @@ export async function uploadProductImage(
     mockError("max_product_images", "Product already has the maximum number of images");
   }
   const imageId = `${productId}-${Date.now()}`;
-  const imageUrl = `/static/products/${productId}_${imageId}.webp`;
+  const imageUrl = product.primary_image_url ?? "/static/products/vanilla-bourbon-300ml.webp";
   const image: ProductImage = {
     id: imageId,
     image_url: imageUrl,
-    thumbnail_url: `/static/products/${productId}_${imageId}_thumb.webp`,
-    zoom_url: `/static/products/${productId}_${imageId}_zoom.webp`,
+    thumbnail_url: imageUrl,
+    zoom_url: imageUrl,
     sort_order: product.images.length,
     is_primary: product.images.length === 0,
   };
@@ -1516,6 +1723,170 @@ export async function getComments(
   const start = (page - 1) * limit;
   const items = sorted.slice(start, start + limit);
   return { items, total: mockComments.length, page, limit };
+}
+
+// --- Atelier Story / About Mock ---
+
+export async function getAbout(locale?: string): Promise<AboutPublicResponse> {
+  await delay();
+  return publicAbout(locale);
+}
+
+export async function getAdminAbout(): Promise<AboutAdminResponse> {
+  await delay();
+  return { sections: [...MOCK_ABOUT_SECTIONS].sort((a, b) => a.sort_order - b.sort_order) };
+}
+
+export async function updateAboutSection(
+  slug: string,
+  data: PatchAboutSectionRequest
+): Promise<AboutSectionAdmin> {
+  await delay();
+  const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `About section ${slug} not found`);
+  Object.assign(section, data, { updated_at: nowIso() });
+  return section;
+}
+
+export async function createAboutItem(
+  slug: string,
+  data: CreateAboutItemRequest
+): Promise<AboutItemAdmin> {
+  await delay();
+  const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `About section ${slug} not found`);
+  const item = mockAboutItem(
+    nextAboutItemId++,
+    slug,
+    section.items.length,
+    data.title_en,
+    data.title_bg ?? null,
+    data.text_en ?? null,
+    data.text_bg ?? null,
+    data.link_href ?? null
+  );
+  item.is_published = data.is_published ?? true;
+  section.items.push(item);
+  return item;
+}
+
+export async function updateAboutItem(
+  slug: string,
+  itemId: number,
+  data: PatchAboutItemRequest
+): Promise<AboutItemAdmin> {
+  await delay();
+  const item = findAboutItem(slug, itemId);
+  Object.assign(item, data, { updated_at: nowIso() });
+  return item;
+}
+
+export async function deleteAboutItem(slug: string, itemId: number): Promise<void> {
+  await delay();
+  const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `About section ${slug} not found`);
+  section.items = section.items.filter((item) => item.id !== itemId);
+}
+
+export async function reorderAboutSections(slugs: string[]): Promise<AboutSectionAdmin[]> {
+  await delay();
+  if (new Set(slugs).size !== MOCK_ABOUT_SECTIONS.length) {
+    mockError("INVALID_ORDER", "slugs must match all about sections");
+  }
+  slugs.forEach((slug, index) => {
+    const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
+    if (!section) mockError("INVALID_ORDER", "slugs must match all about sections");
+    section.sort_order = index;
+  });
+  return (await getAdminAbout()).sections;
+}
+
+export async function reorderAboutItems(slug: string, ids: number[]): Promise<AboutItemAdmin[]> {
+  await delay();
+  const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `About section ${slug} not found`);
+  if (new Set(ids).size !== section.items.length) {
+    mockError("INVALID_ORDER", "ids must match all section items");
+  }
+  ids.forEach((id, index) => {
+    const item = section.items.find((i) => i.id === id);
+    if (!item) mockError("INVALID_ORDER", "ids must match all section items");
+    item.sort_order = index;
+  });
+  return [...section.items].sort((a, b) => a.sort_order - b.sort_order);
+}
+
+export async function setAboutSectionPublished(
+  slug: string,
+  isPublished: boolean
+): Promise<AboutSectionAdmin> {
+  await delay();
+  const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `About section ${slug} not found`);
+  section.is_published = isPublished;
+  section.updated_at = nowIso();
+  return section;
+}
+
+export async function setAboutItemPublished(
+  slug: string,
+  itemId: number,
+  isPublished: boolean
+): Promise<AboutItemAdmin> {
+  await delay();
+  const item = findAboutItem(slug, itemId);
+  item.is_published = isPublished;
+  item.updated_at = nowIso();
+  return item;
+}
+
+export async function uploadAboutSectionImage(
+  slug: string,
+  _file: File
+): Promise<AboutSectionAdmin> {
+  await delay();
+  const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `About section ${slug} not found`);
+  section.image_id = `mock-${Date.now()}`;
+  section.image = `/static/products/about-${slug.replace("_", "-")}_${section.image_id}.webp`;
+  return section;
+}
+
+export async function clearAboutSectionImage(slug: string): Promise<AboutSectionAdmin> {
+  await delay();
+  const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `About section ${slug} not found`);
+  section.image_id = null;
+  section.image = null;
+  return section;
+}
+
+export async function uploadAboutItemImage(
+  slug: string,
+  itemId: number,
+  _file: File
+): Promise<AboutItemAdmin> {
+  await delay();
+  const item = findAboutItem(slug, itemId);
+  item.image_id = `mock-${Date.now()}`;
+  item.image = `/static/products/about-item-${itemId}_${item.image_id}.webp`;
+  return item;
+}
+
+export async function clearAboutItemImage(slug: string, itemId: number): Promise<AboutItemAdmin> {
+  await delay();
+  const item = findAboutItem(slug, itemId);
+  item.image_id = null;
+  item.image = null;
+  return item;
+}
+
+function findAboutItem(slug: string, itemId: number): AboutItemAdmin {
+  const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `About section ${slug} not found`);
+  const item = section.items.find((i) => i.id === itemId);
+  if (!item) mockError("NOT_FOUND", `About item ${itemId} not found`);
+  return item;
 }
 
 // --- Taxonomy Mock ---

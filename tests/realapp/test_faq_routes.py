@@ -96,6 +96,22 @@ class TestAdminFaqRoutes:
         assert delete.status_code == 204
 
     @pytest.mark.asyncio
+    async def test_reorder_duplicate_ids_returns_422(self, admin_client):
+        listing = await admin_client.get("/v1/admin/faq")
+        care = next(section for section in listing.json()["sections"] if section["slug"] == "care")
+        first_id = care["items"][0]["id"]
+
+        resp = await admin_client.patch(
+            "/v1/admin/faq/reorder",
+            json={"section": "care", "ordered_ids": [first_id, first_id]},
+        )
+
+        assert resp.status_code == 422
+        body = resp.json()
+        assert body["error"]["code"] == "INVALID_FAQ"
+        assert body["error"]["details"] is None
+
+    @pytest.mark.asyncio
     async def test_invalid_section_returns_422(self, admin_client):
         resp = await admin_client.post(
             "/v1/admin/faq",

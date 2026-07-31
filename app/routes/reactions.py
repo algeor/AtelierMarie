@@ -12,6 +12,7 @@ from app.models.reactions import (
     ReactionToggleResponse,
     ReactionTypeCount,
 )
+from app.responses import error_response
 from app.services.reaction_service import (
     ProductNotFoundError,
     RateLimitExceededError,
@@ -38,15 +39,9 @@ async def toggle_product_reaction(
     try:
         active = toggle_reaction(session_id, product_id, body.reaction_type)
     except ProductNotFoundError:
-        return JSONResponse(
-            status_code=404,
-            content={"error": {"code": "NOT_FOUND", "message": "Product not found"}},
-        )
+        return error_response(404, "NOT_FOUND", "Product not found")
     except RateLimitExceededError as e:
-        return JSONResponse(
-            status_code=429,
-            content={"error": {"code": "RATE_LIMITED", "message": str(e)}},
-        )
+        return error_response(429, "RATE_LIMITED", str(e))
 
     status_code = 201 if active else 200
     return JSONResponse(
@@ -72,10 +67,7 @@ async def get_product_reactions(
     try:
         data = get_reaction_counts(product_id, session_id)
     except ProductNotFoundError:
-        return JSONResponse(
-            status_code=404,
-            content={"error": {"code": "NOT_FOUND", "message": "Product not found"}},
-        )
+        return error_response(404, "NOT_FOUND", "Product not found")
 
     return ReactionCountsResponse(
         heart=ReactionTypeCount(**data["heart"]),

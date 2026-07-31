@@ -34,10 +34,14 @@ Object.defineProperty(globalThis, "localStorage", {
   value: localStorageMock,
 });
 
-Object.defineProperty(window, "matchMedia", {
-  configurable: true,
-  writable: true,
-  value: vi.fn().mockImplementation((query: string) => ({
+afterEach(() => {
+  cleanup();
+});
+
+// jsdom lacks these browser APIs; components (and yet-another-react-lightbox)
+// reference them during render/effects.
+if (!window.matchMedia) {
+  window.matchMedia = vi.fn().mockImplementation((query: string) => ({
     matches: false,
     media: query,
     onchange: null,
@@ -46,9 +50,24 @@ Object.defineProperty(window, "matchMedia", {
     addListener: vi.fn(),
     removeListener: vi.fn(),
     dispatchEvent: vi.fn(),
-  })),
-});
+  }));
+}
 
-afterEach(() => {
-  cleanup();
-});
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+if (!("ResizeObserver" in globalThis)) {
+  // @ts-expect-error test stub
+  globalThis.ResizeObserver = ResizeObserverStub;
+}
+
+// jsdom does not implement object URLs; the image editor creates one per file.
+if (!URL.createObjectURL) {
+  URL.createObjectURL = vi.fn(() => "blob:mock");
+}
+if (!URL.revokeObjectURL) {
+  URL.revokeObjectURL = vi.fn();
+}

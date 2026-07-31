@@ -21,12 +21,12 @@ const mockCartState = {
   items: [
     {
       product_id: "lavender-dream",
-      product: { id: "lavender-dream", name: "Lavender Dream", price_cents: 5000, images: [], primary_image_url: "/img.jpg", primary_thumbnail_url: "/img.jpg", stock: 5 },
+      product: { id: "lavender-dream", name: "Lavender Dream", price_cents: 2500, effective_price_cents: 2000, images: [], primary_image_url: "/img.jpg", primary_thumbnail_url: "/img.jpg", stock: 5 },
       quantity: 1,
       added_at: "2026-01-01T00:00:00Z",
     },
   ],
-  total_cents: 5000,
+  total_cents: 2000,
   item_count: 1,
   isLoading: false,
   error: null,
@@ -94,7 +94,7 @@ describe("Checkout Page", () => {
     mockCartState.items = [
       {
         product_id: "lavender-dream",
-        product: { id: "lavender-dream", name: "Lavender Dream", price_cents: 2500, images: [], primary_image_url: "/img.jpg", primary_thumbnail_url: "/img.jpg", stock: 5 },
+        product: { id: "lavender-dream", name: "Lavender Dream", price_cents: 2500, effective_price_cents: 2000, images: [], primary_image_url: "/img.jpg", primary_thumbnail_url: "/img.jpg", stock: 5 },
         quantity: 1,
         added_at: "2026-01-01T00:00:00Z",
       },
@@ -126,6 +126,26 @@ describe("Checkout Page", () => {
     await waitFor(() => {
       expect(screen.getByText("Email is required")).toBeInTheDocument();
     });
+  });
+
+  it("shows legal disclosures, privacy links, and effective-price summary", () => {
+    renderWithIntl(<CheckoutPage />);
+
+    const termsLinks = screen.getAllByRole("link", { name: "Terms & Conditions" });
+    expect(termsLinks).toHaveLength(2);
+    for (const link of termsLinks) {
+      expect(link).toHaveAttribute("href", "/terms");
+    }
+    const privacyLinks = screen.getAllByRole("link", { name: "Privacy Policy" });
+    expect(privacyLinks).toHaveLength(2);
+    for (const link of privacyLinks) {
+      expect(link).toHaveAttribute("href", "/privacy");
+    }
+    expect(screen.getAllByText(/process your contact and delivery data/i)).toHaveLength(2);
+    expect(screen.getByText("1 × €20.00")).toBeInTheDocument();
+    expect(screen.getAllByText("€20.00").length).toBeGreaterThanOrEqual(3);
+    expect(screen.getByText("Delivery")).toBeInTheDocument();
+    expect(screen.getByText("Not separately calculated in this checkout")).toBeInTheDocument();
   });
 
   it("successful submission calls createOrder and navigates", async () => {

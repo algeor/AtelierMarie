@@ -92,6 +92,18 @@ describe("Order Confirmation Page", () => {
     });
     expect(screen.getByText("Rose Candle")).toBeInTheDocument();
     expect(screen.getByText(/buyer@example.com/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Terms & Conditions" })).toHaveAttribute(
+      "href",
+      "/terms"
+    );
+    expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute(
+      "href",
+      "/privacy"
+    );
+    expect(screen.getByText("Subtotal")).toBeInTheDocument();
+    expect(screen.getAllByText("Delivery").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/No separate delivery charge in this order/)).toBeInTheDocument();
+    expect(screen.getAllByText("€50.00").length).toBeGreaterThanOrEqual(2);
   });
 
   it("shows 'Order not found' on error", async () => {

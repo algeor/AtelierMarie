@@ -52,6 +52,15 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    labelKey: "atelierNav",
+    href: "/admin/atelier",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75c-2.7-1.8-5.25-1.8-7.5-.45v11.4c2.25-1.35 4.8-1.35 7.5.45m0-11.4c2.7-1.8 5.25-1.8 7.5-.45v11.4c-2.25-1.35-4.8-1.35-7.5.45m0-11.4v11.4" />
+      </svg>
+    ),
+  },
+  {
     labelKey: "faqNav",
     href: "/admin/faq",
     icon: (

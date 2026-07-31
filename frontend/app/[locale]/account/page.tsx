@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { useAuth } from "@/contexts/AuthContext";
+import { UserAvatar } from "@/components/auth/UserAvatar";
 import { Skeleton } from "@/components/ui/Skeleton";
 
 export default function AccountPage() {
@@ -46,26 +46,18 @@ export default function AccountPage() {
     );
   }
 
-  const initial = user.name?.charAt(0).toUpperCase() ?? user.email.charAt(0).toUpperCase();
-
   return (
     <div className="max-w-2xl mx-auto px-4 py-12">
       <h1 className="font-heading text-3xl text-charcoal mb-8">{t("myAccount")}</h1>
       <div className="bg-white rounded-brand p-8 shadow-sm border border-champagne-beige">
         <div className="flex flex-col items-center gap-4">
-          {user.avatar_url ? (
-            <Image
-              src={user.avatar_url}
-              alt={user.name ?? t("userAvatar")}
-              width={96}
-              height={96}
-              className="w-24 h-24 rounded-full object-cover"
-            />
-          ) : (
-            <span className="w-24 h-24 rounded-full bg-muted-gold text-charcoal flex items-center justify-center text-3xl font-medium">
-              {initial}
-            </span>
-          )}
+          <UserAvatar
+            name={user.name}
+            email={user.email}
+            avatarUrl={user.avatar_url}
+            alt={user.name ?? t("userAvatar")}
+            size="lg"
+          />
           <h2 className="text-xl font-medium text-charcoal">
             {user.name ?? t("userFallback")}
           </h2>

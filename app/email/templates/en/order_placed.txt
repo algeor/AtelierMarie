@@ -19,6 +19,11 @@ Delivery:
 {% endif %}{% for line in delivery_lines %}- {{ line }}
 {% endfor %}
 {% endif %}
+Terms, withdrawal, returns, and refunds: {{ terms_url }}
+Privacy information: {{ privacy_url }}
+Cookie information: {{ cookies_url }}
+Trader contact: {{ trader_name }} — {{ trader_contact_email }}
+Contact page: {{ contact_url }}
 
 We'll send you another email as soon as your order ships.
 

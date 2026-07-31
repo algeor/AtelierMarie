@@ -8,6 +8,7 @@ import { getOrder } from "@/lib/api";
 import { useCart } from "@/contexts/CartContext";
 import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
+import { policyPath } from "@/lib/legal";
 import { formatPrice } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -18,6 +19,7 @@ export default function OrderConfirmationPage() {
   const t = useTranslations("orders");
   const tCart = useTranslations("cart");
   const tDelivery = useTranslations("checkout.delivery");
+  const tLegal = useTranslations("legal");
   const getLocalizedError = useLocalizedError();
   const params = useParams();
   const orderId = params.id as string;
@@ -164,6 +166,17 @@ export default function OrderConfirmationPage() {
             </span>
           </div>
         </div>
+
+        <p className="mb-6 text-sm leading-6 text-soft-brown">
+          {t("policyNote")} {" "}
+          <Link href={policyPath("terms")} className="font-medium underline underline-offset-4 hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-muted-gold">
+            {tLegal("termsConditions")}
+          </Link>{" "}
+          <span aria-hidden="true">/</span>{" "}
+          <Link href={policyPath("privacy")} className="font-medium underline underline-offset-4 hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-muted-gold">
+            {tLegal("privacyPolicy")}
+          </Link>
+        </p>
 
         {/* Contact note */}
         <p className="mb-8 text-sm text-soft-brown">

@@ -39,6 +39,29 @@ export function getLocalizedAlternates(locale: Locale, pathname: string) {
   };
 }
 
+export function getAboutJsonLd(locale: Locale) {
+  const url = getCanonicalUrl(locale, "/atelier");
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": `${BASE_URL}/#organization`,
+        name: "The Atelier Marie",
+        url: BASE_URL,
+      },
+      {
+        "@type": "AboutPage",
+        "@id": `${url}#about-page`,
+        url,
+        name: "The Atelier Marie Atelier Story",
+        inLanguage: locale,
+        about: { "@id": `${BASE_URL}/#organization` },
+      },
+    ],
+  };
+}
+
 export function serializeJsonLd(data: unknown): string {
   return JSON.stringify(data).replace(/</g, "\\u003c");
 }

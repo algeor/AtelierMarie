@@ -11,6 +11,7 @@ import { formatPrice } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { SaveConfirmation } from "@/components/admin/SaveConfirmation";
 import { ProductBulkDiscountBar } from "@/components/admin/promotions/ProductBulkDiscountBar";
 import type { AdminProductResponse } from "@/lib/types";
 
@@ -24,6 +25,7 @@ export default function AdminProductsPage() {
   const [error, setError] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [successNoticeId, setSuccessNoticeId] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const selectAllRef = useRef<HTMLInputElement>(null);
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -36,13 +38,9 @@ export default function AdminProductsPage() {
       updated: t("productUpdated"),
     };
     if (success && messages[success]) {
-      setSuccessMessage(messages[success]);
+      showSuccess(messages[success]);
       // Strip param from URL to prevent re-flash on refresh
       window.history.replaceState({}, "", window.location.pathname);
-      // Auto-dismiss after 5 seconds
-      successTimerRef.current = setTimeout(() => {
-        setSuccessMessage(null);
-      }, 5000);
     }
     return () => {
       if (successTimerRef.current) clearTimeout(successTimerRef.current);
@@ -83,6 +81,7 @@ export default function AdminProductsPage() {
       setProducts((prev) =>
         prev.map((p) => (p.id === updated.id ? updated : p))
       );
+      showSuccess(tCommon("saved"));
     } catch (err) {
       // Rollback
       setProducts((prev) =>
@@ -94,6 +93,15 @@ export default function AdminProductsPage() {
     } finally {
       setTogglingId(null);
     }
+  }
+
+  function showSuccess(message: string) {
+    if (successTimerRef.current) clearTimeout(successTimerRef.current);
+    setSuccessMessage(message);
+    setSuccessNoticeId((current) => current + 1);
+    successTimerRef.current = setTimeout(() => {
+      setSuccessMessage(null);
+    }, 3200);
   }
 
   function dismissSuccess() {
@@ -144,16 +152,12 @@ export default function AdminProductsPage() {
       </div>
 
       {successMessage && (
-        <div className="mb-6 flex items-center justify-between rounded-brand border border-green-200 bg-green-50 p-4 text-sm text-green-700">
-          <span>{successMessage}</span>
-          <button
-            onClick={dismissSuccess}
-            className="ml-4 text-green-500 hover:text-green-700"
-            aria-label={t("dismissSuccess")}
-          >
-            ✕
-          </button>
-        </div>
+        <SaveConfirmation
+          key={successNoticeId}
+          message={successMessage}
+          onDismiss={dismissSuccess}
+          dismissLabel={t("dismissSuccess")}
+        />
       )}
 
       {error && (
@@ -288,12 +292,13 @@ export default function AdminProductsPage() {
             <li><code className="text-xs">description_en</code> - {t("csvColumnDescriptionEn")}</li>
             <li><code className="text-xs">description_bg</code> - {t("csvColumnDescriptionBg")}</li>
             <li><code className="text-xs">materials</code>, <code className="text-xs">days_to_craft</code>, <code className="text-xs">image_url</code>, <code className="text-xs">is_featured</code>, <code className="text-xs">is_active</code>, <code className="text-xs">weight_grams</code></li>
+            <li><code className="text-xs">safety_warnings_en</code>, <code className="text-xs">safety_warnings_bg</code>, <code className="text-xs">care_instructions_en</code>, <code className="text-xs">care_instructions_bg</code></li>
           </ul>
           <p className="mb-2 font-medium text-charcoal">{t("example")}</p>
           <pre className="overflow-x-auto rounded bg-charcoal/5 p-3 text-xs leading-relaxed">
-{`id,name_en,name_bg,description_en,description_bg,price_cents,category,stock,weight_grams,is_active
-lavender-dreams-300ml,Lavender Dreams,Лавандулов сън,Hand-poured soy candle,Ръчно излята соева свещ,3200,Floral,24,300,true
-midnight-amber-300ml,Midnight Amber,Полунощен кехлибар,Warm amber and sandalwood,Топъл кехлибар и сандалово дърво,4500,Woody,12,450,true`}
+{`id,name_en,name_bg,description_en,description_bg,price_cents,category,stock,weight_grams,is_active,safety_warnings_en,care_instructions_en
+lavender-dreams-300ml,Lavender Dreams,Лавандулов сън,Hand-poured soy candle,Ръчно излята соева свещ,3200,Floral,24,300,true,Never leave unattended.,Trim wick before use.
+midnight-amber-300ml,Midnight Amber,Полунощен кехлибар,Warm amber and sandalwood,Топъл кехлибар и сандалово дърво,4500,Woody,12,450,true,Never leave unattended.,Use on a heat-resistant surface.`}
           </pre>
           <p className="mt-3 text-xs text-soft-brown/70">
             {t("csvFallbackNote")}

@@ -17,7 +17,12 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: L
 export default async function HomePage({ params }: { params: Promise<{ locale: Locale }> }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "home" });
-  const { products } = await getProducts(1, 100, locale);
+  const { products } = await getProducts(1, 100, locale).catch(() => ({
+    products: [],
+    total: 0,
+    page: 1,
+    limit: 100,
+  }));
   const featured = products.filter((p) => p.is_featured);
 
   return (

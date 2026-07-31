@@ -54,7 +54,7 @@ def delivery() -> DeliveryInfo:
         method="office",
         office=DeliveryOffice(
             courier="econt",
-            office_id="1001",
+            office_id="econt-1029",
             office_name="Sofia Center",
             office_type="office",
             city="София",

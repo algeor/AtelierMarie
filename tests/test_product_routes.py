@@ -183,11 +183,42 @@ class TestGetProduct:
         assert "weight_grams" not in response.json()
 
     @pytest.mark.asyncio
+    async def test_public_response_includes_safety_metadata_with_locale_fallback(self, client):
+        from app.services import product_service
+
+        product_service.create_product(
+            {
+                "id": "route-safety-candle",
+                "name_en": "Safety Candle",
+                "name_bg": "Безопасна свещ",
+                "price_cents": 2400,
+                "stock": 6,
+                "safety_warnings_en": "Keep away from curtains.",
+                "safety_warnings_bg": "Дръжте далеч от завеси.",
+                "care_instructions_en": "Trim wick before each burn.",
+            }
+        )
+
+        detail = await client.get("/v1/products/route-safety-candle?locale=bg")
+        assert detail.status_code == 200
+        body = detail.json()
+        assert body["safety_warnings"] == "Дръжте далеч от завеси."
+        assert body["care_instructions"] == "Trim wick before each burn."
+        assert "safety_warnings_en" not in body
+
+        listing = await client.get("/v1/products?locale=bg")
+        products = listing.json()["products"]
+        listed = next(p for p in products if p["id"] == "route-safety-candle")
+        assert listed["safety_warnings"] == "Дръжте далеч от завеси."
+        assert listed["care_instructions"] == "Trim wick before each burn."
+
+    @pytest.mark.asyncio
     async def test_returns_404_for_missing(self, client, _products):
         response = await client.get("/v1/products/no-such-product")
         assert response.status_code == 404
         body = response.json()
         assert body["error"]["code"] == "NOT_FOUND"
+        assert body["error"]["details"] is None
 
     @pytest.mark.asyncio
     async def test_returns_404_for_inactive(self, client, _products):

@@ -15,6 +15,7 @@ from app.models.faq import (
     UpdateFaqSectionRequest,
 )
 from app.models.products import Locale
+from app.responses import error_response
 from app.services import faq_service
 from app.services.faq_service import (
     FaqItemNotFoundError,
@@ -100,14 +101,8 @@ async def admin_update_faq_section(
 
 
 def _not_found(message: str) -> JSONResponse:
-    return JSONResponse(
-        status_code=404,
-        content={"error": {"code": "NOT_FOUND", "message": message}},
-    )
+    return error_response(404, "NOT_FOUND", message)
 
 
 def _validation(message: str) -> JSONResponse:
-    return JSONResponse(
-        status_code=422,
-        content={"error": {"code": "INVALID_FAQ", "message": message}},
-    )
+    return error_response(422, "INVALID_FAQ", message)

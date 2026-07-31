@@ -19,6 +19,11 @@
 {% endif %}{% for line in delivery_lines %}- {{ line }}
 {% endfor %}
 {% endif %}
+Общи условия, отказ, връщане и възстановяване: {{ terms_url }}
+Информация за поверителност: {{ privacy_url }}
+Информация за бисквитки: {{ cookies_url }}
+Контакт с търговеца: {{ trader_name }} — {{ trader_contact_email }}
+Страница за контакт: {{ contact_url }}
 
 Ще Ви изпратим имейл веднага щом поръчката бъде изпратена.
 

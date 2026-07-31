@@ -10,6 +10,10 @@ import type {
   AdminProductResponse,
   AdminStats,
   AdminTaxonomyTerm,
+  AboutAdminResponse,
+  AboutItemAdmin,
+  AboutPublicResponse,
+  AboutSectionAdmin,
   BannerAdminResponse,
   BannerUpdateRequest,
   BulkDiscountRequest,
@@ -30,6 +34,7 @@ import type {
   ContactResponse,
   Courier,
   CreateOrderRequest,
+  CreateAboutItemRequest,
   CreateProductRequest,
   CreateTaxonomyTermRequest,
   CreateFaqItemRequest,
@@ -50,6 +55,8 @@ import type {
   ReactionToggleRequest,
   ReactionToggleResponse,
   ProductImage,
+  PatchAboutItemRequest,
+  PatchAboutSectionRequest,
   ProductVideo,
   TaxonomyKind,
   TaxonomyResponse,
@@ -107,6 +114,142 @@ export async function getTaxonomy(locale?: Locale): Promise<TaxonomyResponse> {
   if (locale) params.set("locale", locale);
   const query = params.size > 0 ? `?${params}` : "";
   return apiClient.get<TaxonomyResponse>(`/v1/taxonomy${query}`);
+}
+
+// --- Atelier Story / About ---
+
+export async function getAbout(locale?: Locale): Promise<AboutPublicResponse> {
+  if (USE_MOCK) return (await getMock()).getAbout(locale);
+  const params = new URLSearchParams();
+  if (locale) params.set("locale", locale);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<AboutPublicResponse>(`/v1/about${query}`);
+}
+
+export async function getAdminAbout(): Promise<AboutAdminResponse> {
+  if (USE_MOCK) return (await getMock()).getAdminAbout();
+  return apiClient.get<AboutAdminResponse>("/v1/admin/about");
+}
+
+export async function updateAboutSection(
+  slug: string,
+  data: PatchAboutSectionRequest
+): Promise<AboutSectionAdmin> {
+  if (USE_MOCK) return (await getMock()).updateAboutSection(slug, data);
+  return apiClient.patch<AboutSectionAdmin>(
+    `/v1/admin/about/sections/${encodeURIComponent(slug)}`,
+    data
+  );
+}
+
+export async function createAboutItem(
+  slug: string,
+  data: CreateAboutItemRequest
+): Promise<AboutItemAdmin> {
+  if (USE_MOCK) return (await getMock()).createAboutItem(slug, data);
+  return apiClient.post<AboutItemAdmin>(
+    `/v1/admin/about/sections/${encodeURIComponent(slug)}/items`,
+    data
+  );
+}
+
+export async function updateAboutItem(
+  slug: string,
+  itemId: number,
+  data: PatchAboutItemRequest
+): Promise<AboutItemAdmin> {
+  if (USE_MOCK) return (await getMock()).updateAboutItem(slug, itemId, data);
+  return apiClient.patch<AboutItemAdmin>(
+    `/v1/admin/about/sections/${encodeURIComponent(slug)}/items/${itemId}`,
+    data
+  );
+}
+
+export async function deleteAboutItem(slug: string, itemId: number): Promise<void> {
+  if (USE_MOCK) return (await getMock()).deleteAboutItem(slug, itemId);
+  return apiClient.del<void>(
+    `/v1/admin/about/sections/${encodeURIComponent(slug)}/items/${itemId}`
+  );
+}
+
+export async function reorderAboutSections(slugs: string[]): Promise<AboutSectionAdmin[]> {
+  if (USE_MOCK) return (await getMock()).reorderAboutSections(slugs);
+  return apiClient.post<AboutSectionAdmin[]>("/v1/admin/about/sections/reorder", { slugs });
+}
+
+export async function reorderAboutItems(
+  slug: string,
+  ids: number[]
+): Promise<AboutItemAdmin[]> {
+  if (USE_MOCK) return (await getMock()).reorderAboutItems(slug, ids);
+  return apiClient.post<AboutItemAdmin[]>(
+    `/v1/admin/about/sections/${encodeURIComponent(slug)}/items/reorder`,
+    { ids }
+  );
+}
+
+export async function setAboutSectionPublished(
+  slug: string,
+  isPublished: boolean
+): Promise<AboutSectionAdmin> {
+  if (USE_MOCK) return (await getMock()).setAboutSectionPublished(slug, isPublished);
+  return apiClient.patch<AboutSectionAdmin>(
+    `/v1/admin/about/sections/${encodeURIComponent(slug)}/publish`,
+    { is_published: isPublished }
+  );
+}
+
+export async function setAboutItemPublished(
+  slug: string,
+  itemId: number,
+  isPublished: boolean
+): Promise<AboutItemAdmin> {
+  if (USE_MOCK) return (await getMock()).setAboutItemPublished(slug, itemId, isPublished);
+  return apiClient.patch<AboutItemAdmin>(
+    `/v1/admin/about/sections/${encodeURIComponent(slug)}/items/${itemId}/publish`,
+    { is_published: isPublished }
+  );
+}
+
+export async function uploadAboutSectionImage(
+  slug: string,
+  file: File
+): Promise<AboutSectionAdmin> {
+  if (USE_MOCK) return (await getMock()).uploadAboutSectionImage(slug, file);
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiClient.postForm<AboutSectionAdmin>(
+    `/v1/admin/about/sections/${encodeURIComponent(slug)}/image`,
+    formData
+  );
+}
+
+export async function clearAboutSectionImage(slug: string): Promise<AboutSectionAdmin> {
+  if (USE_MOCK) return (await getMock()).clearAboutSectionImage(slug);
+  return apiClient.del<AboutSectionAdmin>(
+    `/v1/admin/about/sections/${encodeURIComponent(slug)}/image`
+  );
+}
+
+export async function uploadAboutItemImage(
+  slug: string,
+  itemId: number,
+  file: File
+): Promise<AboutItemAdmin> {
+  if (USE_MOCK) return (await getMock()).uploadAboutItemImage(slug, itemId, file);
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiClient.postForm<AboutItemAdmin>(
+    `/v1/admin/about/sections/${encodeURIComponent(slug)}/items/${itemId}/image`,
+    formData
+  );
+}
+
+export async function clearAboutItemImage(slug: string, itemId: number): Promise<AboutItemAdmin> {
+  if (USE_MOCK) return (await getMock()).clearAboutItemImage(slug, itemId);
+  return apiClient.del<AboutItemAdmin>(
+    `/v1/admin/about/sections/${encodeURIComponent(slug)}/items/${itemId}/image`
+  );
 }
 
 export async function getAdminTaxonomy(kind: TaxonomyKind): Promise<AdminTaxonomyTerm[]> {
@@ -355,7 +498,19 @@ export async function submitContact(
 
 export async function getAdminStats(): Promise<AdminStats> {
   if (USE_MOCK) return (await getMock()).getAdminStats();
-  return apiClient.get<AdminStats>("/v1/admin/stats");
+  const stats = await apiClient.get<
+    AdminStats & {
+      products?: { active?: number };
+      orders?: { total?: number; revenue_cents?: number };
+    }
+  >("/v1/admin/dashboard");
+
+  return {
+    orders_today: stats.orders_today ?? stats.orders?.total ?? 0,
+    revenue_this_week_cents:
+      stats.revenue_this_week_cents ?? stats.orders?.revenue_cents ?? 0,
+    active_product_count: stats.active_product_count ?? stats.products?.active ?? 0,
+  };
 }
 
 export async function getAdminProducts(

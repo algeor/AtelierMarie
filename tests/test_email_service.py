@@ -140,6 +140,9 @@ class TestSendPath:
         assert sent["to"] == "buyer@example.com"
         assert sent["reply_to"] == "contacts@theateliermarie.com"
         assert "Lavender Dream" in sent["body"]
+        assert "https://shop.example/en/terms" in sent["body"]
+        assert "https://shop.example/en/privacy" in sent["body"]
+        assert "contacts@theateliermarie.com" in sent["body"]
         # No List-Unsubscribe anywhere.
         assert "list-unsubscribe" not in str(sent).lower()
 
@@ -159,6 +162,8 @@ class TestSendPath:
         provider = RecordingProvider()
         drain_email_outbox(provider=provider, settings=_settings())
         assert "поръчка" in provider.sent[0]["subject"].lower()
+        assert "https://shop.example/bg/terms" in provider.sent[0]["body"]
+        assert "https://shop.example/bg/privacy" in provider.sent[0]["body"]
 
     def test_admin_alert_uses_admin_address(self, db):
         with get_db() as conn:

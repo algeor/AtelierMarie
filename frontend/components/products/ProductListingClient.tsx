@@ -209,10 +209,10 @@ export function ProductListingClient({ products, taxonomy }: ProductListingClien
     const sorted = [...matched];
     switch (sort) {
       case "price_asc":
-        sorted.sort((a, b) => a.price_cents - b.price_cents);
+        sorted.sort((a, b) => a.effective_price_cents - b.effective_price_cents);
         break;
       case "price_desc":
-        sorted.sort((a, b) => b.price_cents - a.price_cents);
+        sorted.sort((a, b) => b.effective_price_cents - a.effective_price_cents);
         break;
       case "name":
         sorted.sort((a, b) => a.name.localeCompare(b.name));

@@ -23,7 +23,7 @@ from app.constants import (
 )
 from app.models.delivery import DeliveryInfo
 from app.models.orders import OrderStatus
-from app.services import pricing
+from app.services import delivery_service, pricing
 
 logger = structlog.get_logger(__name__)
 
@@ -132,6 +132,16 @@ class ProductUnavailableError(OrderServiceError):
         self.failures = failures
         messages = [f"{f['product_id']} ({f['product_name']})" for f in failures]
         super().__init__(f"Product unavailable: {', '.join(messages)}")
+
+
+class InvalidDeliveryOfficeError(OrderServiceError):
+    """Raised when checkout references an office outside the courier catalogue."""
+
+    def __init__(self, office_id: str, courier: str, reason: str = "not found") -> None:
+        self.office_id = office_id
+        self.courier = courier
+        self.reason = reason
+        super().__init__(f"Invalid {courier} office '{office_id}': {reason}")
 
 
 class InvalidStateTransitionError(OrderServiceError):
@@ -314,12 +324,31 @@ def checkout(
     """
     # Serialize delivery sub-object (office or door) into JSON blob.
     # ensure_ascii=False preserves Cyrillic — see HANDOFF gotcha #5.
-    delivery_sub = delivery.office if delivery.method == "office" else delivery.door
-    delivery_details_json = json.dumps(
-        delivery_sub.model_dump() if delivery_sub is not None else None,
-        ensure_ascii=False,
-    )
-    delivery_courier = delivery_sub.courier if delivery_sub is not None else None
+    if delivery.method == "office" and delivery.office is not None:
+        delivery_sub = delivery.office
+        catalogue_office = delivery_service.get_office(
+            delivery_sub.courier,
+            delivery_sub.office_id,
+            locale="bg",
+        )
+        if catalogue_office is None:
+            raise InvalidDeliveryOfficeError(delivery_sub.office_id, delivery_sub.courier)
+        if catalogue_office["type"] != delivery_sub.office_type:
+            raise InvalidDeliveryOfficeError(
+                delivery_sub.office_id,
+                delivery_sub.courier,
+                reason=f"office_type must be {catalogue_office['type']}",
+            )
+        delivery_details = delivery_sub.model_dump()
+        delivery_details["office_name"] = catalogue_office["name"]
+        delivery_details["office_type"] = catalogue_office["type"]
+        delivery_courier = delivery_sub.courier
+    else:
+        delivery_sub = delivery.door
+        delivery_details = delivery_sub.model_dump() if delivery_sub is not None else None
+        delivery_courier = delivery_sub.courier if delivery_sub is not None else None
+
+    delivery_details_json = json.dumps(delivery_details, ensure_ascii=False)
 
     conn.execute("BEGIN IMMEDIATE")
     try:

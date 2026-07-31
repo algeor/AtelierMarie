@@ -180,3 +180,25 @@ async def test_submit_then_drain_sends_contact_email(client, db):
     row = db.execute("SELECT email, email_status FROM contact_messages").fetchone()
     assert row["email"] == "mira@example.com"
     assert row["email_status"] == "sent"
+
+
+@pytest.mark.anyio
+async def test_contact_name_newlines_are_single_line_in_subject(client, db):
+    response = await client.post(
+        "/v1/contact",
+        json={
+            "name": "Mira\r\nInjected",
+            "email": "mira@example.com",
+            "message": "Hello",
+            "locale": "en",
+        },
+    )
+    assert response.status_code == 201
+
+    provider = RecordingProvider()
+    drain_contact_message_emails(provider=provider, settings=_settings())
+
+    assert provider.sent[0]["subject"] == "New contact message from Mira Injected"
+    assert "\n" not in provider.sent[0]["subject"]
+    row = db.execute("SELECT name FROM contact_messages").fetchone()
+    assert row["name"] == "Mira Injected"

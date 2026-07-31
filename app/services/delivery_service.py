@@ -340,6 +340,19 @@ def get_offices(
     return [_resolve_locale(o, locale) for o in matched]
 
 
+def get_office(
+    courier: Courier,
+    office_id: str,
+    *,
+    locale: Locale = "bg",
+) -> Office | None:
+    """Return one courier office by id, or None when it is not in the catalogue."""
+    for office in _offices_by_courier.get(courier, []):
+        if office.get("id") == office_id:
+            return _resolve_locale(office, locale)
+    return None
+
+
 def get_cities(
     courier: Courier,
     *,

@@ -1,11 +1,26 @@
 import React from "react";
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { renderWithIntl } from "../../test-utils";
 
 vi.mock("@/i18n/navigation", () => ({
-  Link: ({ children, href }: { children: React.ReactNode; href: string }) => (
-    <a href={href}>{children}</a>
+  Link: ({
+    children,
+    href,
+    onClick,
+    ...props
+  }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
+    <a
+      href={href}
+      onClick={(event) => {
+        event.preventDefault();
+        onClick?.(event);
+      }}
+      {...props}
+    >
+      {children}
+    </a>
   ),
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
   usePathname: () => "/",
@@ -56,21 +71,25 @@ import { Header } from "@/components/layout/Header";
 
 const mockedUseAuth = vi.mocked(useAuth);
 
+function mockAnonymousAuth() {
+  mockedUseAuth.mockReturnValue({
+    user: null,
+    isAuthenticated: false,
+    isLoading: false,
+    error: null,
+    login: vi.fn(),
+    logout: vi.fn(),
+    loginComplete: vi.fn(),
+  });
+}
+
 describe("Header", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it("shows LoginButton when not authenticated", () => {
-    mockedUseAuth.mockReturnValue({
-      user: null,
-      isAuthenticated: false,
-      isLoading: false,
-      error: null,
-      login: vi.fn(),
-      logout: vi.fn(),
-      loginComplete: vi.fn(),
-    });
+    mockAnonymousAuth();
 
     renderWithIntl(<Header />);
     expect(screen.getByTestId("login-button")).toBeInTheDocument();
@@ -116,5 +135,34 @@ describe("Header", () => {
     // Skeleton is rendered (aria-hidden div)
     const skeleton = document.querySelector("[aria-hidden='true']");
     expect(skeleton).toBeInTheDocument();
+  });
+
+  it("opens a mobile navigation menu with shopper links and account controls", async () => {
+    mockAnonymousAuth();
+    const user = userEvent.setup();
+
+    renderWithIntl(<Header />);
+    await user.click(screen.getByRole("button", { name: "Open menu" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Menu" });
+    expect(within(dialog).getByRole("link", { name: "Shop" })).toHaveAttribute("href", "/products");
+    expect(within(dialog).getByRole("link", { name: "Atelier" })).toHaveAttribute("href", "/atelier");
+    expect(within(dialog).getByRole("link", { name: "FAQ" })).toHaveAttribute("href", "/faq");
+    expect(within(dialog).getByRole("link", { name: "Contact" })).toHaveAttribute("href", "/contact");
+    expect(within(dialog).getByTestId("language-toggle")).toBeInTheDocument();
+    expect(within(dialog).getByTestId("login-button")).toBeInTheDocument();
+  });
+
+  it("closes the mobile navigation menu after choosing a link", async () => {
+    mockAnonymousAuth();
+    const user = userEvent.setup();
+
+    renderWithIntl(<Header />);
+    await user.click(screen.getByRole("button", { name: "Open menu" }));
+    const dialog = await screen.findByRole("dialog", { name: "Menu" });
+
+    await user.click(within(dialog).getByRole("link", { name: "Shop" }));
+
+    expect(screen.queryByRole("dialog", { name: "Menu" })).not.toBeInTheDocument();
   });
 });

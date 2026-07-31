@@ -25,6 +25,7 @@ from app.models.orders import (
     OrderListResponse,
     OrderResponse,
     OrderStatus,
+    PaymentStatus,
     UpdateOrderStatusRequest,
 )
 from app.models.products import (
@@ -34,6 +35,7 @@ from app.models.products import (
     MAX_IMAGE_URL_LENGTH,
     MAX_MATERIALS_LENGTH,
     MAX_NAME_LENGTH,
+    MAX_SAFETY_TEXT_LENGTH,
     MAX_WEIGHT_GRAMS,
     CreateProductRequest,
     CSVImportError,
@@ -47,6 +49,7 @@ from app.models.products import (
     UpdateProductVideoRequest,
 )
 from app.models.promotions import BulkDiscountRequest, BulkDiscountResponse
+from app.responses import error_response
 from app.services import (
     admin_service,
     product_image_service,
@@ -121,20 +124,9 @@ async def admin_create_product(body: CreateProductRequest) -> ProductAdminRespon
     try:
         product = product_service.create_product(body.model_dump())
     except DuplicateError:
-        return JSONResponse(
-            status_code=409,
-            content={
-                "error": {
-                    "code": "DUPLICATE",
-                    "message": "Product with this ID already exists",
-                }
-            },
-        )
+        return error_response(409, "DUPLICATE", "Product with this ID already exists")
     except TaxonomyValidationError as e:
-        return JSONResponse(
-            status_code=422,
-            content={"error": {"code": "INVALID_TAXONOMY", "message": str(e)}},
-        )
+        return error_response(422, "INVALID_TAXONOMY", str(e))
 
     return ProductAdminResponse(**product)
 
@@ -198,21 +190,10 @@ async def admin_bulk_discount(body: BulkDiscountRequest) -> BulkDiscountResponse
             filter=body.filter.model_dump() if body.filter is not None else None,
         )
     except BulkTargetLimitError as e:
-        return JSONResponse(
-            status_code=422,
-            content={"error": {"code": "BULK_TARGET_LIMIT_EXCEEDED", "message": str(e)}},
-        )
+        return error_response(422, "BULK_TARGET_LIMIT_EXCEEDED", str(e))
 
     if not target_ids:
-        return JSONResponse(
-            status_code=422,
-            content={
-                "error": {
-                    "code": "VALIDATION_ERROR",
-                    "message": "target resolves to no products",
-                }
-            },
-        )
+        return error_response(422, "VALIDATION_ERROR", "target resolves to no products")
 
     result = product_service.bulk_update_discount(
         operation=body.operation,
@@ -236,10 +217,7 @@ async def admin_get_product(product_id: str) -> ProductAdminResponse | JSONRespo
     try:
         product = product_service.get_product_admin(product_id)
     except NotFoundError:
-        return JSONResponse(
-            status_code=404,
-            content={"error": {"code": "NOT_FOUND", "message": "Product not found"}},
-        )
+        return error_response(404, "NOT_FOUND", "Product not found")
 
     return ProductAdminResponse(**product)
 
@@ -275,20 +253,11 @@ async def admin_update_product(
     try:
         product = product_service.update_product(product_id, update_data)
     except NotFoundError:
-        return JSONResponse(
-            status_code=404,
-            content={"error": {"code": "NOT_FOUND", "message": "Product not found"}},
-        )
+        return error_response(404, "NOT_FOUND", "Product not found")
     except TaxonomyValidationError as e:
-        return JSONResponse(
-            status_code=422,
-            content={"error": {"code": "INVALID_TAXONOMY", "message": str(e)}},
-        )
+        return error_response(422, "INVALID_TAXONOMY", str(e))
     except DiscountValidationError as e:
-        return JSONResponse(
-            status_code=422,
-            content={"error": {"code": "VALIDATION_ERROR", "message": str(e)}},
-        )
+        return error_response(422, "VALIDATION_ERROR", str(e))
 
     return ProductAdminResponse(**product)
 
@@ -306,10 +275,7 @@ async def admin_delete_product(product_id: str) -> ProductAdminResponse | JSONRe
     try:
         product = product_service.deactivate_product(product_id)
     except NotFoundError:
-        return JSONResponse(
-            status_code=404,
-            content={"error": {"code": "NOT_FOUND", "message": "Product not found"}},
-        )
+        return error_response(404, "NOT_FOUND", "Product not found")
 
     return ProductAdminResponse(**product)
 
@@ -322,6 +288,10 @@ _OPTIONAL_CSV_HEADERS = {
     "description_en",
     "description_bg",
     "name_bg",
+    "safety_warnings_en",
+    "safety_warnings_bg",
+    "care_instructions_en",
+    "care_instructions_bg",
     "category",
     "product_type",
     "labels",
@@ -372,7 +342,8 @@ def _parse_csv_image_url(value: str) -> str | None:
         "Supports bilingual columns: name_en, name_bg, description_en, description_bg. "
         "Legacy columns (name, description) are treated as English equivalents. "
         "Optional columns: weight_grams, is_active, is_featured (true/false/1/0/yes/no), "
-        "materials, days_to_craft."
+        "materials, days_to_craft, safety_warnings_en, safety_warnings_bg, "
+        "care_instructions_en, care_instructions_bg."
     ),
 )
 async def admin_import_products(
@@ -384,7 +355,8 @@ async def admin_import_products(
     Optional columns: name_bg, description_en (or legacy 'description'),
                       description_bg, category, product_type, labels, stock,
                       image_url, weight_grams, is_active, is_featured, materials,
-                      days_to_craft
+                      days_to_craft, safety_warnings_en, safety_warnings_bg,
+                      care_instructions_en, care_instructions_bg
 
     Taxonomy columns are managed SLUGS, not free text (breaking change from the
     legacy free-text `category`): `product_type` and `category` must be existing
@@ -401,30 +373,21 @@ async def admin_import_products(
     # Read file content (bounded — avoid buffering an unbounded request body)
     content = await file.read()
     if len(content) > MAX_CSV_UPLOAD_BYTES:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": {
-                    "code": "INVALID_CSV",
-                    "message": f"CSV file exceeds maximum size ({MAX_CSV_UPLOAD_BYTES} bytes)",
-                }
-            },
+        return error_response(
+            400,
+            "INVALID_CSV",
+            f"CSV file exceeds maximum size ({MAX_CSV_UPLOAD_BYTES} bytes)",
         )
-    text = content.decode("utf-8-sig")  # Handle BOM
+    try:
+        text = content.decode("utf-8-sig")  # Handle BOM
+    except UnicodeDecodeError:
+        return error_response(400, "INVALID_CSV", "CSV file must be valid UTF-8")
 
     reader = csv.DictReader(io.StringIO(text))
 
     # Validate headers
     if reader.fieldnames is None:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": {
-                    "code": "INVALID_CSV",
-                    "message": "CSV file is empty or has no headers",
-                }
-            },
-        )
+        return error_response(400, "INVALID_CSV", "CSV file is empty or has no headers")
 
     headers = set(reader.fieldnames)
 
@@ -439,14 +402,10 @@ async def admin_import_products(
         missing_cols = sorted(base_missing)
         if not has_required_name:
             missing_cols.append("name_en (or name)")
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": {
-                    "code": "INVALID_CSV",
-                    "message": f"Missing required columns: {', '.join(missing_cols)}",
-                }
-            },
+        return error_response(
+            400,
+            "INVALID_CSV",
+            f"Missing required columns: {', '.join(missing_cols)}",
         )
 
     created = 0
@@ -559,6 +518,10 @@ async def admin_import_products(
             ("description", MAX_DESCRIPTION_LENGTH),
             ("description_bg", MAX_DESCRIPTION_LENGTH),
             ("materials", MAX_MATERIALS_LENGTH),
+            ("safety_warnings_en", MAX_SAFETY_TEXT_LENGTH),
+            ("safety_warnings_bg", MAX_SAFETY_TEXT_LENGTH),
+            ("care_instructions_en", MAX_SAFETY_TEXT_LENGTH),
+            ("care_instructions_bg", MAX_SAFETY_TEXT_LENGTH),
             ("category", MAX_CATEGORY_LENGTH),
             ("image_url", MAX_IMAGE_URL_LENGTH),
         ):
@@ -596,6 +559,16 @@ async def admin_import_products(
         if description_bg:
             data["description_bg"] = description_bg
 
+        for column in (
+            "safety_warnings_en",
+            "safety_warnings_bg",
+            "care_instructions_en",
+            "care_instructions_bg",
+        ):
+            value = (row.get(column) or "").strip()
+            if value:
+                data[column] = value
+
         if "category" in headers and row.get("category"):
             data["category"] = row["category"].strip()
         # Managed taxonomy columns (slugs). Validated against active terms in the
@@ -620,10 +593,36 @@ async def admin_import_products(
         # Check if product exists to track created vs updated (lightweight probe).
         is_existing = product_service.product_exists(product_id)
 
+        if imported_image_url and is_existing:
+            image_count = len(product_image_service.list_images(product_id))
+            if image_count >= product_image_service.MAX_IMAGES_PER_PRODUCT:
+                errors.append(
+                    CSVImportError(
+                        row=row_num,
+                        message=(
+                            "image_url skipped: product already has maximum images "
+                            f"({product_image_service.MAX_IMAGES_PER_PRODUCT})"
+                        ),
+                    )
+                )
+                continue
+
         try:
             product_service.upsert_product(product_id, data)
             if imported_image_url:
-                product_image_service.add_existing_image_url(product_id, imported_image_url)
+                added_image = product_image_service.add_existing_image_url(
+                    product_id, imported_image_url
+                )
+                if added_image is None:
+                    errors.append(
+                        CSVImportError(
+                            row=row_num,
+                            message=(
+                                "image_url skipped: product already has maximum images "
+                                f"({product_image_service.MAX_IMAGES_PER_PRODUCT})"
+                            ),
+                        )
+                    )
             if is_existing:
                 updated += 1
             else:
@@ -653,17 +652,19 @@ def admin_list_orders(
     if status is not None:
         valid_statuses = get_args(OrderStatus)
         if status not in valid_statuses:
-            return JSONResponse(
-                status_code=422,
-                content={
-                    "error": {
-                        "code": "INVALID_STATUS",
-                        "message": (
-                            f"Invalid status '{status}'. "
-                            f"Must be one of: {', '.join(valid_statuses)}"
-                        ),
-                    }
-                },
+            return error_response(
+                422,
+                "INVALID_STATUS",
+                f"Invalid status '{status}'. Must be one of: {', '.join(valid_statuses)}",
+            )
+    if payment_status is not None:
+        valid_payment_statuses = get_args(PaymentStatus)
+        if payment_status not in valid_payment_statuses:
+            return error_response(
+                422,
+                "INVALID_PAYMENT_STATUS",
+                "Invalid payment_status "
+                f"'{payment_status}'. Must be one of: {', '.join(valid_payment_statuses)}",
             )
 
     with get_db() as conn:
@@ -714,17 +715,9 @@ def admin_mark_payment_paid(
         try:
             order_data = mark_bank_transfer_paid(conn=conn, order_id=order_id)
         except PaymentAlreadyPaidError:
-            return JSONResponse(
-                status_code=409,
-                content={"error": {"code": "ALREADY_PAID", "message": "Order is already paid"}},
-            )
+            return error_response(409, "ALREADY_PAID", "Order is already paid")
         except WrongPaymentMethodError as e:
-            return JSONResponse(
-                status_code=409,
-                content={"error": {"code": "WRONG_PAYMENT_METHOD", "message": str(e)}},
-            )
-        # Queue 'placed' email now that payment is confirmed.
-        queue_order_email(conn, order_id, "placed", order_data["customer_email"])
+            return error_response(409, "WRONG_PAYMENT_METHOD", str(e))
 
     return OrderResponse.model_validate(order_data)
 
@@ -969,10 +962,7 @@ async def admin_delete_comment(comment_id: str) -> Response:
     try:
         delete_comment_service(comment_id)
     except CommentNotFoundError:
-        return JSONResponse(
-            status_code=404,
-            content={"error": {"code": "NOT_FOUND", "message": "Comment not found"}},
-        )
+        return error_response(404, "NOT_FOUND", "Comment not found")
     return Response(status_code=204)
 
 
@@ -1028,50 +1018,25 @@ async def _stream_video_upload_with_limit(file: UploadFile, product_id: str) -> 
 
 def _video_error_response(exc: Exception) -> JSONResponse:
     if isinstance(exc, product_video_service.ProductNotFoundError):
-        return JSONResponse(
-            status_code=404,
-            content={"error": {"code": "product_not_found", "message": "Product not found"}},
-        )
+        return error_response(404, "product_not_found", "Product not found")
     if isinstance(exc, product_video_service.ProductVideoNotFoundError):
-        return JSONResponse(
-            status_code=404,
-            content={"error": {"code": "video_not_found", "message": "Product video not found"}},
-        )
+        return error_response(404, "video_not_found", "Product video not found")
     if isinstance(exc, product_video_service.ProductVideoProcessingConflictError):
-        return JSONResponse(
-            status_code=409,
-            content={"error": {"code": "video_processing", "message": "video is still processing"}},
-        )
+        return error_response(409, "video_processing", "video is still processing")
     if isinstance(exc, InvalidVideoProductIdError):
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": {
-                    "code": "invalid_product_id",
-                    "message": "Product ID must be a valid slug (lowercase alphanumeric + hyphens)",
-                }
-            },
+        return error_response(
+            400,
+            "invalid_product_id",
+            "Product ID must be a valid slug (lowercase alphanumeric + hyphens)",
         )
     if isinstance(exc, VideoFileTooLargeError):
-        return JSONResponse(
-            status_code=422,
-            content={"error": {"code": "file_too_large", "message": str(exc)}},
-        )
+        return error_response(422, "file_too_large", str(exc))
     if isinstance(exc, InvalidVideoTypeError | VideoTooLongError):
-        return JSONResponse(
-            status_code=422,
-            content={"error": {"code": "invalid_video", "message": str(exc)}},
-        )
+        return error_response(422, "invalid_video", str(exc))
     if isinstance(exc, FfmpegUnavailableError):
-        return JSONResponse(
-            status_code=503,
-            content={"error": {"code": "video_unavailable", "message": str(exc)}},
-        )
+        return error_response(503, "video_unavailable", str(exc))
     if isinstance(exc, VideoProcessingError):
-        return JSONResponse(
-            status_code=422,
-            content={"error": {"code": "video_processing_failed", "message": str(exc)}},
-        )
+        return error_response(422, "video_processing_failed", str(exc))
     raise exc
 
 
@@ -1208,34 +1173,18 @@ async def admin_append_product_image(
     try:
         validate_image_file(file_bytes, product_id)
     except InvalidProductIdError:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": {
-                    "code": "invalid_product_id",
-                    "message": "Product ID must be a valid slug (lowercase alphanumeric + hyphens)",
-                }
-            },
+        return error_response(
+            400,
+            "invalid_product_id",
+            "Product ID must be a valid slug (lowercase alphanumeric + hyphens)",
         )
     except ImageFileTooLargeError:
-        return JSONResponse(
-            status_code=422,
-            content={
-                "error": {
-                    "code": "file_too_large",
-                    "message": "File size exceeds maximum of 25MB",
-                }
-            },
-        )
+        return error_response(422, "file_too_large", "File size exceeds maximum of 25MB")
     except InvalidImageTypeError:
-        return JSONResponse(
-            status_code=422,
-            content={
-                "error": {
-                    "code": "invalid_image_type",
-                    "message": "Unsupported image format. Only JPEG and PNG are accepted.",
-                }
-            },
+        return error_response(
+            422,
+            "invalid_image_type",
+            "Unsupported image format. Only JPEG and PNG are accepted.",
         )
 
     try:
@@ -1243,40 +1192,25 @@ async def admin_append_product_image(
         # event loop so concurrent Layer-1 requests are not stalled by an upload.
         image = await run_in_threadpool(product_image_service.add_image, product_id, file_bytes)
     except product_image_service.ProductNotFoundError:
-        return JSONResponse(
-            status_code=404,
-            content={"error": {"code": "product_not_found", "message": "Product not found"}},
-        )
+        return error_response(404, "product_not_found", "Product not found")
     except product_image_service.ProductImageLimitError:
-        return JSONResponse(
-            status_code=409,
-            content={
-                "error": {
-                    "code": "max_product_images",
-                    "message": "Product already has the maximum number of images",
-                }
-            },
+        return error_response(
+            409,
+            "max_product_images",
+            "Product already has the maximum number of images",
         )
     except ImageProcessingError as e:
         error_message = str(e)
         if error_message == "image_dimensions_too_large":
-            return JSONResponse(
-                status_code=422,
-                content={
-                    "error": {
-                        "code": "image_dimensions_too_large",
-                        "message": "Image dimensions exceed the maximum allowed (25 megapixels)",
-                    }
-                },
+            return error_response(
+                422,
+                "image_dimensions_too_large",
+                "Image dimensions exceed the maximum allowed (25 megapixels)",
             )
-        return JSONResponse(
-            status_code=422,
-            content={
-                "error": {
-                    "code": "image_processing_failed",
-                    "message": "Image could not be processed. The file may be corrupted.",
-                }
-            },
+        return error_response(
+            422,
+            "image_processing_failed",
+            "Image could not be processed. The file may be corrupted.",
         )
     return ProductImage(**image)
 
@@ -1293,10 +1227,7 @@ async def admin_delete_product_image(product_id: str, image_id: str) -> Response
     try:
         product_image_service.delete_image(product_id, image_id)
     except product_image_service.ProductImageNotFoundError:
-        return JSONResponse(
-            status_code=404,
-            content={"error": {"code": "image_not_found", "message": "Product image not found"}},
-        )
+        return error_response(404, "image_not_found", "Product image not found")
     return Response(status_code=204)
 
 
@@ -1317,19 +1248,12 @@ async def admin_reorder_product_images(
     try:
         images = product_image_service.reorder_images(product_id, body.ordered_ids)
     except product_image_service.ProductNotFoundError:
-        return JSONResponse(
-            status_code=404,
-            content={"error": {"code": "product_not_found", "message": "Product not found"}},
-        )
+        return error_response(404, "product_not_found", "Product not found")
     except product_image_service.ProductImageOrderError:
-        return JSONResponse(
-            status_code=422,
-            content={
-                "error": {
-                    "code": "invalid_image_order",
-                    "message": "ordered_ids must match all images for the product",
-                }
-            },
+        return error_response(
+            422,
+            "invalid_image_order",
+            "ordered_ids must match all images for the product",
         )
     return [ProductImage(**image) for image in images]
 
@@ -1348,8 +1272,5 @@ async def admin_set_primary_product_image(
     try:
         image = product_image_service.set_primary(product_id, image_id)
     except product_image_service.ProductImageNotFoundError:
-        return JSONResponse(
-            status_code=404,
-            content={"error": {"code": "image_not_found", "message": "Product image not found"}},
-        )
+        return error_response(404, "image_not_found", "Product image not found")
     return ProductImage(**image)

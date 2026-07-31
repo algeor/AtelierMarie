@@ -76,6 +76,21 @@ class TestPostCommentRoute:
         assert "id" in data
         assert "created_at" in data
 
+    async def test_returns_plain_text_not_html_entities(self, client, active_product):
+        body = 'A & B <script>alert(1)</script> "quoted"'
+        resp = await client.post(
+            f"/v1/products/{active_product}/comments",
+            json={"display_name": "Marie & Co", "body": body},
+        )
+        assert resp.status_code == 201
+        assert resp.json()["display_name"] == "Marie & Co"
+        assert resp.json()["body"] == body
+
+        listed = await client.get(f"/v1/products/{active_product}/comments")
+        item = listed.json()["items"][0]
+        assert item["body"] == body
+        assert "&amp;" not in item["body"]
+
     async def test_missing_display_name_anonymous_422(self, client, active_product):
         resp = await client.post(
             f"/v1/products/{active_product}/comments",

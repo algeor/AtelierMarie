@@ -50,6 +50,7 @@ The API runs at [http://localhost:8000](http://localhost:8000).
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Backend API base URL |
+| `NEXT_PUBLIC_MEDIA_URL` | API URL, or relative `/static` in mock mode | Public origin for product media served from `/static/*` |
 | `NEXT_PUBLIC_USE_MOCK_API` | `true` | Use mock data (no backend needed) |
 
 ### Backend
@@ -86,7 +87,7 @@ The frontend is fully functional with mock data:
 2. Run `npm run dev` from the `frontend/` directory
 3. Browse to http://localhost:3000
 
-Mock data provides 4 sample products across categories (Floral, Woody, Fresh, Gourmand).
+Mock data provides 4 sample products across categories (Floral, Woody, Fresh, Gourmand). Product media is served from bundled files in `frontend/public/static/products` unless `NEXT_PUBLIC_MEDIA_URL` is set.
 
 ## Connecting Frontend to Backend
 
@@ -94,3 +95,4 @@ Mock data provides 4 sample products across categories (Floral, Woody, Fresh, Go
 2. Set `NEXT_PUBLIC_USE_MOCK_API=false` in `frontend/.env.local`
 3. Restart the frontend dev server
 4. The frontend now fetches from the real API at `NEXT_PUBLIC_API_URL`
+5. Set `NEXT_PUBLIC_MEDIA_URL` when product media is served from a separate static host or CDN; otherwise `/static/*` media falls back to `NEXT_PUBLIC_API_URL`

@@ -54,9 +54,36 @@ describe("Footer", () => {
     );
   });
 
+  it("links Atelier to the story page", () => {
+    renderWithIntl(<Footer />);
+
+    expect(screen.getByRole("link", { name: "Atelier" })).toHaveAttribute(
+      "href",
+      "/atelier"
+    );
+  });
+
   it("links FAQ from the footer", () => {
     renderWithIntl(<Footer />);
 
     expect(screen.getByRole("link", { name: "FAQ" })).toHaveAttribute("href", "/faq");
+  });
+
+  it("links legal policies from the footer without a separate returns link", () => {
+    renderWithIntl(<Footer />);
+
+    expect(screen.getByRole("link", { name: "Terms & Conditions" })).toHaveAttribute(
+      "href",
+      "/terms"
+    );
+    expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute(
+      "href",
+      "/privacy"
+    );
+    expect(screen.getByRole("link", { name: "Cookie Policy" })).toHaveAttribute(
+      "href",
+      "/cookies"
+    );
+    expect(screen.queryByRole("link", { name: /^returns$/i })).not.toBeInTheDocument();
   });
 });

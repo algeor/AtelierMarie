@@ -235,8 +235,8 @@ def delivery() -> DeliveryInfo:
         method="office",
         office=DeliveryOffice(
             courier="econt",
-            office_id="1001",
-            office_name="Sofia Center",
+            office_id="econt-1029",
+            office_name="София",
             office_type="office",
             city="София",
             phone="+359888123456",

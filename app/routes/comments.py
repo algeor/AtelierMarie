@@ -12,6 +12,7 @@ from app.models.comments import (
     CommentListResponse,
     CommentResponse,
 )
+from app.responses import error_response
 from app.services.comment_service import (
     ProductNotFoundError,
     RateLimitExceededError,
@@ -79,15 +80,7 @@ async def post_comment(
     display_name, user_id = _resolve_display_name(session_id, body.display_name)
 
     if not display_name:
-        return JSONResponse(
-            status_code=422,
-            content={
-                "error": {
-                    "code": "VALIDATION_ERROR",
-                    "message": "display_name is required",
-                }
-            },
-        )
+        return error_response(422, "VALIDATION_ERROR", "display_name is required")
 
     try:
         comment = create_comment(
@@ -98,20 +91,11 @@ async def post_comment(
             body=body.body,
         )
     except ProductNotFoundError:
-        return JSONResponse(
-            status_code=404,
-            content={"error": {"code": "NOT_FOUND", "message": "Product not found"}},
-        )
+        return error_response(404, "NOT_FOUND", "Product not found")
     except ValidationError as e:
-        return JSONResponse(
-            status_code=422,
-            content={"error": {"code": "VALIDATION_ERROR", "message": str(e)}},
-        )
+        return error_response(422, "VALIDATION_ERROR", str(e))
     except RateLimitExceededError as e:
-        return JSONResponse(
-            status_code=429,
-            content={"error": {"code": "RATE_LIMITED", "message": str(e)}},
-        )
+        return error_response(429, "RATE_LIMITED", str(e))
 
     return JSONResponse(
         status_code=201,
@@ -136,10 +120,7 @@ async def list_product_comments(
     try:
         comments, total = list_comments(product_id, sort=sort, page=page, limit=limit)
     except ProductNotFoundError:
-        return JSONResponse(
-            status_code=404,
-            content={"error": {"code": "NOT_FOUND", "message": "Product not found"}},
-        )
+        return error_response(404, "NOT_FOUND", "Product not found")
 
     return CommentListResponse(
         items=[CommentResponse(**c) for c in comments],

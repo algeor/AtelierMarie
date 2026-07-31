@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import { useRouter } from "@/i18n/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 import { useCart } from "@/contexts/CartContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { createOrder, calculateShipping } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
+import { policyPath } from "@/lib/legal";
 import { formatPrice } from "@/lib/utils";
 import { FREE_SHIPPING_THRESHOLD_CENTS } from "@/lib/constants";
 import { Button } from "@/components/ui/Button";
@@ -313,6 +314,26 @@ export default function CheckoutPage() {
     ],
   );
 
+  const renderLegalDisclosure = () => (
+    <p className="mt-3 text-xs leading-5 text-soft-brown/75">
+      {t("legalPrefix")} {" "}
+      <Link
+        href={policyPath("terms")}
+        className="font-medium text-soft-brown underline underline-offset-4 transition-colors hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand"
+      >
+        {t("legalTerms")}
+      </Link>{" "}
+      {t("legalMiddle")} {" "}
+      <Link
+        href={policyPath("privacy")}
+        className="font-medium text-soft-brown underline underline-offset-4 transition-colors hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand"
+      >
+        {t("legalPrivacy")}
+      </Link>
+      {t("legalSuffix")}
+    </p>
+  );
+
   if (isLoading) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
@@ -487,6 +508,7 @@ export default function CheckoutPage() {
             <Button type="submit" variant="primary" size="lg" isLoading={isSubmitting} className="w-full">
               {isSubmitting ? t("placingOrder") : t("placeOrder")}
             </Button>
+            {renderLegalDisclosure()}
           </div>
         </form>
 
@@ -500,11 +522,11 @@ export default function CheckoutPage() {
                   <div className="flex-1 pr-4">
                     <p className="font-medium text-charcoal">{item.product.name}</p>
                     <p className="text-soft-brown">
-                      {item.quantity} &times; {formatPrice(item.product.price_cents)}
+                      {item.quantity} &times; {formatPrice(item.product.effective_price_cents)}
                     </p>
                   </div>
                   <p className="font-medium text-charcoal">
-                    {formatPrice(item.product.price_cents * item.quantity)}
+                    {formatPrice(item.product.effective_price_cents * item.quantity)}
                   </p>
                 </li>
               ))}
@@ -530,6 +552,7 @@ export default function CheckoutPage() {
               >
                 {isSubmitting ? t("placingOrder") : t("placeOrder")}
               </Button>
+              {renderLegalDisclosure()}
             </div>
           </div>
         </aside>

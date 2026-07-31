@@ -12,7 +12,9 @@ from app.config import get_settings
 from app.database import get_db
 from app.dependencies.auth import get_current_user
 from app.dependencies.session import require_session
+from app.middleware.session import rotate_session_in_transaction
 from app.models.users import UserResponse
+from app.responses import error_response
 from app.services import auth_service
 
 logger = structlog.get_logger(__name__)
@@ -36,16 +38,7 @@ async def login(
     settings = get_settings()
 
     if not settings.google_client_id or not settings.google_redirect_uri:
-        return JSONResponse(
-            status_code=503,
-            content={
-                "error": {
-                    "code": "AUTH_NOT_CONFIGURED",
-                    "message": "Google OAuth is not configured",
-                    "details": None,
-                }
-            },
-        )
+        return error_response(503, "AUTH_NOT_CONFIGURED", "Google OAuth is not configured")
 
     validated_path = auth_service.validate_redirect_path(redirect_to)
     auth_url = auth_service.build_google_auth_url(session_id, return_to=validated_path)
@@ -56,8 +49,9 @@ async def login(
 async def callback(
     request: Request,
     session_id: Annotated[str, Depends(require_session)],
-    code: str = Query(...),
-    state: str = Query(...),
+    code: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    error: str | None = Query(default=None),
 ) -> Response:
     """Handle Google OAuth callback.
 
@@ -66,6 +60,18 @@ async def callback(
     """
     settings = get_settings()
     frontend_base = settings.frontend_url
+
+    if error:
+        logger.info("OAuth callback returned error %s for session %s", error, session_id[:8])
+        frontend_error = "oauth_cancelled" if error == "access_denied" else "oauth_error"
+        return RedirectResponse(
+            f"{frontend_base}/auth/callback?error={frontend_error}", status_code=302
+        )
+
+    if not code or not state:
+        return RedirectResponse(
+            f"{frontend_base}/auth/callback?error=oauth_missing_params", status_code=302
+        )
 
     try:
         # Validate state (CSRF + session binding)
@@ -79,7 +85,7 @@ async def callback(
         # Verify Google ID token (signature, aud, iss, email_verified)
         google_claims = await auth_service.verify_google_id_token(id_token)
 
-        # Upsert user + link session
+        # Upsert user, rotate the anonymous session, and backfill anonymous orders.
         with get_db() as conn:
             user = auth_service.upsert_user(
                 conn,
@@ -88,19 +94,16 @@ async def callback(
                 google_claims.get("name"),
                 google_claims.get("picture"),
             )
-            # Link session to user
-            conn.execute(
-                "UPDATE sessions SET user_id = ? WHERE id = ?",
-                (user.id, session_id),
-            )
+            new_session_id = rotate_session_in_transaction(conn, session_id, user.id)
             # Backfill anonymous orders to this user
             conn.execute(
                 "UPDATE orders SET user_id = ? WHERE session_id = ? AND user_id IS NULL",
                 (user.id, session_id),
             )
+        request.state.session_id = new_session_id
 
         # Create JWT for cookie
-        jwt_token = auth_service.create_jwt(user, session_id)
+        jwt_token = auth_service.create_jwt(user, new_session_id)
 
         # Redirect to frontend callback handler
         redirect_url = f"{frontend_base}/auth/callback?success=true&redirect_to={return_to}"
@@ -116,43 +119,34 @@ async def callback(
             samesite="lax",
             path="/",
         )
+        response.set_cookie(
+            key=settings.session_cookie_name,
+            value=new_session_id,
+            max_age=settings.session_max_age,
+            httponly=True,
+            secure=settings.session_cookie_secure and settings.environment != "development",
+            samesite="lax",
+        )
+        response.headers["X-Session-Rotated"] = "true"
         return response
 
     except auth_service.InvalidStateError:
         logger.warning("OAuth callback: invalid state from session %s", session_id[:8])
-        return JSONResponse(
-            status_code=400,
-            content={"error": {"code": "invalid_state", "message": "Invalid OAuth state"}},
-        )
+        return error_response(400, "invalid_state", "Invalid OAuth state")
 
     except auth_service.TokenExchangeError:
         logger.error("OAuth callback: token exchange failed for session %s", session_id[:8])
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": {
-                    "code": "token_exchange_failed",
-                    "message": "Token exchange failed",
-                }
-            },
-        )
+        return error_response(400, "token_exchange_failed", "Token exchange failed")
 
     except auth_service.EmailNotVerifiedError:
-        return JSONResponse(
-            status_code=400,
-            content={"error": {"code": "email_not_verified", "message": "Email is not verified"}},
-        )
+        return error_response(400, "email_not_verified", "Email is not verified")
 
     except auth_service.AuthServiceUnavailableError:
         logger.error("OAuth callback: auth service unavailable (JWKS fetch failed)")
-        return JSONResponse(
-            status_code=503,
-            content={
-                "error": {
-                    "code": "authentication_service_unavailable",
-                    "message": "Authentication service unavailable",
-                }
-            },
+        return error_response(
+            503,
+            "authentication_service_unavailable",
+            "Authentication service unavailable",
         )
 
     except Exception:
@@ -174,16 +168,7 @@ async def get_me(
     belongs to that user in the database.
     """
     if current_user is None:
-        return JSONResponse(
-            status_code=401,
-            content={
-                "error": {
-                    "code": "NOT_AUTHENTICATED",
-                    "message": "User not found",
-                    "details": None,
-                }
-            },
-        )
+        return error_response(401, "NOT_AUTHENTICATED", "User not found")
 
     return JSONResponse(status_code=200, content=current_user.model_dump())
 

@@ -315,6 +315,14 @@ async def verify_google_id_token(id_token: str) -> dict:
     }
 
 
+def _blank_to_none(value: str | None) -> str | None:
+    """Normalize optional OAuth profile strings before persistence."""
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
 def upsert_user(
     conn: sqlite3.Connection,
     google_id: str,
@@ -331,6 +339,8 @@ def upsert_user(
         UserResponse with user data.
     """
     now = datetime.now(UTC).strftime(_SQLITE_DT_FMT)
+    name = _blank_to_none(name)
+    avatar_url = _blank_to_none(avatar_url)
 
     # Check if user already exists
     existing = conn.execute(
@@ -339,16 +349,20 @@ def upsert_user(
     ).fetchone()
 
     if existing:
-        # Update returning user's profile and last_login_at
+        # Update provided profile fields and preserve existing values when Google omits them.
+        existing_name = _blank_to_none(existing["name"])
+        existing_avatar_url = _blank_to_none(existing["avatar_url"])
+        next_name = name if name is not None else existing_name
+        next_avatar_url = avatar_url if avatar_url is not None else existing_avatar_url
         conn.execute(
             "UPDATE users SET name = ?, avatar_url = ?, last_login_at = ? WHERE google_id = ?",
-            (name, avatar_url, now, google_id),
+            (next_name, next_avatar_url, now, google_id),
         )
         return UserResponse(
             id=existing["id"],
             email=existing["email"],
-            name=name or existing["name"],
-            avatar_url=avatar_url or existing["avatar_url"],
+            name=next_name,
+            avatar_url=next_avatar_url,
             is_admin=bool(existing["is_admin"]),
         )
 

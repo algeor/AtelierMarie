@@ -47,8 +47,8 @@ def delivery() -> DeliveryInfo:
         method="office",
         office=DeliveryOffice(
             courier="econt",
-            office_id="1001",
-            office_name="Sofia Center",
+            office_id="econt-1029",
+            office_name="София",
             office_type="office",
             city="София",
             phone="+359888123456",
@@ -151,7 +151,7 @@ class TestCheckoutSuccess:
         assert order["customer_name"] == "Marie"
         assert order["delivery_method"] == "office"
         assert order["delivery_courier"] == "econt"
-        assert order["delivery_details"]["office_id"] == "1001"
+        assert order["delivery_details"]["office_id"] == "econt-1029"
         assert len(order["items"]) == 2
 
         # Price snapshots correct

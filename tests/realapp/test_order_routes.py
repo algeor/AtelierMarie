@@ -17,8 +17,8 @@ DELIVERY_OFFICE_ECONT = {
     "method": "office",
     "office": {
         "courier": "econt",
-        "office_id": "1001",
-        "office_name": "Sofia Center",
+        "office_id": "econt-1029",
+        "office_name": "София",
         "office_type": "office",
         "city": "София",
         "phone": "+359888123456",
@@ -597,6 +597,13 @@ class TestAdminInvalidStatusFilter:
         assert resp.status_code == 422
         assert resp.json()["error"]["code"] == "INVALID_STATUS"
 
+    async def test_invalid_payment_status_422(self, admin_order_client):
+        resp = await admin_order_client.get("/v1/admin/orders?payment_status=bogus")
+        assert resp.status_code == 422
+        body = resp.json()
+        assert body["error"]["code"] == "INVALID_PAYMENT_STATUS"
+        assert body["error"]["details"] is None
+
 
 # ===========================================================================
 # 7.11: GET /v1/admin/orders/{id} returns full detail for admin, 401 for non-admin
@@ -626,7 +633,7 @@ class TestAdminGetOrderDetail:
         assert data["notes"] == "Handle with care"
         assert data["delivery_method"] == "office"
         assert data["delivery_courier"] == "econt"
-        assert data["delivery_details"]["office_id"] == "1001"
+        assert data["delivery_details"]["office_id"] == "econt-1029"
         assert len(data["items"]) == 2
 
     async def test_non_admin_gets_401(self, order_client):
@@ -669,6 +676,66 @@ class TestCsrfProtection:
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
         assert resp.status_code == 422
+
+    async def test_stripe_retry_form_encoded_rejected(self, app, db_path):
+        """Retry payment endpoint uses the same JSON content-type guard."""
+        sid = str(uuid.uuid4())
+        now = datetime.now(UTC)
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
+            (sid, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
+        )
+        conn.commit()
+        conn.close()
+
+        settings = get_settings()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            c.cookies.set(settings.session_cookie_name, sid)
+            resp = await c.post(
+                "/v1/orders/order-1/stripe-session",
+                content="retry=true",
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "INVALID_CONTENT_TYPE"
+
+
+class TestAdminMarkPaymentPaid:
+    async def test_bank_transfer_paid_queues_one_placed_email(
+        self, admin_order_client, db_path, order_session_id
+    ):
+        from app.models.delivery import DeliveryInfo
+        from app.services.order_service import checkout
+
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        order = checkout(
+            conn,
+            session_id=order_session_id,
+            customer_email="buyer@example.com",
+            customer_name=None,
+            delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
+            notes=None,
+            payment_method="bank_transfer",
+        )
+        conn.close()
+
+        resp = await admin_order_client.patch(
+            f"/v1/admin/orders/{order['id']}/payment",
+            json={"payment_status": "paid"},
+        )
+        assert resp.status_code == 200
+
+        conn = sqlite3.connect(db_path)
+        placed_count = conn.execute(
+            "SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND event = 'placed'",
+            (order["id"],),
+        ).fetchone()[0]
+        conn.close()
+        assert placed_count == 1
 
 
 # ===========================================================================

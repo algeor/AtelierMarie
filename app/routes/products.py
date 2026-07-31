@@ -6,6 +6,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from app.models.products import Locale, ProductListResponse, ProductResponse
+from app.responses import error_response
 from app.services import product_service
 from app.services.product_service import NotFoundError
 
@@ -147,9 +148,6 @@ async def get_product(
     try:
         product = product_service.get_product(product_id, locale=locale)
     except NotFoundError:
-        return JSONResponse(
-            status_code=404,
-            content={"error": {"code": "NOT_FOUND", "message": "Product not found"}},
-        )
+        return error_response(404, "NOT_FOUND", "Product not found")
 
     return ProductResponse(**product)
