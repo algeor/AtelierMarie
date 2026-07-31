@@ -263,7 +263,7 @@ class TestEcontCityTranslation:
 
     @pytest.mark.asyncio
     async def test_door_mode_city_translated_without_mutating_shared_address(self, monkeypatch):
-        """Door address city is translated for Econt but Speedy sees it unchanged."""
+        """Door address city is translated per courier without mutating the caller."""
         from app.models.shipping import ShippingAddress
 
         econt_city: dict[str, str] = {}
@@ -298,5 +298,5 @@ class TestEcontCityTranslation:
         )
 
         assert econt_city["city"] == "София"
-        assert speedy_city["city"] == "Sofia"  # untranslated, not mutated
+        assert speedy_city["city"] == "София"
         assert address.city == "Sofia"  # caller's instance untouched

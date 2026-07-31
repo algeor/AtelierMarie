@@ -25,6 +25,18 @@ DELIVERY_OFFICE_ECONT = {
     },
 }
 
+DELIVERY_DOOR_SPEEDY = {
+    "method": "door",
+    "door": {
+        "courier": "speedy",
+        "city": "София",
+        "postal_code": "1000",
+        "street": "Витоша",
+        "building": "5",
+        "phone": "+359888123456",
+    },
+}
+
 
 @pytest.fixture(autouse=True)
 def _seed_order_products(db_path, app):
@@ -407,6 +419,102 @@ class TestAdminUpdateStatus:
         assert data["tracking_number"] == "77"
         assert data["tracking_carrier"] == "econt"
         assert data["tracking_url"] == "https://www.econt.com/services/track-shipment/77"
+
+
+class TestAdminSpeedyCourierOperations:
+    """Admin Speedy endpoints use real app state with a fake courier boundary."""
+
+    async def _create_shipped_speedy_order(self, admin_order_client, monkeypatch) -> str:
+        def fake_create_shipment_sync(**kwargs):
+            assert kwargs["recipient_city"] == "София"
+            assert kwargs["recipient_street"] == "Витоша"
+            assert kwargs["recipient_phone"] == "+359888123456"
+            return "63689182611"
+
+        monkeypatch.setattr(
+            "app.services.speedy_client.create_shipment_sync", fake_create_shipment_sync
+        )
+        resp = await admin_order_client.post(
+            "/v1/orders",
+            json={
+                "customer_email": "speedy@example.com",
+                "customer_name": "Speedy Buyer",
+                "delivery": DELIVERY_DOOR_SPEEDY,
+            },
+        )
+        assert resp.status_code == 201
+        order_id = resp.json()["id"]
+
+        resp = await admin_order_client.patch(
+            f"/v1/admin/orders/{order_id}/status", json={"status": "confirmed"}
+        )
+        assert resp.status_code == 200
+
+        resp = await admin_order_client.patch(
+            f"/v1/admin/orders/{order_id}/status", json={"status": "shipped"}
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["tracking_number"] == "63689182611"
+        assert data["tracking_carrier"] == "speedy"
+        return order_id
+
+    async def test_speedy_label_and_track_roundtrip(self, admin_order_client, monkeypatch):
+        async def fake_print_label(**kwargs):
+            assert kwargs["tracking_number"] == "63689182611"
+            return b"%PDF-1.4 smoke label"
+
+        async def fake_track_shipment(**kwargs):
+            assert kwargs["tracking_number"] == "63689182611"
+            return "delivered"
+
+        monkeypatch.setattr("app.routes.admin.print_label", fake_print_label)
+        monkeypatch.setattr("app.routes.admin.track_shipment", fake_track_shipment)
+        order_id = await self._create_shipped_speedy_order(admin_order_client, monkeypatch)
+
+        label_resp = await admin_order_client.get(f"/v1/admin/orders/{order_id}/label")
+        assert label_resp.status_code == 200
+        assert label_resp.headers["content-type"] == "application/pdf"
+        assert label_resp.content.startswith(b"%PDF")
+
+        track_resp = await admin_order_client.post(f"/v1/admin/orders/{order_id}/track")
+        assert track_resp.status_code == 200
+        data = track_resp.json()
+        assert data["status"] == "shipped"
+        assert data["courier_status"] == "delivered"
+
+    async def test_speedy_label_failure_returns_502(self, admin_order_client, monkeypatch):
+        from app.services.speedy_client import LabelPrintError
+
+        async def fail_print_label(**kwargs):
+            raise LabelPrintError("label unavailable", context="print")
+
+        monkeypatch.setattr("app.routes.admin.print_label", fail_print_label)
+        order_id = await self._create_shipped_speedy_order(admin_order_client, monkeypatch)
+
+        resp = await admin_order_client.get(f"/v1/admin/orders/{order_id}/label")
+        assert resp.status_code == 502
+        assert resp.json()["error"]["code"] == "LABEL_PRINT_FAILED"
+
+    async def test_non_speedy_order_has_no_speedy_waybill(self, admin_order_client):
+        resp = await admin_order_client.post(
+            "/v1/orders", json={"customer_email": "t@t.com", "delivery": DELIVERY_OFFICE_ECONT}
+        )
+        order_id = resp.json()["id"]
+        await admin_order_client.patch(
+            f"/v1/admin/orders/{order_id}/status", json={"status": "confirmed"}
+        )
+        await admin_order_client.patch(
+            f"/v1/admin/orders/{order_id}/status",
+            json={"status": "shipped", "tracking_number": "77", "tracking_carrier": "econt"},
+        )
+
+        label_resp = await admin_order_client.get(f"/v1/admin/orders/{order_id}/label")
+        track_resp = await admin_order_client.post(f"/v1/admin/orders/{order_id}/track")
+        assert label_resp.status_code == 404
+        assert track_resp.status_code == 404
+        assert label_resp.json()["error"]["code"] == "NO_SPEEDY_WAYBILL"
+        assert track_resp.json()["error"]["code"] == "NO_SPEEDY_WAYBILL"
 
 
 # ===========================================================================

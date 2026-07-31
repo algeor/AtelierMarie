@@ -185,10 +185,21 @@ class TestGetPlaces:
         names = [p["name"] for p in places]
         assert names == sorted(names)
 
-    def test_speedy_has_no_places(self):
+    def test_speedy_uses_shared_places(self):
         from app.services import delivery_service
 
-        assert delivery_service.get_places("speedy", query="Со") == []
+        places = delivery_service.get_places("speedy", query="Соф")
+        assert any(
+            p["name"] == "София" and p["postal_code"] == "1000" for p in places
+        )
+
+    def test_speedy_prefix_match_en_localizes(self):
+        from app.services import delivery_service
+
+        places = delivery_service.get_places("speedy", query="Sof", locale="en")
+        assert any(
+            p["name"] == "Sofia" and p["postal_code"] == "1000" for p in places
+        )
 
 
 class TestListPlaces:
@@ -213,10 +224,12 @@ class TestListPlaces:
         assert any(p["name"] == "Sadovo" and p["region"] == "Plovdiv" for p in data)
 
     @pytest.mark.asyncio
-    async def test_speedy_returns_empty(self, client):
+    async def test_speedy_returns_shared_places(self, client):
         resp = await client.get("/v1/delivery/places?courier=speedy&q=Со")
         assert resp.status_code == 200
-        assert resp.json() == []
+        assert any(
+            p["name"] == "София" and p["postal_code"] == "1000" for p in resp.json()
+        )
 
     @pytest.mark.asyncio
     async def test_no_match_returns_empty(self, client):

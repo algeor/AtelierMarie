@@ -645,7 +645,13 @@ const MOCK_PLACES: Record<Courier, CityPlace[]> = {
     { name: "Садово", region: "Благоевград", postal_code: "2922" },
     { name: "Садово", region: "Бургас", postal_code: "8463" },
   ],
-  speedy: [],
+  speedy: [
+    { name: "София", region: "София (столица)", postal_code: "1000" },
+    { name: "Пловдив", region: "Пловдив", postal_code: "4000" },
+    { name: "Садово", region: "Пловдив", postal_code: "4122" },
+    { name: "Садово", region: "Благоевград", postal_code: "2922" },
+    { name: "Садово", region: "Бургас", postal_code: "8463" },
+  ],
 };
 
 export async function getDeliveryPlaces(
@@ -774,6 +780,8 @@ export async function createOrder(
     tracking_number: null,
     tracking_carrier: null,
     tracking_url: null,
+    courier_status: null,
+    label_url: null,
     created_at: now,
     updated_at: now,
   };
@@ -858,6 +866,7 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
       office_id: "speedy-sf-001",
       office_name: "Speedy офис София Център",
       office_type: "office",
+      city: "София",
       phone: "+359888123456",
     },
     notes: null,
@@ -868,6 +877,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     tracking_number: null,
     tracking_carrier: null,
     tracking_url: null,
+    courier_status: null,
+    label_url: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -902,6 +913,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     tracking_number: null,
     tracking_carrier: null,
     tracking_url: null,
+    courier_status: null,
+    label_url: null,
     created_at: new Date(Date.now() - 86400000).toISOString(),
     updated_at: new Date(Date.now() - 43200000).toISOString(),
   },
@@ -925,6 +938,7 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
       office_id: "econt-plovdiv-001",
       office_name: "Econt Пловдив Централ",
       office_type: "office",
+      city: "Пловдив",
       phone: "+359877111222",
     },
     notes: null,
@@ -934,6 +948,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     tracking_number: "1234567890",
     tracking_carrier: "speedy",
     tracking_url: "https://www.speedy.bg/en/track-shipment?shipmentNumber=1234567890",
+    courier_status: "in_transit",
+    label_url: null,
     created_at: new Date(Date.now() - 172800000).toISOString(),
     updated_at: new Date(Date.now() - 86400000).toISOString(),
   },
@@ -957,6 +973,7 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
       office_id: "speedy-apt-sf-01",
       office_name: "Speedy Автомат Витоша Мол",
       office_type: "apt",
+      city: "София",
       phone: "+359899555000",
     },
     notes: null,
@@ -966,6 +983,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     tracking_number: "JD014600003922222222",
     tracking_carrier: "dhl",
     tracking_url: "https://www.dhl.com/en/express/tracking.html?AWB=JD014600003922222222",
+    courier_status: "delivered",
+    label_url: null,
     created_at: new Date(Date.now() - 604800000).toISOString(),
     updated_at: new Date(Date.now() - 259200000).toISOString(),
   },
@@ -1333,17 +1352,22 @@ export async function updateOrderStatus(
   }
 
   if (status === "shipped") {
-    if (!tracking?.tracking_number || !tracking?.tracking_carrier) {
+    if (!tracking?.tracking_number && order.delivery_courier === "speedy") {
+      order.tracking_number = "63689182611";
+      order.tracking_carrier = "speedy";
+      order.tracking_url = buildTrackingUrl("speedy", "63689182611");
+    } else if (!tracking?.tracking_number || !tracking?.tracking_carrier) {
       mockError(
         "TRACKING_REQUIRED",
         "tracking_number and tracking_carrier are required when shipping"
       );
+    } else {
+      order.tracking_number = tracking.tracking_number;
+      order.tracking_carrier = tracking.tracking_carrier;
+      order.tracking_url =
+        tracking.tracking_url ??
+        buildTrackingUrl(tracking.tracking_carrier, tracking.tracking_number);
     }
-    order.tracking_number = tracking.tracking_number;
-    order.tracking_carrier = tracking.tracking_carrier;
-    order.tracking_url =
-      tracking.tracking_url ??
-      buildTrackingUrl(tracking.tracking_carrier, tracking.tracking_number);
   }
 
   order.status = status;

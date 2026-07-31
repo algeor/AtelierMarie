@@ -277,6 +277,7 @@
       "shippingRequired": "Please choose a shipping option",
       "shippingError": "We couldn't calculate shipping just now. Please check your address and try again.",
       "freeShipping": "Free",
+      "total": "Total",
       "amountToFreeShipping": "Add {amount} more for free shipping",
       "freeShippingAchieved": "You've unlocked free shipping!",
       "deliveryEstimate": "Est. {days} business days",

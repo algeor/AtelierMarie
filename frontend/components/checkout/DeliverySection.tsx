@@ -404,11 +404,6 @@ interface DoorAddressFormProps {
 function DoorAddressForm({ value, onChange, errors, locale }: DoorAddressFormProps) {
   const t = useTranslations("checkout.delivery.door");
   const courier = value.courier ?? "speedy";
-  // Econt is the only courier with a served-places source (name + region +
-  // postcode). For it the city becomes a validated place picker that autofills
-  // a read-only postcode, so ambiguous same-named towns price live. Speedy has
-  // no such source and keeps the plain free-text city/postcode inputs.
-  const usePlacePicker = courier === "econt";
 
   const field = (
     key: "city" | "postalCode" | "street" | "building" | "apartment",
@@ -457,23 +452,16 @@ function DoorAddressForm({ value, onChange, errors, locale }: DoorAddressFormPro
 
   return (
     <div className="mb-6">
-      {usePlacePicker ? (
-        <DoorPlaceField
-          courier={courier}
-          locale={locale}
-          city={value.city ?? ""}
-          postalCode={value.postal_code ?? ""}
-          onSelect={(place) =>
-            onChange({ city: place.name, postal_code: place.postal_code ?? "" })
-          }
-          error={errors.city}
-        />
-      ) : (
-        <>
-          {field("city", "city", true, "city")}
-          {field("postalCode", "postal_code", true, "postalCode")}
-        </>
-      )}
+      <DoorPlaceField
+        courier={courier}
+        locale={locale}
+        city={value.city ?? ""}
+        postalCode={value.postal_code ?? ""}
+        onSelect={(place) =>
+          onChange({ city: place.name, postal_code: place.postal_code ?? "" })
+        }
+        error={errors.city}
+      />
       {field("street", "street", true, "street")}
       <div className="grid gap-4 sm:grid-cols-2">
         {field("building", "building", false)}
@@ -494,7 +482,7 @@ interface DoorPlaceFieldProps {
   error?: string;
 }
 
-// Debounced place typeahead for Econt door delivery — mirrors the OfficePicker
+// Debounced place typeahead for courier door delivery — mirrors the OfficePicker
 // city typeahead but consumes getDeliveryPlaces so suggestions carry region +
 // postcode. Selecting a place autofills a read-only postcode; ambiguous towns
 // (e.g. three "Садово") appear as distinct "name — region" rows.

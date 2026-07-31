@@ -40,12 +40,15 @@ COURIER_FILES: dict[Courier, Path] = {
     "speedy": _DATA_DIR / "speedy_offices.json",
 }
 
-# Served-places nomenclature (name + postcode + region). Only Econt has a
-# verified source; Speedy door delivery keeps its office-derived city list.
-# Unlike offices (office-hosting towns only), this covers every place the
-# courier delivers to, with a postcode that disambiguates same-named towns.
+# Served-places nomenclature (name + postcode + region). The current normalized
+# source came from Econt, but the records are generic Bulgarian place/postcode
+# data and are safe to use for Speedy door-address autofill until a dedicated
+# Speedy `/location/site` refresh script lands. Unlike offices (office-hosting
+# towns only), this covers every place with a postcode that disambiguates
+# same-named towns.
 CITIES_FILES: dict[Courier, Path] = {
     "econt": _DATA_DIR / "econt_cities.json",
+    "speedy": _DATA_DIR / "econt_cities.json",
 }
 
 
@@ -295,7 +298,7 @@ def get_places(
     Prefix match mirrors `get_cities` — case-insensitive against both language
     variants of the name. Dedupe is by (display-name, region) so genuinely
     distinct places survive while true duplicates collapse. Sorted by name then
-    region for stable ordering. Couriers without a places file (Speedy) → [].
+    region for stable ordering. Couriers without a places file return [].
     """
     places = _places_by_courier.get(courier, [])
     if not places:

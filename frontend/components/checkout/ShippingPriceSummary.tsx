@@ -61,7 +61,7 @@ export function ShippingPriceSummary({
       </div>
 
       <div className="flex items-center justify-between border-t border-champagne-beige pt-2">
-        <span className="font-heading text-lg text-charcoal">{tCart("total")}</span>
+        <span className="font-heading text-lg text-charcoal">{t("total")}</span>
         <span className="font-heading text-lg text-charcoal">
           {isPending ? "—" : formatPrice(totalCents)}
         </span>

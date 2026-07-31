@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
+    "test:chrome": "node ../scripts/chrome_smoke.mjs",
+    "test:chrome:stack": "CHROME_SMOKE_START_SERVERS=1 node ../scripts/chrome_smoke.mjs",
     "test:watch": "vitest"
   },
   "dependencies": {

@@ -1,5 +1,5 @@
 .PHONY: help setup setup-backend setup-frontend test test-backend test-unit test-integration \
-       test-frontend lint lint-backend lint-frontend format clean dev
+       test-frontend test-chrome-stack lint lint-backend lint-frontend format clean dev
 
 # Default
 help: ## Show this help
@@ -41,6 +41,10 @@ test-integration: ## Run only integration tests (real middleware)
 test-frontend: ## Run vitest (Next.js frontend)
 	@echo "═══ Running frontend tests (vitest) ═══"
 	cd frontend && npx vitest run
+
+test-chrome-stack: ## Run full-stack Chrome smoke tests (backend + frontend + fake Speedy)
+	@echo "═══ Running Chrome full-stack smoke tests ═══"
+	cd frontend && npm run test:chrome:stack
 
 test-backend-cov: ## Run pytest with coverage report
 	@echo "═══ Running backend tests with coverage ═══"

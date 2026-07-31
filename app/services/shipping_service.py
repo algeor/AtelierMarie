@@ -67,17 +67,19 @@ def _free_shipping_quotes(couriers: list[Courier], quoted_at: str) -> list[Shipp
     ]
 
 
-def _econt_door_address(address: ShippingAddress | None) -> ShippingAddress | None:
-    """Copy `address` with its city translated to Bulgarian for Econt pricing.
+def _courier_door_address(
+    courier: Courier, address: ShippingAddress | None
+) -> ShippingAddress | None:
+    """Copy `address` with its city translated to Bulgarian for courier APIs.
 
     Returns a new model rather than mutating the caller's — the same
-    `door_address` instance is also handed to Speedy, which expects the city
-    unchanged. `None` (office mode) passes through untouched.
+    `door_address` instance may be shared across courier calls. `None` (office
+    mode) passes through untouched.
     """
     if address is None:
         return None
     return address.model_copy(
-        update={"city": delivery_service.resolve_city_bg("econt", address.city)}
+        update={"city": delivery_service.resolve_city_bg(courier, address.city)}
     )
 
 
@@ -116,12 +118,12 @@ async def calculate_quotes(
         if courier == "speedy":
             return await speedy_client.calculate(
                 client_id=settings.speedy_client_id,
-                recipient_city=city,
+                recipient_city=delivery_service.resolve_city_bg("speedy", city),
                 recipient_office_id=office,
                 weight_grams=weight_grams,
                 username=settings.speedy_api_username,
                 password=settings.speedy_api_password.get_secret_value(),
-                address=door_address,
+                address=_courier_door_address("speedy", door_address),
                 quoted_at=quoted_at,
             )
         return await econt_client.calculate(
@@ -134,7 +136,7 @@ async def calculate_quotes(
             sender_phone=settings.econt_sender_phone,
             sender_address=settings.econt_sender_address,
             sender_city=settings.econt_sender_city,
-            address=_econt_door_address(door_address),
+            address=_courier_door_address("econt", door_address),
             quoted_at=quoted_at,
         )
 

@@ -1,12 +1,12 @@
 /**
- * DeliverySection — Econt door-delivery place picker.
+ * DeliverySection — courier door-delivery place picker.
  *
- * Focus: the Econt-only served-place typeahead that autofills a read-only
+ * Focus: the served-place typeahead that autofills a read-only
  * postcode so ambiguous same-named towns (three "Садово") price live instead
  * of degrading to the flat fallback. Uses the real message files + next-intl
  * so the picker's labels/placeholders render exactly as in production.
  */
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { NextIntlClientProvider } from "next-intl";
 import enMessages from "@/messages/en.json";
@@ -39,13 +39,18 @@ function renderSection(value: Partial<DeliveryInfo>, onChange = vi.fn()) {
   return onChange;
 }
 
-// Econt + door already selected, so the place picker is the visible sub-form.
+// Door already selected, so the place picker is the visible sub-form.
 const ECONT_DOOR: Partial<DeliveryInfo> = {
   method: "door",
   door: { courier: "econt" } as DeliveryInfo["door"],
 };
 
-describe("DeliverySection — Econt door place picker", () => {
+const SPEEDY_DOOR: Partial<DeliveryInfo> = {
+  method: "door",
+  door: { courier: "speedy" } as DeliveryInfo["door"],
+};
+
+describe("DeliverySection — courier door place picker", () => {
   beforeEach(() => {
     getDeliveryPlaces.mockReset();
     getDeliveryPlaces.mockResolvedValue(SADOVO_PLACES);
@@ -93,16 +98,34 @@ describe("DeliverySection — Econt door place picker", () => {
     expect(postal.readOnly).toBe(true);
   });
 
-  it("keeps a free-text (editable) postcode for Speedy door delivery", () => {
+  it("uses the same place picker and postcode autofill for Speedy door delivery", async () => {
+    getDeliveryPlaces.mockResolvedValue([
+      { name: "София", region: "София (столица)", postal_code: "1000" },
+    ]);
+    const onChange = renderSection(SPEEDY_DOOR);
+
+    const cityInput = screen.getByPlaceholderText("e.g., Sofia");
+    fireEvent.change(cityInput, { target: { value: "Соф" } });
+
+    await waitFor(() => expect(getDeliveryPlaces).toHaveBeenCalledWith("speedy", "Соф", "en"));
+
+    const sofiaRow = await screen.findByText("София — София (столица)");
+    fireEvent.click(sofiaRow);
+
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        door: expect.objectContaining({ city: "София", postal_code: "1000" }),
+      }),
+    );
+  });
+
+  it("renders the postcode field read-only for Speedy door delivery", () => {
     renderSection({
       method: "door",
       door: { courier: "speedy", city: "София", postal_code: "1000" } as DeliveryInfo["door"],
     });
 
-    // Speedy has no served-places source, so the picker is not used and the
-    // postcode stays editable.
     const postal = screen.getByDisplayValue("1000") as HTMLInputElement;
-    expect(postal.readOnly).toBe(false);
-    expect(getDeliveryPlaces).not.toHaveBeenCalled();
+    expect(postal.readOnly).toBe(true);
   });
 });

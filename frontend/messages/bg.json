@@ -277,6 +277,7 @@
       "shippingRequired": "Моля, изберете опция за доставка",
       "shippingError": "В момента не можахме да изчислим доставката. Моля, проверете адреса и опитайте отново.",
       "freeShipping": "Безплатно",
+      "total": "Общо",
       "amountToFreeShipping": "Добави още за {amount} за безплатна доставка",
       "freeShippingAchieved": "Спечелихте безплатна доставка!",
       "deliveryEstimate": "Ок. {days} работни дни",
