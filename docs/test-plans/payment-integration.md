@@ -13,14 +13,13 @@ Environment:
 Commands run:
 
 ```bash
-stripe listen --print-secret
+make stripe-webhook-secret
 DATABASE_PATH=/tmp/ateliermarie-stripe-cli-verify.db \
   STRIPE_WEBHOOK_SECRET=<stripe-listener-secret> \
   STRIPE_SECRET_KEY=<test-secret-key> \
   uv run uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8765
-stripe listen --skip-update \
-  --events checkout.session.completed,payment_intent.payment_failed,checkout.session.expired,charge.refunded \
-  --forward-to http://127.0.0.1:8765/v1/webhooks/stripe
+STRIPE_WEBHOOK_FORWARD_TO=http://127.0.0.1:8765/v1/webhooks/stripe \
+  make dev-stripe-webhook
 stripe trigger checkout.session.completed
 ```
 

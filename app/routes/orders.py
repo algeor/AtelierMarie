@@ -42,9 +42,10 @@ from app.services.payment_service import (
     PaymentAlreadyPaidError,
     StripeSessionError,
     create_checkout_session,
-    create_retry_session,
+    create_retry_checkout_session,
+    prepare_retry_session,
 )
-from app.services.payment_settings_service import get_payment_settings
+from app.services.payment_settings_service import get_payment_settings, payment_method_available
 
 router = APIRouter()
 
@@ -92,6 +93,18 @@ def create_order(
         )
 
     settings = get_settings()
+
+    with get_db() as conn:
+        is_available = payment_method_available(conn, settings, body.payment_method)
+        # payment_method_available() may lazily insert default settings.
+        conn.commit()
+
+    if not is_available:
+        return error_response(
+            422,
+            "PAYMENT_METHOD_UNAVAILABLE",
+            "Selected payment method is not currently available",
+        )
 
     # Validate card payments: Stripe must be configured.
     if body.payment_method == "card" and not settings.stripe_secret_key:
@@ -346,16 +359,31 @@ async def create_stripe_retry_session(
         except OrderNotFoundError:
             return error_response(404, "NOT_FOUND", "Order not found")
 
-        try:
-            consume_stripe_session_rate_limit(conn, order_id=order_id, session_id=session_id)
-            url = create_retry_session(
-                conn=conn,
-                order_id=order_id,
-                payment_return_token=payment_return_token,
-                success_url=settings.stripe_success_url,
-                cancel_url=settings.stripe_cancel_url,
-                stripe_secret_key=settings.stripe_secret_key,
+        if not payment_method_available(conn, settings, "card"):
+            return error_response(
+                422,
+                "PAYMENT_METHOD_UNAVAILABLE",
+                "Card payments are not currently available",
             )
+        # payment_method_available() may lazily insert default settings; close
+        # that transaction before the rate limiter starts BEGIN IMMEDIATE.
+        conn.commit()
+
+        try:
+            order, existing_url = prepare_retry_session(conn, order_id, payment_return_token)
+            if existing_url:
+                url = existing_url
+            else:
+                consume_stripe_session_rate_limit(conn, order_id=order_id, session_id=session_id)
+                url = create_retry_checkout_session(
+                    conn=conn,
+                    order=order,
+                    success_url=settings.stripe_success_url,
+                    cancel_url=settings.stripe_cancel_url,
+                    stripe_secret_key=settings.stripe_secret_key,
+                )
+        except OrderNotFoundError:
+            return error_response(404, "NOT_FOUND", "Order not found")
         except PaymentAlreadyPaidError:
             return error_response(409, "ALREADY_PAID", "Order is already paid")
         except InvalidRetryTokenError:

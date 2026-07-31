@@ -365,6 +365,7 @@ export interface OrderResponse {
   reserved_until?: string | null;
   paid_at?: string | null;
   collected_at?: string | null;
+  payment_return_token?: string | null;
   stripe_checkout_session_id?: string | null;
   stripe_checkout_url: string | null;
   analytics_consent?: boolean;

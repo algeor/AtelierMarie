@@ -1131,11 +1131,14 @@ def update_status(
     # COD: auto-advance payment_status to 'paid' on delivery (Decision 2).
     # Cash is collected at delivery by the courier — no manual step needed.
     if new_status == "delivered" and payment_method == "cod":
+        now = datetime.now(UTC).strftime(_DT_FMT)
         conn.execute(
             "UPDATE orders "
-            "SET payment_status = 'paid', paid_at = COALESCE(paid_at, ?) "
+            "SET payment_status = 'paid', "
+            "paid_at = COALESCE(paid_at, ?), "
+            "collected_at = COALESCE(collected_at, ?) "
             "WHERE id = ?",
-            (datetime.now(UTC).strftime(_DT_FMT), order_id),
+            (now, now, order_id),
         )
 
     # Restore stock on cancellation
@@ -1191,6 +1194,12 @@ def mark_bank_transfer_paid(
         raise WrongPaymentMethodError(order_id, "bank_transfer", row["payment_method"])
     if row["payment_status"] == "paid":
         raise PaymentAlreadyPaidError(order_id)
+    if row["payment_status"] != "pending":
+        raise ManualPaymentActionError(
+            "INVALID_PAYMENT_STATE",
+            f"Cannot mark bank transfer paid from {row['payment_status']}",
+            409,
+        )
 
     now = datetime.now(UTC).strftime(_DT_FMT)
     conn.execute(
@@ -1246,6 +1255,12 @@ def apply_manual_payment_action(
     if action == "mark_paid":
         if old_payment_status == "paid":
             raise PaymentAlreadyPaidError(order_id)
+        if old_payment_status == "refunded":
+            raise ManualPaymentActionError(
+                "INVALID_PAYMENT_STATE",
+                "Cannot move a refunded payment to paid",
+                409,
+            )
         new_payment_status = "paid"
         conn.execute(
             "UPDATE orders SET payment_status = 'paid', paid_at = COALESCE(paid_at, ?) "
@@ -1258,6 +1273,12 @@ def apply_manual_payment_action(
             raise WrongPaymentMethodError(order_id, "cod", payment_method)
         if old_payment_status == "paid":
             raise PaymentAlreadyPaidError(order_id)
+        if old_payment_status == "refunded":
+            raise ManualPaymentActionError(
+                "INVALID_PAYMENT_STATE",
+                "Cannot collect a refunded payment",
+                409,
+            )
         new_payment_status = "paid"
         conn.execute(
             """
@@ -1272,6 +1293,12 @@ def apply_manual_payment_action(
     elif action == "mark_refunded":
         if old_payment_status == "refunded":
             raise ManualPaymentActionError("ALREADY_REFUNDED", "Payment is already refunded", 409)
+        if old_payment_status != "paid":
+            raise ManualPaymentActionError(
+                "INVALID_PAYMENT_STATE",
+                "Only paid payments can be marked refunded",
+                409,
+            )
         new_payment_status = "refunded"
         conn.execute("UPDATE orders SET payment_status = 'refunded' WHERE id = ?", (order_id,))
     elif action in {"mark_failed", "mark_review"}:

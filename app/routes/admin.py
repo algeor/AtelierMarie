@@ -784,6 +784,8 @@ def admin_mark_payment_paid(
             return error_response(409, "ALREADY_PAID", "Order is already paid")
         except WrongPaymentMethodError as e:
             return error_response(409, "WRONG_PAYMENT_METHOD", str(e))
+        except ManualPaymentActionError as e:
+            return error_response(e.status_code, e.code, str(e))
 
     return OrderResponse.model_validate(order_data)
 

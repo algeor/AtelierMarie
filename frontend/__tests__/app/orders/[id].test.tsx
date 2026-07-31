@@ -4,6 +4,10 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
 import type { OrderResponse } from "@/lib/types";
 import { renderWithIntl } from "../../test-utils";
 
+const navigationState = vi.hoisted(() => ({
+  searchParams: new URLSearchParams(),
+}));
+
 vi.mock("@/i18n/navigation", () => ({
   Link: ({ children, href }: { children: React.ReactNode; href: string }) => (
     <a href={href}>{children}</a>
@@ -18,6 +22,7 @@ vi.mock("@/lib/api", () => ({
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d" }),
+  useSearchParams: () => navigationState.searchParams,
 }));
 
 vi.mock("next/link", () => ({
@@ -64,6 +69,7 @@ const mockOrder: OrderResponse = {
 describe("OrderDetailPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    navigationState.searchParams = new URLSearchParams();
   });
 
   it("displays order details", async () => {
@@ -82,7 +88,7 @@ describe("OrderDetailPage", () => {
     expect(screen.getByText("Order received. Payment will be collected on delivery.")).toBeInTheDocument();
   });
 
-  it("shows failed card payment copy and retry link", async () => {
+  it("hides failed card retry link without a return token", async () => {
     mockedGetOrder.mockResolvedValueOnce({
       ...mockOrder,
       payment_method: "card",
@@ -93,9 +99,25 @@ describe("OrderDetailPage", () => {
     await waitFor(() => {
       expect(screen.getAllByText("Payment failed").length).toBeGreaterThanOrEqual(2);
     });
+    expect(screen.queryByText("Retry payment")).not.toBeInTheDocument();
+  });
+
+  it("shows failed card retry link with a return token", async () => {
+    navigationState.searchParams = new URLSearchParams("token=return-token");
+    mockedGetOrder.mockResolvedValueOnce({
+      ...mockOrder,
+      payment_method: "card",
+      payment_status: "failed",
+    });
+    renderWithIntl(<OrderDetailPage />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Payment failed").length).toBeGreaterThanOrEqual(2);
+    });
+    expect(mockedGetOrder).toHaveBeenCalledWith(mockOrder.id, "return-token");
     expect(screen.getByText("Retry payment")).toHaveAttribute(
       "href",
-      `/orders/${mockOrder.id}/retry-payment`
+      `/orders/${mockOrder.id}/retry-payment?token=return-token`
     );
   });
 

@@ -62,6 +62,27 @@ Important settings:
 - `ANALYTICS_LEGAL_APPROVED`: must be true before production analytics can be enabled.
 - `SPEEDY_*`, `ECONT_*`: courier pricing/shipping credentials.
 
+## Local Stripe Webhook Forwarding
+
+For local card checkout work, install the Stripe CLI and run `stripe login` once.
+
+```bash
+make stripe-webhook-secret
+```
+
+Copy the printed `whsec_...` value into `.env` as `STRIPE_WEBHOOK_SECRET`, set `STRIPE_SECRET_KEY` to a test secret key, then restart `make dev-backend`.
+
+Forward events in a separate terminal:
+
+```bash
+make dev-stripe-webhook
+```
+
+Defaults come from `.env` when present:
+
+- `STRIPE_WEBHOOK_FORWARD_TO=http://127.0.0.1:8000/v1/webhooks/stripe`
+- `STRIPE_WEBHOOK_EVENTS=checkout.session.completed,payment_intent.payment_failed,checkout.session.expired,charge.refunded`
+
 ## Test Commands
 
 All tests:
@@ -122,4 +143,3 @@ make format
 - SQLite migrations run from `app/database.py` during startup. If a column exists locally, still test fresh DB behavior.
 - Analytics can be off. Do not write a feature that only works when analytics storage exists.
 - Stripe webhooks need raw body signature verification. Do not parse first, verify later.
-

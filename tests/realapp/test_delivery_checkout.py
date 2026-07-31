@@ -43,7 +43,7 @@ def _seed_products(db_path, app):
 
 @pytest.fixture()
 def order_session_id(db_path):
-    """Session with pre-populated cart items."""
+    """Session with a pre-populated cart below the COD cap."""
     sid = str(uuid.uuid4())
     now = datetime.now(UTC)
     conn = sqlite3.connect(db_path)
@@ -52,11 +52,7 @@ def order_session_id(db_path):
         (sid, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
     )
     conn.execute(
-        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, 'lavender-dream', 2)",
-        (sid,),
-    )
-    conn.execute(
-        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, 'midnight-amber', 1)",
+        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, 'lavender-dream', 1)",
         (sid,),
     )
     conn.commit()

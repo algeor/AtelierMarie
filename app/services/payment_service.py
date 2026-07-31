@@ -308,6 +308,24 @@ def create_checkout_session(
     return str(session.url)
 
 
+def create_retry_checkout_session(
+    conn: sqlite3.Connection,
+    order: OrderData,
+    success_url: str,
+    cancel_url: str,
+    stripe_secret_key: str,
+) -> str:
+    """Create a retry Checkout Session and mark failed orders pending again."""
+    url = create_checkout_session(conn, order, success_url, cancel_url, stripe_secret_key)
+    if order["payment_status"] == "failed":
+        conn.execute(
+            "UPDATE orders SET payment_status = 'pending', updated_at = ? WHERE id = ?",
+            (_now_str(), order["id"]),
+        )
+        order["payment_status"] = "pending"
+    return url
+
+
 def create_retry_session(
     conn: sqlite3.Connection,
     order_id: str,
@@ -321,6 +339,24 @@ def create_retry_session(
     Raises PaymentAlreadyPaidError if the order is already paid.
     Raises InvalidRetryStateError if payment_status is not 'pending' or 'failed'.
     Raises OrderNotFoundError if the order doesn't exist.
+    """
+    order, existing_url = prepare_retry_session(conn, order_id, payment_return_token)
+    if existing_url:
+        return existing_url
+
+    return create_retry_checkout_session(conn, order, success_url, cancel_url, stripe_secret_key)
+
+
+def prepare_retry_session(
+    conn: sqlite3.Connection,
+    order_id: str,
+    payment_return_token: str,
+) -> tuple[OrderData, str | None]:
+    """Validate a card retry request and return any reusable Checkout URL.
+
+    This performs only local checks. Routes can call it before consuming the
+    Stripe-session creation rate limit, so bad tokens and existing reusable URLs
+    do not burn the customer's fresh-session budget.
     """
     row = conn.execute(
         """
@@ -354,9 +390,9 @@ def create_retry_session(
     if order["payment_status"] == "pending":
         existing_url = _stored_checkout_url(conn, order_id)
         if existing_url:
-            return existing_url
+            return order, existing_url
 
-    return create_checkout_session(conn, order, success_url, cancel_url, stripe_secret_key)
+    return order, None
 
 
 def construct_stripe_webhook_event(

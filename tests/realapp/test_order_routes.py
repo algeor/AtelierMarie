@@ -41,6 +41,30 @@ DELIVERY_DOOR_SPEEDY = {
 }
 
 
+def _set_payment_settings(
+    db_path: str,
+    *,
+    card_payments_enabled: bool = False,
+    pay_on_delivery_enabled: bool = True,
+    pay_on_delivery_max_cents: int = 5000,
+) -> None:
+    conn = sqlite3.connect(db_path)
+    conn.executemany(
+        """
+        INSERT INTO site_settings (key, value, value_type, is_public)
+        VALUES (?, ?, 'json', 1)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, is_public = 1
+        """,
+        [
+            ("card_payments_enabled", "true" if card_payments_enabled else "false"),
+            ("pay_on_delivery_enabled", "true" if pay_on_delivery_enabled else "false"),
+            ("pay_on_delivery_max_cents", str(pay_on_delivery_max_cents)),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+
 @pytest.fixture(autouse=True)
 def _seed_order_products(db_path, app):
     """Seed products needed by order tests (uses realapp conftest's app)."""
@@ -55,6 +79,7 @@ def _seed_order_products(db_path, app):
     )
     conn.commit()
     conn.close()
+    _set_payment_settings(db_path, pay_on_delivery_enabled=True)
 
 
 @pytest.fixture()
@@ -189,6 +214,28 @@ class TestCreateOrder:
         assert body["error"]["code"] == "PAY_ON_DELIVERY_LIMIT_EXCEEDED"
         assert body["error"]["details"] == {"total_cents": 8500, "max_cents": 5000}
 
+    async def test_cod_disabled_by_payment_settings_rejected(
+        self, app, db_path, order_session_id
+    ):
+        _set_payment_settings(db_path, pay_on_delivery_enabled=False)
+
+        settings = get_settings()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            c.cookies.set(settings.session_cookie_name, order_session_id)
+            resp = await c.post(
+                "/v1/orders",
+                json={
+                    "customer_email": "marie@example.com",
+                    "customer_name": "Marie",
+                    "delivery": DELIVERY_OFFICE_ECONT,
+                    "payment_method": "cod",
+                },
+            )
+
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "PAYMENT_METHOD_UNAVAILABLE"
+
     async def test_cod_rate_limit_returns_429(self, order_client, db_path, order_session_id):
         payload = {
             "customer_email": "marie@example.com",
@@ -225,8 +272,14 @@ class TestCreateOrder:
         assert third.status_code == 429
         assert third.json()["error"]["code"] == "RATE_LIMITED"
 
-    async def test_card_checkout_returns_stripe_url(self, app, order_session_id):
+    async def test_card_checkout_returns_stripe_url(self, app, db_path, order_session_id):
         from app.config import Settings
+
+        _set_payment_settings(
+            db_path,
+            card_payments_enabled=True,
+            pay_on_delivery_enabled=True,
+        )
 
         class FakeSession:
             id = "cs_route_card"
@@ -251,6 +304,7 @@ class TestCreateOrder:
                 "app.routes.orders.get_settings",
                 return_value=Settings(
                     stripe_secret_key="sk_test_route_card",
+                    stripe_webhook_secret="whsec_route_card",
                     stripe_success_url="https://shop.example/success/{order_id}",
                     stripe_cancel_url="https://shop.example/cancel/{order_id}",
                 ),
@@ -276,6 +330,7 @@ class TestCreateOrder:
         assert body["payment_status"] == "pending"
         assert body["payment_status_label"] == "Payment pending"
         assert body["reserved_until"] is not None
+        assert body["payment_return_token"]
         assert body["stripe_checkout_url"] == "https://checkout.example/route-card"
 
     # 7.3: POST returns 400 on empty cart, 409 on stock issues
@@ -1060,6 +1115,62 @@ class TestCsrfProtection:
                 )
 
         assert resp.status_code == 404
+
+    async def test_stripe_retry_wrong_token_does_not_consume_rate_limit(
+        self, app, db_path, order_session_id
+    ):
+        """Bad retry tokens must not burn the fresh Stripe-session budget."""
+        from app.config import Settings
+        from app.models.delivery import DeliveryInfo
+        from app.services.order_service import checkout
+
+        _set_payment_settings(
+            db_path,
+            card_payments_enabled=True,
+            pay_on_delivery_enabled=True,
+        )
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        order = checkout(
+            conn,
+            session_id=order_session_id,
+            customer_email="buyer@example.com",
+            customer_name="Buyer",
+            delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
+            notes=None,
+            payment_method="card",
+        )
+        conn.commit()
+        conn.close()
+
+        settings = get_settings()
+        transport = ASGITransport(app=app)
+        with patch(
+            "app.routes.orders.get_settings",
+            return_value=Settings(
+                stripe_secret_key="sk_test_retry",
+                stripe_webhook_secret="whsec_retry",
+                stripe_success_url="https://shop.example/success",
+                stripe_cancel_url="https://shop.example/cancel",
+            ),
+        ):
+            async with AsyncClient(transport=transport, base_url="http://test") as c:
+                c.cookies.set(settings.session_cookie_name, order_session_id)
+                resp = await c.post(
+                    f"/v1/orders/{order['id']}/stripe-session",
+                    json={"payment_return_token": "wrong-token"},
+                )
+
+        assert resp.status_code == 404
+        conn = sqlite3.connect(db_path)
+        count = conn.execute(
+            """
+            SELECT COUNT(*) FROM payment_rate_limit_events
+            WHERE action = 'stripe_session_create'
+            """
+        ).fetchone()[0]
+        conn.close()
+        assert count == 0
 
 
 class TestAdminMarkPaymentPaid:

@@ -10,7 +10,7 @@ DEFAULT_PAY_ON_DELIVERY_MAX_CENTS = 5000
 
 _DEFAULT_SETTINGS: dict[str, Any] = {
     "card_payments_enabled": False,
-    "pay_on_delivery_enabled": False,
+    "pay_on_delivery_enabled": True,
     "pay_on_delivery_max_cents": DEFAULT_PAY_ON_DELIVERY_MAX_CENTS,
 }
 
@@ -46,6 +46,12 @@ def stripe_config_health(settings: Settings) -> dict[str, Any]:
 
     if not settings.stripe_webhook_secret:
         problems.append("STRIPE_WEBHOOK_SECRET is missing")
+
+    if not settings.stripe_success_url:
+        problems.append("STRIPE_SUCCESS_URL is missing")
+
+    if not settings.stripe_cancel_url:
+        problems.append("STRIPE_CANCEL_URL is missing")
 
     if settings.environment == "production" and mode != "live":
         problems.append("Production card payments require a live Stripe secret key")
@@ -175,3 +181,21 @@ def public_payment_settings(
         "bank_transfer_enabled": bank_enabled,
         "available_payment_methods": methods,
     }
+
+
+def payment_method_available(
+    conn: sqlite3.Connection,
+    settings: Settings,
+    payment_method: str,
+) -> bool:
+    """Return whether a submitted payment method is currently checkout-available."""
+    values = get_payment_settings(conn)
+    if payment_method == "card":
+        return bool(values["card_payments_enabled"]) and bool(
+            stripe_config_health(settings)["ready_for_card_payments"]
+        )
+    if payment_method == "cod":
+        return bool(values["pay_on_delivery_enabled"])
+    if payment_method == "bank_transfer":
+        return bool(settings.bank_iban)
+    return False

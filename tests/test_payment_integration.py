@@ -42,6 +42,7 @@ from app.services.payment_service import (
 from app.services.payment_settings_service import (
     PaymentSettingsValidationError,
     get_payment_settings,
+    stripe_config_health,
     update_payment_settings,
     validate_payment_settings_update,
 )
@@ -199,6 +200,8 @@ class TestUpdateStatusPayment:
         update_status(conn, order["id"], "delivered")
         updated = get_order(conn, order["id"])
         assert updated["payment_status"] == "paid"
+        assert updated["paid_at"] is not None
+        assert updated["collected_at"] is not None
 
     def test_non_cod_delivered_does_not_change_payment_status(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="bank_transfer")
@@ -240,6 +243,17 @@ class TestMarkBankTransferPaid:
         mark_bank_transfer_paid(conn, order["id"])
         with pytest.raises(BankTransferAlreadyPaidError):
             mark_bank_transfer_paid(conn, order["id"])
+
+    def test_rejects_non_pending_bank_transfer(self, conn, delivery):
+        order = _do_checkout(conn, delivery, payment_method="bank_transfer")
+        conn.execute("UPDATE orders SET payment_status = 'failed' WHERE id = ?", (order["id"],))
+        conn.commit()
+
+        with pytest.raises(ManualPaymentActionError) as exc:
+            mark_bank_transfer_paid(conn, order["id"])
+
+        assert exc.value.code == "INVALID_PAYMENT_STATE"
+        assert get_order(conn, order["id"])["payment_status"] == "failed"
 
     def test_422_on_wrong_payment_method(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="cod")
@@ -295,6 +309,26 @@ class TestManualPaymentActions:
             (order["id"],),
         ).fetchone()
         assert event["provider_status"] == "refunded"
+
+    def test_mark_refunded_rejects_unpaid_payment(self, conn, delivery):
+        order = _do_checkout(conn, delivery, payment_method="card")
+
+        with pytest.raises(ManualPaymentActionError) as exc:
+            apply_manual_payment_action(conn, order["id"], "mark_refunded", "Manual refund")
+
+        assert exc.value.code == "INVALID_PAYMENT_STATE"
+        assert get_order(conn, order["id"])["payment_status"] == "pending"
+
+    def test_refunded_payment_cannot_be_marked_paid_again(self, conn, delivery):
+        order = _do_checkout(conn, delivery, payment_method="card")
+        conn.execute("UPDATE orders SET payment_status = 'refunded' WHERE id = ?", (order["id"],))
+        conn.commit()
+
+        with pytest.raises(ManualPaymentActionError) as exc:
+            apply_manual_payment_action(conn, order["id"], "mark_paid", "Undo refund")
+
+        assert exc.value.code == "INVALID_PAYMENT_STATE"
+        assert get_order(conn, order["id"])["payment_status"] == "refunded"
 
     def test_cancel_unpaid_card_restores_stock_and_marks_failed(self, conn, delivery):
         pid = _seed_product(conn, stock=5)
@@ -625,7 +659,7 @@ class TestPaymentSecurityEdges:
 
         assert settings == {
             "card_payments_enabled": False,
-            "pay_on_delivery_enabled": False,
+            "pay_on_delivery_enabled": True,
             "pay_on_delivery_max_cents": 5000,
         }
         count = conn.execute(
@@ -658,12 +692,41 @@ class TestPaymentSecurityEdges:
             ORDER BY setting_key
             """
         ).fetchall()
-        assert [row["setting_key"] for row in rows] == [
-            "pay_on_delivery_enabled",
-            "pay_on_delivery_max_cents",
-        ]
+        assert [row["setting_key"] for row in rows] == ["pay_on_delivery_max_cents"]
         assert {row["admin_email"] for row in rows} == {"owner@example.com"}
         assert {row["request_id"] for row in rows} == {"req-settings"}
+
+    def test_card_health_requires_stripe_return_urls(self):
+        settings = Settings(
+            stripe_secret_key="sk_test_ready",
+            stripe_webhook_secret="whsec_ready",
+            stripe_success_url="",
+            stripe_cancel_url="",
+        )
+
+        health = stripe_config_health(settings)
+
+        assert health["ready_for_card_payments"] is False
+        assert "STRIPE_SUCCESS_URL is missing" in health["problems"]
+        assert "STRIPE_CANCEL_URL is missing" in health["problems"]
+
+    def test_card_enable_rejects_missing_return_urls(self):
+        settings = Settings(
+            stripe_secret_key="sk_test_ready",
+            stripe_webhook_secret="whsec_ready",
+            stripe_success_url="",
+            stripe_cancel_url="",
+        )
+
+        with pytest.raises(PaymentSettingsValidationError, match="STRIPE_SUCCESS_URL"):
+            validate_payment_settings_update(
+                {
+                    "card_payments_enabled": True,
+                    "pay_on_delivery_enabled": True,
+                    "pay_on_delivery_max_cents": 5000,
+                },
+                settings,
+            )
 
     def test_stripe_checkout_uses_database_total_not_client_amount(self, conn, delivery):
         import sys
@@ -728,6 +791,54 @@ class TestPaymentSecurityEdges:
                 "https://shop.example/cancel",
                 "sk_test_retry",
             )
+
+    def test_retry_session_marks_failed_order_pending_and_reuses_url(self, conn, delivery):
+        import sys
+        import types
+
+        order = _do_checkout(conn, delivery, payment_method="card")
+        conn.execute("UPDATE orders SET payment_status = 'failed' WHERE id = ?", (order["id"],))
+        conn.commit()
+        calls: list[dict] = []
+
+        class FakeSession:
+            id = "cs_retry_new"
+            url = "https://checkout.example/retry-new"
+            status = "open"
+            payment_intent = None
+
+        class FakeCheckoutSession:
+            @staticmethod
+            def create(**kwargs):
+                calls.append(kwargs)
+                return FakeSession()
+
+        fake_stripe = types.ModuleType("stripe")
+        fake_stripe.api_key = None
+        fake_stripe.checkout = types.SimpleNamespace(Session=FakeCheckoutSession)
+
+        with patch.dict(sys.modules, {"stripe": fake_stripe}):
+            first_url = create_retry_session(
+                conn,
+                order["id"],
+                order["payment_return_token"],
+                "https://shop.example/success",
+                "https://shop.example/cancel",
+                "sk_test_retry",
+            )
+            second_url = create_retry_session(
+                conn,
+                order["id"],
+                order["payment_return_token"],
+                "https://shop.example/success",
+                "https://shop.example/cancel",
+                "sk_test_retry",
+            )
+
+        assert first_url == "https://checkout.example/retry-new"
+        assert second_url == "https://checkout.example/retry-new"
+        assert len(calls) == 1
+        assert get_order(conn, order["id"])["payment_status"] == "pending"
 
     def test_production_rejects_stripe_test_key_for_card_enable(self):
         settings = Settings(

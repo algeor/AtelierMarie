@@ -69,6 +69,7 @@ class OrderResponse(BaseModel):
     reserved_until: str | None = None
     paid_at: str | None = None
     collected_at: str | None = None
+    payment_return_token: str | None = None
     stripe_checkout_session_id: str | None = None
     stripe_checkout_url: str | None = None
     analytics_consent: bool = False

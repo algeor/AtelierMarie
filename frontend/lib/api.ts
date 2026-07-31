@@ -403,11 +403,12 @@ export async function createOrder(
 }
 
 export async function createStripeRetrySession(
-  orderId: string
+  orderId: string,
+  paymentReturnToken?: string | null
 ): Promise<{ stripe_checkout_url: string }> {
   return apiClient.post<{ stripe_checkout_url: string }>(
     `/v1/orders/${encodeURIComponent(orderId)}/stripe-session`,
-    {}
+    { payment_return_token: paymentReturnToken ?? "" }
   );
 }
 

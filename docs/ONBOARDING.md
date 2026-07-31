@@ -80,6 +80,31 @@ Frontend verification:
 - Open `http://localhost:3000/bg` for Bulgarian locale.
 - `/` redirects to a locale based on cookie/browser language.
 
+## Local Stripe Webhooks
+
+Use this when testing card checkout locally. It requires the Stripe CLI and `stripe login`.
+
+1. Get the local webhook secret:
+
+   ```bash
+   make stripe-webhook-secret
+   ```
+
+2. Copy the printed `whsec_...` value into `.env` as `STRIPE_WEBHOOK_SECRET`. Also set `STRIPE_SECRET_KEY` to a Stripe test secret key.
+3. Restart the backend:
+
+   ```bash
+   make dev-backend
+   ```
+
+4. Forward Stripe events to the local backend in another terminal:
+
+   ```bash
+   make dev-stripe-webhook
+   ```
+
+The forwarder reads `.env` for `STRIPE_WEBHOOK_FORWARD_TO` and `STRIPE_WEBHOOK_EVENTS`. Defaults point to `http://127.0.0.1:8000/v1/webhooks/stripe`.
+
 ## Frontend Modes
 
 Mock mode is best for UI work that does not need backend state:
@@ -109,6 +134,8 @@ make help                  # Show Makefile targets
 make setup                 # Install backend + frontend dependencies
 make dev-backend           # FastAPI on port 8000
 make dev-frontend          # Next.js on port 3000
+make stripe-webhook-secret # Print local Stripe whsec_ secret
+make dev-stripe-webhook    # Forward Stripe events to local backend
 make test                  # Backend pytest + frontend vitest
 make test-backend          # Backend tests
 make test-unit             # Backend tests excluding integration marker

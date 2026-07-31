@@ -460,7 +460,11 @@ export default function CheckoutPage() {
           });
           window.location.href = order.stripe_checkout_url;
         } else {
-          router.push(`/orders/${order.id}/confirmation`);
+          const tokenQuery =
+            order.payment_method === "card" && order.payment_return_token
+              ? `?token=${encodeURIComponent(order.payment_return_token)}`
+              : "";
+          router.push(`/orders/${order.id}/confirmation${tokenQuery}`);
         }
       } catch (error) {
         if (error instanceof ApiError) {

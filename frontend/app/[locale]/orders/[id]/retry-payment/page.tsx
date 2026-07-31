@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { createStripeRetrySession } from "@/lib/api";
@@ -14,7 +14,10 @@ export default function RetryPaymentPage() {
   const tOrders = useTranslations("orders");
   const tPayment = useTranslations("orders.payment");
   const params = useParams();
+  const searchParams = useSearchParams();
   const orderId = params.id as string;
+  const paymentReturnToken =
+    searchParams.get("payment_return_token") ?? searchParams.get("token");
   const [state, setState] = useState<PageState>("redirecting");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const started = useRef(false);
@@ -25,7 +28,10 @@ export default function RetryPaymentPage() {
 
     async function startSession() {
       try {
-        const { stripe_checkout_url } = await createStripeRetrySession(orderId);
+        const { stripe_checkout_url } = await createStripeRetrySession(
+          orderId,
+          paymentReturnToken
+        );
         window.location.href = stripe_checkout_url;
       } catch (err) {
         if (err instanceof ApiError && err.code === "INVALID_PAYMENT_STATE") {
@@ -38,7 +44,7 @@ export default function RetryPaymentPage() {
     }
 
     startSession();
-  }, [orderId, tPayment]);
+  }, [orderId, paymentReturnToken, tPayment]);
 
   if (state === "redirecting") {
     return (
