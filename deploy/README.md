@@ -80,6 +80,34 @@ Store it in the systemd unit's `Environment=` or an EnvironmentFile — never
 commit it. Rotate on any suspected leak. Comparison uses `hmac.compare_digest`
 in `app/dependencies/auth.py`, so length variations do not leak via timing.
 
+## First-party analytics production gate
+
+Analytics is disabled by default and must stay disabled until the consent popup,
+privacy/cookie policy copy, and admin analytics monitoring are live. Production
+startup refuses `ANALYTICS_ENABLED=true` unless legal approval is explicitly
+recorded through `ANALYTICS_LEGAL_APPROVED=true`.
+
+After owner/legal approval of the English and Bulgarian privacy/cookie copy,
+set these backend environment variables in the production systemd unit or
+EnvironmentFile:
+
+```bash
+ANALYTICS_ENABLED=true
+ANALYTICS_LEGAL_APPROVED=true
+ANALYTICS_DATA_DIR=/var/lib/atelier-marie/analytics
+ANALYTICS_EVENTS_JSONL_PATH=/var/lib/atelier-marie/analytics/events.jsonl
+ANALYTICS_DUCKDB_PATH=/var/lib/atelier-marie/analytics/analytics.duckdb
+ANALYTICS_CONSENT_VERSION=2026-07-31
+ANALYTICS_RETENTION_DAYS=395
+ANALYTICS_DELIVERY_TOLERANCE=0
+```
+
+Create the analytics directory with ownership matching the backend service user,
+and include it in operational backups if analytics reports must survive a host
+rebuild. If legal approval is withdrawn or the dashboard shows delivery issues,
+set `ANALYTICS_ENABLED=false` and restart the backend; the storefront will keep
+working and the consent UI remains available for future preferences.
+
 ## Product video processing
 
 Product video uploads require `ffmpeg` and `ffprobe` on the backend host:

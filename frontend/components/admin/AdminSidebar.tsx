@@ -42,6 +42,15 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    labelKey: "analytics.navLabel",
+    href: "/admin/analytics",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.5h4.5v6H3v-6zm6.75-9h4.5v15h-4.5v-15zm6.75 5.25H21v9.75h-4.5V9.75z" />
+      </svg>
+    ),
+  },
+  {
     labelKey: "deliveryNav",
     href: "/admin/delivery",
     icon: (

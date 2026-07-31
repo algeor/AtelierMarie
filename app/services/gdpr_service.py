@@ -12,6 +12,7 @@ import sqlite3
 import structlog
 
 from app.database import get_db
+from app.services import analytics_service
 
 logger = structlog.get_logger(__name__)
 
@@ -54,4 +55,26 @@ def age_out_suppressed_emails(older_than_days: int = 365) -> int:
         )
         count = cursor.rowcount
     logger.info("suppressed_emails_aged_out", rows=count, older_than_days=older_than_days)
+    return count
+
+
+def anonymize_analytics_subject(
+    *,
+    session_ids: list[str] | None = None,
+    user_ids: list[str] | None = None,
+    order_ids: list[str] | None = None,
+) -> int:
+    """Pseudonymize analytics events linked to an erasure subject."""
+    count = analytics_service.anonymize_subject(
+        session_ids=session_ids,
+        user_ids=user_ids,
+        order_ids=order_ids,
+    )
+    logger.info(
+        "analytics_subject_anonymized",
+        rows=count,
+        session_count=len(session_ids or []),
+        user_count=len(user_ids or []),
+        order_count=len(order_ids or []),
+    )
     return count

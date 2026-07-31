@@ -11,6 +11,9 @@ import type {
   AdminStats,
   AdminTaxonomyTerm,
   AboutAdminResponse,
+  AnalyticsFunnelResponse,
+  AnalyticsHealthResponse,
+  AnalyticsSummaryResponse,
   AboutItemAdmin,
   AboutPublicResponse,
   AboutSectionAdmin,
@@ -32,6 +35,7 @@ import type {
   CommentSort,
   ContactRequest,
   ContactResponse,
+  CheckoutAnalyticsResponse,
   Courier,
   DeliverySettingsResponse,
   DeliverySettingsUpdate,
@@ -52,6 +56,7 @@ import type {
   OrderResponse,
   OrderStatus,
   ProductListResponse,
+  ProductAnalyticsResponse,
   ProductResponse,
   ReactionCountsResponse,
   ReactionToggleRequest,
@@ -530,6 +535,92 @@ export async function getAdminStats(): Promise<AdminStats> {
       stats.revenue_this_week_cents ?? stats.orders?.revenue_cents ?? 0,
     active_product_count: stats.active_product_count ?? stats.products?.active ?? 0,
   };
+}
+
+function analyticsQuery(startDate?: string, endDate?: string): string {
+  const params = new URLSearchParams();
+  if (startDate) params.set("start_date", startDate);
+  if (endDate) params.set("end_date", endDate);
+  return params.size ? `?${params}` : "";
+}
+
+export async function getAdminAnalyticsSummary(
+  startDate?: string,
+  endDate?: string
+): Promise<AnalyticsSummaryResponse> {
+  if (USE_MOCK) {
+    return {
+      start_date: startDate || "",
+      end_date: endDate || "",
+      consented_sessions: 0,
+      accepted_events: 0,
+      conversion_rate: 0,
+      backend_order_count: 0,
+      backend_revenue_cents: 0,
+      analytics_purchase_count: 0,
+      analytics_purchase_revenue_cents: 0,
+      coverage_percent: 0,
+      consented_order_count: 0,
+      consented_order_delta: 0,
+      delivery_warning: false,
+      health: {
+        accepted: 0,
+        rejected: 0,
+        duplicate: 0,
+        validation_failure: 0,
+        last_successful_flush_at: null,
+        duckdb_load_status: "mock",
+        retention_days: 395,
+      },
+    };
+  }
+  return apiClient.get<AnalyticsSummaryResponse>(
+    `/v1/admin/analytics/summary${analyticsQuery(startDate, endDate)}`
+  );
+}
+
+export async function getAdminAnalyticsFunnel(
+  startDate?: string,
+  endDate?: string
+): Promise<AnalyticsFunnelResponse> {
+  if (USE_MOCK) return { steps: [] };
+  return apiClient.get<AnalyticsFunnelResponse>(
+    `/v1/admin/analytics/funnel${analyticsQuery(startDate, endDate)}`
+  );
+}
+
+export async function getAdminAnalyticsProducts(
+  startDate?: string,
+  endDate?: string
+): Promise<ProductAnalyticsResponse> {
+  if (USE_MOCK) return { products: [] };
+  return apiClient.get<ProductAnalyticsResponse>(
+    `/v1/admin/analytics/products${analyticsQuery(startDate, endDate)}`
+  );
+}
+
+export async function getAdminAnalyticsCheckout(
+  startDate?: string,
+  endDate?: string
+): Promise<CheckoutAnalyticsResponse> {
+  if (USE_MOCK) {
+    return {
+      checkout_starts: 0,
+      order_submits: 0,
+      payment_redirects: 0,
+      purchase_confirmed: 0,
+      delivery_methods: {},
+      delivery_couriers: {},
+      payment_methods: {},
+    };
+  }
+  return apiClient.get<CheckoutAnalyticsResponse>(
+    `/v1/admin/analytics/checkout${analyticsQuery(startDate, endDate)}`
+  );
+}
+
+export function getAdminAnalyticsExportUrl(startDate?: string, endDate?: string): string {
+  return `${apiClient.BASE_URL}/v1/admin/analytics/export.csv${analyticsQuery(startDate, endDate)}`;
 }
 
 export async function getAdminProducts(

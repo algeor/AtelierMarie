@@ -136,13 +136,20 @@ class TestOAuthSmokeTest:
 
         # Extract JWT cookie from callback response
         jwt_cookie = None
+        rotated_session_cookie = None
         for h in callback_resp.headers.get_list("set-cookie"):
             if settings.jwt_cookie_name in h:
                 jwt_cookie = h.split(";")[0].split("=", 1)[1]
+            if settings.session_cookie_name in h:
+                rotated_session_cookie = h.split(";")[0].split("=", 1)[1]
+            if jwt_cookie is not None and rotated_session_cookie is not None:
                 break
         assert jwt_cookie is not None
+        assert rotated_session_cookie is not None
 
         # Step 3: me(200) with JWT
+        client.cookies.clear()
+        _set_client_cookie(client, settings.session_cookie_name, rotated_session_cookie)
         _set_client_cookie(client, settings.jwt_cookie_name, jwt_cookie)
         me_resp = await client.get("/v1/auth/me")
         assert me_resp.status_code == 200

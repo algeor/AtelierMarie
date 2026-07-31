@@ -27,6 +27,32 @@ def test_production_accepts_long_admin_api_key():
     assert settings.admin_api_key == "x" * 32
 
 
+def test_production_rejects_analytics_without_legal_approval():
+    """Production analytics must not start until legal approval is explicit."""
+    with pytest.raises(ValueError, match="ANALYTICS_LEGAL_APPROVED"):
+        Settings(
+            environment="production",
+            admin_api_key="x" * 32,
+            jwt_secret="a-secure-jwt-secret-not-the-dev-default-!!",
+            cors_origins=["https://example.com"],
+            analytics_enabled=True,
+            analytics_legal_approved=False,
+        )
+
+
+def test_production_accepts_analytics_after_legal_approval():
+    """Legal approval flag unlocks production analytics startup."""
+    settings = Settings(
+        environment="production",
+        admin_api_key="x" * 32,
+        jwt_secret="a-secure-jwt-secret-not-the-dev-default-!!",
+        cors_origins=["https://example.com"],
+        analytics_enabled=True,
+        analytics_legal_approved=True,
+    )
+    assert settings.analytics_enabled is True
+
+
 def test_development_allows_short_admin_api_key():
     """Length check is production-only — dev environments can use any key."""
     settings = Settings(environment="development", admin_api_key="short")

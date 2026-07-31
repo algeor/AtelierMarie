@@ -33,6 +33,10 @@ Use this when the goal is the fastest free public deployment of the website UI.
    - `NEXT_PUBLIC_USE_MOCK_API=true`
 6. Deploy.
 
+Analytics note: frontend-only demo deployments do not collect first-party
+analytics because the backend ingestion API and admin analytics panel are not
+deployed. Keep analytics disabled for demos.
+
 ### Pros
 
 - Best fit for Next.js.
@@ -68,6 +72,10 @@ Use this when you prefer Netlify's dashboard, forms, or deployment workflow, whi
    - `NEXT_PUBLIC_USE_MOCK_API=true`
 5. Deploy.
 
+Analytics note: frontend-only demo deployments do not collect first-party
+analytics because the backend ingestion API and admin analytics panel are not
+deployed. Keep analytics disabled for demos.
+
 ### Pros
 
 - Free and simple for a public demo.
@@ -100,6 +108,10 @@ Use this when you want a very fast global CDN and are comfortable handling Cloud
 5. Add this environment variable:
    - `NEXT_PUBLIC_USE_MOCK_API=true`
 6. Deploy.
+
+Analytics note: frontend-only demo deployments do not collect first-party
+analytics because the backend ingestion API and admin analytics panel are not
+deployed. Keep analytics disabled for demos.
 
 ### Pros
 
@@ -134,7 +146,11 @@ Use this when the store needs real API behavior, orders, admin flows, and persis
    - `NEXT_PUBLIC_USE_MOCK_API=false`
    - `NEXT_PUBLIC_API_URL=https://<backend-domain>`
 6. Configure backend CORS to allow the Vercel frontend domain.
-7. Test products, cart, checkout, orders, admin, and authentication against the live API.
+7. Keep backend `ANALYTICS_ENABLED=false` until the consent popup, policy copy,
+   and `/admin/analytics` monitoring are live and owner/legal approval is
+   recorded with `ANALYTICS_LEGAL_APPROVED=true`.
+8. Test products, cart, checkout, orders, admin, authentication, consent, and
+   analytics dashboard coverage against the live API.
 
 ### Pros
 

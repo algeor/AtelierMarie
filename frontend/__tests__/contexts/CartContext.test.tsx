@@ -55,6 +55,7 @@ const cartWithItem: CartResponse = {
         product_type_name: "Candles",
         labels: [],
         images: [],
+        video: null,
         primary_image_url: "/img/lavender.jpg",
         primary_thumbnail_url: "/img/lavender.jpg",
         stock: 10,

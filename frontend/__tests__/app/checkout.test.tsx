@@ -44,6 +44,14 @@ vi.mock("@/contexts/CartContext", () => ({
   useCart: () => mockCartState,
 }));
 
+vi.mock("@/contexts/CookieConsentContext", () => ({
+  useCookieConsent: () => ({ analytics: true }),
+}));
+
+vi.mock("@/lib/analytics", () => ({
+  trackAnalytics: vi.fn(),
+}));
+
 vi.mock("@/contexts/AuthContext", () => ({
   useAuth: () => ({ user: null, isLoading: false, error: null }),
 }));

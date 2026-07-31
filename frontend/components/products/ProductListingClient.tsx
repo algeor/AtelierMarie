@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import type { ProductResponse, TaxonomyResponse, TaxonomyTerm } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { trackAnalytics } from "@/lib/analytics";
 import { ProductGrid } from "./ProductGrid";
 import { ProductCard } from "./ProductCard";
 
@@ -39,6 +40,7 @@ export function ProductListingClient({ products, taxonomy }: ProductListingClien
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
   const returnFocusRef = useRef<Element | null>(null);
+  const lastFilterSignatureRef = useRef("");
 
   // Hydrate filter state from the URL once on mount (shareable/bookmarkable
   // filtered views). Done in an effect (not a useState initializer) to avoid a
@@ -81,6 +83,29 @@ export function ProductListingClient({ products, taxonomy }: ProductListingClien
     const qs = params.toString();
     window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
   }, [hydrated, productType, category, labels, inStockOnly, search, sort]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const signature = JSON.stringify({ productType, category, labels, inStockOnly, sort });
+    if (signature === lastFilterSignatureRef.current) return;
+    lastFilterSignatureRef.current = signature;
+
+    if (productType) {
+      trackAnalytics("listing_filter", { filter_name: "product_type", filter_value: productType });
+    }
+    if (category) {
+      trackAnalytics("listing_filter", { filter_name: "category", filter_value: category });
+    }
+    for (const label of labels) {
+      trackAnalytics("listing_filter", { filter_name: "label", filter_value: label });
+    }
+    if (inStockOnly) {
+      trackAnalytics("listing_filter", { filter_name: "availability", filter_value: "in_stock" });
+    }
+    if (sort) {
+      trackAnalytics("listing_filter", { filter_name: "sort", filter_value: sort });
+    }
+  }, [category, hydrated, inStockOnly, labels, productType, sort]);
 
   // Close on Escape, lock body scroll, and move focus into the drawer on open /
   // restore it to the trigger on close (modal-dialog behavior, mirroring CartDrawer).

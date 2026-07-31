@@ -8,6 +8,7 @@ import { PriceDisplay } from "@/components/products/PriceDisplay";
 import { Badge } from "@/components/ui/Badge";
 import { AddToCartSection } from "@/components/products/AddToCartSection";
 import { ProductSocialSection } from "@/components/products/ProductSocialSection";
+import { ProductViewTracker } from "@/components/products/ProductViewTracker";
 import type { Locale } from "@/i18n/routing";
 import { LEGAL_IDENTITY } from "@/lib/legal";
 import { getLocalizedAlternates } from "@/lib/seo";
@@ -51,6 +52,11 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <ProductViewTracker
+        productId={product.id}
+        category={product.category}
+        valueCents={product.effective_price_cents}
+      />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
         {/* Product Image */}
         <ProductGallery

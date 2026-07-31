@@ -16,6 +16,13 @@ from app.constants import MAX_CSV_ROWS, MAX_CSV_UPLOAD_BYTES, MAX_PRICE_CENTS, M
 from app.database import get_db
 from app.dependencies.auth import require_admin
 from app.models.admin import DashboardResponse, LowStockProductsResponse
+from app.models.analytics import (
+    AnalyticsFunnelResponse,
+    AnalyticsHealthResponse,
+    AnalyticsSummaryResponse,
+    CheckoutAnalyticsResponse,
+    ProductAnalyticsResponse,
+)
 from app.models.comments import AdminCommentListResponse, AdminCommentResponse
 from app.models.common import PRODUCT_ID_PATTERN
 from app.models.delivery import DeliverySettingsResponse, DeliverySettingsUpdate
@@ -53,6 +60,7 @@ from app.models.promotions import BulkDiscountRequest, BulkDiscountResponse
 from app.responses import error_response
 from app.services import (
     admin_service,
+    analytics_service,
     delivery_settings_service,
     product_image_service,
     product_service,
@@ -957,6 +965,111 @@ async def admin_dashboard(response: Response) -> DashboardResponse:
     response.headers["Cache-Control"] = "no-store, no-cache"
     stats = admin_service.get_dashboard_stats()
     return DashboardResponse(**stats)
+
+
+@router.get(
+    "/analytics/summary",
+    response_model=AnalyticsSummaryResponse,
+    summary="Admin analytics summary",
+    description="Returns consented analytics coverage beside authoritative backend order totals.",
+)
+async def admin_analytics_summary(
+    response: Response,
+    start_date: str | None = Query(default=None, description="Inclusive YYYY-MM-DD start date"),
+    end_date: str | None = Query(default=None, description="Inclusive YYYY-MM-DD end date"),
+) -> AnalyticsSummaryResponse:
+    """Admin-only first-party analytics summary."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return AnalyticsSummaryResponse(**analytics_service.get_summary(start_date, end_date))
+
+
+@router.get(
+    "/analytics/funnel",
+    response_model=AnalyticsFunnelResponse,
+    summary="Admin analytics funnel metrics",
+)
+async def admin_analytics_funnel(
+    response: Response,
+    start_date: str | None = Query(default=None),
+    end_date: str | None = Query(default=None),
+) -> AnalyticsFunnelResponse:
+    """Return funnel counts and conversion percentages."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return AnalyticsFunnelResponse(steps=analytics_service.get_funnel(start_date, end_date))
+
+
+@router.get(
+    "/analytics/products",
+    response_model=ProductAnalyticsResponse,
+    summary="Admin product analytics metrics",
+)
+async def admin_analytics_products(
+    response: Response,
+    start_date: str | None = Query(default=None),
+    end_date: str | None = Query(default=None),
+) -> ProductAnalyticsResponse:
+    """Return product-level aggregate analytics without customer PII."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    products = analytics_service.get_product_metrics(start_date, end_date)
+    return ProductAnalyticsResponse(products=products)
+
+
+@router.get(
+    "/analytics/checkout",
+    response_model=CheckoutAnalyticsResponse,
+    summary="Admin checkout, delivery, and payment analytics metrics",
+)
+async def admin_analytics_checkout(
+    response: Response,
+    start_date: str | None = Query(default=None),
+    end_date: str | None = Query(default=None),
+) -> CheckoutAnalyticsResponse:
+    """Return checkout, delivery, and payment aggregates without customer PII."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return CheckoutAnalyticsResponse(**analytics_service.get_checkout_metrics(start_date, end_date))
+
+
+@router.get(
+    "/analytics/health",
+    response_model=AnalyticsHealthResponse,
+    summary="Admin analytics delivery health",
+)
+async def admin_analytics_health(response: Response) -> AnalyticsHealthResponse:
+    """Return accepted, rejected, duplicate, and load health metrics."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return analytics_service.get_health()
+
+
+@router.get(
+    "/analytics/export.csv",
+    summary="Export aggregate analytics CSV",
+    description="Exports aggregate funnel metrics only. No customer PII is included.",
+)
+async def admin_analytics_export_csv(
+    start_date: str | None = Query(default=None),
+    end_date: str | None = Query(default=None),
+) -> Response:
+    """Export aggregate funnel metrics as CSV."""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["report", "event_type", "count", "conversion_from_previous"])
+    for step in analytics_service.get_funnel(start_date, end_date):
+        writer.writerow(
+            [
+                "funnel",
+                step.event_type.value,
+                step.count,
+                step.conversion_from_previous,
+            ]
+        )
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv",
+        headers={
+            "Cache-Control": "no-store, no-cache",
+            "Content-Disposition": 'attachment; filename="atelier-analytics-funnel.csv"',
+        },
+    )
 
 
 @router.get(

@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { useCart } from "@/contexts/CartContext";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
+import { trackAnalytics } from "@/lib/analytics";
 
 interface AddToCartButtonProps {
   productId: string;
@@ -35,6 +36,7 @@ export function AddToCartButton({
       setStatus("loading");
       try {
         await addToCart(productId, quantity);
+        trackAnalytics("add_to_cart", { product_id: productId, quantity });
         setStatus("success");
         openDrawer();
         setTimeout(() => setStatus("idle"), 1500);

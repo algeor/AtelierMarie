@@ -52,6 +52,7 @@ class OrderResponse(BaseModel):
     payment_status: PaymentStatus = "cod_pending"
     stripe_checkout_session_id: str | None = None
     stripe_checkout_url: str | None = None
+    analytics_consent: bool = False
     items: list[OrderItemResponse]
     created_at: str
     updated_at: str
@@ -83,6 +84,7 @@ class CreateOrderRequest(BaseModel):
     delivery: DeliveryInfo
     notes: str | None = Field(default=None, max_length=2000)
     payment_method: PaymentMethod = "cod"
+    analytics_consent: bool = False
     # Shipping price + provenance echoed from the selected quote (shipping-pricing).
     # Server re-enforces free shipping and range-validates shipping_cents — the
     # client value is advisory, not trusted (parent Decision 16).

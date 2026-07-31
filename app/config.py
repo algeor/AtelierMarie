@@ -96,13 +96,24 @@ class Settings(BaseSettings):
     bank_bic: str = ""
     bank_name: str = ""
 
+    # First-party analytics (first-party-funnel-analytics)
+    analytics_enabled: bool = False
+    analytics_data_dir: str = "./analytics-data"
+    analytics_events_jsonl_path: str = "./analytics-data/events.jsonl"
+    analytics_duckdb_path: str = "./analytics-data/analytics.duckdb"
+    analytics_consent_version: str = "2026-07-31"
+    analytics_batch_size: int = Field(default=25, ge=1, le=100)
+    analytics_retention_days: int = Field(default=395, ge=1)
+    analytics_delivery_tolerance: int = Field(default=0, ge=0)
+    analytics_legal_approved: bool = False
+
     # Courier pricing APIs (shipping-pricing). Credentials are validated lazily
-    # per-request — a misconfigured account produces fallback quotes with a
+    # per-request - a misconfigured account produces fallback quotes with a
     # logged warning, never a startup failure (design Risks table).
     speedy_api_username: str = ""
     speedy_api_password: SecretStr = SecretStr("")
-    # Speedy REST base URL — endpoints (/calculate, /shipment, /track, /print)
-    # derive from it, so demo↔prod is an env change (design Decision 1).
+    # Speedy REST base URL - endpoints (/calculate, /shipment, /track, /print)
+    # derive from it, so demo/prod is an env change (design Decision 1).
     speedy_base_url: str = "https://api.speedy.bg/v1"
     # Speedy's numeric registered-client/contract identifier, sent as
     # `sender.clientId` on every calculate/shipment request. Distinct from the
@@ -126,7 +137,7 @@ class Settings(BaseSettings):
     econt_sender_address: str = "жк Красно село ул. Царица Елеонора №12"
     econt_sender_city: str = "София"
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
     @model_validator(mode="after")
     def validate_production_config(self) -> "Settings":
@@ -148,6 +159,13 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         if self.environment == "production" and "*" in self.cors_origins:
             msg = "CORS wildcard '*' is not allowed in production."
+            raise ValueError(msg)
+        if (
+            self.environment == "production"
+            and self.analytics_enabled
+            and not self.analytics_legal_approved
+        ):
+            msg = "ANALYTICS_LEGAL_APPROVED must be true before enabling analytics in production."
             raise ValueError(msg)
         if self.environment == "production" and not (
             self.google_client_id and self.google_client_secret

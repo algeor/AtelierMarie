@@ -188,6 +188,17 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 
+CREATE TABLE IF NOT EXISTS analytics_consents (
+    session_id      TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    analytics       INTEGER NOT NULL CHECK (analytics IN (0, 1)),
+    consent_version TEXT NOT NULL,
+    locale          TEXT NOT NULL DEFAULT 'en' CHECK (locale IN ('en', 'bg')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_analytics_consents_current
+    ON analytics_consents(session_id, consent_version, analytics);
+
 CREATE TABLE IF NOT EXISTS cart_items (
     session_id  TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     product_id  TEXT NOT NULL REFERENCES products(id),
@@ -243,6 +254,7 @@ CREATE TABLE IF NOT EXISTS orders (
                     )),
     stripe_checkout_session_id TEXT,
     stripe_payment_intent_id   TEXT,
+    analytics_consent INTEGER NOT NULL DEFAULT 0 CHECK (analytics_consent IN (0, 1)),
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -1349,6 +1361,13 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
             order_columns,
             "shipping_quoted_at",
             "shipping_quoted_at TEXT",
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "analytics_consent",
+            "analytics_consent INTEGER NOT NULL DEFAULT 0",
         )
 
     if _table_exists(conn, "promotion_campaigns"):

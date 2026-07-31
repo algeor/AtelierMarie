@@ -59,5 +59,3 @@ Tracking SHALL normalize Speedy's status code to a `courier_status` display enum
 #### Scenario: Courier-only states are shown, not forced into order states
 - **WHEN** Speedy reports a status with no order-state equivalent (e.g. returned to sender, delivery failed)
 - **THEN** the system displays the mapped `courier_status` and does not coerce the order into `delivered` or `cancelled`
-
-

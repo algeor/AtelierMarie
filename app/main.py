@@ -21,6 +21,7 @@ from app.middleware.session import SessionMiddleware
 from app.routes import (
     about,
     admin,
+    analytics,
     auth,
     cart,
     comments,
@@ -34,6 +35,11 @@ from app.routes import (
     reactions,
     taxonomy,
     webhooks,
+)
+from app.services.analytics_service import (
+    cleanup_expired_events,
+    initialize_storage,
+    load_jsonl_to_duckdb,
 )
 from app.services.contact_service import cleanup_old_contact_messages, drain_contact_message_emails
 from app.services.email_service import drain_email_outbox
@@ -64,11 +70,12 @@ def drain_all_email_outboxes() -> int:
 
 
 def cleanup_runtime_records() -> int:
-    """Remove expired sessions, aged-out contact inquiries, and abandoned card orders."""
+    """Remove expired runtime records and enforce configured retention windows."""
     settings = get_settings()
     count = cleanup_expired_sessions() + cleanup_old_contact_messages(
         settings.contact_message_retention_days
     )
+    count += cleanup_expired_events(settings.analytics_retention_days)
     count += _cancel_abandoned_card_orders()
     return count
 
@@ -189,6 +196,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings = get_settings()
     configure_logging(settings.environment)
     init_db(settings.database_path)
+    if settings.analytics_enabled:
+        await asyncio.to_thread(initialize_storage)
 
     # Ensure static file directories exist
     static_path = Path(settings.static_file_path)
@@ -204,6 +213,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     email_task = asyncio.create_task(email_outbox_loop())
     video_task = asyncio.create_task(video_transcode_loop())
     yield
+    if settings.analytics_enabled:
+        await asyncio.to_thread(load_jsonl_to_duckdb)
     for background_task in (task, email_task, video_task):
         background_task.cancel()
         try:
@@ -261,6 +272,10 @@ def create_app() -> FastAPI:
                 "description": "Authentication — Google OAuth 2.0, session management.",
             },
             {
+                "name": "analytics",
+                "description": "First-party consented storefront funnel analytics.",
+            },
+            {
                 "name": "admin",
                 "description": (
                     "Admin operations — product CRUD, CSV import, order management, "
@@ -307,6 +322,7 @@ def create_app() -> FastAPI:
     application.include_router(products.router, prefix="/v1/products", tags=["products"])
     application.include_router(cart.router, prefix="/v1/cart", tags=["cart"])
     application.include_router(orders.router, prefix="/v1/orders", tags=["orders"])
+    application.include_router(analytics.router, prefix="/v1/analytics", tags=["analytics"])
     application.include_router(auth.router, prefix="/v1/auth", tags=["auth"])
     application.include_router(admin.router, prefix="/v1/admin", tags=["admin"])
     application.include_router(about.public_router, prefix="/v1/about", tags=["about"])

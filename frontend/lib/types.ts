@@ -361,6 +361,7 @@ export interface OrderResponse {
   payment_method: PaymentMethod;
   payment_status: PaymentStatus;
   stripe_checkout_url: string | null;
+  analytics_consent?: boolean;
   items_total_cents: number;
   shipping_cents: number;
   shipping_price_source: ShippingPriceSource;
@@ -496,10 +497,86 @@ export interface CreateOrderRequest {
   delivery: DeliveryInfo;
   notes?: string | null;
   payment_method?: PaymentMethod;
+  analytics_consent?: boolean;
   shipping_cents?: number;
   shipping_price_source?: ShippingPriceSource;
   shipping_is_fallback?: boolean;
   shipping_quoted_at?: string | null;
+}
+
+// --- Analytics ---
+
+export type AnalyticsEventType =
+  | "product_view"
+  | "listing_filter"
+  | "add_to_cart"
+  | "cart_open"
+  | "checkout_start"
+  | "delivery_selected"
+  | "shipping_quote_selected"
+  | "order_submit"
+  | "payment_redirect"
+  | "purchase_confirmed";
+
+export interface AnalyticsHealthResponse {
+  accepted: number;
+  rejected: number;
+  duplicate: number;
+  validation_failure: number;
+  last_successful_flush_at: string | null;
+  duckdb_load_status: string;
+  retention_days: number;
+}
+
+export interface AnalyticsSummaryResponse {
+  start_date: string;
+  end_date: string;
+  consented_sessions: number;
+  accepted_events: number;
+  conversion_rate: number;
+  backend_order_count: number;
+  backend_revenue_cents: number;
+  analytics_purchase_count: number;
+  analytics_purchase_revenue_cents: number;
+  coverage_percent: number;
+  consented_order_count: number;
+  consented_order_delta: number;
+  delivery_warning: boolean;
+  health: AnalyticsHealthResponse;
+}
+
+export interface AnalyticsFunnelStep {
+  event_type: AnalyticsEventType;
+  count: number;
+  conversion_from_previous: number;
+}
+
+export interface AnalyticsFunnelResponse {
+  steps: AnalyticsFunnelStep[];
+}
+
+export interface ProductAnalyticsRow {
+  product_id: string;
+  product_name: string | null;
+  views: number;
+  add_to_cart: number;
+  purchases: number;
+  revenue_cents: number;
+  conversion_rate: number;
+}
+
+export interface ProductAnalyticsResponse {
+  products: ProductAnalyticsRow[];
+}
+
+export interface CheckoutAnalyticsResponse {
+  checkout_starts: number;
+  order_submits: number;
+  payment_redirects: number;
+  purchase_confirmed: number;
+  delivery_methods: Record<string, number>;
+  delivery_couriers: Record<string, number>;
+  payment_methods: Record<string, number>;
 }
 
 export interface UpdateOrderStatusRequest {
