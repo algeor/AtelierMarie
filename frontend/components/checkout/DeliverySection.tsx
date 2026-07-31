@@ -13,13 +13,14 @@
  * intentionally out of scope — added by the sibling `shipping-pricing` change.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations, useLocale } from "next-intl";
 import { getDeliveryCities, getDeliveryOffices, getDeliveryPlaces } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type {
   CityPlace,
   Courier,
+  DeliverySettingsResponse,
   DeliveryDoor,
   DeliveryInfo,
   DeliveryMethod,
@@ -56,6 +57,33 @@ interface DeliverySectionProps {
   onChange: (delivery: Partial<DeliveryInfo>) => void;
   errors?: DeliveryValidationErrors;
   onErrorsChange?: (errors: DeliveryValidationErrors) => void;
+  deliverySettings?: DeliverySettingsResponse | null;
+}
+
+const ALL_COURIERS: Courier[] = ["speedy", "econt"];
+const ALL_METHODS: DeliveryMethod[] = ["office", "door"];
+
+function methodEnabled(
+  settings: DeliverySettingsResponse | null | undefined,
+  courier: Courier,
+  method: DeliveryMethod,
+): boolean {
+  if (!settings) return true;
+  const key = `${courier}_${method}_enabled` as keyof Pick<
+    DeliverySettingsResponse,
+    | "speedy_office_enabled"
+    | "speedy_door_enabled"
+    | "econt_office_enabled"
+    | "econt_door_enabled"
+  >;
+  return settings[key];
+}
+
+function availableCouriersForMethod(
+  settings: DeliverySettingsResponse | null | undefined,
+  method: DeliveryMethod,
+): Courier[] {
+  return ALL_COURIERS.filter((courier) => methodEnabled(settings, courier, method));
 }
 
 // ---------------- DeliveryMethodSelector ----------------
@@ -63,12 +91,12 @@ interface DeliverySectionProps {
 interface DeliveryMethodSelectorProps {
   value: DeliveryMethod | undefined;
   onChange: (method: DeliveryMethod) => void;
+  methods: DeliveryMethod[];
   error?: string;
 }
 
-function DeliveryMethodSelector({ value, onChange, error }: DeliveryMethodSelectorProps) {
+function DeliveryMethodSelector({ value, onChange, methods, error }: DeliveryMethodSelectorProps) {
   const t = useTranslations("checkout.delivery.method");
-  const methods: DeliveryMethod[] = ["office", "door"];
 
   return (
     <fieldset className="mb-6">
@@ -112,12 +140,12 @@ function DeliveryMethodSelector({ value, onChange, error }: DeliveryMethodSelect
 interface CourierPickerProps {
   value: Courier | undefined;
   onChange: (courier: Courier) => void;
+  couriers: Courier[];
   error?: string;
 }
 
-function CourierPicker({ value, onChange, error }: CourierPickerProps) {
+function CourierPicker({ value, onChange, couriers, error }: CourierPickerProps) {
   const t = useTranslations("checkout.delivery.courier");
-  const couriers: Courier[] = ["speedy", "econt"];
 
   return (
     <fieldset className="mb-6">
@@ -637,12 +665,25 @@ function PhoneField({ value, onChange, error }: PhoneFieldProps) {
 
 // ---------------- Main DeliverySection ----------------
 
-export function DeliverySection({ value, onChange, errors = {} }: DeliverySectionProps) {
+export function DeliverySection({
+  value,
+  onChange,
+  errors = {},
+  deliverySettings = null,
+}: DeliverySectionProps) {
   const t = useTranslations("checkout.delivery");
   const locale = useLocale() as Locale;
   const method = value.method;
   const office = value.office ?? undefined;
   const door = value.door ?? undefined;
+  const availableMethods = useMemo(
+    () => ALL_METHODS.filter((m) => availableCouriersForMethod(deliverySettings, m).length > 0),
+    [deliverySettings],
+  );
+  const availableCouriers = useMemo(
+    () => (method ? availableCouriersForMethod(deliverySettings, method) : []),
+    [deliverySettings, method],
+  );
   // Courier lives inside office/door — track it at the section level for progressive disclosure
   const currentCourier: Courier | undefined = office?.courier ?? door?.courier;
 
@@ -650,6 +691,44 @@ export function DeliverySection({ value, onChange, errors = {} }: DeliverySectio
   // The checkout payload only stores the id/name/type/courier/phone the backend needs,
   // so we cache display fields here to keep the "selected" card populated after selection.
   const [selectedOfficeFull, setSelectedOfficeFull] = useState<OfficeResponse | null>(null);
+
+  useEffect(() => {
+    if (!method) return;
+    if (!availableMethods.includes(method)) {
+      const nextMethod = availableMethods[0];
+      setSelectedOfficeFull(null);
+      onChange(nextMethod ? { method: nextMethod, office: null, door: null } : {});
+      return;
+    }
+    if (currentCourier && !availableCouriers.includes(currentCourier)) {
+      const nextCourier = availableCouriers[0];
+      setSelectedOfficeFull(null);
+      if (!nextCourier) {
+        onChange({ method, office: null, door: null });
+      } else if (method === "office") {
+        onChange({
+          ...value,
+          office: { courier: nextCourier, phone: office?.phone ?? "" } as DeliveryOffice,
+          door: null,
+        });
+      } else {
+        onChange({
+          ...value,
+          door: { ...(door ?? {}), courier: nextCourier } as DeliveryDoor,
+          office: null,
+        });
+      }
+    }
+  }, [
+    availableCouriers,
+    availableMethods,
+    currentCourier,
+    door,
+    method,
+    office?.phone,
+    onChange,
+    value,
+  ]);
 
   const setMethod = (m: DeliveryMethod) => {
     if (m === value.method) return;
@@ -737,10 +816,26 @@ export function DeliverySection({ value, onChange, errors = {} }: DeliverySectio
     <section className="mb-8">
       <h2 className="mb-4 font-heading text-xl text-charcoal">{t("sectionTitle")}</h2>
 
-      <DeliveryMethodSelector value={method} onChange={setMethod} error={errors.method} />
+      {availableMethods.length === 0 ? (
+        <p className="mb-6 rounded-brand border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {t("unavailable")}
+        </p>
+      ) : (
+        <DeliveryMethodSelector
+          value={method}
+          onChange={setMethod}
+          methods={availableMethods}
+          error={errors.method}
+        />
+      )}
 
       {method && (
-        <CourierPicker value={currentCourier} onChange={setCourier} error={errors.courier} />
+        <CourierPicker
+          value={currentCourier}
+          onChange={setCourier}
+          couriers={availableCouriers}
+          error={errors.courier}
+        />
       )}
 
       {method === "office" && currentCourier && (

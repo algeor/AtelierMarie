@@ -81,6 +81,8 @@ describe("Order Confirmation Page", () => {
       tracking_number: null,
       tracking_carrier: null,
       tracking_url: null,
+      courier_status: null,
+      label_url: null,
       created_at: "2026-07-01T00:00:00Z",
       updated_at: "2026-07-01T00:00:00Z",
     });
@@ -102,7 +104,7 @@ describe("Order Confirmation Page", () => {
     );
     expect(screen.getByText("Subtotal")).toBeInTheDocument();
     expect(screen.getAllByText("Delivery").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText(/No separate delivery charge in this order/)).toBeInTheDocument();
+    expect(screen.getByText("Free")).toBeInTheDocument();
     expect(screen.getAllByText("€50.00").length).toBeGreaterThanOrEqual(2);
   });
 
@@ -138,6 +140,8 @@ describe("Order Confirmation Page", () => {
       tracking_number: null,
       tracking_carrier: null,
       tracking_url: null,
+      courier_status: null,
+      label_url: null,
       created_at: "2026-07-01T00:00:00Z",
       updated_at: "2026-07-01T00:00:00Z",
     });

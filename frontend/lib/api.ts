@@ -33,6 +33,8 @@ import type {
   ContactRequest,
   ContactResponse,
   Courier,
+  DeliverySettingsResponse,
+  DeliverySettingsUpdate,
   CreateOrderRequest,
   CreateAboutItemRequest,
   CreateProductRequest,
@@ -441,6 +443,23 @@ export async function calculateShipping(
 ): Promise<CalculateShippingResponse> {
   if (USE_MOCK) return (await getMock()).calculateShipping(payload);
   return apiClient.calculateShipping(payload);
+}
+
+export async function getDeliverySettings(): Promise<DeliverySettingsResponse> {
+  if (USE_MOCK) return (await getMock()).getDeliverySettings();
+  return apiClient.get<DeliverySettingsResponse>("/v1/delivery/settings");
+}
+
+export async function getAdminDeliverySettings(): Promise<DeliverySettingsResponse> {
+  if (USE_MOCK) return (await getMock()).getAdminDeliverySettings();
+  return apiClient.get<DeliverySettingsResponse>("/v1/admin/delivery-settings");
+}
+
+export async function updateAdminDeliverySettings(
+  data: DeliverySettingsUpdate
+): Promise<DeliverySettingsResponse> {
+  if (USE_MOCK) return (await getMock()).updateAdminDeliverySettings(data);
+  return apiClient.put<DeliverySettingsResponse>("/v1/admin/delivery-settings", data);
 }
 
 export async function getOrders(

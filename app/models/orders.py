@@ -79,7 +79,7 @@ class CreateOrderRequest(BaseModel):
     """
 
     customer_email: EmailStr | None = Field(default=None, max_length=320)
-    customer_name: str | None = Field(default=None, min_length=1, max_length=200)
+    customer_name: str = Field(..., min_length=1, max_length=200)
     delivery: DeliveryInfo
     notes: str | None = Field(default=None, max_length=2000)
     payment_method: PaymentMethod = "cod"

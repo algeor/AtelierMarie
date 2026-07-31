@@ -129,7 +129,11 @@ class TestOfficeDeliveryPersistence:
     async def test_office_delivery_locker(self, order_client):
         resp = await order_client.post(
             "/v1/orders",
-            json={"customer_email": "t@t.com", "delivery": DELIVERY_OFFICE_ECONT_APT},
+            json={
+                "customer_email": "t@t.com",
+                "customer_name": "Test Buyer",
+                "delivery": DELIVERY_OFFICE_ECONT_APT,
+            },
         )
         assert resp.status_code == 201
         data = resp.json()
@@ -142,7 +146,11 @@ class TestOfficeDeliveryPersistence:
         """POST then GET — Cyrillic details survive the JSON DB round-trip."""
         resp = await order_client.post(
             "/v1/orders",
-            json={"customer_email": "t@t.com", "delivery": DELIVERY_OFFICE_ECONT},
+            json={
+                "customer_email": "t@t.com",
+                "customer_name": "Test Buyer",
+                "delivery": DELIVERY_OFFICE_ECONT,
+            },
         )
         assert resp.status_code == 201
         order_id = resp.json()["id"]
@@ -163,7 +171,11 @@ class TestDoorDeliveryPersistence:
     async def test_door_delivery_full_address(self, order_client):
         resp = await order_client.post(
             "/v1/orders",
-            json={"customer_email": "t@t.com", "delivery": DELIVERY_DOOR_FULL},
+            json={
+                "customer_email": "t@t.com",
+                "customer_name": "Test Buyer",
+                "delivery": DELIVERY_DOOR_FULL,
+            },
         )
         assert resp.status_code == 201
         data = resp.json()
@@ -181,7 +193,11 @@ class TestDoorDeliveryPersistence:
         """Optional building/apartment can be omitted."""
         resp = await order_client.post(
             "/v1/orders",
-            json={"customer_email": "t@t.com", "delivery": DELIVERY_DOOR_MINIMAL},
+            json={
+                "customer_email": "t@t.com",
+                "customer_name": "Test Buyer",
+                "delivery": DELIVERY_DOOR_MINIMAL,
+            },
         )
         assert resp.status_code == 201
         details = resp.json()["delivery_details"]
@@ -192,7 +208,11 @@ class TestDoorDeliveryPersistence:
     async def test_door_delivery_survives_get_roundtrip(self, order_client):
         resp = await order_client.post(
             "/v1/orders",
-            json={"customer_email": "t@t.com", "delivery": DELIVERY_DOOR_FULL},
+            json={
+                "customer_email": "t@t.com",
+                "customer_name": "Test Buyer",
+                "delivery": DELIVERY_DOOR_FULL,
+            },
         )
         order_id = resp.json()["id"]
 
@@ -271,12 +291,14 @@ class TestCheckoutDeliveryValidation:
         ],
     )
     async def test_invalid_delivery_returns_422(self, order_client, payload):
+        payload = {"customer_name": "Test Buyer", **payload}
         resp = await order_client.post("/v1/orders", json=payload)
         assert resp.status_code == 422, f"expected 422, got {resp.status_code} for {payload}"
 
     async def test_nonexistent_office_id_returns_422(self, order_client):
         payload = {
             "customer_email": "t@t.com",
+            "customer_name": "Test Buyer",
             "delivery": {
                 "method": "office",
                 "office": {

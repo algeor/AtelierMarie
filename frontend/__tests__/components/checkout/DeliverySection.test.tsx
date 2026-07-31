@@ -10,7 +10,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { NextIntlClientProvider } from "next-intl";
 import enMessages from "@/messages/en.json";
-import type { CityPlace } from "@/lib/types";
+import type { CityPlace, DeliverySettingsResponse } from "@/lib/types";
 
 const getDeliveryPlaces = vi.fn();
 
@@ -30,14 +30,26 @@ const SADOVO_PLACES: CityPlace[] = [
   { name: "Садово", region: "Бургас", postal_code: "8463" },
 ];
 
-function renderSection(value: Partial<DeliveryInfo>, onChange = vi.fn()) {
+function renderSection(
+  value: Partial<DeliveryInfo>,
+  onChange = vi.fn(),
+  deliverySettings?: DeliverySettingsResponse,
+) {
   render(
     <NextIntlClientProvider locale="en" messages={enMessages}>
-      <DeliverySection value={value} onChange={onChange} />
+      <DeliverySection value={value} onChange={onChange} deliverySettings={deliverySettings} />
     </NextIntlClientProvider>,
   );
   return onChange;
 }
+
+const ALL_ENABLED: DeliverySettingsResponse = {
+  speedy_office_enabled: true,
+  speedy_door_enabled: true,
+  econt_office_enabled: true,
+  econt_door_enabled: true,
+  updated_at: "2026-07-31 12:00:00",
+};
 
 // Door already selected, so the place picker is the visible sub-form.
 const ECONT_DOOR: Partial<DeliveryInfo> = {
@@ -150,5 +162,42 @@ describe("DeliverySection — courier door place picker", () => {
         door: expect.objectContaining({ postal_code: "4580" }),
       }),
     );
+  });
+
+  it("hides a disabled courier for the selected delivery method", () => {
+    renderSection(ECONT_DOOR, vi.fn(), {
+      ...ALL_ENABLED,
+      speedy_door_enabled: false,
+    });
+
+    expect(screen.queryByText("Speedy")).not.toBeInTheDocument();
+    expect(screen.getByText("Econt")).toBeInTheDocument();
+  });
+
+  it("repairs a stale courier selection when settings disable it", async () => {
+    const onChange = renderSection(SPEEDY_DOOR, vi.fn(), {
+      ...ALL_ENABLED,
+      speedy_door_enabled: false,
+    });
+
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          door: expect.objectContaining({ courier: "econt" }),
+          office: null,
+        }),
+      ),
+    );
+  });
+
+  it("hides a delivery method when no courier supports it", () => {
+    renderSection({}, vi.fn(), {
+      ...ALL_ENABLED,
+      speedy_office_enabled: false,
+      econt_office_enabled: false,
+    });
+
+    expect(screen.queryByText("Pick up from office")).not.toBeInTheDocument();
+    expect(screen.getByText("Door delivery")).toBeInTheDocument();
   });
 });

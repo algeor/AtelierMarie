@@ -178,18 +178,14 @@ class TestGetPlaces:
         from app.services import delivery_service
 
         places = delivery_service.get_places("econt", query="Пазар")
-        assert any(
-            p["name"] == "Нови Пазар" and p["postal_code"] == "9900" for p in places
-        )
+        assert any(p["name"] == "Нови Пазар" and p["postal_code"] == "9900" for p in places)
 
     def test_region_match_keeps_exact_city_first(self):
         from app.services import delivery_service
 
         places = delivery_service.get_places("econt", query="Плевен")
         assert places[0] == {"name": "Плевен", "region": "Плевен", "postal_code": "5800"}
-        assert any(
-            p["name"] == "Белене" and p["region"] == "Плевен" for p in places
-        )
+        assert any(p["name"] == "Белене" and p["region"] == "Плевен" for p in places)
 
     def test_postcode_match(self):
         from app.services import delivery_service
@@ -201,9 +197,7 @@ class TestGetPlaces:
         from app.services import delivery_service
 
         places = delivery_service.get_places("econt", query="Искър")
-        iskyr_pleven = [
-            p for p in places if p["name"] == "Искър" and p["region"] == "Плевен"
-        ]
+        iskyr_pleven = [p for p in places if p["name"] == "Искър" and p["region"] == "Плевен"]
         assert {p["postal_code"] for p in iskyr_pleven} == {"5868", "5972"}
 
     def test_query_tokens_can_match_region_and_postcode(self):
@@ -232,17 +226,13 @@ class TestGetPlaces:
         from app.services import delivery_service
 
         places = delivery_service.get_places("speedy", query="Соф")
-        assert any(
-            p["name"] == "София" and p["postal_code"] == "1000" for p in places
-        )
+        assert any(p["name"] == "София" and p["postal_code"] == "1000" for p in places)
 
     def test_speedy_prefix_match_en_localizes(self):
         from app.services import delivery_service
 
         places = delivery_service.get_places("speedy", query="Sof", locale="en")
-        assert any(
-            p["name"] == "Sofia" and p["postal_code"] == "1000" for p in places
-        )
+        assert any(p["name"] == "Sofia" and p["postal_code"] == "1000" for p in places)
 
     def test_speedy_postcode_match_uses_shared_places(self):
         from app.services import delivery_service
@@ -305,9 +295,7 @@ class TestListPlaces:
     async def test_speedy_returns_shared_places(self, client):
         resp = await client.get("/v1/delivery/places?courier=speedy&q=Со")
         assert resp.status_code == 200
-        assert any(
-            p["name"] == "София" and p["postal_code"] == "1000" for p in resp.json()
-        )
+        assert any(p["name"] == "София" and p["postal_code"] == "1000" for p in resp.json())
 
     @pytest.mark.asyncio
     async def test_place_search_matches_postcode(self, client):
@@ -342,3 +330,134 @@ class TestListPlaces:
     async def test_missing_courier_rejected(self, client):
         resp = await client.get("/v1/delivery/places")
         assert resp.status_code == 422
+
+
+class TestDeliverySettings:
+    """Admin-managed delivery availability switches."""
+
+    @pytest.mark.asyncio
+    async def test_public_settings_default_enabled(self, client):
+        resp = await client.get("/v1/delivery/settings")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["speedy_office_enabled"] is True
+        assert data["speedy_door_enabled"] is True
+        assert data["econt_office_enabled"] is True
+        assert data["econt_door_enabled"] is True
+        assert data["updated_at"]
+
+    @pytest.mark.asyncio
+    async def test_admin_update_persists_to_public_settings(self, admin_client, client):
+        payload = {
+            "speedy_office_enabled": False,
+            "speedy_door_enabled": True,
+            "econt_office_enabled": True,
+            "econt_door_enabled": False,
+        }
+        update = await admin_client.put("/v1/admin/delivery-settings", json=payload)
+        assert update.status_code == 200
+        assert update.json()["speedy_office_enabled"] is False
+        assert update.json()["econt_door_enabled"] is False
+
+        public = await client.get("/v1/delivery/settings")
+        assert public.status_code == 200
+        assert public.json()["speedy_office_enabled"] is False
+        assert public.json()["econt_door_enabled"] is False
+
+    @pytest.mark.asyncio
+    async def test_disabled_office_discovery_returns_empty(self, admin_client, client):
+        await admin_client.put(
+            "/v1/admin/delivery-settings",
+            json={
+                "speedy_office_enabled": False,
+                "speedy_door_enabled": True,
+                "econt_office_enabled": True,
+                "econt_door_enabled": True,
+            },
+        )
+
+        offices = await client.get("/v1/delivery/offices?courier=speedy&city=София")
+        cities = await client.get("/v1/delivery/cities?courier=speedy&q=Со")
+        assert offices.status_code == 200
+        assert cities.status_code == 200
+        assert offices.json() == []
+        assert cities.json() == []
+
+    @pytest.mark.asyncio
+    async def test_disabled_door_discovery_returns_empty(self, admin_client, client):
+        await admin_client.put(
+            "/v1/admin/delivery-settings",
+            json={
+                "speedy_office_enabled": True,
+                "speedy_door_enabled": True,
+                "econt_office_enabled": True,
+                "econt_door_enabled": False,
+            },
+        )
+
+        resp = await client.get("/v1/delivery/places?courier=econt&q=Соф")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    @pytest.mark.asyncio
+    async def test_disabled_method_rejected_for_shipping_quote(self, admin_client, client):
+        await admin_client.put(
+            "/v1/admin/delivery-settings",
+            json={
+                "speedy_office_enabled": True,
+                "speedy_door_enabled": True,
+                "econt_office_enabled": True,
+                "econt_door_enabled": False,
+            },
+        )
+
+        resp = await client.post(
+            "/v1/delivery/calculate",
+            json={
+                "method": "door",
+                "city": "София",
+                "office_id": None,
+                "address": {
+                    "courier": "econt",
+                    "city": "София",
+                    "postal_code": "1000",
+                    "street": "Витоша",
+                },
+                "items_total_cents": 1200,
+                "couriers": ["econt"],
+            },
+        )
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "DELIVERY_METHOD_UNAVAILABLE"
+
+    @pytest.mark.asyncio
+    async def test_disabled_method_rejected_for_checkout(self, admin_client, client):
+        await admin_client.put(
+            "/v1/admin/delivery-settings",
+            json={
+                "speedy_office_enabled": True,
+                "speedy_door_enabled": False,
+                "econt_office_enabled": True,
+                "econt_door_enabled": True,
+            },
+        )
+
+        resp = await client.post(
+            "/v1/orders",
+            json={
+                "customer_email": "buyer@example.com",
+                "customer_name": "Test Buyer",
+                "delivery": {
+                    "method": "door",
+                    "door": {
+                        "courier": "speedy",
+                        "city": "София",
+                        "postal_code": "1000",
+                        "street": "Витоша",
+                        "phone": "+359888123456",
+                    },
+                },
+            },
+        )
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "DELIVERY_METHOD_UNAVAILABLE"

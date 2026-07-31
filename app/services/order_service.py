@@ -23,7 +23,7 @@ from app.constants import (
 )
 from app.models.delivery import DeliveryInfo
 from app.models.orders import OrderStatus
-from app.services import delivery_service, pricing
+from app.services import delivery_service, delivery_settings_service, pricing
 
 logger = structlog.get_logger(__name__)
 
@@ -142,6 +142,15 @@ class InvalidDeliveryOfficeError(OrderServiceError):
         self.courier = courier
         self.reason = reason
         super().__init__(f"Invalid {courier} office '{office_id}': {reason}")
+
+
+class DeliveryMethodUnavailableError(OrderServiceError):
+    """Raised when checkout uses an admin-disabled courier/method pair."""
+
+    def __init__(self, courier: str, method: str) -> None:
+        self.courier = courier
+        self.method = method
+        super().__init__(f"{courier} {method} delivery is currently unavailable")
 
 
 class InvalidStateTransitionError(OrderServiceError):
@@ -326,6 +335,11 @@ def checkout(
     # ensure_ascii=False preserves Cyrillic — see HANDOFF gotcha #5.
     if delivery.method == "office" and delivery.office is not None:
         delivery_sub = delivery.office
+        if not delivery_settings_service.is_delivery_method_enabled(
+            delivery_sub.courier,
+            "office",
+        ):
+            raise DeliveryMethodUnavailableError(delivery_sub.courier, "office")
         catalogue_office = delivery_service.get_office(
             delivery_sub.courier,
             delivery_sub.office_id,
@@ -345,6 +359,11 @@ def checkout(
         delivery_courier = delivery_sub.courier
     else:
         delivery_sub = delivery.door
+        if delivery_sub is not None and not delivery_settings_service.is_delivery_method_enabled(
+            delivery_sub.courier,
+            "door",
+        ):
+            raise DeliveryMethodUnavailableError(delivery_sub.courier, "door")
         delivery_details = delivery_sub.model_dump() if delivery_sub is not None else None
         delivery_courier = delivery_sub.courier if delivery_sub is not None else None
 

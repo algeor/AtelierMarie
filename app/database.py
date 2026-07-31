@@ -434,6 +434,18 @@ CREATE TABLE IF NOT EXISTS site_banners (
     updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Admin-managed delivery availability switches. Singleton row (id = 'default').
+-- All methods default to enabled to preserve existing checkout behavior until an
+-- admin explicitly pauses a courier/method pair.
+CREATE TABLE IF NOT EXISTS delivery_settings (
+    id                    TEXT PRIMARY KEY DEFAULT 'default',
+    speedy_office_enabled INTEGER NOT NULL DEFAULT 1 CHECK (speedy_office_enabled IN (0, 1)),
+    speedy_door_enabled   INTEGER NOT NULL DEFAULT 1 CHECK (speedy_door_enabled IN (0, 1)),
+    econt_office_enabled  INTEGER NOT NULL DEFAULT 1 CHECK (econt_office_enabled IN (0, 1)),
+    econt_door_enabled    INTEGER NOT NULL DEFAULT 1 CHECK (econt_door_enabled IN (0, 1)),
+    updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Atelier story page content (about-management). Slugs and types are fixed
 -- server vocabulary; admin can edit text/images, publish state, and order.
 CREATE TABLE IF NOT EXISTS about_sections (
@@ -487,6 +499,11 @@ END;
 CREATE TRIGGER IF NOT EXISTS orders_updated_at AFTER UPDATE ON orders
 BEGIN
     UPDATE orders SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS delivery_settings_updated_at AFTER UPDATE ON delivery_settings
+BEGIN
+    UPDATE delivery_settings SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
 END;
 
 CREATE TRIGGER IF NOT EXISTS faq_sections_updated_at AFTER UPDATE ON faq_sections
@@ -676,6 +693,7 @@ def init_db(path: str) -> None:
         _migrate_taxonomy(conn)
         _migrate_product_label_assignments_table(conn)
         _seed_site_banner(conn)
+        _seed_delivery_settings(conn)
         _seed_about_content(conn)
         _migrate_faq(conn)
         _migrate_faq_returns_policy_reference(conn)
@@ -705,6 +723,18 @@ def _seed_site_banner(conn: sqlite3.Connection) -> None:
             'Безплатна доставка за поръчки над 50€ ✨',
             1, 1, datetime('now')
         )
+        """
+    )
+
+
+def _seed_delivery_settings(conn: sqlite3.Connection) -> None:
+    """Seed the singleton delivery availability row with all methods enabled."""
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO delivery_settings (
+            id, speedy_office_enabled, speedy_door_enabled,
+            econt_office_enabled, econt_door_enabled, updated_at
+        ) VALUES ('default', 1, 1, 1, 1, datetime('now'))
         """
     )
 

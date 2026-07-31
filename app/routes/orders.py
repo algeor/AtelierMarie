@@ -15,6 +15,7 @@ from app.models.orders import (
 )
 from app.responses import error_response
 from app.services.order_service import (
+    DeliveryMethodUnavailableError,
     EmptyCartError,
     InsufficientStockError,
     InvalidDeliveryOfficeError,
@@ -139,6 +140,13 @@ def create_order(
             "INVALID_DELIVERY_OFFICE",
             str(e),
             {"courier": e.courier, "office_id": e.office_id, "reason": e.reason},
+        )
+    except DeliveryMethodUnavailableError as e:
+        return error_response(
+            422,
+            "DELIVERY_METHOD_UNAVAILABLE",
+            str(e),
+            {"courier": e.courier, "method": e.method},
         )
     except InvalidShippingPriceError as e:
         return JSONResponse(

@@ -111,3 +111,18 @@ class DeliveryInfo(BaseModel):
             if self.office is not None:
                 raise ValueError("office details must be null when method is 'door'")
         return self
+
+
+class DeliverySettingsUpdate(BaseModel):
+    """Admin update for delivery-method availability switches."""
+
+    speedy_office_enabled: bool = True
+    speedy_door_enabled: bool = True
+    econt_office_enabled: bool = True
+    econt_door_enabled: bool = True
+
+
+class DeliverySettingsResponse(DeliverySettingsUpdate):
+    """Current delivery-method availability settings."""
+
+    updated_at: str

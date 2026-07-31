@@ -141,7 +141,12 @@ class TestCreateOrder:
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             c.cookies.set(settings.session_cookie_name, sid)
             resp = await c.post(
-                "/v1/orders", json={"customer_email": "t@t.com", "delivery": DELIVERY_OFFICE_ECONT}
+                "/v1/orders",
+                json={
+                    "customer_email": "t@t.com",
+                    "customer_name": "Test Buyer",
+                    "delivery": DELIVERY_OFFICE_ECONT,
+                },
             )
         assert resp.status_code == 400
         assert resp.json()["error"]["code"] == "EMPTY_CART"
@@ -169,7 +174,12 @@ class TestCreateOrder:
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             c.cookies.set(settings.session_cookie_name, sid)
             resp = await c.post(
-                "/v1/orders", json={"customer_email": "t@t.com", "delivery": DELIVERY_OFFICE_ECONT}
+                "/v1/orders",
+                json={
+                    "customer_email": "t@t.com",
+                    "customer_name": "Test Buyer",
+                    "delivery": DELIVERY_OFFICE_ECONT,
+                },
             )
         assert resp.status_code == 409
         assert resp.json()["error"]["code"] == "INSUFFICIENT_STOCK"
@@ -177,7 +187,12 @@ class TestCreateOrder:
     # 7.4: POST returns 422 for invalid email, overly long fields
     async def test_invalid_email_422(self, order_client):
         resp = await order_client.post(
-            "/v1/orders", json={"customer_email": "not-an-email", "delivery": DELIVERY_OFFICE_ECONT}
+            "/v1/orders",
+            json={
+                "customer_email": "not-an-email",
+                "customer_name": "Test Buyer",
+                "delivery": DELIVERY_OFFICE_ECONT,
+            },
         )
         assert resp.status_code == 422
 
@@ -208,7 +223,10 @@ class TestCreateOrder:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             c.cookies.set(settings.session_cookie_name, sid)
-            resp = await c.post("/v1/orders", json={"delivery": DELIVERY_OFFICE_ECONT})
+            resp = await c.post(
+                "/v1/orders",
+                json={"customer_name": "Account Buyer", "delivery": DELIVERY_OFFICE_ECONT},
+            )
         assert resp.status_code == 201
         assert resp.json()["customer_email"] == "account@example.com"
 
@@ -240,16 +258,30 @@ class TestCreateOrder:
             c.cookies.set(settings.session_cookie_name, sid)
             resp = await c.post(
                 "/v1/orders",
-                json={"customer_email": "gift@example.com", "delivery": DELIVERY_OFFICE_ECONT},
+                json={
+                    "customer_email": "gift@example.com",
+                    "customer_name": "Gift Buyer",
+                    "delivery": DELIVERY_OFFICE_ECONT,
+                },
             )
         assert resp.status_code == 201
         assert resp.json()["customer_email"] == "gift@example.com"
 
     async def test_anonymous_omitted_email_422_email_required(self, order_client):
         """Anonymous checkout with no email is rejected with EMAIL_REQUIRED."""
-        resp = await order_client.post("/v1/orders", json={"delivery": DELIVERY_OFFICE_ECONT})
+        resp = await order_client.post(
+            "/v1/orders",
+            json={"customer_name": "Test Buyer", "delivery": DELIVERY_OFFICE_ECONT},
+        )
         assert resp.status_code == 422
         assert resp.json()["error"]["code"] == "EMAIL_REQUIRED"
+
+    async def test_missing_customer_name_422(self, order_client):
+        resp = await order_client.post(
+            "/v1/orders",
+            json={"customer_email": "ok@ok.com", "delivery": DELIVERY_OFFICE_ECONT},
+        )
+        assert resp.status_code == 422
 
     async def test_overly_long_customer_name_422(self, order_client):
         resp = await order_client.post(
@@ -267,6 +299,7 @@ class TestCreateOrder:
             "/v1/orders",
             json={
                 "customer_email": "ok@ok.com",
+                "customer_name": "Test Buyer",
                 "notes": "X" * 2001,
                 "delivery": DELIVERY_OFFICE_ECONT,
             },
@@ -285,7 +318,12 @@ class TestListMyOrders:
     async def test_list_orders_paginated(self, order_client):
         # Create an order first
         await order_client.post(
-            "/v1/orders", json={"customer_email": "t@t.com", "delivery": DELIVERY_OFFICE_ECONT}
+            "/v1/orders",
+            json={
+                "customer_email": "t@t.com",
+                "customer_name": "Test Buyer",
+                "delivery": DELIVERY_OFFICE_ECONT,
+            },
         )
 
         resp = await order_client.get("/v1/orders")
@@ -305,7 +343,12 @@ class TestListMyOrders:
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             c.cookies.set(settings.session_cookie_name, order_session_id)
             resp = await c.post(
-                "/v1/orders", json={"customer_email": "a@a.com", "delivery": DELIVERY_OFFICE_ECONT}
+                "/v1/orders",
+                json={
+                    "customer_email": "a@a.com",
+                    "customer_name": "Test Buyer",
+                    "delivery": DELIVERY_OFFICE_ECONT,
+                },
             )
             assert resp.status_code == 201
 
@@ -344,7 +387,12 @@ class TestGetOrderDetail:
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             c.cookies.set(settings.session_cookie_name, order_session_id)
             resp = await c.post(
-                "/v1/orders", json={"customer_email": "a@a.com", "delivery": DELIVERY_OFFICE_ECONT}
+                "/v1/orders",
+                json={
+                    "customer_email": "a@a.com",
+                    "customer_name": "Test Buyer",
+                    "delivery": DELIVERY_OFFICE_ECONT,
+                },
             )
             order_id = resp.json()["id"]
 
@@ -376,7 +424,12 @@ class TestAdminUpdateStatus:
     async def test_invalid_transition_422(self, admin_order_client):
         # Create order
         resp = await admin_order_client.post(
-            "/v1/orders", json={"customer_email": "t@t.com", "delivery": DELIVERY_OFFICE_ECONT}
+            "/v1/orders",
+            json={
+                "customer_email": "t@t.com",
+                "customer_name": "Test Buyer",
+                "delivery": DELIVERY_OFFICE_ECONT,
+            },
         )
         order_id = resp.json()["id"]
 
@@ -390,7 +443,12 @@ class TestAdminUpdateStatus:
 
     async def test_ship_without_tracking_returns_422(self, admin_order_client):
         resp = await admin_order_client.post(
-            "/v1/orders", json={"customer_email": "t@t.com", "delivery": DELIVERY_OFFICE_ECONT}
+            "/v1/orders",
+            json={
+                "customer_email": "t@t.com",
+                "customer_name": "Test Buyer",
+                "delivery": DELIVERY_OFFICE_ECONT,
+            },
         )
         order_id = resp.json()["id"]
         await admin_order_client.patch(
@@ -404,7 +462,12 @@ class TestAdminUpdateStatus:
 
     async def test_ship_with_tracking_autogenerates_url(self, admin_order_client):
         resp = await admin_order_client.post(
-            "/v1/orders", json={"customer_email": "t@t.com", "delivery": DELIVERY_OFFICE_ECONT}
+            "/v1/orders",
+            json={
+                "customer_email": "t@t.com",
+                "customer_name": "Test Buyer",
+                "delivery": DELIVERY_OFFICE_ECONT,
+            },
         )
         order_id = resp.json()["id"]
         await admin_order_client.patch(
@@ -498,7 +561,12 @@ class TestAdminSpeedyCourierOperations:
 
     async def test_non_speedy_order_has_no_speedy_waybill(self, admin_order_client):
         resp = await admin_order_client.post(
-            "/v1/orders", json={"customer_email": "t@t.com", "delivery": DELIVERY_OFFICE_ECONT}
+            "/v1/orders",
+            json={
+                "customer_email": "t@t.com",
+                "customer_name": "Test Buyer",
+                "delivery": DELIVERY_OFFICE_ECONT,
+            },
         )
         order_id = resp.json()["id"]
         await admin_order_client.patch(
@@ -551,7 +619,12 @@ class TestAdminListOrders:
     async def test_admin_list_all_orders(self, admin_order_client):
         # Create an order
         await admin_order_client.post(
-            "/v1/orders", json={"customer_email": "t@t.com", "delivery": DELIVERY_OFFICE_ECONT}
+            "/v1/orders",
+            json={
+                "customer_email": "t@t.com",
+                "customer_name": "Test Buyer",
+                "delivery": DELIVERY_OFFICE_ECONT,
+            },
         )
 
         resp = await admin_order_client.get("/v1/admin/orders")
@@ -562,7 +635,12 @@ class TestAdminListOrders:
     async def test_admin_filter_by_status(self, admin_order_client):
         # Create an order (status: pending)
         await admin_order_client.post(
-            "/v1/orders", json={"customer_email": "t@t.com", "delivery": DELIVERY_OFFICE_ECONT}
+            "/v1/orders",
+            json={
+                "customer_email": "t@t.com",
+                "customer_name": "Test Buyer",
+                "delivery": DELIVERY_OFFICE_ECONT,
+            },
         )
 
         # Filter by pending
@@ -761,7 +839,11 @@ class TestDurableOutboxIntegration:
     async def test_checkout_queues_placed_and_admin_rows(self, admin_order_client, db_path):
         resp = await admin_order_client.post(
             "/v1/orders",
-            json={"customer_email": "buyer@example.com", "delivery": DELIVERY_OFFICE_ECONT},
+            json={
+                "customer_email": "buyer@example.com",
+                "customer_name": "Test Buyer",
+                "delivery": DELIVERY_OFFICE_ECONT,
+            },
         )
         assert resp.status_code == 201
         order_id = resp.json()["id"]
@@ -783,7 +865,11 @@ class TestDurableOutboxIntegration:
 
         resp = await admin_order_client.post(
             "/v1/orders",
-            json={"customer_email": "buyer@example.com", "delivery": DELIVERY_OFFICE_ECONT},
+            json={
+                "customer_email": "buyer@example.com",
+                "customer_name": "Test Buyer",
+                "delivery": DELIVERY_OFFICE_ECONT,
+            },
         )
         order_id = resp.json()["id"]
 
@@ -807,7 +893,11 @@ class TestDurableOutboxIntegration:
 
         resp = await admin_order_client.post(
             "/v1/orders",
-            json={"customer_email": "buyer@example.com", "delivery": DELIVERY_OFFICE_ECONT},
+            json={
+                "customer_email": "buyer@example.com",
+                "customer_name": "Test Buyer",
+                "delivery": DELIVERY_OFFICE_ECONT,
+            },
         )
         order_id = resp.json()["id"]
         await admin_order_client.patch(
@@ -834,7 +924,11 @@ class TestDurableOutboxIntegration:
     async def test_confirmed_transition_queues_no_email(self, admin_order_client, db_path):
         resp = await admin_order_client.post(
             "/v1/orders",
-            json={"customer_email": "buyer@example.com", "delivery": DELIVERY_OFFICE_ECONT},
+            json={
+                "customer_email": "buyer@example.com",
+                "customer_name": "Test Buyer",
+                "delivery": DELIVERY_OFFICE_ECONT,
+            },
         )
         order_id = resp.json()["id"]
         await admin_order_client.patch(
@@ -860,7 +954,11 @@ class TestOrderEmailAudit:
     async def test_audit_lists_queued_rows(self, admin_order_client):
         resp = await admin_order_client.post(
             "/v1/orders",
-            json={"customer_email": "buyer@example.com", "delivery": DELIVERY_OFFICE_ECONT},
+            json={
+                "customer_email": "buyer@example.com",
+                "customer_name": "Test Buyer",
+                "delivery": DELIVERY_OFFICE_ECONT,
+            },
         )
         order_id = resp.json()["id"]
 

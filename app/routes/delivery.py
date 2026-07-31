@@ -7,20 +7,34 @@ data is public. See `courier-offices-data` spec for the endpoint contract.
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import JSONResponse
 
 from app.database import get_db
 from app.dependencies.session import require_session
-from app.models.delivery import Courier, OfficeResponse, OfficeType
+from app.models.delivery import Courier, DeliverySettingsResponse, OfficeResponse, OfficeType
 from app.models.shipping import (
     CalculateShippingRequest,
     CalculateShippingResponse,
     CityPlace,
 )
-from app.services import delivery_service, shipping_service
+from app.responses import error_response
+from app.services import delivery_service, delivery_settings_service, shipping_service
 
 router = APIRouter()
 
 Locale = Literal["en", "bg"]
+
+
+@router.get(
+    "/settings",
+    response_model=DeliverySettingsResponse,
+    summary="Get delivery method availability",
+    description="Return the admin-managed availability switches for Speedy and Econt "
+    "office/door delivery. Checkout uses this to hide paused methods.",
+)
+async def get_delivery_settings() -> DeliverySettingsResponse:
+    """Return current delivery availability switches for the storefront."""
+    return DeliverySettingsResponse(**delivery_settings_service.get_delivery_settings())
 
 
 @router.get(
@@ -43,6 +57,8 @@ async def list_offices(
     locale: Locale = Query(default="bg", description="Content locale for name/city/hours"),
 ) -> list[OfficeResponse]:
     """List offices for a courier in a given city."""
+    if not delivery_settings_service.is_delivery_method_enabled(courier, "office"):
+        return []
     offices = delivery_service.get_offices(
         courier,
         city,
@@ -73,6 +89,8 @@ async def list_cities(
     locale: Locale = Query(default="bg", description="Content locale for returned city names"),
 ) -> list[str]:
     """List distinct cities served by a courier, optionally filtered by prefix."""
+    if not delivery_settings_service.is_delivery_method_enabled(courier, "office"):
+        return []
     return delivery_service.get_cities(courier, query=q, locale=locale)
 
 
@@ -99,6 +117,8 @@ async def list_places(
     locale: Locale = Query(default="bg", description="Content locale for returned names"),
 ) -> list[CityPlace]:
     """List served places for a courier, optionally filtered by prefix."""
+    if not delivery_settings_service.is_delivery_method_enabled(courier, "door"):
+        return []
     return [CityPlace(**p) for p in delivery_service.get_places(courier, query=q, locale=locale)]
 
 
@@ -115,8 +135,17 @@ async def list_places(
 async def calculate_shipping(
     body: CalculateShippingRequest,
     session_id: Annotated[str, Depends(require_session)],
-) -> CalculateShippingResponse:
+) -> CalculateShippingResponse | JSONResponse:
     """Calculate shipping quotes for the caller's cart."""
+    disabled = delivery_settings_service.disabled_requested_methods(body.couriers, body.method)
+    if disabled:
+        return error_response(
+            422,
+            "DELIVERY_METHOD_UNAVAILABLE",
+            "One or more requested delivery methods are currently unavailable",
+            {"disabled": disabled},
+        )
+
     with get_db() as conn:
         weight_grams = shipping_service.cart_weight_grams(conn, session_id)
 

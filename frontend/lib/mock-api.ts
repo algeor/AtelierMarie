@@ -33,6 +33,8 @@ import type {
   ContactRequest,
   ContactResponse,
   Courier,
+  DeliverySettingsResponse,
+  DeliverySettingsUpdate,
   CityPlace,
   CreateOrderRequest,
   CreateAboutItemRequest,
@@ -809,6 +811,7 @@ export async function getDeliveryOffices(
   type?: OfficeType
 ): Promise<OfficeResponse[]> {
   await delay();
+  if (!deliveryEnabled(courier, "office")) return [];
   const cityLc = city.toLowerCase();
   return MOCK_OFFICES[courier].filter(
     (o) => o.city.toLowerCase() === cityLc && (!type || o.type === type)
@@ -820,6 +823,7 @@ export async function getDeliveryCities(
   query?: string
 ): Promise<string[]> {
   await delay();
+  if (!deliveryEnabled(courier, "office")) return [];
   const cities = Array.from(new Set(MOCK_OFFICES[courier].map((o) => o.city))).sort();
   if (!query) return cities;
   const q = query.toLowerCase();
@@ -891,6 +895,7 @@ export async function getDeliveryPlaces(
   query?: string
 ): Promise<CityPlace[]> {
   await delay();
+  if (!deliveryEnabled(courier, "door")) return [];
   const places = MOCK_PLACES[courier] ?? [];
   const q = foldPlaceSearch(query);
   return places
@@ -907,6 +912,19 @@ export async function getDeliveryPlaces(
 
 const MOCK_FREE_SHIPPING_THRESHOLD_CENTS = 5000;
 const MOCK_FALLBACK_SHIPPING_CENTS = 500;
+
+let mockDeliverySettings: DeliverySettingsResponse = {
+  speedy_office_enabled: true,
+  speedy_door_enabled: true,
+  econt_office_enabled: true,
+  econt_door_enabled: true,
+  updated_at: new Date().toISOString(),
+};
+
+function deliveryEnabled(courier: Courier, method: "office" | "door"): boolean {
+  const key = `${courier}_${method}_enabled` as keyof DeliverySettingsUpdate;
+  return mockDeliverySettings[key];
+}
 
 /** Base live prices per courier (cents) + delivery estimate (days). */
 const MOCK_LIVE_QUOTES: Record<Courier, { cents: number; days: number }> = {
@@ -925,6 +943,9 @@ export async function calculateShipping(
   payload: CalculateShippingRequest
 ): Promise<CalculateShippingResponse> {
   await delay();
+  if (payload.couriers.some((courier) => !deliveryEnabled(courier, payload.method))) {
+    mockError("DELIVERY_METHOD_UNAVAILABLE", "Delivery method is currently unavailable");
+  }
   const now = new Date().toISOString();
   const couriers = payload.couriers.length > 0 ? payload.couriers : (["speedy", "econt"] as Courier[]);
 
@@ -972,6 +993,17 @@ export async function createOrder(
   data: CreateOrderRequest
 ): Promise<OrderResponse> {
   await delay();
+  const customerName = data.customer_name.trim();
+  if (!customerName) {
+    mockError("VALIDATION_ERROR", "Name is required");
+  }
+  const courier =
+    data.delivery.method === "office"
+      ? data.delivery.office?.courier
+      : data.delivery.door?.courier;
+  if (courier && !deliveryEnabled(courier, data.delivery.method)) {
+    mockError("DELIVERY_METHOD_UNAVAILABLE", "Delivery method is currently unavailable");
+  }
   if (mockCartItems.length === 0) {
     mockError("VALIDATION_ERROR", "Cart is empty");
   }
@@ -1000,7 +1032,7 @@ export async function createOrder(
     shipping_is_fallback,
     total_cents: cart.total_cents + shipping_cents,
     customer_email: data.customer_email,
-    customer_name: data.customer_name ?? null,
+    customer_name: customerName,
     delivery_method: data.delivery.method,
     delivery_courier:
       data.delivery.method === "office"
@@ -1030,6 +1062,27 @@ export async function createOrder(
   mockCartItems = [];
 
   return order;
+}
+
+export async function getDeliverySettings(): Promise<DeliverySettingsResponse> {
+  await delay();
+  return { ...mockDeliverySettings };
+}
+
+export async function getAdminDeliverySettings(): Promise<DeliverySettingsResponse> {
+  await delay();
+  return { ...mockDeliverySettings };
+}
+
+export async function updateAdminDeliverySettings(
+  data: DeliverySettingsUpdate
+): Promise<DeliverySettingsResponse> {
+  await delay();
+  mockDeliverySettings = {
+    ...data,
+    updated_at: new Date().toISOString(),
+  };
+  return { ...mockDeliverySettings };
 }
 
 export async function getOrders(

@@ -258,6 +258,7 @@ class TestOrderModels:
     def test_create_order_valid(self):
         req = CreateOrderRequest(
             customer_email="test@example.com",
+            customer_name="Test Buyer",
             delivery={
                 "method": "office",
                 "office": {
@@ -270,13 +271,31 @@ class TestOrderModels:
                 },
             },
         )
-        assert req.customer_name is None
+        assert req.customer_name == "Test Buyer"
         assert req.delivery.method == "office"
+
+    def test_create_order_missing_customer_name_rejected(self):
+        with pytest.raises(ValidationError):
+            CreateOrderRequest(
+                customer_email="test@example.com",
+                delivery={
+                    "method": "office",
+                    "office": {
+                        "courier": "econt",
+                        "office_id": "1",
+                        "office_name": "Sofia",
+                        "office_type": "office",
+                        "city": "София",
+                        "phone": "+359888123456",
+                    },
+                },
+            )
 
     def test_create_order_invalid_email(self):
         with pytest.raises(ValidationError):
             CreateOrderRequest(
                 customer_email="not-an-email",
+                customer_name="Test Buyer",
                 delivery={
                     "method": "office",
                     "office": {
@@ -391,6 +410,7 @@ class TestBoundaryConstraints:
         with pytest.raises(ValidationError):
             CreateOrderRequest(
                 customer_email="test@example.com",
+                customer_name="Test Buyer",
                 notes="x" * 2001,
                 delivery={
                     "method": "office",
@@ -546,7 +566,21 @@ class TestSection2ChangedBehavior:
     def test_create_order_whitespace_only_customer_name_rejected(self):
         """customer_name='   ' rejected after strip (previously accepted)."""
         with pytest.raises(ValidationError):
-            CreateOrderRequest(customer_email="a@b.com", customer_name="   ")
+            CreateOrderRequest(
+                customer_email="a@b.com",
+                customer_name="   ",
+                delivery={
+                    "method": "office",
+                    "office": {
+                        "courier": "econt",
+                        "office_id": "1",
+                        "office_name": "Sofia",
+                        "office_type": "office",
+                        "city": "София",
+                        "phone": "+359888123456",
+                    },
+                },
+            )
 
 
 class TestCalculateOffset:

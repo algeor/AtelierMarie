@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { Link, useRouter } from "@/i18n/navigation";
 import { useCart } from "@/contexts/CartContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { createOrder, calculateShipping } from "@/lib/api";
+import { createOrder, calculateShipping, getDeliverySettings } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
 import { policyPath } from "@/lib/legal";
@@ -24,6 +24,7 @@ import type {
   CalculateShippingRequest,
   Courier,
   DeliveryInfo,
+  DeliverySettingsResponse,
   PaymentMethod,
   ShippingQuote,
 } from "@/lib/types";
@@ -33,6 +34,31 @@ const STRIPE_ENABLED = process.env.NEXT_PUBLIC_STRIPE_ENABLED === "true";
 const BANK_TRANSFER_ENABLED = Boolean(process.env.NEXT_PUBLIC_BANK_IBAN);
 
 type DeliveryPhase = "method" | "approximate" | "exact" | "ready";
+
+const ALL_COURIERS: Courier[] = ["speedy", "econt"];
+
+function courierMethodEnabled(
+  settings: DeliverySettingsResponse | null,
+  courier: Courier,
+  method: "office" | "door",
+): boolean {
+  if (!settings) return true;
+  const key = `${courier}_${method}_enabled` as keyof Pick<
+    DeliverySettingsResponse,
+    | "speedy_office_enabled"
+    | "speedy_door_enabled"
+    | "econt_office_enabled"
+    | "econt_door_enabled"
+  >;
+  return settings[key];
+}
+
+function enabledCouriersForMethod(
+  settings: DeliverySettingsResponse | null,
+  method: "office" | "door",
+): Courier[] {
+  return ALL_COURIERS.filter((courier) => courierMethodEnabled(settings, courier, method));
+}
 
 export default function CheckoutPage() {
   const t = useTranslations("checkout");
@@ -60,15 +86,31 @@ export default function CheckoutPage() {
   const [selectedQuote, setSelectedQuote] = useState<ShippingQuote | null>(null);
   const [quotesLoading, setQuotesLoading] = useState(false);
   const [shippingError, setShippingError] = useState(false);
+  const [deliverySettings, setDeliverySettings] = useState<DeliverySettingsResponse | null>(null);
 
   const qualifiesForFreeShipping = total_cents >= FREE_SHIPPING_THRESHOLD_CENTS;
 
   const emailRef = useRef<HTMLInputElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
   const hasRedirected = useRef(false);
 
   useEffect(() => {
     refreshCart();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getDeliverySettings()
+      .then((settings) => {
+        if (!cancelled) setDeliverySettings(settings);
+      })
+      .catch(() => {
+        if (!cancelled) setDeliverySettings(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Pre-fill the email for logged-in users. Only seed when the field is still
@@ -108,6 +150,25 @@ export default function CheckoutPage() {
     });
   }, [email, validateEmail]);
 
+  const validateName = useCallback(
+    (value: string): string | null => {
+      const trimmed = value.trim();
+      if (!trimmed) return t("nameRequired");
+      if (trimmed.length > 200) return t("nameTooLong");
+      return null;
+    },
+    [t],
+  );
+
+  const handleNameBlur = useCallback(() => {
+    const error = validateName(name);
+    setErrors((prev) => {
+      if (error) return { ...prev, name: error };
+      const { name: _, ...rest } = prev;
+      return rest;
+    });
+  }, [name, validateName]);
+
   // --- Shipping calculation (two-phase) ---
   // Derive the calculate request from the exposed delivery state and cart total.
   // On city/address entry → approximate (both couriers); on office/address
@@ -126,6 +187,14 @@ export default function CheckoutPage() {
 
   useEffect(() => {
     if (!method || !currentCourier) {
+      setDeliveryPhase("method");
+      setQuotes([]);
+      setSelectedQuote(null);
+      setShippingError(false);
+      return;
+    }
+
+    if (!courierMethodEnabled(deliverySettings, currentCourier, method)) {
       setDeliveryPhase("method");
       setQuotes([]);
       setSelectedQuote(null);
@@ -175,7 +244,16 @@ export default function CheckoutPage() {
     }
 
     let cancelled = false;
-    const couriers: Courier[] = isExact ? [currentCourier] : ["speedy", "econt"];
+    const couriers: Courier[] = isExact
+      ? [currentCourier]
+      : enabledCouriersForMethod(deliverySettings, method);
+    if (couriers.length === 0) {
+      setDeliveryPhase("method");
+      setQuotes([]);
+      setSelectedQuote(null);
+      setShippingError(false);
+      return;
+    }
     const payload: CalculateShippingRequest = {
       method,
       city,
@@ -234,6 +312,7 @@ export default function CheckoutPage() {
     door,
     total_cents,
     qualifiesForFreeShipping,
+    deliverySettings,
   ]);
 
   const handleSubmit = useCallback(
@@ -242,9 +321,17 @@ export default function CheckoutPage() {
       setSubmitError(null);
 
       const emailError = validateEmail(email);
-      if (emailError) {
-        setErrors({ email: emailError });
-        emailRef.current?.focus();
+      const nameError = validateName(name);
+      if (emailError || nameError) {
+        setErrors({
+          ...(emailError ? { email: emailError } : {}),
+          ...(nameError ? { name: nameError } : {}),
+        });
+        if (emailError) {
+          emailRef.current?.focus();
+        } else {
+          nameRef.current?.focus();
+        }
         return;
       }
 
@@ -268,7 +355,7 @@ export default function CheckoutPage() {
       try {
         const order = await createOrder({
           customer_email: email.trim(),
-          customer_name: name.trim() || null,
+          customer_name: name.trim(),
           delivery: normalized,
           notes: notes.trim() || null,
           payment_method: paymentMethod,
@@ -305,6 +392,7 @@ export default function CheckoutPage() {
       delivery,
       paymentMethod,
       validateEmail,
+      validateName,
       router,
       t,
       tRoot,
@@ -401,21 +489,38 @@ export default function CheckoutPage() {
           {/* Name */}
           <div className="mb-6">
             <label htmlFor="checkout-name" className="mb-1.5 block text-sm font-medium text-soft-brown">
-              {t("name")}
+              {t("name")} <span className="text-red-700">*</span>
             </label>
             <input
+              ref={nameRef}
               id="checkout-name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              onBlur={handleNameBlur}
+              aria-required="true"
+              aria-invalid={errors.name ? "true" : undefined}
+              aria-describedby={errors.name ? "checkout-name-error" : undefined}
               maxLength={200}
-              className="w-full rounded-brand border border-champagne-beige px-4 py-3 text-charcoal bg-warm-ivory placeholder:text-soft-brown/50 focus:outline-none focus:ring-2 focus:ring-soft-brown focus:ring-offset-2 focus:ring-offset-warm-ivory"
+              className={`w-full rounded-brand border px-4 py-3 text-charcoal bg-warm-ivory placeholder:text-soft-brown/50 focus:outline-none focus:ring-2 focus:ring-soft-brown focus:ring-offset-2 focus:ring-offset-warm-ivory ${
+                errors.name ? "border-red-700" : "border-champagne-beige"
+              }`}
               placeholder={t("namePlaceholder")}
             />
+            {errors.name && (
+              <p id="checkout-name-error" className="mt-1.5 text-sm text-red-700">
+                {errors.name}
+              </p>
+            )}
           </div>
 
           {/* Delivery */}
-          <DeliverySection value={delivery} onChange={setDelivery} errors={deliveryErrors} />
+          <DeliverySection
+            value={delivery}
+            onChange={setDelivery}
+            errors={deliveryErrors}
+            deliverySettings={deliverySettings}
+          />
 
           {/* Courier price comparison — shown once a quote can be calculated */}
           {!qualifiesForFreeShipping &&

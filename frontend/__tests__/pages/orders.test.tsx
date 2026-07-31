@@ -66,6 +66,8 @@ const ordersResponse: OrderListResponse = {
       tracking_number: null,
       tracking_carrier: null,
       tracking_url: null,
+      courier_status: null,
+      label_url: null,
       created_at: "2026-07-01T10:00:00Z",
       updated_at: "2026-07-01T10:00:00Z",
     },

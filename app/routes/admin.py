@@ -18,6 +18,7 @@ from app.dependencies.auth import require_admin
 from app.models.admin import DashboardResponse, LowStockProductsResponse
 from app.models.comments import AdminCommentListResponse, AdminCommentResponse
 from app.models.common import PRODUCT_ID_PATTERN
+from app.models.delivery import DeliverySettingsResponse, DeliverySettingsUpdate
 from app.models.orders import (
     MarkPaymentPaidRequest,
     OrderEmailAudit,
@@ -52,6 +53,7 @@ from app.models.promotions import BulkDiscountRequest, BulkDiscountResponse
 from app.responses import error_response
 from app.services import (
     admin_service,
+    delivery_settings_service,
     product_image_service,
     product_service,
     product_video_service,
@@ -106,6 +108,29 @@ from app.services.video_service import (
 )
 
 router = APIRouter(dependencies=[Depends(require_admin)])
+
+
+@router.get(
+    "/delivery-settings",
+    response_model=DeliverySettingsResponse,
+    summary="Get delivery method availability settings",
+)
+async def admin_get_delivery_settings() -> DeliverySettingsResponse:
+    """Return admin-managed Speedy/Econt office/door availability switches."""
+    return DeliverySettingsResponse(**delivery_settings_service.get_delivery_settings())
+
+
+@router.put(
+    "/delivery-settings",
+    response_model=DeliverySettingsResponse,
+    summary="Update delivery method availability settings",
+)
+async def admin_update_delivery_settings(
+    body: DeliverySettingsUpdate,
+) -> DeliverySettingsResponse:
+    """Persist admin-managed Speedy/Econt office/door availability switches."""
+    settings = delivery_settings_service.update_delivery_settings(body.model_dump())
+    return DeliverySettingsResponse(**settings)
 
 
 @router.post(

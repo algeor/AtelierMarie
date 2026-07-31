@@ -420,6 +420,21 @@ export interface DeliveryInfo {
   door?: DeliveryDoor | null;
 }
 
+export interface DeliverySettingsResponse {
+  speedy_office_enabled: boolean;
+  speedy_door_enabled: boolean;
+  econt_office_enabled: boolean;
+  econt_door_enabled: boolean;
+  updated_at: string;
+}
+
+export interface DeliverySettingsUpdate {
+  speedy_office_enabled: boolean;
+  speedy_door_enabled: boolean;
+  econt_office_enabled: boolean;
+  econt_door_enabled: boolean;
+}
+
 export interface OfficeResponse {
   id: string;
   name: string;
@@ -477,7 +492,7 @@ export interface CityPlace {
 
 export interface CreateOrderRequest {
   customer_email: string;
-  customer_name?: string | null;
+  customer_name: string;
   delivery: DeliveryInfo;
   notes?: string | null;
   payment_method?: PaymentMethod;

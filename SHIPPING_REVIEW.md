@@ -5,11 +5,13 @@ Status: local automated gates pass; Chrome/full-stack execution is blocked in th
 ## Verified Implemented
 
 - Delivery fees: `shipping_service.calculate_quotes` handles Speedy and Econt, free-shipping short-circuit, fallback provenance, cart DB weight, and door-address city translation.
+- Shipping price source: live quotes come directly from the configured Speedy/Econt account. If that account has negotiated courier discounts, the courier API may return discounted prices; the app itself only applies the free-shipping threshold and the flat fallback price when live quotes are unavailable.
 - Office discovery: `GET /v1/delivery/offices` serves Speedy and Econt office/locker data with localized city names.
 - Door place discovery: Econt uses `data/econt_cities.json`; Speedy uses full `data/speedy_sites.json`; `data/served_places_supplement.json` fills verified feed gaps such as Zgorigrad.
 - Speedy shipping integration: admin confirmed-to-shipped can create Speedy waybills automatically when no manual tracking number is supplied; Speedy track and label endpoints are implemented and tested.
 - Econt shipping integration: checkout pricing and manual admin shipment/tracking URL are implemented; Econt automatic waybill, tracking poll, and label PDF are not implemented yet.
 - Admin management: order detail shows shipping totals/provenance and structured delivery details; real-app tests cover Econt manual shipment and Speedy waybill/track/label flows.
+- Admin delivery controls: `/v1/admin/delivery-settings` and the admin Delivery page can pause Speedy/Econt office or door delivery independently; public lookup, quote, and checkout paths enforce those switches.
 - Customer/admin emails: placed, payment-pending, shipped, and admin-new-order templates include subtotal, shipping, total, courier, method, destination, phone, and estimated-shipping marker.
 - Browser smoke script: `scripts/chrome_smoke.mjs` now covers Speedy door checkout/admin track/label and Econt office checkout/manual admin ship, using fake local Speedy and Econt pricing boundaries.
 
