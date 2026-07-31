@@ -10,6 +10,14 @@
 Проследете пратката: {{ tracking_url }}
 {% endif %}
 
+{% if delivery_method_display or delivery_courier_display or delivery_lines %}
+Доставка:
+{% if delivery_method_display %}- Начин: {{ delivery_method_display }}
+{% endif %}{% if delivery_courier_display %}- Куриер: {{ delivery_courier_display }}
+{% endif %}{% for line in delivery_lines %}- {{ line }}
+{% endfor %}
+{% endif %}
+
 Благодарим Ви, че пазарувахте при нас.
 
 С обич,

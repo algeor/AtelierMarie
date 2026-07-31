@@ -8,7 +8,17 @@ We've received your order and are holding it for you. Here's what you ordered:
 - {{ item.product_name }} × {{ item.quantity }} — {{ item.line_total_display }}
 {% endfor %}
 
+Subtotal: {{ items_total_display }}
+Shipping: {{ shipping_display }}{% if shipping_is_fallback %} (estimated){% endif %}
 Total: {{ total_display }}
+
+{% if delivery_method_display or delivery_courier_display or delivery_lines %}
+Delivery:
+{% if delivery_method_display %}- Method: {{ delivery_method_display }}
+{% endif %}{% if delivery_courier_display %}- Courier: {{ delivery_courier_display }}
+{% endif %}{% for line in delivery_lines %}- {{ line }}
+{% endfor %}
+{% endif %}
 {% if payment_method == 'card' %}
 Your payment is being processed. Once your card payment is confirmed, we'll
 send you an order confirmation email.

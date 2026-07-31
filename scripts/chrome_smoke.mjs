@@ -9,7 +9,7 @@
  * By default, the script expects the frontend server to already be running.
  * With CHROME_SMOKE_START_SERVERS=1 it seeds a temporary DB, starts a fake
  * Speedy boundary plus local backend/frontend servers, and runs customer/admin
- * shipping flows in Chrome. It fails on browser/page errors, 5xx responses,
+ * Speedy + Econt shipping flows in Chrome. It fails on browser/page errors, 5xx responses,
  * unexpected 4xx responses, or blank render output.
  */
 
@@ -228,15 +228,41 @@ async function startFakeSpeedyServer() {
   };
 }
 
+async function startFakeEcontServer() {
+  const server = http.createServer((req, res) => {
+    req.on("end", () => {
+      if (req.url === "/calculate") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ label: { totalPrice: 5.9, deliveryDays: 1 } }));
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: { message: "unknown fake econt endpoint" } }));
+    });
+    req.resume();
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const { port } = server.address();
+  return {
+    url: `http://127.0.0.1:${port}`,
+    close: () => new Promise((resolve) => server.close(resolve)),
+  };
+}
+
 async function startManagedServers() {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "atelier-smoke-stack-"));
   const databasePath = process.env.DATABASE_PATH || path.join(tempDir, "atelier_chrome_smoke.db");
   let fakeSpeedy;
+  let fakeEcont;
   let backend;
   let frontend;
 
   try {
     fakeSpeedy = await startFakeSpeedyServer();
+    fakeEcont = await startFakeEcontServer();
     const adminAuth = seedSmokeDatabase(databasePath);
 
     backend = spawn(
@@ -258,6 +284,9 @@ async function startManagedServers() {
           SPEEDY_API_USERNAME: "chrome-smoke",
           SPEEDY_API_PASSWORD: "chrome-smoke",
           SPEEDY_CLIENT_ID: "123456",
+          ECONT_CALCULATE_URL: `${fakeEcont.url}/calculate`,
+          ECONT_API_USERNAME: "chrome-smoke",
+          ECONT_API_PASSWORD: "chrome-smoke",
         },
       }
     );
@@ -290,6 +319,7 @@ async function startManagedServers() {
         frontend?.kill("SIGTERM");
         backend?.kill("SIGTERM");
         await fakeSpeedy?.close();
+        await fakeEcont?.close();
         if (process.env.CHROME_SMOKE_KEEP_DB !== "1") {
           await rm(tempDir, { recursive: true, force: true });
         }
@@ -299,6 +329,7 @@ async function startManagedServers() {
     frontend?.kill("SIGTERM");
     backend?.kill("SIGTERM");
     await fakeSpeedy?.close();
+    await fakeEcont?.close();
     if (process.env.CHROME_SMOKE_KEEP_DB !== "1") {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -584,6 +615,33 @@ async function runCustomerSpeedyDoorFlow(client) {
   console.log("ok flow customer-speedy-door-checkout");
 }
 
+async function runCustomerEcontOfficeFlow(client) {
+  await navigate(client, "/en/products/midnight-amber");
+  await assertBodyIncludes(client, "Midnight Amber");
+  await clickByText(client, "Add to Cart", "button");
+  await clickByText(client, "Proceed to Checkout", "a");
+  await waitForEval(client, "location.pathname.endsWith('/checkout')", "checkout route");
+
+  await fillSelector(client, "#checkout-email", "econt-smoke@example.com");
+  await fillSelector(client, "#checkout-name", "Econt Smoke");
+  await clickByText(client, "Pick up from office", "label");
+  await clickByText(client, "Econt", "label");
+  await fillSelector(client, "input[placeholder='Search city...']", "Sof");
+  await clickByText(client, "Sofia", "button");
+  await clickByText(client, "Ekont Tochka", "button");
+  await fillSelector(client, "input[placeholder='+359...']", "+359888123457");
+  await waitForEval(
+    client,
+    "document.querySelector('#checkout-form')?.dataset.deliveryPhase === 'ready'",
+    "ready Econt office quote",
+    20_000
+  );
+  await clickByText(client, "Place Order", "button");
+  await waitForEval(client, "location.pathname.includes('/confirmation')", "Econt order confirmation", 20_000);
+  await assertBodyIncludes(client, "econt-smoke@example.com");
+  console.log("ok flow customer-econt-office-checkout");
+}
+
 async function runAdminShippingFlow(client, adminAuth) {
   await setAdminCookies(client, adminAuth);
   await navigate(client, "/en/admin/orders");
@@ -652,6 +710,61 @@ async function runAdminShippingFlow(client, adminAuth) {
     throw new Error(`Expected PDF label download, got ${JSON.stringify(labelResult)}`);
   }
   console.log("ok flow admin-confirm-ship-tracking");
+}
+
+async function runAdminEcontManualShippingFlow(client, adminAuth) {
+  await setAdminCookies(client, adminAuth);
+  const pendingOrder = await waitForEval(
+    client,
+    `fetch(${JSON.stringify(`${BACKEND_URL}/v1/admin/orders?page=1&limit=100`)}, { credentials: 'include' })
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => data?.items?.find((order) =>
+        order.customer_email === 'econt-smoke@example.com' &&
+        order.delivery_courier === 'econt' &&
+        order.status === 'pending'
+      ) || null)`,
+    "pending Econt smoke order"
+  );
+
+  const confirmedOrder = await evaluate(
+    client,
+    `fetch(${JSON.stringify(`${BACKEND_URL}/v1/admin/orders/${pendingOrder.id}/status`)}, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'confirmed' }),
+    }).then((res) => res.ok ? res.json() : null)`
+  );
+  if (confirmedOrder?.status !== "confirmed") {
+    throw new Error(`Expected Econt order to confirm, got ${JSON.stringify(confirmedOrder)}`);
+  }
+
+  const shippedOrder = await evaluate(
+    client,
+    `fetch(${JSON.stringify(`${BACKEND_URL}/v1/admin/orders/${pendingOrder.id}/status`)}, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        status: 'shipped',
+        tracking_number: 'ECONT12345',
+        tracking_carrier: 'econt',
+      }),
+    }).then((res) => res.ok ? res.json() : null)`
+  );
+  if (
+    shippedOrder?.status !== "shipped" ||
+    shippedOrder?.tracking_carrier !== "econt" ||
+    shippedOrder?.tracking_number !== "ECONT12345" ||
+    !String(shippedOrder?.tracking_url || "").includes("econt.com")
+  ) {
+    throw new Error(`Expected manually shipped Econt order, got ${JSON.stringify(shippedOrder)}`);
+  }
+
+  await navigate(client, `/en/admin/orders/${pendingOrder.id}`);
+  await assertBodyIncludes(client, "Econt");
+  await assertBodyIncludes(client, "ECONT12345");
+  console.log("ok flow admin-econt-manual-ship-tracking");
 }
 
 async function runMobileSmoke(client) {
@@ -765,6 +878,18 @@ async function main() {
       await runAdminShippingFlow(client, managed.adminAuth);
       if (routeErrors.length) {
         throw new Error(`Chrome admin flow errors\n${routeErrors.join("\n")}`);
+      }
+
+      routeErrors.length = 0;
+      await runCustomerEcontOfficeFlow(client);
+      if (routeErrors.length) {
+        throw new Error(`Chrome Econt customer flow errors\n${routeErrors.join("\n")}`);
+      }
+
+      routeErrors.length = 0;
+      await runAdminEcontManualShippingFlow(client, managed.adminAuth);
+      if (routeErrors.length) {
+        throw new Error(`Chrome Econt admin flow errors\n${routeErrors.join("\n")}`);
       }
 
       routeErrors.length = 0;

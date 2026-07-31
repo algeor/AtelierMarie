@@ -644,6 +644,10 @@ const MOCK_PLACES: Record<Courier, CityPlace[]> = {
     { name: "Садово", region: "Пловдив", postal_code: "4122" },
     { name: "Садово", region: "Благоевград", postal_code: "2922" },
     { name: "Садово", region: "Бургас", postal_code: "8463" },
+    { name: "Нови Пазар", region: "Шумен", postal_code: "9900" },
+    { name: "Искър", region: "Плевен", postal_code: "5868" },
+    { name: "Искър", region: "Плевен", postal_code: "5972" },
+    { name: "Згориград", region: "Враца", postal_code: "3042" },
   ],
   speedy: [
     { name: "София", region: "София (столица)", postal_code: "1000" },
@@ -651,8 +655,45 @@ const MOCK_PLACES: Record<Courier, CityPlace[]> = {
     { name: "Садово", region: "Пловдив", postal_code: "4122" },
     { name: "Садово", region: "Благоевград", postal_code: "2922" },
     { name: "Садово", region: "Бургас", postal_code: "8463" },
+    { name: "Нови Пазар", region: "Шумен", postal_code: "9900" },
+    { name: "Искър", region: "Плевен", postal_code: "5868" },
+    { name: "Искър", region: "Плевен", postal_code: "5972" },
+    { name: "Згориград", region: "Враца", postal_code: "3042" },
+    { name: "Роман", region: "Враца", postal_code: "3130" },
+    { name: "Батак", region: null, postal_code: null },
   ],
 };
+
+function foldPlaceSearch(value?: string | null): string {
+  return (value ?? "").toLowerCase().trim().replace(/\s+/g, " ");
+}
+
+function placeSearchTokens(value: string): string[] {
+  return value ? value.split(/[^\p{L}\p{N}_]+/u).filter(Boolean) : [];
+}
+
+function placeMatchScore(place: CityPlace, query: string): number | null {
+  if (!query) return 0;
+
+  const fields = [place.name, place.region, place.postal_code].map(foldPlaceSearch).filter(Boolean);
+  const name = foldPlaceSearch(place.name);
+  const postalCode = foldPlaceSearch(place.postal_code);
+  const tokens = placeSearchTokens(query);
+
+  if (query === name || query === postalCode) return 0;
+  if (name.startsWith(query)) return 1;
+  if (
+    tokens.length === 1 &&
+    tokens.some((token) => name.split(/\s+/).some((part) => part.startsWith(token)))
+  ) {
+    return 2;
+  }
+  if (fields.some((field) => field.includes(query))) return 3;
+  if (tokens.length > 0 && tokens.every((token) => fields.some((field) => field.includes(token)))) {
+    return 4;
+  }
+  return null;
+}
 
 export async function getDeliveryPlaces(
   courier: Courier,
@@ -660,9 +701,17 @@ export async function getDeliveryPlaces(
 ): Promise<CityPlace[]> {
   await delay();
   const places = MOCK_PLACES[courier] ?? [];
-  if (!query) return places;
-  const q = query.toLowerCase();
-  return places.filter((p) => p.name.toLowerCase().startsWith(q));
+  const q = foldPlaceSearch(query);
+  return places
+    .map((place) => ({ place, score: placeMatchScore(place, q) }))
+    .filter((entry): entry is { place: CityPlace; score: number } => entry.score !== null)
+    .sort((a, b) => {
+      if (a.score !== b.score) return a.score - b.score;
+      return `${a.place.name}|${a.place.region ?? ""}|${a.place.postal_code ?? ""}`.localeCompare(
+        `${b.place.name}|${b.place.region ?? ""}|${b.place.postal_code ?? ""}`,
+      );
+    })
+    .map((entry) => entry.place);
 }
 
 const MOCK_FREE_SHIPPING_THRESHOLD_CENTS = 5000;

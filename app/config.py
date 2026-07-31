@@ -113,6 +113,9 @@ class Settings(BaseSettings):
     econt_api_username: str = ""
     econt_api_password: SecretStr = SecretStr("")
     econt_sender_office_id: str = ""
+    econt_calculate_url: str = (
+        "https://ee.econt.com/services/Shipments/LabelService.createLabel.json"
+    )
 
     # Econt sender identity — the shop's fixed origin, sent in every Econt
     # calculate payload (name + phone + address). Not credentials: these are

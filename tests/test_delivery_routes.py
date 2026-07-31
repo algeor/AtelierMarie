@@ -151,6 +151,11 @@ class TestListCities:
 class TestGetPlaces:
     """`delivery_service.get_places` — served-place lookup with postcode/region."""
 
+    def test_speedy_uses_full_site_nomenclature(self):
+        from app.services import delivery_service
+
+        assert len(delivery_service.get_places("speedy")) > 5000
+
     def test_ambiguous_name_yields_distinct_places(self):
         from app.services import delivery_service
 
@@ -168,6 +173,44 @@ class TestGetPlaces:
 
         places = delivery_service.get_places("econt", query="Айтос")
         assert any(p["name"] == "Айтос" and p["postal_code"] == "8500" for p in places)
+
+    def test_middle_word_match_bg(self):
+        from app.services import delivery_service
+
+        places = delivery_service.get_places("econt", query="Пазар")
+        assert any(
+            p["name"] == "Нови Пазар" and p["postal_code"] == "9900" for p in places
+        )
+
+    def test_region_match_keeps_exact_city_first(self):
+        from app.services import delivery_service
+
+        places = delivery_service.get_places("econt", query="Плевен")
+        assert places[0] == {"name": "Плевен", "region": "Плевен", "postal_code": "5800"}
+        assert any(
+            p["name"] == "Белене" and p["region"] == "Плевен" for p in places
+        )
+
+    def test_postcode_match(self):
+        from app.services import delivery_service
+
+        places = delivery_service.get_places("econt", query="5972")
+        assert places == [{"name": "Искър", "region": "Плевен", "postal_code": "5972"}]
+
+    def test_same_name_same_region_postcodes_not_collapsed(self):
+        from app.services import delivery_service
+
+        places = delivery_service.get_places("econt", query="Искър")
+        iskyr_pleven = [
+            p for p in places if p["name"] == "Искър" and p["region"] == "Плевен"
+        ]
+        assert {p["postal_code"] for p in iskyr_pleven} == {"5868", "5972"}
+
+    def test_query_tokens_can_match_region_and_postcode(self):
+        from app.services import delivery_service
+
+        places = delivery_service.get_places("econt", query="Плевен 5972")
+        assert places == [{"name": "Искър", "region": "Плевен", "postal_code": "5972"}]
 
     def test_prefix_match_en_localizes(self):
         from app.services import delivery_service
@@ -201,6 +244,41 @@ class TestGetPlaces:
             p["name"] == "Sofia" and p["postal_code"] == "1000" for p in places
         )
 
+    def test_speedy_postcode_match_uses_shared_places(self):
+        from app.services import delivery_service
+
+        places = delivery_service.get_places("speedy", query="5972")
+        assert places == [{"name": "Искър", "region": "Плевен", "postal_code": "5972"}]
+
+    def test_zgorigrad_supplement_available_for_both_couriers(self):
+        from app.services import delivery_service
+
+        expected = {"name": "Згориград", "region": "Враца", "postal_code": "3042"}
+        assert delivery_service.get_places("econt", query="Згор") == [expected]
+        assert delivery_service.get_places("speedy", query="Згор") == [expected]
+
+    def test_zgorigrad_english_lookup_localizes_and_translates_to_bg(self):
+        from app.services import delivery_service
+
+        expected = {"name": "Zgorigrad", "region": "Vratsa", "postal_code": "3042"}
+        assert delivery_service.get_places("econt", query="Zgori", locale="en") == [expected]
+        assert delivery_service.get_places("speedy", query="Zgori", locale="en") == [expected]
+        assert delivery_service.resolve_city_bg("econt", "Zgorigrad") == "Згориград"
+        assert delivery_service.resolve_city_bg("speedy", "Zgorigrad") == "Згориград"
+
+    def test_roman_supplement_available_for_speedy(self):
+        from app.services import delivery_service
+
+        places = delivery_service.get_places("speedy", query="Roman", locale="en")
+        assert places[0] == {"name": "Roman", "region": "Vratsa", "postal_code": "3130"}
+        assert delivery_service.resolve_city_bg("speedy", "Roman") == "Роман"
+
+    def test_speedy_full_sites_include_other_office_towns_with_postcodes(self):
+        from app.services import delivery_service
+
+        places = delivery_service.get_places("speedy", query="Batak", locale="en")
+        assert {p["postal_code"] for p in places if p["name"] == "Batak"} == {"4580", "5228"}
+
 
 class TestListPlaces:
     """`GET /v1/delivery/places` — served-place endpoint."""
@@ -230,6 +308,24 @@ class TestListPlaces:
         assert any(
             p["name"] == "София" and p["postal_code"] == "1000" for p in resp.json()
         )
+
+    @pytest.mark.asyncio
+    async def test_place_search_matches_postcode(self, client):
+        resp = await client.get("/v1/delivery/places?courier=econt&q=5972")
+        assert resp.status_code == 200
+        assert resp.json() == [{"name": "Искър", "region": "Плевен", "postal_code": "5972"}]
+
+    @pytest.mark.asyncio
+    async def test_zgorigrad_place_search(self, client):
+        resp = await client.get("/v1/delivery/places?courier=econt&q=Zgori&locale=en")
+        assert resp.status_code == 200
+        assert resp.json() == [{"name": "Zgorigrad", "region": "Vratsa", "postal_code": "3042"}]
+
+    @pytest.mark.asyncio
+    async def test_roman_place_search_for_speedy(self, client):
+        resp = await client.get("/v1/delivery/places?courier=speedy&q=Roman&locale=en")
+        assert resp.status_code == 200
+        assert resp.json()[0] == {"name": "Roman", "region": "Vratsa", "postal_code": "3130"}
 
     @pytest.mark.asyncio
     async def test_no_match_returns_empty(self, client):

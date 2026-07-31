@@ -9,6 +9,7 @@ service uses HTTP Basic auth (design task 1.4).
 import httpx
 import structlog
 
+from app.config import get_settings
 from app.constants import COURIER_TIMEOUT_SECONDS, FALLBACK_SHIPPING_CENTS
 from app.models.shipping import ShippingAddress, ShippingQuote, parse_price_cents
 
@@ -21,7 +22,6 @@ logger = structlog.get_logger(__name__)
 # and covered by a regression test (test_courier_clients).
 # TODO(before-production): verify mode=calculate against the Econt sandbox — the
 # billing downside if this flag is wrong is high (review W1).
-_CALCULATE_URL = "https://ee.econt.com/services/Shipments/LabelService.createLabel.json"
 _ECONT_CALCULATE_MODE = "calculate"
 
 # label.shipmentType — confirmed valid tokens against the live API are `pack`
@@ -132,7 +132,7 @@ async def calculate(
         async with httpx.AsyncClient(
             timeout=COURIER_TIMEOUT_SECONDS, auth=(username, password)
         ) as client:
-            response = await client.post(_CALCULATE_URL, json=payload)
+            response = await client.post(get_settings().econt_calculate_url, json=payload)
         if response.status_code >= 400:
             # Log Econt's error body (truncated) so a 4xx/5xx is diagnosable —
             # the status alone doesn't say WHY (bad sender id, office code shape,

@@ -84,9 +84,9 @@ async def list_cities(
     "name + region + postcode. Same-named towns (e.g. the three 'Садово') are "
     "distinct rows disambiguated by region and postcode, so the door-delivery "
     "picker can supply the postcode the pricing API needs. Optional prefix "
-    "filter matches case-insensitively against both Bulgarian and English "
-    "names. The normalized Bulgarian place/postcode source is shared by both "
-    "Econt and Speedy for door-delivery autofill.",
+    "filter matches case-insensitively against Bulgarian/English names, "
+    "regions, and postcodes. Place data is courier-specific where available "
+    "and merged with manually verified supplement rows for known feed gaps.",
 )
 async def list_places(
     courier: Courier = Query(..., description="Courier: 'speedy' or 'econt'"),

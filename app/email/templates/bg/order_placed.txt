@@ -8,7 +8,17 @@
 - {{ item.product_name }} × {{ item.quantity }} — {{ item.line_total_display }}
 {% endfor %}
 
+Междинна сума: {{ items_total_display }}
+Доставка: {{ shipping_display }}{% if shipping_is_fallback %} (ориентировъчна){% endif %}
 Общо: {{ total_display }}
+
+{% if delivery_method_display or delivery_courier_display or delivery_lines %}
+Доставка:
+{% if delivery_method_display %}- Начин: {{ delivery_method_display }}
+{% endif %}{% if delivery_courier_display %}- Куриер: {{ delivery_courier_display }}
+{% endif %}{% for line in delivery_lines %}- {{ line }}
+{% endfor %}
+{% endif %}
 
 Ще Ви изпратим имейл веднага щом поръчката бъде изпратена.
 

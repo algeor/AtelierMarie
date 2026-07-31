@@ -460,6 +460,7 @@ function DoorAddressForm({ value, onChange, errors, locale }: DoorAddressFormPro
         onSelect={(place) =>
           onChange({ city: place.name, postal_code: place.postal_code ?? "" })
         }
+        onPostalCodeChange={(postal_code) => onChange({ postal_code })}
         error={errors.city}
       />
       {field("street", "street", true, "street")}
@@ -479,6 +480,7 @@ interface DoorPlaceFieldProps {
   city: string;
   postalCode: string;
   onSelect: (place: CityPlace) => void;
+  onPostalCodeChange: (postalCode: string) => void;
   error?: string;
 }
 
@@ -486,12 +488,21 @@ interface DoorPlaceFieldProps {
 // city typeahead but consumes getDeliveryPlaces so suggestions carry region +
 // postcode. Selecting a place autofills a read-only postcode; ambiguous towns
 // (e.g. three "Садово") appear as distinct "name — region" rows.
-function DoorPlaceField({ courier, locale, city, postalCode, onSelect, error }: DoorPlaceFieldProps) {
+function DoorPlaceField({
+  courier,
+  locale,
+  city,
+  postalCode,
+  onSelect,
+  onPostalCodeChange,
+  error,
+}: DoorPlaceFieldProps) {
   const t = useTranslations("checkout.delivery.door");
   const [query, setQuery] = useState(city);
   const [suggestions, setSuggestions] = useState<CityPlace[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [confirmed, setConfirmed] = useState<string | null>(city || null);
+  const [postalCodeLocked, setPostalCodeLocked] = useState(Boolean(postalCode));
 
   useEffect(() => {
     if (query.length < 1 || confirmed === query) {
@@ -516,6 +527,7 @@ function DoorPlaceField({ courier, locale, city, postalCode, onSelect, error }: 
   const confirmPlace = (place: CityPlace) => {
     setQuery(place.name);
     setConfirmed(place.name);
+    setPostalCodeLocked(Boolean(place.postal_code));
     setShowSuggestions(false);
     onSelect(place);
   };
@@ -533,6 +545,7 @@ function DoorPlaceField({ courier, locale, city, postalCode, onSelect, error }: 
             onChange={(e) => {
               setQuery(e.target.value);
               setConfirmed(null);
+              setPostalCodeLocked(false);
               setShowSuggestions(true);
             }}
             onFocus={() => setShowSuggestions(true)}
@@ -574,9 +587,13 @@ function DoorPlaceField({ courier, locale, city, postalCode, onSelect, error }: 
         <input
           type="text"
           value={postalCode}
-          readOnly
+          readOnly={postalCodeLocked}
+          onChange={(e) => onPostalCodeChange(e.target.value)}
           placeholder={t("postalCodePlaceholder")}
-          className="w-full cursor-not-allowed rounded-brand border border-champagne-beige bg-warm-ivory px-4 py-3 text-charcoal opacity-70 focus:outline-none"
+          className={cn(
+            "w-full rounded-brand border border-champagne-beige bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
+            postalCodeLocked && "cursor-not-allowed opacity-70 focus:ring-0"
+          )}
         />
       </div>
     </>

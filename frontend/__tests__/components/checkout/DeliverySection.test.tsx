@@ -128,4 +128,27 @@ describe("DeliverySection — courier door place picker", () => {
     const postal = screen.getByDisplayValue("1000") as HTMLInputElement;
     expect(postal.readOnly).toBe(true);
   });
+
+  it("allows manual postcode entry when a Speedy place has no postcode", async () => {
+    getDeliveryPlaces.mockResolvedValue([
+      { name: "Батак", region: null, postal_code: null },
+    ]);
+    const onChange = renderSection(SPEEDY_DOOR);
+
+    const cityInput = screen.getByPlaceholderText("e.g., Sofia");
+    fireEvent.change(cityInput, { target: { value: "Бат" } });
+
+    const batakRow = await screen.findByText("Батак");
+    fireEvent.click(batakRow);
+
+    const postal = screen.getByPlaceholderText("1000") as HTMLInputElement;
+    expect(postal.readOnly).toBe(false);
+    fireEvent.change(postal, { target: { value: "4580" } });
+
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        door: expect.objectContaining({ postal_code: "4580" }),
+      }),
+    );
+  });
 });

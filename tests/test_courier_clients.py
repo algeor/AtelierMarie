@@ -9,6 +9,8 @@ The clients import `httpx` lazily inside `calculate`, so we patch
 `httpx.AsyncClient` with a fake async context-manager client.
 """
 
+from types import SimpleNamespace
+
 import httpx
 import pytest
 
@@ -239,6 +241,43 @@ class TestSpeedyPayloadContract:
 
 
 class TestEcontClient:
+    @pytest.mark.asyncio
+    async def test_calculate_uses_configured_url(self, monkeypatch):
+        captured: dict[str, str] = {}
+
+        class _UrlCapturingClient:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def post(self, url, **kwargs):
+                captured["url"] = url
+                return _FakeResponse(200, {"label": {"totalPrice": 5.9}})
+
+        monkeypatch.setattr(httpx, "AsyncClient", lambda *args, **kwargs: _UrlCapturingClient())
+        monkeypatch.setattr(
+            econt_client,
+            "get_settings",
+            lambda: SimpleNamespace(econt_calculate_url="http://fake-econt/calculate"),
+        )
+
+        quote = await econt_client.calculate(
+            sender_name="Atelier Marie",
+            sender_phone="0899869055",
+            sender_address="ул. Тест 1",
+            sender_city="София",
+            recipient_city="Варна",
+            recipient_office_id="econt-vn-02",
+            weight_grams=1200,
+            username="u",
+            password="p",
+        )
+
+        assert quote.price_source == "live"
+        assert captured["url"] == "http://fake-econt/calculate"
+
     @pytest.mark.asyncio
     async def test_happy_path_returns_live_quote(self, monkeypatch):
         captured: list = []

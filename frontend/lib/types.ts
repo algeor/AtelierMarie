@@ -358,7 +358,7 @@ export interface CalculateShippingResponse {
   quotes: ShippingQuote[];
 }
 
-// A specific served delivery place (Econt). Same-named towns are distinct
+// A specific courier-served delivery place. Same-named towns are distinct
 // entries disambiguated by region + postcode — the postcode flows into pricing
 // so ambiguous towns quote live. Mirrors app/models/shipping.py:CityPlace.
 export interface CityPlace {

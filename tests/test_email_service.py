@@ -5,6 +5,7 @@ Uses an in-memory RecordingProvider double (no network) and the durable-outbox
 drain entry point.
 """
 
+import json
 import sqlite3
 import uuid
 from datetime import UTC, datetime
@@ -75,25 +76,35 @@ def _make_order(
     tracking_carrier: str | None = None,
     tracking_number: str | None = None,
     tracking_url: str | None = None,
+    shipping_cents: int = 0,
+    delivery_method: str | None = None,
+    delivery_courier: str | None = None,
+    delivery_details: dict | None = None,
 ) -> str:
     order_id = str(uuid.uuid4())
     now = datetime.now(UTC).strftime(_DT_FMT)
     conn.execute(
-        """INSERT INTO orders (id, session_id, status, total_cents, customer_email,
-               customer_name, locale, tracking_carrier, tracking_number, tracking_url,
+        """INSERT INTO orders (id, session_id, status, total_cents, shipping_cents,
+               customer_email, customer_name, locale, tracking_carrier, tracking_number,
+               tracking_url,
+               delivery_method, delivery_courier, delivery_details,
                created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             order_id,
             "sess-1",
             status,
             8500,
+            shipping_cents,
             email,
             name,
             locale,
             tracking_carrier,
             tracking_number,
             tracking_url,
+            delivery_method,
+            delivery_courier,
+            json.dumps(delivery_details) if delivery_details is not None else None,
             now,
             now,
         ),
@@ -170,6 +181,35 @@ class TestSendPath:
                 (order_id,),
             ).fetchone()
         assert row["status"] == "skipped_suppressed"
+
+    def test_placed_email_includes_delivery_details_from_order(self, db):
+        with get_db() as conn:
+            order_id = _make_order(
+                conn,
+                shipping_cents=650,
+                delivery_method="door",
+                delivery_courier="speedy",
+                delivery_details={
+                    "city": "София",
+                    "postal_code": "1000",
+                    "street": "ул. Витоша",
+                    "building": "1",
+                    "apartment": "5",
+                    "phone": "+359888123456",
+                },
+            )
+            queue_order_email(conn, order_id, "placed", "buyer@example.com")
+
+        provider = RecordingProvider()
+        drain_email_outbox(provider=provider, settings=_settings())
+
+        body = provider.sent[0]["body"]
+        assert "Shipping: €6.50" in body
+        assert "- Method: Door delivery" in body
+        assert "- Courier: Speedy" in body
+        assert "- Address: ул. Витоша, building 1, apt. 5" in body
+        assert "- City/place: 1000 София" in body
+        assert "- Phone: +359888123456" in body
 
 
 class TestIdempotency:

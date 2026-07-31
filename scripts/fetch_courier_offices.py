@@ -3,14 +3,16 @@
 One-off script — run manually when the office lists need refreshing (~quarterly
 per courier-offices-data spec). Reads credentials from environment variables:
 
-    SPEEDY_USERNAME, SPEEDY_PASSWORD   # https://api.speedy.bg/v1/location/office
+    SPEEDY_USERNAME, SPEEDY_PASSWORD   # https://api.speedy.bg/v1/location/office|site
     ECONT_USERNAME, ECONT_PASSWORD     # https://ee.econt.com/services/Nomenclatures/...
 
 Writes `data/speedy_offices.json` and `data/econt_offices.json` in the unified
 6-field schema (id, name, type, city, address, working_hours) with bilingual
-`_en` variants for i18n. Also writes `data/econt_cities.json` — Econt's full
-served-places nomenclature (name/postcode/region), the source that lets
-ambiguous same-named towns price live (see delivery_service.get_places).
+`_en` variants for i18n. Also writes served-place files used by door delivery:
+`data/econt_cities.json` from Econt's city nomenclature and
+`data/speedy_sites.json` from Speedy's `/location/site` nomenclature. A small
+`data/served_places_supplement.json` is loaded at runtime for manually verified
+settlements missing from courier feeds.
 
 Design:
 - `CourierSource` dataclass groups per-courier fetch + normalize logic
@@ -27,6 +29,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 import logging
 import os
@@ -43,14 +47,23 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
-from scripts.normalize_econt_office_data import normalize_econt
-
 logger = logging.getLogger("fetch_courier_offices")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = REPO_ROOT / "data"
 
+try:
+    from scripts.normalize_econt_office_data import normalize_econt
+except ModuleNotFoundError:  # Allows `python scripts/fetch_courier_offices.py`.
+    sys.path.insert(0, str(REPO_ROOT))
+    from scripts.normalize_econt_office_data import normalize_econt
+
 SPEEDY_URL = "https://api.speedy.bg/v1/location/office"
+# Bulk CSV export of every served settlement (countryId 100 = Bulgaria in the
+# path). The plain `/location/site` JSON endpoint hard-caps at 10 records, so it
+# cannot back the door-delivery place lookup; the CSV variant returns the full
+# ~5300-row nomenclature with no pagination.
+SPEEDY_SITES_URL = "https://api.speedy.bg/v1/location/site/csv/100"
 ECONT_URL = "https://ee.econt.com/services/Nomenclatures/NomenclaturesService.getOffices.json"
 ECONT_CITIES_URL = "https://ee.econt.com/services/Nomenclatures/NomenclaturesService.getCities.json"
 
@@ -96,6 +109,13 @@ def _post_json(url: str, payload: dict) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
+def _get_text(url: str) -> str:
+    """GET `url`, return decoded text. Raises urllib errors."""
+    req = urllib.request.Request(url, method="GET")  # noqa: S310 — trusted hosts.
+    with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT_S) as resp:  # noqa: S310
+        return resp.read().decode("utf-8-sig")
+
+
 def _fetch_speedy() -> dict:
     """Fetch full Speedy office list. Credentials from env."""
     settings = get_courier_fetch_settings()
@@ -114,6 +134,52 @@ def _fetch_speedy() -> dict:
         "countryId": 100,  # Bulgaria
     }
     return _post_json(SPEEDY_URL, payload)
+
+
+def _fetch_speedy_sites() -> dict:
+    """Fetch Speedy's served-site nomenclature for door-delivery places."""
+    return _parse_speedy_sites_export(_get_text(SPEEDY_SITES_URL))
+
+
+def _parse_speedy_sites_export(body: str) -> dict:
+    """Parse Speedy's full site export, accepting JSON or delimited text."""
+    body = body.strip()
+    if not body:
+        return {"sites": []}
+    if body[0] in "[{":
+        parsed = json.loads(body)
+        return {"sites": parsed} if isinstance(parsed, list) else parsed
+
+    sample = body[:4096]
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
+    except csv.Error:
+        dialect = csv.excel
+    rows = [dict(row) for row in csv.DictReader(io.StringIO(body), dialect=dialect)]
+    return {"sites": rows}
+
+
+def _text_field(record: dict, *keys: str) -> str | None:
+    """Extract a non-empty string from flat or lightly nested API fields."""
+    for key in keys:
+        value = record.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, (int, float)):
+            return str(value)
+        if isinstance(value, dict):
+            for nested_key in ("name", "nameEn", "value"):
+                nested = value.get(nested_key)
+                if isinstance(nested, str) and nested.strip():
+                    return nested.strip()
+    return None
+
+
+def _display_text(value: str | None) -> str | None:
+    """Humanize courier nomenclature text without changing mixed-case values."""
+    if not value:
+        return None
+    return value.title() if value.isupper() else value
 
 
 def _extract_city_en_candidate(name_en: str) -> str:
@@ -208,13 +274,43 @@ def _normalize_speedy(raw: dict) -> list[dict]:
     return out
 
 
+def _normalize_speedy_sites(raw: dict) -> list[dict]:
+    """Speedy `/location/site` payload → served-place records.
+
+    The site feed is the correct Speedy source for to-door settlement lookup;
+    the office feed only contains towns that host an office/locker. The normalizer
+    accepts the field names used by Speedy's REST examples (`name`, `nameEn`,
+    `postCode`, `region`) and a few equivalent aliases so minor response-shape
+    differences do not drop otherwise valid rows.
+    """
+    sites = raw if isinstance(raw, list) else raw.get("sites") or raw.get("results") or []
+    out: list[dict] = []
+    for site in sites:
+        if not isinstance(site, dict):
+            continue
+        name = _text_field(site, "name", "siteName")
+        postal_code = _text_field(site, "postCode", "postalCode", "post_code")
+        if not name or not postal_code:
+            continue
+        out.append(
+            {
+                "name": _display_text(name),
+                "name_en": _display_text(_text_field(site, "nameEn", "siteNameEn")),
+                "postal_code": postal_code,
+                "region": _display_text(_text_field(site, "region", "regionName")),
+                "region_en": _display_text(_text_field(site, "regionEn", "regionNameEn")),
+            }
+        )
+    return out
+
+
 def _fetch_econt() -> dict:
     """Fetch full Econt office list. Credentials optional (public endpoint)."""
     return _post_econt(ECONT_URL, b"{}")
 
 
 def _fetch_econt_cities() -> dict:
-    """Fetch Econt's served-settlements nomenclature. Credentials optional (public).
+    """Fetch Econt's city/settlement nomenclature. Credentials optional (public).
 
     Despite the endpoint name, `getCities` is NOT towns-only: it is Econt's
     authoritative list of every settlement it delivers to — villages included
@@ -223,13 +319,9 @@ def _fetch_econt_cities() -> dict:
     of which 1425 support `to_door_courier` and 1407 `to_office_courier`
     (each record's `servingOffices` array carries the serving types). This is
     the source that lets ambiguous same-named settlements (e.g. the three
-    "Садово") price live instead of degrading to the flat fallback.
-
-    There is no larger "all places" endpoint: settlements absent here are ones
-    Econt genuinely does not serve, not a gap in our data. `getStreets` gives
-    street-level detail WITHIN a settlement (finer, not more settlements);
-    `getOffices` is narrower still (only 214 office-hosting towns). See
-    delivery_service.get_places.
+    "Садово") price live instead of degrading to the flat fallback. Real-world
+    checks found legitimate delivered-to villages missing from the local Econt
+    export, so runtime lookup also merges `served_places_supplement.json`.
     """
     return _post_econt(ECONT_CITIES_URL, b'{"countryCode":"BGR"}')
 
@@ -305,6 +397,12 @@ SOURCES: list[CourierSource] = [
         output_path=DATA_DIR / "speedy_offices.json",
         fetch=_fetch_speedy,
         normalize=_normalize_speedy,
+    ),
+    CourierSource(
+        name="speedy-sites",
+        output_path=DATA_DIR / "speedy_sites.json",
+        fetch=_fetch_speedy_sites,
+        normalize=_normalize_speedy_sites,
     ),
     CourierSource(
         name="econt",
