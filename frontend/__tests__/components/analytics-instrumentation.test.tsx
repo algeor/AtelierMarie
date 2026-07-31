@@ -66,6 +66,25 @@ vi.mock("@/lib/analytics", () => ({
 
 vi.mock("@/lib/api", () => ({
   createOrder: (...args: unknown[]) => mockCreateOrder(...args),
+  calculateShipping: vi.fn().mockResolvedValue({
+    quotes: [
+      {
+        courier: "speedy",
+        cents: 500,
+        estimated_delivery_days: 2,
+        is_fallback: false,
+        price_source: "live",
+        quoted_at: "2026-07-31 12:00:00",
+      },
+    ],
+  }),
+  getDeliverySettings: vi.fn().mockResolvedValue({
+    speedy_office_enabled: true,
+    speedy_door_enabled: true,
+    econt_office_enabled: true,
+    econt_door_enabled: true,
+    updated_at: "2026-07-31 12:00:00",
+  }),
 }));
 
 vi.mock("@/contexts/CartContext", () => ({
@@ -74,6 +93,10 @@ vi.mock("@/contexts/CartContext", () => ({
 
 vi.mock("@/contexts/CookieConsentContext", () => ({
   useCookieConsent: () => ({ analytics: true }),
+}));
+
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => ({ user: null, isLoading: false, error: null }),
 }));
 
 vi.mock("@/i18n/navigation", () => ({
@@ -243,7 +266,7 @@ describe("storefront analytics instrumentation", () => {
       shipping_cents: 0,
       total_cents: 2000,
       customer_email: "test@example.com",
-      customer_name: null,
+      customer_name: "Test Buyer",
       delivery_method: "office",
       delivery_courier: "speedy",
       delivery_details: null,
@@ -268,8 +291,11 @@ describe("storefront analytics instrumentation", () => {
       "delivery_selected",
       { delivery_method: "office", delivery_courier: "speedy" }
     );
+    const shippingOption = await screen.findByRole("radio", { name: /speedy/i });
+    fireEvent.click(shippingOption);
 
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "test@example.com" } });
+    fireEvent.change(screen.getByLabelText(/name/i), { target: { value: "Test Buyer" } });
     fireEvent.click(screen.getAllByRole("button", { name: /place order/i })[0]!);
 
     await waitFor(() => expect(mockTrackAnalytics).toHaveBeenCalledWith(

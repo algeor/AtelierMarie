@@ -144,6 +144,8 @@ import type {
   CommentListResponse,
   CommentResponse,
   CommentSort,
+  CalculateShippingRequest,
+  CalculateShippingResponse,
 } from "./types";
 
 export async function toggleReaction(
@@ -185,6 +187,14 @@ export async function getComments(
   return get<CommentListResponse>(
     `/v1/products/${productId}/comments?sort=${sort}&page=${page}&limit=${limit}`
   );
+}
+
+// --- Shipping ---
+
+export async function calculateShipping(
+  payload: CalculateShippingRequest
+): Promise<CalculateShippingResponse> {
+  return post<CalculateShippingResponse>("/v1/delivery/calculate", payload);
 }
 
 export { BASE_URL };

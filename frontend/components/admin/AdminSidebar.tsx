@@ -51,6 +51,16 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    labelKey: "deliveryNav",
+    href: "/admin/delivery",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm10.5 0a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 6.75h11.25v8.25H3V6.75zm11.25 3h3.57c.4 0 .78.19 1.02.51l2.16 2.88v1.86h-6.75V9.75zM5.25 18.75H3.75a.75.75 0 01-.75-.75v-3h18v3a.75.75 0 01-.75.75h-1.5m-10.5 0h7.5" />
+      </svg>
+    ),
+  },
+  {
     labelKey: "taxonomy.navLabel",
     href: "/admin/taxonomy",
     icon: (

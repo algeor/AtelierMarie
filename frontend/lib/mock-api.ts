@@ -18,6 +18,8 @@ import type {
   BulkDiscountRequest,
   BulkDiscountResponse,
   BulkResultItem,
+  CalculateShippingRequest,
+  CalculateShippingResponse,
   CampaignCreateRequest,
   CampaignListResponse,
   CampaignResponse,
@@ -31,6 +33,9 @@ import type {
   ContactRequest,
   ContactResponse,
   Courier,
+  DeliverySettingsResponse,
+  DeliverySettingsUpdate,
+  CityPlace,
   CreateOrderRequest,
   CreateAboutItemRequest,
   CreateFaqItemRequest,
@@ -50,6 +55,7 @@ import type {
   PatchAboutSectionRequest,
   ProductListResponse,
   ProductImage,
+  ShippingQuote,
   ProductResponse,
   ProductVideo,
   PublicBannerResponse,
@@ -805,6 +811,7 @@ export async function getDeliveryOffices(
   type?: OfficeType
 ): Promise<OfficeResponse[]> {
   await delay();
+  if (!deliveryEnabled(courier, "office")) return [];
   const cityLc = city.toLowerCase();
   return MOCK_OFFICES[courier].filter(
     (o) => o.city.toLowerCase() === cityLc && (!type || o.type === type)
@@ -816,22 +823,199 @@ export async function getDeliveryCities(
   query?: string
 ): Promise<string[]> {
   await delay();
+  if (!deliveryEnabled(courier, "office")) return [];
   const cities = Array.from(new Set(MOCK_OFFICES[courier].map((o) => o.city))).sort();
   if (!query) return cities;
   const q = query.toLowerCase();
   return cities.filter((c) => c.toLowerCase().startsWith(q));
 }
 
+// Fixtures include the ambiguous "Садово" (three towns, distinct postcodes) so
+// the place-picker + postcode-autofill flow can be exercised without a backend.
+const MOCK_PLACES: Record<Courier, CityPlace[]> = {
+  econt: [
+    { name: "София", region: "София (столица)", postal_code: "1000" },
+    { name: "Пловдив", region: "Пловдив", postal_code: "4000" },
+    { name: "Садово", region: "Пловдив", postal_code: "4122" },
+    { name: "Садово", region: "Благоевград", postal_code: "2922" },
+    { name: "Садово", region: "Бургас", postal_code: "8463" },
+    { name: "Нови Пазар", region: "Шумен", postal_code: "9900" },
+    { name: "Искър", region: "Плевен", postal_code: "5868" },
+    { name: "Искър", region: "Плевен", postal_code: "5972" },
+    { name: "Згориград", region: "Враца", postal_code: "3042" },
+  ],
+  speedy: [
+    { name: "София", region: "София (столица)", postal_code: "1000" },
+    { name: "Пловдив", region: "Пловдив", postal_code: "4000" },
+    { name: "Садово", region: "Пловдив", postal_code: "4122" },
+    { name: "Садово", region: "Благоевград", postal_code: "2922" },
+    { name: "Садово", region: "Бургас", postal_code: "8463" },
+    { name: "Нови Пазар", region: "Шумен", postal_code: "9900" },
+    { name: "Искър", region: "Плевен", postal_code: "5868" },
+    { name: "Искър", region: "Плевен", postal_code: "5972" },
+    { name: "Згориград", region: "Враца", postal_code: "3042" },
+    { name: "Роман", region: "Враца", postal_code: "3130" },
+    { name: "Батак", region: null, postal_code: null },
+  ],
+};
+
+function foldPlaceSearch(value?: string | null): string {
+  return (value ?? "").toLowerCase().trim().replace(/\s+/g, " ");
+}
+
+function placeSearchTokens(value: string): string[] {
+  return value ? value.split(/[^\p{L}\p{N}_]+/u).filter(Boolean) : [];
+}
+
+function placeMatchScore(place: CityPlace, query: string): number | null {
+  if (!query) return 0;
+
+  const fields = [place.name, place.region, place.postal_code].map(foldPlaceSearch).filter(Boolean);
+  const name = foldPlaceSearch(place.name);
+  const postalCode = foldPlaceSearch(place.postal_code);
+  const tokens = placeSearchTokens(query);
+
+  if (query === name || query === postalCode) return 0;
+  if (name.startsWith(query)) return 1;
+  if (
+    tokens.length === 1 &&
+    tokens.some((token) => name.split(/\s+/).some((part) => part.startsWith(token)))
+  ) {
+    return 2;
+  }
+  if (fields.some((field) => field.includes(query))) return 3;
+  if (tokens.length > 0 && tokens.every((token) => fields.some((field) => field.includes(token)))) {
+    return 4;
+  }
+  return null;
+}
+
+export async function getDeliveryPlaces(
+  courier: Courier,
+  query?: string
+): Promise<CityPlace[]> {
+  await delay();
+  if (!deliveryEnabled(courier, "door")) return [];
+  const places = MOCK_PLACES[courier] ?? [];
+  const q = foldPlaceSearch(query);
+  return places
+    .map((place) => ({ place, score: placeMatchScore(place, q) }))
+    .filter((entry): entry is { place: CityPlace; score: number } => entry.score !== null)
+    .sort((a, b) => {
+      if (a.score !== b.score) return a.score - b.score;
+      return `${a.place.name}|${a.place.region ?? ""}|${a.place.postal_code ?? ""}`.localeCompare(
+        `${b.place.name}|${b.place.region ?? ""}|${b.place.postal_code ?? ""}`,
+      );
+    })
+    .map((entry) => entry.place);
+}
+
+const MOCK_FREE_SHIPPING_THRESHOLD_CENTS = 5000;
+const MOCK_FALLBACK_SHIPPING_CENTS = 500;
+
+let mockDeliverySettings: DeliverySettingsResponse = {
+  speedy_office_enabled: true,
+  speedy_door_enabled: true,
+  econt_office_enabled: true,
+  econt_door_enabled: true,
+  updated_at: new Date().toISOString(),
+};
+
+function deliveryEnabled(courier: Courier, method: "office" | "door"): boolean {
+  const key = `${courier}_${method}_enabled` as keyof DeliverySettingsUpdate;
+  return mockDeliverySettings[key];
+}
+
+/** Base live prices per courier (cents) + delivery estimate (days). */
+const MOCK_LIVE_QUOTES: Record<Courier, { cents: number; days: number }> = {
+  speedy: { cents: 650, days: 2 },
+  econt: { cents: 590, days: 3 },
+};
+
+/**
+ * Mock the shipping calculator.
+ * - Free shipping (0¢, live) when items_total_cents >= threshold.
+ * - Otherwise returns live quotes for each requested courier.
+ * - Set `address.city` to "fallback" (case-insensitive) or `office_id` to
+ *   "fallback" to simulate a courier outage → flat fallback quotes.
+ */
+export async function calculateShipping(
+  payload: CalculateShippingRequest
+): Promise<CalculateShippingResponse> {
+  await delay();
+  if (payload.couriers.some((courier) => !deliveryEnabled(courier, payload.method))) {
+    mockError("DELIVERY_METHOD_UNAVAILABLE", "Delivery method is currently unavailable");
+  }
+  const now = new Date().toISOString();
+  const couriers = payload.couriers.length > 0 ? payload.couriers : (["speedy", "econt"] as Courier[]);
+
+  if (payload.items_total_cents >= MOCK_FREE_SHIPPING_THRESHOLD_CENTS) {
+    return {
+      quotes: couriers.map((courier) => ({
+        courier,
+        cents: 0,
+        estimated_delivery_days: MOCK_LIVE_QUOTES[courier].days,
+        is_fallback: false,
+        price_source: "live",
+        quoted_at: now,
+      })),
+    };
+  }
+
+  const simulateFallback =
+    payload.city.toLowerCase() === "fallback" || payload.office_id === "fallback";
+
+  const quotes: ShippingQuote[] = couriers.map((courier) => {
+    if (simulateFallback) {
+      return {
+        courier,
+        cents: MOCK_FALLBACK_SHIPPING_CENTS,
+        estimated_delivery_days: null,
+        is_fallback: true,
+        price_source: "flat",
+        quoted_at: null,
+      };
+    }
+    return {
+      courier,
+      cents: MOCK_LIVE_QUOTES[courier].cents,
+      estimated_delivery_days: MOCK_LIVE_QUOTES[courier].days,
+      is_fallback: false,
+      price_source: "live",
+      quoted_at: now,
+    };
+  });
+
+  return { quotes };
+}
+
 export async function createOrder(
   data: CreateOrderRequest
 ): Promise<OrderResponse> {
   await delay();
+  const customerName = data.customer_name.trim();
+  if (!customerName) {
+    mockError("VALIDATION_ERROR", "Name is required");
+  }
+  const courier =
+    data.delivery.method === "office"
+      ? data.delivery.office?.courier
+      : data.delivery.door?.courier;
+  if (courier && !deliveryEnabled(courier, data.delivery.method)) {
+    mockError("DELIVERY_METHOD_UNAVAILABLE", "Delivery method is currently unavailable");
+  }
   if (mockCartItems.length === 0) {
     mockError("VALIDATION_ERROR", "Cart is empty");
   }
 
   const cart = buildCartResponse();
   const now = new Date().toISOString();
+
+  // Server-side free-shipping enforcement mirror: total >= threshold → 0¢, live.
+  const freeShipping = cart.total_cents >= MOCK_FREE_SHIPPING_THRESHOLD_CENTS;
+  const shipping_cents = freeShipping ? 0 : data.shipping_cents ?? 0;
+  const shipping_price_source = freeShipping ? "live" : data.shipping_price_source ?? "live";
+  const shipping_is_fallback = freeShipping ? false : data.shipping_is_fallback ?? false;
 
   const order: OrderResponse = {
     id: generateOrderId(),
@@ -844,10 +1028,12 @@ export async function createOrder(
     stripe_checkout_url: null,
     analytics_consent: data.analytics_consent ?? false,
     items_total_cents: cart.total_cents,
-    shipping_cents: 0,
-    total_cents: cart.total_cents,
+    shipping_cents,
+    shipping_price_source,
+    shipping_is_fallback,
+    total_cents: cart.total_cents + shipping_cents,
     customer_email: data.customer_email,
-    customer_name: data.customer_name ?? null,
+    customer_name: customerName,
     delivery_method: data.delivery.method,
     delivery_courier:
       data.delivery.method === "office"
@@ -867,6 +1053,8 @@ export async function createOrder(
     tracking_number: null,
     tracking_carrier: null,
     tracking_url: null,
+    courier_status: null,
+    label_url: null,
     created_at: now,
     updated_at: now,
   };
@@ -875,6 +1063,27 @@ export async function createOrder(
   mockCartItems = [];
 
   return order;
+}
+
+export async function getDeliverySettings(): Promise<DeliverySettingsResponse> {
+  await delay();
+  return { ...mockDeliverySettings };
+}
+
+export async function getAdminDeliverySettings(): Promise<DeliverySettingsResponse> {
+  await delay();
+  return { ...mockDeliverySettings };
+}
+
+export async function updateAdminDeliverySettings(
+  data: DeliverySettingsUpdate
+): Promise<DeliverySettingsResponse> {
+  await delay();
+  mockDeliverySettings = {
+    ...data,
+    updated_at: new Date().toISOString(),
+  };
+  return { ...mockDeliverySettings };
 }
 
 export async function getOrders(
@@ -940,6 +1149,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     analytics_consent: true,
     items_total_cents: 7700,
     shipping_cents: 0,
+    shipping_price_source: "live",
+    shipping_is_fallback: false,
     total_cents: 7700,
     customer_email: "alice@example.com",
     customer_name: "Alice Johnson",
@@ -950,6 +1161,7 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
       office_id: "speedy-sf-001",
       office_name: "Speedy офис София Център",
       office_type: "office",
+      city: "София",
       phone: "+359888123456",
     },
     notes: null,
@@ -960,6 +1172,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     tracking_number: null,
     tracking_carrier: null,
     tracking_url: null,
+    courier_status: null,
+    label_url: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -972,6 +1186,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     analytics_consent: false,
     items_total_cents: 5600,
     shipping_cents: 0,
+    shipping_price_source: "live",
+    shipping_is_fallback: false,
     total_cents: 5600,
     customer_email: "bob@example.com",
     customer_name: "Bob Smith",
@@ -993,6 +1209,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     tracking_number: null,
     tracking_carrier: null,
     tracking_url: null,
+    courier_status: null,
+    label_url: null,
     created_at: new Date(Date.now() - 86400000).toISOString(),
     updated_at: new Date(Date.now() - 43200000).toISOString(),
   },
@@ -1005,6 +1223,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     analytics_consent: true,
     items_total_cents: 3200,
     shipping_cents: 0,
+    shipping_price_source: "live",
+    shipping_is_fallback: false,
     total_cents: 3200,
     customer_email: "carol@example.com",
     customer_name: "Carol Davis",
@@ -1015,6 +1235,7 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
       office_id: "econt-plovdiv-001",
       office_name: "Econt Пловдив Централ",
       office_type: "office",
+      city: "Пловдив",
       phone: "+359877111222",
     },
     notes: null,
@@ -1024,6 +1245,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     tracking_number: "1234567890",
     tracking_carrier: "speedy",
     tracking_url: "https://www.speedy.bg/en/track-shipment?shipmentNumber=1234567890",
+    courier_status: "in_transit",
+    label_url: null,
     created_at: new Date(Date.now() - 172800000).toISOString(),
     updated_at: new Date(Date.now() - 86400000).toISOString(),
   },
@@ -1036,6 +1259,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     analytics_consent: true,
     items_total_cents: 9000,
     shipping_cents: 0,
+    shipping_price_source: "live",
+    shipping_is_fallback: false,
     total_cents: 9000,
     customer_email: "dave@example.com",
     customer_name: "Dave Wilson",
@@ -1046,6 +1271,7 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
       office_id: "speedy-apt-sf-01",
       office_name: "Speedy Автомат Витоша Мол",
       office_type: "apt",
+      city: "София",
       phone: "+359899555000",
     },
     notes: null,
@@ -1055,6 +1281,8 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     tracking_number: "JD014600003922222222",
     tracking_carrier: "dhl",
     tracking_url: "https://www.dhl.com/en/express/tracking.html?AWB=JD014600003922222222",
+    courier_status: "delivered",
+    label_url: null,
     created_at: new Date(Date.now() - 604800000).toISOString(),
     updated_at: new Date(Date.now() - 259200000).toISOString(),
   },
@@ -1438,17 +1666,22 @@ export async function updateOrderStatus(
   }
 
   if (status === "shipped") {
-    if (!tracking?.tracking_number || !tracking?.tracking_carrier) {
+    if (!tracking?.tracking_number && order.delivery_courier === "speedy") {
+      order.tracking_number = "63689182611";
+      order.tracking_carrier = "speedy";
+      order.tracking_url = buildTrackingUrl("speedy", "63689182611");
+    } else if (!tracking?.tracking_number || !tracking?.tracking_carrier) {
       mockError(
         "TRACKING_REQUIRED",
         "tracking_number and tracking_carrier are required when shipping"
       );
+    } else {
+      order.tracking_number = tracking.tracking_number;
+      order.tracking_carrier = tracking.tracking_carrier;
+      order.tracking_url =
+        tracking.tracking_url ??
+        buildTrackingUrl(tracking.tracking_carrier, tracking.tracking_number);
     }
-    order.tracking_number = tracking.tracking_number;
-    order.tracking_carrier = tracking.tracking_carrier;
-    order.tracking_url =
-      tracking.tracking_url ??
-      buildTrackingUrl(tracking.tracking_carrier, tracking.tracking_number);
   }
 
   order.status = status;

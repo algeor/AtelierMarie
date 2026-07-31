@@ -221,6 +221,13 @@ CREATE TABLE IF NOT EXISTS orders (
     total_cents INTEGER NOT NULL CHECK (total_cents >= 0),
     customer_email TEXT NOT NULL,
     customer_name  TEXT,
+    -- Shipping price + provenance (shipping-pricing — Phase A). shipping_cents
+    -- sums with items subtotal into total_cents. Provenance records how the
+    -- price was derived, for later reconciliation.
+    shipping_cents INTEGER NOT NULL DEFAULT 0 CHECK (shipping_cents >= 0),
+    shipping_price_source TEXT NOT NULL DEFAULT 'live',
+    shipping_is_fallback INTEGER NOT NULL DEFAULT 0,
+    shipping_quoted_at TEXT,
     delivery_method TEXT CHECK (delivery_method IN ('office', 'door')),
     delivery_courier TEXT CHECK (delivery_courier IN ('speedy', 'econt')),
     delivery_details TEXT,  -- JSON blob (DeliveryOffice or DeliveryDoor)
@@ -228,6 +235,12 @@ CREATE TABLE IF NOT EXISTS orders (
     tracking_number  TEXT,
     tracking_carrier TEXT,
     tracking_url     TEXT,
+    -- Courier transit status (Speedy /track normalized; display-only, does NOT
+    -- drive the order state machine — speedy-integration Decision 4). NULL until
+    -- a track poll runs.
+    courier_status   TEXT,
+    -- Printable-label URL/id when a waybill was created via the courier API.
+    label_url        TEXT,
     -- Customer locale snapshotted at checkout (email language is a fact of the
     -- order, not a session lookup — see email-notifications design Decision 8).
     locale      TEXT NOT NULL DEFAULT 'en',
@@ -433,6 +446,18 @@ CREATE TABLE IF NOT EXISTS site_banners (
     updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Admin-managed delivery availability switches. Singleton row (id = 'default').
+-- All methods default to enabled to preserve existing checkout behavior until an
+-- admin explicitly pauses a courier/method pair.
+CREATE TABLE IF NOT EXISTS delivery_settings (
+    id                    TEXT PRIMARY KEY DEFAULT 'default',
+    speedy_office_enabled INTEGER NOT NULL DEFAULT 1 CHECK (speedy_office_enabled IN (0, 1)),
+    speedy_door_enabled   INTEGER NOT NULL DEFAULT 1 CHECK (speedy_door_enabled IN (0, 1)),
+    econt_office_enabled  INTEGER NOT NULL DEFAULT 1 CHECK (econt_office_enabled IN (0, 1)),
+    econt_door_enabled    INTEGER NOT NULL DEFAULT 1 CHECK (econt_door_enabled IN (0, 1)),
+    updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Atelier story page content (about-management). Slugs and types are fixed
 -- server vocabulary; admin can edit text/images, publish state, and order.
 CREATE TABLE IF NOT EXISTS about_sections (
@@ -486,6 +511,11 @@ END;
 CREATE TRIGGER IF NOT EXISTS orders_updated_at AFTER UPDATE ON orders
 BEGIN
     UPDATE orders SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS delivery_settings_updated_at AFTER UPDATE ON delivery_settings
+BEGIN
+    UPDATE delivery_settings SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
 END;
 
 CREATE TRIGGER IF NOT EXISTS faq_sections_updated_at AFTER UPDATE ON faq_sections
@@ -675,6 +705,7 @@ def init_db(path: str) -> None:
         _migrate_taxonomy(conn)
         _migrate_product_label_assignments_table(conn)
         _seed_site_banner(conn)
+        _seed_delivery_settings(conn)
         _seed_about_content(conn)
         _migrate_faq(conn)
         _migrate_faq_returns_policy_reference(conn)
@@ -704,6 +735,18 @@ def _seed_site_banner(conn: sqlite3.Connection) -> None:
             'Безплатна доставка за поръчки над 50€ ✨',
             1, 1, datetime('now')
         )
+        """
+    )
+
+
+def _seed_delivery_settings(conn: sqlite3.Connection) -> None:
+    """Seed the singleton delivery availability row with all methods enabled."""
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO delivery_settings (
+            id, speedy_office_enabled, speedy_door_enabled,
+            econt_office_enabled, econt_door_enabled, updated_at
+        ) VALUES ('default', 1, 1, 1, 1, datetime('now'))
         """
     )
 
@@ -1251,6 +1294,11 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
             conn, "orders", order_columns, "tracking_carrier", "tracking_carrier TEXT"
         )
         _add_column_if_missing(conn, "orders", order_columns, "tracking_url", "tracking_url TEXT")
+        # Courier transit status + label url (speedy-integration).
+        _add_column_if_missing(
+            conn, "orders", order_columns, "courier_status", "courier_status TEXT"
+        )
+        _add_column_if_missing(conn, "orders", order_columns, "label_url", "label_url TEXT")
         _add_column_if_missing(
             conn, "orders", order_columns, "locale", "locale TEXT NOT NULL DEFAULT 'en'"
         )
@@ -1284,6 +1332,35 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
             order_columns,
             "stripe_payment_intent_id",
             "stripe_payment_intent_id TEXT",
+        )
+        # Shipping price + provenance (shipping-pricing — Phase A).
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "shipping_cents",
+            "shipping_cents INTEGER NOT NULL DEFAULT 0",
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "shipping_price_source",
+            "shipping_price_source TEXT NOT NULL DEFAULT 'live'",
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "shipping_is_fallback",
+            "shipping_is_fallback INTEGER NOT NULL DEFAULT 0",
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "shipping_quoted_at",
+            "shipping_quoted_at TEXT",
         )
         _add_column_if_missing(
             conn,

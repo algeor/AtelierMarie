@@ -8,19 +8,31 @@ import json
 import sqlite3
 import uuid
 from datetime import UTC, datetime
-from typing import Literal, TypedDict
+from typing import Literal, TypedDict, get_args
 
 import structlog
 
-from app.constants import MAX_LIMIT, MAX_PAGE, STATUS_TO_EMAIL_EVENT, tracking_url_for
+from app.constants import (
+    FREE_SHIPPING_THRESHOLD_CENTS,
+    MAX_LIMIT,
+    MAX_PAGE,
+    SHIPPING_CENTS_MAX,
+    STATUS_TO_EMAIL_EVENT,
+    ShippingPriceSource,
+    tracking_url_for,
+)
 from app.models.delivery import DeliveryInfo
 from app.models.orders import OrderStatus
-from app.services import delivery_service, pricing
+from app.services import delivery_service, delivery_settings_service, pricing
 
 logger = structlog.get_logger(__name__)
 
 # SQLite-compatible datetime format
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
+
+# Runtime whitelist for the shipping price-source provenance column, derived from
+# the Literal so it can never drift from the type (same pattern as OrderStatus).
+_VALID_PRICE_SOURCES: frozenset[str] = frozenset(get_args(ShippingPriceSource))
 
 # Valid state transitions for orders
 VALID_TRANSITIONS: dict[str, set[str]] = {
@@ -39,6 +51,22 @@ def _localized_product_name(locale: Locale) -> str:
     if locale == "bg":
         return "COALESCE(NULLIF(p.name_bg, ''), p.name_en, '') AS name"
     return "COALESCE(NULLIF(p.name_en, ''), p.name_bg, '') AS name"
+
+
+def _normalize_quoted_at(value: str | None) -> str | None:
+    """Keep `quoted_at` only if it parses as our SQLite timestamp format.
+
+    The client echoes this back from the quote; it is audit metadata, so we
+    drop anything that isn't a well-formed `_DT_FMT` string rather than persist
+    a fabricated value (review W3). None (no quote timestamp) is passed through.
+    """
+    if value is None:
+        return None
+    try:
+        datetime.strptime(value, _DT_FMT)
+    except ValueError:
+        return None
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +98,21 @@ class EmptyCartError(OrderServiceError):
     """Raised when cart has no items at checkout."""
 
 
+class InvalidShippingPriceError(OrderServiceError):
+    """Raised when a client-submitted shipping_cents is out of the accepted range.
+
+    Translated to a 422 with code INVALID_SHIPPING_PRICE at the route layer.
+    Server range-validates rather than trusting the frontend (parent Decision 16).
+    """
+
+    def __init__(self, shipping_cents: int, max_cents: int) -> None:
+        self.shipping_cents = shipping_cents
+        self.max_cents = max_cents
+        super().__init__(
+            f"shipping_cents {shipping_cents} is outside the accepted range [0, {max_cents}]"
+        )
+
+
 class InsufficientStockError(OrderServiceError):
     """Raised when a product does not have enough stock."""
 
@@ -99,6 +142,15 @@ class InvalidDeliveryOfficeError(OrderServiceError):
         self.courier = courier
         self.reason = reason
         super().__init__(f"Invalid {courier} office '{office_id}': {reason}")
+
+
+class DeliveryMethodUnavailableError(OrderServiceError):
+    """Raised when checkout uses an admin-disabled courier/method pair."""
+
+    def __init__(self, courier: str, method: str) -> None:
+        self.courier = courier
+        self.method = method
+        super().__init__(f"{courier} {method} delivery is currently unavailable")
 
 
 class InvalidStateTransitionError(OrderServiceError):
@@ -135,6 +187,65 @@ class TrackingRequiredError(OrderServiceError):
         super().__init__(f"Tracking information required when shipping: {', '.join(missing)}")
 
 
+def _create_speedy_waybill(row: sqlite3.Row) -> tuple[str, str | None]:
+    """Create a Speedy waybill from an order row; return (tracking_number, label_url).
+
+    Raises speedy_client.ShipmentCreationError on failure (surfaced to admin as a
+    502 by the route). Called inside the ship transaction BEFORE the UPDATE, so a
+    failure aborts the transaction (design Decision 3). Imported lazily to keep
+    Layer-1 order state free of a hard courier-module dependency at import time.
+    """
+    from app.config import get_settings
+    from app.services import speedy_client
+
+    settings = get_settings()
+    details_raw = row["delivery_details"] if "delivery_details" in row.keys() else None
+    details: dict = {}
+    if details_raw:
+        try:
+            details = json.loads(details_raw)
+        except json.JSONDecodeError:
+            details = {}
+
+    method = row["delivery_method"] if "delivery_method" in row.keys() else None
+    recipient_name = details.get("office_name") or row["customer_name"] or "Recipient"
+    phone = details.get("phone") or ""
+    # COD orders collect the full order total (items + shipping) on delivery.
+    payment_method = row["payment_method"] if "payment_method" in row.keys() else "cod"
+    payment_status = row["payment_status"] if "payment_status" in row.keys() else ""
+    cod_cents = row["total_cents"] if payment_method == "cod" and payment_status != "paid" else None
+
+    if method == "office":
+        tracking = speedy_client.create_shipment_sync(
+            client_id=settings.speedy_client_id,
+            recipient_name=recipient_name,
+            recipient_phone=phone,
+            weight_grams=0,
+            username=settings.speedy_api_username,
+            password=settings.speedy_api_password.get_secret_value(),
+            order_ref=row["id"],
+            recipient_office_id=details.get("office_id"),
+            recipient_city=details.get("city"),
+            cod_amount_cents=cod_cents,
+        )
+    else:
+        tracking = speedy_client.create_shipment_sync(
+            client_id=settings.speedy_client_id,
+            recipient_name=recipient_name,
+            recipient_phone=phone,
+            weight_grams=0,
+            username=settings.speedy_api_username,
+            password=settings.speedy_api_password.get_secret_value(),
+            order_ref=row["id"],
+            recipient_city=details.get("city"),
+            recipient_postcode=details.get("postal_code"),
+            recipient_street=details.get("street"),
+            recipient_building=details.get("building"),
+            cod_amount_cents=cod_cents,
+        )
+    return tracking, None
+
+
 # ---------------------------------------------------------------------------
 # TypedDict return types
 # ---------------------------------------------------------------------------
@@ -155,6 +266,9 @@ class OrderData(TypedDict):
     total_cents: int
     items_total_cents: int
     shipping_cents: int
+    shipping_price_source: str
+    shipping_is_fallback: bool
+    shipping_quoted_at: str | None
     customer_email: str
     customer_name: str | None
     delivery_method: str | None
@@ -163,6 +277,8 @@ class OrderData(TypedDict):
     tracking_number: str | None
     tracking_carrier: str | None
     tracking_url: str | None
+    courier_status: str | None
+    label_url: str | None
     locale: str
     notes: str | None
     payment_method: str
@@ -199,6 +315,10 @@ def checkout(
     admin_notification_email: str = "",
     payment_method: str = "cod",
     analytics_consent: bool = False,
+    shipping_cents: int = 0,
+    shipping_price_source: str = "live",
+    shipping_is_fallback: bool = False,
+    shipping_quoted_at: str | None = None,
 ) -> OrderData:
     """Convert cart to an order atomically.
 
@@ -217,6 +337,11 @@ def checkout(
     # ensure_ascii=False preserves Cyrillic — see HANDOFF gotcha #5.
     if delivery.method == "office" and delivery.office is not None:
         delivery_sub = delivery.office
+        if not delivery_settings_service.is_delivery_method_enabled(
+            delivery_sub.courier,
+            "office",
+        ):
+            raise DeliveryMethodUnavailableError(delivery_sub.courier, "office")
         catalogue_office = delivery_service.get_office(
             delivery_sub.courier,
             delivery_sub.office_id,
@@ -236,6 +361,11 @@ def checkout(
         delivery_courier = delivery_sub.courier
     else:
         delivery_sub = delivery.door
+        if delivery_sub is not None and not delivery_settings_service.is_delivery_method_enabled(
+            delivery_sub.courier,
+            "door",
+        ):
+            raise DeliveryMethodUnavailableError(delivery_sub.courier, "door")
         delivery_details = delivery_sub.model_dump() if delivery_sub is not None else None
         delivery_courier = delivery_sub.courier if delivery_sub is not None else None
 
@@ -310,9 +440,35 @@ def checkout(
         items_total_cents = sum(
             effective_prices[row["product_id"]] * row["quantity"] for row in cart_rows
         )
-        # shipping_cents is a placeholder in this change — the shipping-pricing
-        # follow-on adds real courier calculation + free-shipping threshold.
-        shipping_cents = 0
+        # Server-enforce shipping (parent Decision 16 — never trust the client).
+        # 1. Free shipping short-circuit: items ≥ €50 forces 0¢ and normalizes
+        #    provenance to live/non-fallback (a free order was never "guessed").
+        # 2. Otherwise range-validate the client-submitted shipping_cents.
+        #
+        # ACCEPTED (review W2): the range check admits shipping_cents == 0 on a
+        # sub-€50 order, so a scripted client can under-pay shipping. This is a
+        # deliberate MVP tradeoff — parent Decision 16 chose range-check over
+        # signed price tokens, and the dominant COD flow (see design.md) means a
+        # human confirms every order before dispatch, catching a 0¢ shipping line.
+        # Server-side re-quoting is deferred to Phase C (reconciliation).
+        if items_total_cents >= FREE_SHIPPING_THRESHOLD_CENTS:
+            shipping_cents = 0
+            shipping_price_source = "live"
+            shipping_is_fallback = False
+            shipping_quoted_at = None
+        else:
+            if not (0 <= shipping_cents <= SHIPPING_CENTS_MAX):
+                raise InvalidShippingPriceError(shipping_cents, SHIPPING_CENTS_MAX)
+            # Harden provenance (review W3): the client echoes these back from the
+            # quote, but they are audit metadata for reconciliation — never trust
+            # them verbatim. Reject an unknown source, then DERIVE is_fallback from
+            # it (a "live" quote is never a fallback; anything else is) so a client
+            # cannot relabel a flat/fallback price as a clean live one. quoted_at is
+            # only kept when it parses as our timestamp format; garbage is dropped.
+            if shipping_price_source not in _VALID_PRICE_SOURCES:
+                raise InvalidShippingPriceError(shipping_cents, SHIPPING_CENTS_MAX)
+            shipping_is_fallback = shipping_price_source != "live"
+            shipping_quoted_at = _normalize_quoted_at(shipping_quoted_at)
         total_cents = items_total_cents + shipping_cents
 
         # Initial payment_status depends on payment method.
@@ -322,11 +478,13 @@ def checkout(
             """
             INSERT INTO orders (id, session_id, user_id, status, total_cents,
                                customer_email, customer_name,
+                               shipping_cents, shipping_price_source,
+                               shipping_is_fallback, shipping_quoted_at,
                                delivery_method, delivery_courier, delivery_details,
                                locale, notes,
                                payment_method, payment_status,
                                analytics_consent, created_at, updated_at)
-            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 order_id,
@@ -335,6 +493,10 @@ def checkout(
                 total_cents,
                 customer_email,
                 customer_name,
+                shipping_cents,
+                shipping_price_source,
+                1 if shipping_is_fallback else 0,
+                shipping_quoted_at,
                 delivery.method,
                 delivery_courier,
                 delivery_details_json,
@@ -428,6 +590,9 @@ def checkout(
         total_cents=total_cents,
         items_total_cents=items_total_cents,
         shipping_cents=shipping_cents,
+        shipping_price_source=shipping_price_source,
+        shipping_is_fallback=shipping_is_fallback,
+        shipping_quoted_at=shipping_quoted_at,
         customer_email=customer_email,
         customer_name=customer_name,
         delivery_method=delivery.method,
@@ -436,6 +601,8 @@ def checkout(
         tracking_number=None,
         tracking_carrier=None,
         tracking_url=None,
+        courier_status=None,
+        label_url=None,
         locale=locale,
         notes=notes,
         payment_method=payment_method,
@@ -487,11 +654,21 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
         delivery_details = None
 
     # shipping_cents column is added by shipping-pricing; safe-default to 0.
-    shipping_cents = row["shipping_cents"] if "shipping_cents" in row.keys() else 0
+    row_keys = row.keys()
+    shipping_cents = row["shipping_cents"] if "shipping_cents" in row_keys else 0
     total_cents = row["total_cents"]
     items_total_cents = total_cents - shipping_cents
+    # Provenance columns default to live/non-fallback for legacy rows.
+    shipping_price_source = (
+        row["shipping_price_source"]
+        if "shipping_price_source" in row_keys and row["shipping_price_source"]
+        else "live"
+    )
+    shipping_is_fallback = bool(
+        row["shipping_is_fallback"] if "shipping_is_fallback" in row_keys else 0
+    )
+    shipping_quoted_at = row["shipping_quoted_at"] if "shipping_quoted_at" in row_keys else None
 
-    row_keys = row.keys()
     return OrderData(
         id=row["id"],
         session_id=row["session_id"],
@@ -500,6 +677,9 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
         total_cents=total_cents,
         items_total_cents=items_total_cents,
         shipping_cents=shipping_cents,
+        shipping_price_source=shipping_price_source,
+        shipping_is_fallback=shipping_is_fallback,
+        shipping_quoted_at=shipping_quoted_at,
         customer_email=row["customer_email"],
         customer_name=row["customer_name"],
         delivery_method=row["delivery_method"] if "delivery_method" in row_keys else None,
@@ -508,6 +688,8 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
         tracking_number=row["tracking_number"] if "tracking_number" in row_keys else None,
         tracking_carrier=row["tracking_carrier"] if "tracking_carrier" in row_keys else None,
         tracking_url=row["tracking_url"] if "tracking_url" in row_keys else None,
+        courier_status=row["courier_status"] if "courier_status" in row_keys else None,
+        label_url=row["label_url"] if "label_url" in row_keys else None,
         locale=(row["locale"] if "locale" in row_keys and row["locale"] else "en"),
         notes=row["notes"],
         payment_method=row["payment_method"] if "payment_method" in row_keys else "cod",
@@ -663,9 +845,21 @@ def update_status(
     required (raises TrackingRequiredError → 422 TRACKING_REQUIRED). tracking_url
     is auto-generated from a known carrier when not supplied, and persisted
     alongside the status. Restores stock on cancellation (from pending/confirmed).
+
+    Speedy waybill automation (speedy-integration Decision 3): on the
+    confirmed→shipped transition, when the order's courier is Speedy AND no
+    tracking number was supplied, a waybill is created via the Speedy API and its
+    returned id becomes the tracking number. Creation runs BEFORE the UPDATE, so a
+    failure raises ShipmentCreationError and the transaction never commits — the
+    order stays `confirmed`, never `shipped` without a waybill. A manually supplied
+    tracking number skips the courier call (idempotent re-ship, and manual/offline
+    fallback both preserved).
     """
     row = conn.execute(
-        "SELECT id, status, payment_method FROM orders WHERE id = ?", (order_id,)
+        "SELECT id, status, payment_method, delivery_method, delivery_courier,"
+        " delivery_details, customer_name, total_cents, shipping_cents, payment_status"
+        " FROM orders WHERE id = ?",
+        (order_id,),
     ).fetchone()
 
     if not row:
@@ -678,7 +872,18 @@ def update_status(
     if new_status not in VALID_TRANSITIONS.get(current_status, set()):
         raise InvalidStateTransitionError(order_id, current_status, new_status)
 
+    label_url: str | None = None
+
     if new_status == "shipped":
+        # Speedy waybill automation: create the waybill and birth the tracking
+        # number ourselves when this is a Speedy order with no number supplied.
+        # Runs before the tracking-required guard so a Speedy ship needs no manual
+        # number, but a non-Speedy / manual ship still must supply one.
+        delivery_courier = row["delivery_courier"] if "delivery_courier" in row.keys() else None
+        if not tracking_number and delivery_courier == "speedy":
+            tracking_number, label_url = _create_speedy_waybill(row)
+            tracking_carrier = tracking_carrier or "speedy"
+
         # Tracking is required on ship; url is optional (auto-generated below).
         missing = []
         if not tracking_number:
@@ -695,10 +900,11 @@ def update_status(
         conn.execute(
             """
             UPDATE orders
-            SET status = ?, tracking_number = ?, tracking_carrier = ?, tracking_url = ?
+            SET status = ?, tracking_number = ?, tracking_carrier = ?, tracking_url = ?,
+                label_url = COALESCE(?, label_url)
             WHERE id = ?
             """,
-            (new_status, tracking_number, tracking_carrier, tracking_url, order_id),
+            (new_status, tracking_number, tracking_carrier, tracking_url, label_url, order_id),
         )
     else:
         conn.execute(

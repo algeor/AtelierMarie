@@ -31,6 +31,15 @@ export function CartDrawer() {
     active: isDrawerOpen,
     onClose: closeDrawer,
   });
+  useEffect(() => {
+    const drawer = drawerRef.current;
+    if (!drawer) return;
+    if (isDrawerOpen) {
+      drawer.removeAttribute("inert");
+    } else {
+      drawer.setAttribute("inert", "");
+    }
+  }, [drawerRef, isDrawerOpen]);
 
   useEffect(() => {
     if (isDrawerOpen && !trackedOpenRef.current) {
@@ -71,7 +80,6 @@ export function CartDrawer() {
           role="dialog"
           aria-modal="true"
           aria-label={t("title")}
-          inert={!isDrawerOpen}
           className={cn(
             "fixed top-0 right-0 h-full w-full max-w-md bg-warm-ivory shadow-xl flex flex-col",
             "motion-safe:transition-transform motion-safe:duration-normal",

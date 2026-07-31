@@ -16,9 +16,11 @@ from app.models.orders import (
 from app.responses import error_response
 from app.services import analytics_service
 from app.services.order_service import (
+    DeliveryMethodUnavailableError,
     EmptyCartError,
     InsufficientStockError,
     InvalidDeliveryOfficeError,
+    InvalidShippingPriceError,
     OrderNotFoundError,
     ProductUnavailableError,
     checkout,
@@ -67,7 +69,10 @@ def create_order(
     try:
         with get_db() as conn:
             row = conn.execute(
-                "SELECT user_id, preferred_locale FROM sessions WHERE id = ?", (session_id,)
+                "SELECT s.user_id, s.preferred_locale, u.email AS user_email "
+                "FROM sessions s LEFT JOIN users u ON u.id = s.user_id "
+                "WHERE s.id = ?",
+                (session_id,),
             ).fetchone()
             user_id = row["user_id"] if row else None
             locale = (
@@ -75,10 +80,29 @@ def create_order(
             )
             analytics_consent = analytics_service.has_current_analytics_consent(session_id)
 
+            # Resolve the order's contact email. A logged-in user may omit it and
+            # fall back to their account email; anyone may supply a different one
+            # (gift, work address). Anonymous checkout with neither is rejected.
+            resolved_email = (
+                str(body.customer_email)
+                if body.customer_email
+                else (row["user_email"] if row else None)
+            )
+            if not resolved_email:
+                return JSONResponse(
+                    status_code=422,
+                    content={
+                        "error": {
+                            "code": "EMAIL_REQUIRED",
+                            "message": "An email is required to place an order",
+                        }
+                    },
+                )
+
             order_data = checkout(
                 conn=conn,
                 session_id=session_id,
-                customer_email=str(body.customer_email),
+                customer_email=resolved_email,
                 delivery=body.delivery,
                 customer_name=body.customer_name,
                 notes=body.notes,
@@ -87,6 +111,10 @@ def create_order(
                 admin_notification_email=settings.admin_notification_email,
                 payment_method=body.payment_method,
                 analytics_consent=analytics_consent,
+                shipping_cents=body.shipping_cents,
+                shipping_price_source=body.shipping_price_source,
+                shipping_is_fallback=body.shipping_is_fallback,
+                shipping_quoted_at=body.shipping_quoted_at,
             )
 
             analytics_service.record_purchase_confirmed(
@@ -127,6 +155,24 @@ def create_order(
             "INVALID_DELIVERY_OFFICE",
             str(e),
             {"courier": e.courier, "office_id": e.office_id, "reason": e.reason},
+        )
+    except DeliveryMethodUnavailableError as e:
+        return error_response(
+            422,
+            "DELIVERY_METHOD_UNAVAILABLE",
+            str(e),
+            {"courier": e.courier, "method": e.method},
+        )
+    except InvalidShippingPriceError as e:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "INVALID_SHIPPING_PRICE",
+                    "message": str(e),
+                    "details": {"shipping_cents": e.shipping_cents, "max_cents": e.max_cents},
+                }
+            },
         )
     except InsufficientStockError as e:
         return JSONResponse(

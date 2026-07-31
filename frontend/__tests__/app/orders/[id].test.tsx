@@ -39,6 +39,8 @@ const mockOrder: OrderResponse = {
   stripe_checkout_url: null,
   items_total_cents: 7700,
   shipping_cents: 0,
+  shipping_price_source: "live",
+  shipping_is_fallback: false,
   total_cents: 7700,
   customer_email: "alice@example.com",
   customer_name: "Alice",
@@ -53,6 +55,8 @@ const mockOrder: OrderResponse = {
   tracking_number: null,
   tracking_carrier: null,
   tracking_url: null,
+  courier_status: null,
+  label_url: null,
   created_at: "2026-07-01T10:00:00Z",
   updated_at: "2026-07-01T10:00:00Z",
 };

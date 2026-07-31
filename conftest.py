@@ -271,21 +271,26 @@ def _clean_tables(db_path, app):
         conn.execute(f"DELETE FROM {table}")  # noqa: S608
     # Reset the singleton managed banner to its seeded default between tests.
     conn.execute("DELETE FROM site_banners")
-    from app.database import _seed_site_banner
+    conn.execute("DELETE FROM delivery_settings")
+    from app.database import _seed_delivery_settings, _seed_site_banner
 
     _seed_site_banner(conn)
+    _seed_delivery_settings(conn)
     # Delete sessions except the fake middleware session
     if fake_session_id:
         conn.execute("DELETE FROM sessions WHERE id != ?", (fake_session_id,))
-        # The OAuth callback rotates by deleting the old session. Recreate the
-        # middleware's fixed test session so later tests do not inherit that deletion.
+        # OAuth/login tests can rotate away the fake middleware session. Restore
+        # it so later route tests keep the same request.state.session_id and DB row.
         now = datetime.now(UTC)
-        expires_at = now + timedelta(days=30)
         conn.execute(
             "INSERT OR IGNORE INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
-            (fake_session_id, now.strftime(_DT_FMT), expires_at.strftime(_DT_FMT)),
+            (
+                fake_session_id,
+                now.strftime(_DT_FMT),
+                (now + timedelta(days=30)).strftime(_DT_FMT),
+            ),
         )
-        # Unlink fake session from user before deleting users
+        # Unlink fake session from user before deleting users.
         conn.execute("UPDATE sessions SET user_id = NULL WHERE id = ?", (fake_session_id,))
     else:
         conn.execute("DELETE FROM sessions")

@@ -67,6 +67,26 @@ PaymentMethod = Literal["cod", "card", "bank_transfer"]
 PaymentStatus = Literal["pending", "paid", "cod_pending", "failed", "refunded"]
 
 # ---------------------------------------------------------------------------
+# Shipping pricing (shipping-pricing — Phase A)
+# ---------------------------------------------------------------------------
+
+# Orders with an items subtotal at or above this get free shipping (server-enforced).
+FREE_SHIPPING_THRESHOLD_CENTS = 5000  # €50
+# Flat last-resort price when a courier calculate API times out or errors.
+FALLBACK_SHIPPING_CENTS = 500  # €5
+# Packaging buffer added to summed product weights before calling couriers.
+PACKAGING_WEIGHT_GRAMS = 200
+# Upper bound for a client-submitted shipping_cents at checkout (range check,
+# parent Decision 16). Anything outside [0, MAX] is rejected with 422.
+SHIPPING_CENTS_MAX = 3000  # €30
+# Per-courier timeout budget for a single calculate call.
+COURIER_TIMEOUT_SECONDS = 3
+
+# Price provenance: how a shipping quote's price was derived. "table" is
+# reserved for the Phase B shaped-snapshot fallback (not produced in Phase A).
+ShippingPriceSource = Literal["live", "table", "flat"]
+
+# ---------------------------------------------------------------------------
 # Email notifications (design Decision 19 — single canonical event vocabulary)
 # ---------------------------------------------------------------------------
 
@@ -96,7 +116,6 @@ STATUS_TO_EMAIL_EVENT: dict[str, str | None] = {
 # ---------------------------------------------------------------------------
 # Shipping carriers + tracking URL patterns (design Decision 6 / task 1.6, 2.2)
 # ---------------------------------------------------------------------------
-
 # Carrier code → tracking URL pattern. "{num}" is replaced with the tracking
 # number. Carriers absent from this map (e.g. "other") get no auto-generated
 # URL — the admin must paste one. Used by the order service (auto-generation),

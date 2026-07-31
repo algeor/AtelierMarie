@@ -261,7 +261,7 @@ export default function AdminOrdersPage() {
                             {order.delivery_details.office_name}
                           </span>
                         )}
-                        {order.delivery_details && "city" in order.delivery_details && (
+                        {order.delivery_details && "street" in order.delivery_details && (
                           <span className="truncate max-w-[16rem]" title={`${order.delivery_details.street}, ${order.delivery_details.city}`}>
                             {order.delivery_details.street}, {order.delivery_details.city}
                           </span>

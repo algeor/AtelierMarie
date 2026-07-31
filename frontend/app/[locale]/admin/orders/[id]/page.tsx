@@ -196,7 +196,17 @@ export default function AdminOrderDetailPage() {
                 </div>
                 <div className="flex items-center justify-between">
                   <dt className="text-soft-brown">{tAdmin("shipping")}</dt>
-                  <dd className="text-charcoal">{formatPrice(order.shipping_cents)}</dd>
+                  <dd className="flex items-center gap-2 text-charcoal">
+                    {order.shipping_is_fallback && (
+                      <span
+                        className="rounded-pill bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
+                        title={tOrders("shippingFallbackHint")}
+                      >
+                        {tOrders("shippingFallbackBadge")}
+                      </span>
+                    )}
+                    {formatPrice(order.shipping_cents)}
+                  </dd>
                 </div>
                 <div className="flex items-center justify-between border-t border-champagne-beige pt-2 font-medium">
                   <dt className="text-charcoal">{tAdmin("total")}</dt>

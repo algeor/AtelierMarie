@@ -12,5 +12,14 @@ Items:
 - {{ item.product_name }} × {{ item.quantity }} — {{ item.line_total_display }}
 {% endfor %}
 
+Shipping: {{ shipping_display }}{% if shipping_is_fallback %} (estimated){% endif %}
+{% if delivery_method_display or delivery_courier_display or delivery_lines %}
+Delivery:
+{% if delivery_method_display %}- Method: {{ delivery_method_display }}
+{% endif %}{% if delivery_courier_display %}- Courier: {{ delivery_courier_display }}
+{% endif %}{% for line in delivery_lines %}- {{ line }}
+{% endfor %}
+{% endif %}
+
 View in the admin dashboard:
 {{ admin_order_url }}

@@ -23,15 +23,17 @@ class OrderItemResponse(BaseModel):
 class OrderResponse(BaseModel):
     """Public order representation.
 
-    `items_total_cents` and `shipping_cents` sum to `total_cents`. In this
-    change `shipping_cents` is always 0 — the follow-on `shipping-pricing`
-    change wires real courier pricing.
+    `items_total_cents` and `shipping_cents` sum to `total_cents`. Provenance
+    (`shipping_price_source`, `shipping_is_fallback`) records how the shipping
+    price was derived (shipping-pricing — Phase A).
     """
 
     id: str
     status: OrderStatus
     items_total_cents: int
     shipping_cents: int = 0
+    shipping_price_source: Literal["live", "table", "flat"] = "live"
+    shipping_is_fallback: bool = False
     total_cents: int
     customer_email: str
     customer_name: str | None = None
@@ -42,6 +44,8 @@ class OrderResponse(BaseModel):
     tracking_number: str | None = None
     tracking_carrier: str | None = None
     tracking_url: str | None = None
+    courier_status: str | None = None
+    label_url: str | None = None
     notes: str | None = None
     # Payment fields (payment-integration).
     payment_method: PaymentMethod = "cod"
@@ -68,14 +72,26 @@ class CreateOrderRequest(BaseModel):
 
     Delivery is a structured object (method + courier + sub-object). See
     openspec change `shipping-courier-integration` Decision 1.
+
+    `customer_email` is optional: when omitted by a logged-in user, the route
+    falls back to the account email. Anonymous checkout must still supply it
+    (the route returns EMAIL_REQUIRED otherwise). The order snapshots whichever
+    value is resolved — it is a fact of the order, not a live user lookup.
     """
 
-    customer_email: EmailStr = Field(..., max_length=320)
-    customer_name: str | None = Field(default=None, min_length=1, max_length=200)
+    customer_email: EmailStr | None = Field(default=None, max_length=320)
+    customer_name: str = Field(..., min_length=1, max_length=200)
     delivery: DeliveryInfo
     notes: str | None = Field(default=None, max_length=2000)
     payment_method: PaymentMethod = "cod"
     analytics_consent: bool = False
+    # Shipping price + provenance echoed from the selected quote (shipping-pricing).
+    # Server re-enforces free shipping and range-validates shipping_cents — the
+    # client value is advisory, not trusted (parent Decision 16).
+    shipping_cents: int = Field(default=0, ge=0)
+    shipping_price_source: Literal["live", "table", "flat"] = "live"
+    shipping_is_fallback: bool = False
+    shipping_quoted_at: str | None = Field(default=None, max_length=32)
 
     @field_validator("customer_name", mode="before")
     @classmethod

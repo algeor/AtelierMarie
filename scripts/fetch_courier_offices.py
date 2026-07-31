@@ -3,12 +3,16 @@
 One-off script — run manually when the office lists need refreshing (~quarterly
 per courier-offices-data spec). Reads credentials from environment variables:
 
-    SPEEDY_USERNAME, SPEEDY_PASSWORD   # https://api.speedy.bg/v1/location/office
+    SPEEDY_USERNAME, SPEEDY_PASSWORD   # https://api.speedy.bg/v1/location/office|site
     ECONT_USERNAME, ECONT_PASSWORD     # https://ee.econt.com/services/Nomenclatures/...
 
 Writes `data/speedy_offices.json` and `data/econt_offices.json` in the unified
 6-field schema (id, name, type, city, address, working_hours) with bilingual
-`_en` variants for i18n.
+`_en` variants for i18n. Also writes served-place files used by door delivery:
+`data/econt_cities.json` from Econt's city nomenclature and
+`data/speedy_sites.json` from Speedy's `/location/site` nomenclature. A small
+`data/served_places_supplement.json` is loaded at runtime for manually verified
+settlements missing from courier feeds.
 
 Design:
 - `CourierSource` dataclass groups per-courier fetch + normalize logic
@@ -25,39 +29,59 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 import logging
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings
-
-from scripts.normalize_econt_office_data import normalize_econt
 
 logger = logging.getLogger("fetch_courier_offices")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = REPO_ROOT / "data"
 
+try:
+    from scripts.normalize_econt_office_data import normalize_econt
+except ModuleNotFoundError:  # Allows `python scripts/fetch_courier_offices.py`.
+    sys.path.insert(0, str(REPO_ROOT))
+    from scripts.normalize_econt_office_data import normalize_econt
+
 SPEEDY_URL = "https://api.speedy.bg/v1/location/office"
+# Bulk CSV export of every served settlement (countryId 100 = Bulgaria in the
+# path). The plain `/location/site` JSON endpoint hard-caps at 10 records, so it
+# cannot back the door-delivery place lookup; the CSV variant returns the full
+# ~5300-row nomenclature with no pagination.
+SPEEDY_SITES_URL = "https://api.speedy.bg/v1/location/site/csv/100"
 ECONT_URL = "https://ee.econt.com/services/Nomenclatures/NomenclaturesService.getOffices.json"
+ECONT_CITIES_URL = "https://ee.econt.com/services/Nomenclatures/NomenclaturesService.getCities.json"
 
 _HTTP_TIMEOUT_S = 30
 
 
 class CourierFetchSettings(BaseSettings):
-    """Credentials for one-off courier office fetches."""
+    """Credentials for one-off courier office fetches.
 
-    speedy_username: str = ""
-    speedy_password: str = ""
-    econt_username: str = ""
-    econt_password: str = ""
+    Reads the same `SPEEDY_API_*` / `ECONT_API_*` names the app config uses
+    (via validation aliases) so a single `.env` drives both. The bare
+    `SPEEDY_USERNAME` / `ECONT_USERNAME` names still work for older setups.
+    """
+
+    speedy_username: str = Field(default="", validation_alias="SPEEDY_API_USERNAME")
+    speedy_password: str = Field(default="", validation_alias="SPEEDY_API_PASSWORD")
+    econt_username: str = Field(default="", validation_alias="ECONT_API_USERNAME")
+    econt_password: str = Field(default="", validation_alias="ECONT_API_PASSWORD")
 
     model_config = {
         "env_file": ".env",
@@ -85,6 +109,13 @@ def _post_json(url: str, payload: dict) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
+def _get_text(url: str) -> str:
+    """GET `url`, return decoded text. Raises urllib errors."""
+    req = urllib.request.Request(url, method="GET")  # noqa: S310 — trusted hosts.
+    with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT_S) as resp:  # noqa: S310
+        return resp.read().decode("utf-8-sig")
+
+
 def _fetch_speedy() -> dict:
     """Fetch full Speedy office list. Credentials from env."""
     settings = get_courier_fetch_settings()
@@ -105,34 +136,169 @@ def _fetch_speedy() -> dict:
     return _post_json(SPEEDY_URL, payload)
 
 
+def _fetch_speedy_sites() -> dict:
+    """Fetch Speedy's served-site nomenclature for door-delivery places."""
+    return _parse_speedy_sites_export(_get_text(SPEEDY_SITES_URL))
+
+
+def _parse_speedy_sites_export(body: str) -> dict:
+    """Parse Speedy's full site export, accepting JSON or delimited text."""
+    body = body.strip()
+    if not body:
+        return {"sites": []}
+    if body[0] in "[{":
+        parsed = json.loads(body)
+        return {"sites": parsed} if isinstance(parsed, list) else parsed
+
+    sample = body[:4096]
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
+    except csv.Error:
+        dialect = csv.excel
+    rows = [dict(row) for row in csv.DictReader(io.StringIO(body), dialect=dialect)]
+    return {"sites": rows}
+
+
+def _text_field(record: dict, *keys: str) -> str | None:
+    """Extract a non-empty string from flat or lightly nested API fields."""
+    for key in keys:
+        value = record.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, (int, float)):
+            return str(value)
+        if isinstance(value, dict):
+            for nested_key in ("name", "nameEn", "value"):
+                nested = value.get(nested_key)
+                if isinstance(nested, str) and nested.strip():
+                    return nested.strip()
+    return None
+
+
+def _display_text(value: str | None) -> str | None:
+    """Humanize courier nomenclature text without changing mixed-case values."""
+    if not value:
+        return None
+    return value.title() if value.isupper() else value
+
+
+def _extract_city_en_candidate(name_en: str) -> str:
+    """Pull the English city name out of an office's `nameEn`.
+
+    Speedy names its offices `"<CITY> - <BRANCH>"` in English (e.g.
+    "SOFIA - SOMAT", "PLOVDIV - WAREHOUSE SOUTH"), or just `"<CITY>"` for a
+    town's sole office. The city is the leading segment before the first
+    hyphen/comma/paren. Returns an upper-cased, whitespace-collapsed token
+    (canonicalized later by majority vote in `_build_speedy_city_en_map`), or
+    "" when `name_en` is absent.
+    """
+    if not name_en:
+        return ""
+    normalized = name_en.replace("–", "-").replace("—", "-")
+    # Leading segment before the first branch delimiter (hyphen/comma/paren).
+    head = re.split(r"[-,(]", normalized, maxsplit=1)[0]
+    return " ".join(head.split()).strip().upper()
+
+
+def _build_speedy_city_en_map(offices: list[dict]) -> dict[str, str]:
+    """Map each Bulgarian `siteName` → its canonical English city name.
+
+    Speedy's feed carries no English *city* field (only English office `nameEn`),
+    so the English city is derived from `nameEn`. Per Bulgarian city we take the
+    MOST COMMON extracted candidate: the bare city name dominates because it is
+    the shared prefix of every office there, so majority vote discards one-off
+    locker suffixes ("(LOCKER)"), typos ("PLODVIV"), and branch noise. Values
+    are Title-cased ("Sofia", "Stara Zagora") to match the conventional English
+    exonyms Speedy itself uses.
+    """
+    candidates_by_city: dict[str, Counter[str]] = {}
+    for o in offices:
+        site_name = (o.get("address") or {}).get("siteName")
+        candidate = _extract_city_en_candidate(o.get("nameEn") or "")
+        if not site_name or not candidate:
+            continue
+        candidates_by_city.setdefault(site_name, Counter())[candidate] += 1
+
+    return {
+        city: " ".join(word.capitalize() for word in counter.most_common(1)[0][0].split())
+        for city, counter in candidates_by_city.items()
+    }
+
+
 def _normalize_speedy(raw: dict) -> list[dict]:
     """Speedy office payload → unified 6-field schema with bilingual extras.
 
-    NOTE: This is a scaffold. Speedy's exact response schema needs verification
-    once credentials are available (see design.md Open Questions). Fields below
-    are the documented shape from their public docs; adjust when real data arrives.
+    Verified against the live `POST /v1/location/office` feed (2026-07-31, 1284
+    records). Each record carries a numeric `id` — which is what Speedy's
+    `calculate.pickupOfficeId` expects — so we store it AS the `id` (stringified)
+    rather than the synthetic `speedy-*` slugs the old scaffold used. The Phase A
+    office-mode 400 was caused by those slugs; a numeric id fixes it at the source.
+
+    The city lives in the nested `address.siteName`; `type` is the string
+    "OFFICE" or "APS" (automated parcel station / locker). Speedy's feed has no
+    English *city* field, so `city_en` is derived from the English office name
+    via majority vote (see `_build_speedy_city_en_map`); this powers cross-language
+    /offices and /cities search. English working-hours has no source, so
+    `working_hours_en` stays null and falls back to Bulgarian at read time
+    (delivery_service._resolve_locale).
     """
+    offices = raw.get("offices", [])
+    city_en_map = _build_speedy_city_en_map(offices)
     out: list[dict] = []
-    for o in raw.get("offices", []):
-        site = o.get("site") or {}
-        city = site.get("name") or site.get("nameBg")
-        name = o.get("name") or o.get("nameBg")
-        if not city or not name:
+    for o in offices:
+        office_id = o.get("id")
+        address = o.get("address") or {}
+        city = address.get("siteName")
+        name = o.get("name")
+        if office_id is None or not city or not name:
             continue
-        # Speedy exposes `type`: 1 = office, 2 = APS (locker). Fall back to office.
-        office_type = "apt" if o.get("type") == 2 else "office"
+        # `type`: "APS" = automated parcel locker; anything else is a staffed office.
+        office_type = "apt" if o.get("type") == "APS" else "office"
+        working_from = o.get("workingTimeFrom")
+        working_to = o.get("workingTimeTo")
+        working_hours = f"{working_from}-{working_to}" if working_from and working_to else "N/A"
         out.append(
             {
-                "id": f"speedy-{o.get('id')}",
+                "id": str(office_id),
                 "name": name,
                 "name_en": o.get("nameEn"),
                 "type": office_type,
                 "city": city,
-                "city_en": site.get("nameEn"),
-                "address": (o.get("address") or {}).get("localAddressString")
-                or o.get("addressString", ""),
-                "working_hours": o.get("workingTime", "N/A"),
-                "working_hours_en": o.get("workingTimeEn"),
+                "city_en": city_en_map.get(city),
+                "address": address.get("localAddressString")
+                or address.get("fullAddressString", ""),
+                "working_hours": working_hours,
+                "working_hours_en": None,
+            }
+        )
+    return out
+
+
+def _normalize_speedy_sites(raw: dict) -> list[dict]:
+    """Speedy `/location/site` payload → served-place records.
+
+    The site feed is the correct Speedy source for to-door settlement lookup;
+    the office feed only contains towns that host an office/locker. The normalizer
+    accepts the field names used by Speedy's REST examples (`name`, `nameEn`,
+    `postCode`, `region`) and a few equivalent aliases so minor response-shape
+    differences do not drop otherwise valid rows.
+    """
+    sites = raw if isinstance(raw, list) else raw.get("sites") or raw.get("results") or []
+    out: list[dict] = []
+    for site in sites:
+        if not isinstance(site, dict):
+            continue
+        name = _text_field(site, "name", "siteName")
+        postal_code = _text_field(site, "postCode", "postalCode", "post_code")
+        if not name or not postal_code:
+            continue
+        out.append(
+            {
+                "name": _display_text(name),
+                "name_en": _display_text(_text_field(site, "nameEn", "siteNameEn")),
+                "postal_code": postal_code,
+                "region": _display_text(_text_field(site, "region", "regionName")),
+                "region_en": _display_text(_text_field(site, "regionEn", "regionNameEn")),
             }
         )
     return out
@@ -140,14 +306,36 @@ def _normalize_speedy(raw: dict) -> list[dict]:
 
 def _fetch_econt() -> dict:
     """Fetch full Econt office list. Credentials optional (public endpoint)."""
-    # Econt's Nomenclatures endpoint is public but rate-limits anonymous callers.
+    return _post_econt(ECONT_URL, b"{}")
+
+
+def _fetch_econt_cities() -> dict:
+    """Fetch Econt's city/settlement nomenclature. Credentials optional (public).
+
+    Despite the endpoint name, `getCities` is NOT towns-only: it is Econt's
+    authoritative list of every settlement it delivers to — villages included
+    (verified live 2026-07-30: Труд, Костиево, Стряма, Калековец, Радиново,
+    Войводиново all present). It returns ~1510 records with postCode + region,
+    of which 1425 support `to_door_courier` and 1407 `to_office_courier`
+    (each record's `servingOffices` array carries the serving types). This is
+    the source that lets ambiguous same-named settlements (e.g. the three
+    "Садово") price live instead of degrading to the flat fallback. Real-world
+    checks found legitimate delivered-to villages missing from the local Econt
+    export, so runtime lookup also merges `served_places_supplement.json`.
+    """
+    return _post_econt(ECONT_CITIES_URL, b'{"countryCode":"BGR"}')
+
+
+def _post_econt(url: str, body: bytes) -> dict:
+    """POST raw JSON `body` to an Econt Nomenclatures endpoint with optional auth."""
+    # Econt's Nomenclatures endpoints are public but rate-limit anonymous callers.
     # Basic auth is accepted if credentials are set.
     settings = get_courier_fetch_settings()
     username = settings.econt_username
     password = settings.econt_password
     req = urllib.request.Request(  # noqa: S310 — HTTPS to trusted host
-        ECONT_URL,
-        data=b"{}",
+        url,
+        data=body,
         headers={"Content-Type": "application/json"},
         method="POST",
     )
@@ -158,6 +346,30 @@ def _fetch_econt() -> dict:
         req.add_header("Authorization", f"Basic {token}")
     with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT_S) as resp:  # noqa: S310
         return json.loads(resp.read().decode("utf-8"))
+
+
+def _normalize_econt_cities(raw: dict) -> list[dict]:
+    """Raw {'cities': [...]} → served-place records with postcode + region.
+
+    Drops rows missing a name or postCode (a place with no postcode can't
+    disambiguate). `region`/`region_en` may be null (54 of ~1510 lack a region).
+    """
+    out: list[dict] = []
+    for c in raw.get("cities", []):
+        name = c.get("name")
+        postal_code = c.get("postCode")
+        if not name or not postal_code:
+            continue
+        out.append(
+            {
+                "name": name,
+                "name_en": c.get("nameEn"),
+                "postal_code": postal_code,
+                "region": c.get("regionName"),
+                "region_en": c.get("regionNameEn"),
+            }
+        )
+    return out
 
 
 def _atomic_write_json(path: Path, records: list[dict]) -> None:
@@ -187,23 +399,35 @@ SOURCES: list[CourierSource] = [
         normalize=_normalize_speedy,
     ),
     CourierSource(
+        name="speedy-sites",
+        output_path=DATA_DIR / "speedy_sites.json",
+        fetch=_fetch_speedy_sites,
+        normalize=_normalize_speedy_sites,
+    ),
+    CourierSource(
         name="econt",
         output_path=DATA_DIR / "econt_offices.json",
         fetch=_fetch_econt,
         normalize=normalize_econt,
     ),
+    CourierSource(
+        name="econt-cities",
+        output_path=DATA_DIR / "econt_cities.json",
+        fetch=_fetch_econt_cities,
+        normalize=_normalize_econt_cities,
+    ),
 ]
 
 
 def refresh_courier(source: CourierSource) -> int:
-    """Fetch + normalize + write one courier. Returns record count on success."""
-    logger.info("fetching %s offices", source.name)
+    """Fetch + normalize + write one source. Returns record count on success."""
+    logger.info("fetching %s", source.name)
     raw = source.fetch()
     records = source.normalize(raw)
     if not records:
         raise RuntimeError(f"{source.name} normalized to zero records")
     _atomic_write_json(source.output_path, records)
-    logger.info("wrote %d %s offices → %s", len(records), source.name, source.output_path)
+    logger.info("wrote %d %s records → %s", len(records), source.name, source.output_path)
     return len(records)
 
 

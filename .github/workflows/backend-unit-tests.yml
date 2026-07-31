@@ -2,7 +2,11 @@ name: Backend Unit Tests
 
 on:
   push:
+    paths-ignore:
+      - 'frontend/**'
   pull_request:
+    paths-ignore:
+      - 'frontend/**'
 
 permissions:
   contents: read

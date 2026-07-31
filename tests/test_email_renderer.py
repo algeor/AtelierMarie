@@ -14,16 +14,24 @@ _CTX = {
     "order_id_short": "1234abcd",
     "customer_name": "Ben & Co",
     "items": _ITEMS,
-    "total_display": "€85.00",
+    "items_total_display": "€85.00",
+    "shipping_display": "€6.50",
+    "total_display": "€91.50",
     "customer_email": "ben@example.com",
     "admin_order_url": "https://admin.example/orders/1234abcd",
     "tracking_carrier": "speedy",
     "tracking_number": "77",
     "tracking_url": "https://www.speedy.bg/en/track-shipment?shipmentNumber=77",
+    "delivery_method_display": "Door delivery",
+    "delivery_courier_display": "Speedy",
+    "delivery_lines": [
+        "Address: Vitosha, building 1, apt. 5",
+        "City/place: 1000 Sofia",
+        "Phone: +359888123456",
+    ],
+    "shipping_is_fallback": True,
     "payment_method": "card",
     "payment_status": "paid",
-    "items_total_display": "€85.00",
-    "shipping_display": "€0.00",
     "terms_url": "https://shop.example/en/terms",
     "privacy_url": "https://shop.example/en/privacy",
     "cookies_url": "https://shop.example/en/cookies",
@@ -48,6 +56,14 @@ class TestRendering:
         assert "Lavender Dream × 2 — €50.00" in body
         assert "Midnight Amber × 1 — €35.00" in body
 
+    def test_placed_includes_shipping_and_delivery_details(self):
+        _, body = render_template("placed", "en", _CTX)
+        assert "Shipping: €6.50 (estimated)" in body
+        assert "- Method: Door delivery" in body
+        assert "- Courier: Speedy" in body
+        assert "- Address: Vitosha, building 1, apt. 5" in body
+        assert "- Phone: +359888123456" in body
+
     def test_autoescape_off_ampersand_literal(self):
         # Decision 20: plain text must NOT HTML-escape "&".
         _, body = render_template("placed", "en", _CTX)
@@ -57,6 +73,7 @@ class TestRendering:
     def test_conditional_tracking_url_present(self):
         _, body = render_template("shipped", "en", _CTX)
         assert "https://www.speedy.bg" in body
+        assert "- City/place: 1000 Sofia" in body
 
     def test_conditional_tracking_url_omitted(self):
         ctx = {**_CTX, "tracking_url": None}
@@ -80,11 +97,24 @@ class TestRendering:
         assert "Atelier Marie" in subject
         assert "поръчка" in subject.lower()
 
+    def test_bg_placed_includes_localized_delivery_labels(self):
+        ctx = {
+            **_CTX,
+            "delivery_method_display": "До адрес",
+            "delivery_lines": ["Адрес: Витоша", "Град/населено място: 1000 София"],
+        }
+        _, body = render_template("placed", "bg", ctx)
+        assert "Доставка: €6.50 (ориентировъчна)" in body
+        assert "- Начин: До адрес" in body
+        assert "- Адрес: Витоша" in body
+
     def test_admin_new_order_template(self):
         subject, body = render_template("admin_new_order", "en", _CTX)
         assert "1234abcd" in subject
         assert "ben@example.com" in body
         assert "https://admin.example/orders/1234abcd" in body
+        assert "Shipping: €6.50 (estimated)" in body
+        assert "- Courier: Speedy" in body
 
     def test_placed_email_includes_legal_references(self):
         _, body = render_template("placed", "en", _CTX)
