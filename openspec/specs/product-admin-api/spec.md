@@ -1,5 +1,8 @@
-## Requirements
+## Purpose
 
+Defines admin product API behavior for product creation, updates, import, metadata, safety, and admin-only product fields.
+
+## Requirements
 ### Requirement: Create product endpoint
 The system SHALL expose `POST /v1/admin/products` accepting product data with dual-language content fields: `name_en`, `name_bg`, `description_en`, `description_bg`. At minimum, `name_en` SHALL be required. The `name_bg` and `description_bg` fields are optional (fallback applies on display).
 
@@ -42,7 +45,7 @@ The system SHALL include `translation_stale_en` and `translation_stale_bg` boole
 - **THEN** the response does NOT include staleness fields
 
 ### Requirement: CSV import supports dual-language columns
-The `POST /v1/admin/products/import` endpoint SHALL accept CSV files with columns `name_en`, `name_bg`, `description_en`, `description_bg`. The `name_en` column is required; BG columns are optional.
+The `POST /v1/admin/products/import` endpoint SHALL accept CSV files with columns `name_en`, `name_bg`, `description_en`, `description_bg`. The `name_en` column is required; BG columns are optional. The endpoint SHALL additionally accept the optional columns `weight_grams`, `is_featured`, `materials`, `days_to_craft`, and `is_active`; when a column is absent the field's normal default applies (`weight_grams` defaults to 300, `is_active` to true, `is_featured` to false).
 
 #### Scenario: Import CSV with both languages
 - **WHEN** admin uploads a CSV with `name_en`, `name_bg`, `description_en`, `description_bg` columns
@@ -51,6 +54,18 @@ The `POST /v1/admin/products/import` endpoint SHALL accept CSV files with column
 #### Scenario: Import CSV with English only
 - **WHEN** admin uploads a CSV with only `name_en` and `description_en` columns
 - **THEN** products are created with BG fields as NULL
+
+#### Scenario: Import CSV with extended optional columns
+- **WHEN** admin uploads a CSV that includes `weight_grams`, `is_featured`, `materials`, `days_to_craft`, and `is_active` columns
+- **THEN** those values are applied to the upserted products
+
+#### Scenario: Import CSV omitting weight applies default to new products
+- **WHEN** admin uploads a CSV without a `weight_grams` column that creates new products
+- **THEN** the newly-created products receive `weight_grams` = 300 (DB default)
+
+#### Scenario: Import CSV omitting weight preserves existing product weight
+- **WHEN** admin uploads a CSV without a `weight_grams` column that upserts an existing product
+- **THEN** that product's current `weight_grams` is left unchanged (not reset to 300)
 
 ### Requirement: Admin product response exposes the image gallery
 The admin product response SHALL include the ordered `images` array (id, image_url, thumbnail_url, sort_order, is_primary) and `primary_image_url`, replacing the single `image_url` field, so the admin UI can manage the gallery.
@@ -125,3 +140,45 @@ After request-level validation succeeds, the endpoint SHALL process targets in o
 - **WHEN** an admin sends `operation = apply` with `discount_percent = 100`
 - **THEN** the endpoint rejects the request before processing targets
 - **AND** no product is changed
+
+### Requirement: Admin product schema includes shipping weight
+The admin product schema SHALL include a `weight_grams` integer field representing the product's shipping weight (product plus its container). `CreateProductRequest`, `UpdateProductRequest`, and the admin product response SHALL expose `weight_grams`. When not supplied on creation, `weight_grams` SHALL default to 300. This field SHALL NOT appear in the public product API response — it is a shipping input only.
+
+#### Scenario: Create product without weight uses default
+- **WHEN** admin POSTs a product without a `weight_grams` value
+- **THEN** the product is created with `weight_grams` = 300
+
+#### Scenario: Create product with explicit weight
+- **WHEN** admin POSTs a product with `weight_grams` = 550
+- **THEN** the product is persisted with `weight_grams` = 550
+- **AND** the admin product response includes `weight_grams` = 550
+
+#### Scenario: Update product weight
+- **WHEN** admin PATCHes `weight_grams` = 420 for an existing product
+- **THEN** the product's stored `weight_grams` becomes 420
+
+#### Scenario: Public API excludes weight
+- **WHEN** a public client GETs a product via `/v1/products/{id}`
+- **THEN** the response does NOT include a `weight_grams` field
+
+### Requirement: Admin product schema includes safety metadata fields
+Admin product create, update, detail, list, and CSV import surfaces SHALL support localized product safety metadata fields: `safety_warnings_en`, `safety_warnings_bg`, `care_instructions_en`, and `care_instructions_bg`. The fields SHALL be optional, bounded in length, and preserved on partial updates unless explicitly changed.
+
+#### Scenario: Create product with safety metadata
+- **WHEN** an admin creates a product with English and Bulgarian safety warnings and care instructions
+- **THEN** the product is persisted and the admin response includes the submitted safety metadata
+
+#### Scenario: Partial update preserves safety metadata
+- **WHEN** a product has safety metadata and an admin updates only stock
+- **THEN** the safety metadata remains unchanged
+
+#### Scenario: CSV import accepts safety metadata columns
+- **WHEN** an admin imports CSV rows with safety warning and care instruction columns
+- **THEN** the values are validated and stored for each imported product
+
+### Requirement: Admin product form can edit safety metadata
+The admin product UI SHALL expose text fields for the localized safety warning and care instruction fields and submit them through existing create/update flows.
+
+#### Scenario: Product form submits safety metadata
+- **WHEN** an admin fills safety metadata in the product form and saves
+- **THEN** the submitted payload includes the safety metadata fields

@@ -16,9 +16,12 @@ class OrderStats(BaseModel):
     """Order-level statistics."""
 
     total: int = Field(..., description="Total orders placed")
-    revenue_cents: int = Field(..., description="Total revenue in cents")
+    revenue_cents: int = Field(..., description="Paid-order revenue in cents")
     by_status: dict[str, int] = Field(
         default_factory=dict, description="Order count grouped by status"
+    )
+    by_payment_status: dict[str, int] = Field(
+        default_factory=dict, description="Order count grouped by payment status"
     )
 
 
@@ -30,9 +33,31 @@ class DashboardResponse(BaseModel):
     low_stock_count: int = Field(..., description="Active products with stock <= 5")
     orders_today: int = Field(..., description="Orders created today")
     revenue_this_week_cents: int = Field(
-        ..., description="Non-cancelled revenue from the last 7 days"
+        ..., description="Paid-order revenue from the last 7 days"
     )
     active_product_count: int = Field(..., description="Currently active products")
+
+
+class AdminAlertResponse(BaseModel):
+    """One in-app admin alert."""
+
+    id: str
+    alert_type: str
+    order_id: str | None = None
+    source: str
+    severity: str
+    title: str
+    message: str
+    details: dict = Field(default_factory=dict)
+    is_read: bool
+    created_at: str
+
+
+class AdminAlertListResponse(BaseModel):
+    """Recent admin alerts."""
+
+    alerts: list[AdminAlertResponse]
+    total: int
 
 
 class LowStockProductsResponse(BaseModel):

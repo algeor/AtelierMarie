@@ -17,14 +17,23 @@ def get_dashboard_stats() -> dict:
             "FROM products"
         ).fetchone()
 
-        # Order counts and revenue
+        # Order counts and paid revenue
         order_row = conn.execute(
-            "SELECT COUNT(*) as total, COALESCE(SUM(total_cents), 0) as revenue_cents FROM orders"
+            """
+            SELECT COUNT(*) as total,
+                   COALESCE(SUM(CASE WHEN payment_status = 'paid' THEN total_cents ELSE 0 END), 0)
+                   as revenue_cents
+            FROM orders
+            """
         ).fetchone()
 
         # Orders by status
         status_rows = conn.execute(
             "SELECT status, COUNT(*) as count FROM orders GROUP BY status"
+        ).fetchall()
+
+        payment_status_rows = conn.execute(
+            "SELECT payment_status, COUNT(*) as count FROM orders GROUP BY payment_status"
         ).fetchall()
 
         today_row = conn.execute(
@@ -35,7 +44,7 @@ def get_dashboard_stats() -> dict:
             """
             SELECT COALESCE(SUM(total_cents), 0) as revenue_cents
             FROM orders
-            WHERE created_at >= datetime('now', '-7 days') AND status != 'cancelled'
+            WHERE created_at >= datetime('now', '-7 days') AND payment_status = 'paid'
             """
         ).fetchone()
 
@@ -45,6 +54,9 @@ def get_dashboard_stats() -> dict:
         ).fetchone()
 
     orders_by_status = {row["status"]: row["count"] for row in status_rows}
+    orders_by_payment_status = {
+        row["payment_status"]: row["count"] for row in payment_status_rows
+    }
 
     return {
         "products": {
@@ -55,6 +67,7 @@ def get_dashboard_stats() -> dict:
             "total": order_row["total"],
             "revenue_cents": order_row["revenue_cents"],
             "by_status": orders_by_status,
+            "by_payment_status": orders_by_payment_status,
         },
         "low_stock_count": low_stock_row["count"],
         "orders_today": today_row["count"],

@@ -5,9 +5,10 @@ Routes destructure Pydantic models before calling these functions.
 """
 
 import json
+import secrets
 import sqlite3
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal, TypedDict, get_args
 
 import structlog
@@ -29,10 +30,36 @@ logger = structlog.get_logger(__name__)
 
 # SQLite-compatible datetime format
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
+_ORDER_NUMBER_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 # Runtime whitelist for the shipping price-source provenance column, derived from
 # the Literal so it can never drift from the type (same pattern as OrderStatus).
 _VALID_PRICE_SOURCES: frozenset[str] = frozenset(get_args(ShippingPriceSource))
+
+
+def _generate_order_number(conn: sqlite3.Connection) -> str:
+    """Generate AM-xxxxxx public order numbers with bounded collision retries."""
+    for _ in range(10):
+        code = "AM-" + "".join(secrets.choice(_ORDER_NUMBER_ALPHABET) for _ in range(6))
+        exists = conn.execute("SELECT 1 FROM orders WHERE order_number = ?", (code,)).fetchone()
+        if exists is None:
+            return code
+    msg = "Could not generate a unique order number"
+    raise OrderServiceError(msg)
+
+
+def _generate_payment_return_token(conn: sqlite3.Connection) -> str:
+    """Generate a bearer token used for payment return/status flows."""
+    for _ in range(10):
+        token = secrets.token_urlsafe(24)
+        exists = conn.execute(
+            "SELECT 1 FROM orders WHERE payment_return_token = ?",
+            (token,),
+        ).fetchone()
+        if exists is None:
+            return token
+    msg = "Could not generate a unique payment return token"
+    raise OrderServiceError(msg)
 
 # Valid state transitions for orders
 VALID_TRANSITIONS: dict[str, set[str]] = {
@@ -69,6 +96,88 @@ def _normalize_quoted_at(value: str | None) -> str | None:
     return value
 
 
+def _payment_provider_for_method(payment_method: str) -> str:
+    if payment_method == "card":
+        return "stripe"
+    return payment_method
+
+
+def _ensure_payment_row(
+    conn: sqlite3.Connection,
+    *,
+    order_id: str,
+    provider: str,
+    amount_cents: int,
+    provider_status: str,
+    now: str,
+) -> str:
+    row = conn.execute(
+        """
+        SELECT id
+        FROM payments
+        WHERE order_id = ? AND provider = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (order_id, provider),
+    ).fetchone()
+    if row is not None:
+        conn.execute(
+            "UPDATE payments SET provider_status = ? WHERE id = ?",
+            (provider_status, row["id"]),
+        )
+        return row["id"]
+
+    payment_id = str(uuid.uuid4())
+    conn.execute(
+        """
+        INSERT INTO payments (
+            id, order_id, provider, amount_cents, currency, provider_status,
+            created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 'EUR', ?, ?, ?)
+        """,
+        (payment_id, order_id, provider, amount_cents, provider_status, now, now),
+    )
+    return payment_id
+
+
+def _append_payment_event(
+    conn: sqlite3.Connection,
+    *,
+    order_id: str,
+    payment_id: str | None,
+    event_type: str,
+    provider: str,
+    provider_status: str,
+    details: dict,
+    admin_id: str | None,
+    admin_email: str | None,
+    admin_note: str,
+    request_id: str | None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO payment_events (
+            id, order_id, payment_id, event_type, source, provider, provider_status,
+            processing_status, details, admin_user_id, admin_email, admin_note, request_id
+        ) VALUES (?, ?, ?, ?, 'admin', ?, ?, 'processed', ?, ?, ?, ?, ?)
+        """,
+        (
+            str(uuid.uuid4()),
+            order_id,
+            payment_id,
+            event_type,
+            provider,
+            provider_status,
+            json.dumps(details, separators=(",", ":")),
+            admin_id,
+            admin_email,
+            admin_note,
+            request_id,
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
@@ -94,6 +203,15 @@ class WrongPaymentMethodError(OrderServiceError):
         super().__init__(f"Order {order_id} payment method is '{actual}', expected '{expected}'")
 
 
+class ManualPaymentActionError(OrderServiceError):
+    """Raised when a manual payment action is invalid for current state."""
+
+    def __init__(self, code: str, message: str, status_code: int = 422) -> None:
+        self.code = code
+        self.status_code = status_code
+        super().__init__(message)
+
+
 class EmptyCartError(OrderServiceError):
     """Raised when cart has no items at checkout."""
 
@@ -111,6 +229,15 @@ class InvalidShippingPriceError(OrderServiceError):
         super().__init__(
             f"shipping_cents {shipping_cents} is outside the accepted range [0, {max_cents}]"
         )
+
+
+class PayOnDeliveryLimitError(OrderServiceError):
+    """Raised when a pay-on-delivery order exceeds the configured collection cap."""
+
+    def __init__(self, total_cents: int, max_cents: int) -> None:
+        self.total_cents = total_cents
+        self.max_cents = max_cents
+        super().__init__(f"Pay on delivery is available up to {max_cents} cents")
 
 
 class InsufficientStockError(OrderServiceError):
@@ -260,6 +387,8 @@ class OrderItemData(TypedDict):
 
 class OrderData(TypedDict):
     id: str
+    internal_sequence: int | None
+    order_number: str | None
     session_id: str
     user_id: str | None
     status: str
@@ -283,6 +412,10 @@ class OrderData(TypedDict):
     notes: str | None
     payment_method: str
     payment_status: str
+    reserved_until: str | None
+    paid_at: str | None
+    collected_at: str | None
+    payment_return_token: str | None
     stripe_checkout_session_id: str | None
     stripe_payment_intent_id: str | None
     analytics_consent: bool
@@ -319,6 +452,7 @@ def checkout(
     shipping_price_source: str = "live",
     shipping_is_fallback: bool = False,
     shipping_quoted_at: str | None = None,
+    pay_on_delivery_max_cents: int | None = None,
 ) -> OrderData:
     """Convert cart to an order atomically.
 
@@ -419,7 +553,18 @@ def checkout(
 
         # 3. Create order
         order_id = str(uuid.uuid4())
-        now = datetime.now(UTC).strftime(_DT_FMT)
+        now_dt = datetime.now(UTC)
+        now = now_dt.strftime(_DT_FMT)
+        reserved_until = (
+            (now_dt + timedelta(minutes=15)).strftime(_DT_FMT)
+            if payment_method == "card"
+            else None
+        )
+        internal_sequence = conn.execute(
+            "SELECT COALESCE(MAX(internal_sequence), 0) + 1 FROM orders"
+        ).fetchone()[0]
+        order_number = _generate_order_number(conn)
+        payment_return_token = _generate_payment_return_token(conn)
         # Effective (discounted) price per row, computed once from a single `now`
         # so the total, the snapshot, and the returned items cannot disagree.
         # The customer is charged this amount; the floor clamp (>= 1 cent) keeps
@@ -471,26 +616,41 @@ def checkout(
             shipping_quoted_at = _normalize_quoted_at(shipping_quoted_at)
         total_cents = items_total_cents + shipping_cents
 
+        if (
+            payment_method == "cod"
+            and pay_on_delivery_max_cents is not None
+            and total_cents > pay_on_delivery_max_cents
+        ):
+            raise PayOnDeliveryLimitError(total_cents, pay_on_delivery_max_cents)
+
         # Initial payment_status depends on payment method.
         initial_payment_status = "cod_pending" if payment_method == "cod" else "pending"
 
         conn.execute(
             """
             INSERT INTO orders (id, session_id, user_id, status, total_cents,
+                               internal_sequence, order_number,
                                customer_email, customer_name,
                                shipping_cents, shipping_price_source,
                                shipping_is_fallback, shipping_quoted_at,
                                delivery_method, delivery_courier, delivery_details,
                                locale, notes,
-                               payment_method, payment_status,
+                               payment_method, payment_status, reserved_until,
+                               payment_return_token,
                                analytics_consent, created_at, updated_at)
-            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (
+                ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?
+            )
             """,
             (
                 order_id,
                 session_id,
                 user_id,
                 total_cents,
+                internal_sequence,
+                order_number,
                 customer_email,
                 customer_name,
                 shipping_cents,
@@ -504,11 +664,33 @@ def checkout(
                 notes,
                 payment_method,
                 initial_payment_status,
+                reserved_until,
+                payment_return_token,
                 1 if analytics_consent else 0,
                 now,
                 now,
             ),
         )
+
+        if payment_method in {"card", "cod"}:
+            provider = "stripe" if payment_method == "card" else "cod"
+            conn.execute(
+                """
+                INSERT INTO payments (
+                    id, order_id, provider, amount_cents, currency, provider_status,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 'EUR', ?, ?, ?)
+                """,
+                (
+                    str(uuid.uuid4()),
+                    order_id,
+                    provider,
+                    total_cents,
+                    initial_payment_status,
+                    now,
+                    now,
+                ),
+            )
 
         # 4. Insert order items (snapshot effective prices and names)
         items: list[OrderItemData] = []
@@ -584,6 +766,8 @@ def checkout(
 
     return OrderData(
         id=order_id,
+        internal_sequence=internal_sequence,
+        order_number=order_number,
         session_id=session_id,
         user_id=user_id,
         status="pending",
@@ -607,6 +791,10 @@ def checkout(
         notes=notes,
         payment_method=payment_method,
         payment_status=initial_payment_status,
+        reserved_until=reserved_until,
+        paid_at=None,
+        collected_at=None,
+        payment_return_token=payment_return_token,
         stripe_checkout_session_id=None,
         stripe_payment_intent_id=None,
         analytics_consent=analytics_consent,
@@ -671,6 +859,8 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
 
     return OrderData(
         id=row["id"],
+        internal_sequence=(row["internal_sequence"] if "internal_sequence" in row_keys else None),
+        order_number=row["order_number"] if "order_number" in row_keys else None,
         session_id=row["session_id"],
         user_id=row["user_id"],
         status=row["status"],
@@ -694,6 +884,12 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
         notes=row["notes"],
         payment_method=row["payment_method"] if "payment_method" in row_keys else "cod",
         payment_status=row["payment_status"] if "payment_status" in row_keys else "cod_pending",
+        reserved_until=row["reserved_until"] if "reserved_until" in row_keys else None,
+        paid_at=row["paid_at"] if "paid_at" in row_keys else None,
+        collected_at=row["collected_at"] if "collected_at" in row_keys else None,
+        payment_return_token=(
+            row["payment_return_token"] if "payment_return_token" in row_keys else None
+        ),
         stripe_checkout_session_id=(
             row["stripe_checkout_session_id"] if "stripe_checkout_session_id" in row_keys else None
         ),
@@ -788,6 +984,7 @@ def list_orders_admin(
     conn: sqlite3.Connection,
     status: OrderStatus | None = None,
     payment_status: str | None = None,
+    payment_method: str | None = None,
     page: int = 1,
     limit: int = 20,
 ) -> OrderListData:
@@ -812,6 +1009,9 @@ def list_orders_admin(
     if payment_status is not None:
         conditions.append("payment_status = ?")
         params.append(payment_status)
+    if payment_method is not None:
+        conditions.append("payment_method = ?")
+        params.append(payment_method)
 
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
@@ -829,6 +1029,22 @@ def list_orders_admin(
             items.append(order)
 
     return OrderListData(items=items, total=total, page=page, limit=limit)
+
+
+def list_payment_events(conn: sqlite3.Connection, order_id: str) -> list[dict]:
+    """Return safe admin payment timeline rows for an order."""
+    rows = conn.execute(
+        """
+        SELECT id, order_id, payment_id, event_type, source, stripe_event_id,
+               stripe_event_type, provider, provider_status, processing_status,
+               details, admin_user_id, admin_email, admin_note, request_id, created_at
+        FROM payment_events
+        WHERE order_id = ?
+        ORDER BY created_at ASC, id ASC
+        """,
+        (order_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def update_status(
@@ -915,9 +1131,14 @@ def update_status(
     # COD: auto-advance payment_status to 'paid' on delivery (Decision 2).
     # Cash is collected at delivery by the courier — no manual step needed.
     if new_status == "delivered" and payment_method == "cod":
+        now = datetime.now(UTC).strftime(_DT_FMT)
         conn.execute(
-            "UPDATE orders SET payment_status = 'paid' WHERE id = ?",
-            (order_id,),
+            "UPDATE orders "
+            "SET payment_status = 'paid', "
+            "paid_at = COALESCE(paid_at, ?), "
+            "collected_at = COALESCE(collected_at, ?) "
+            "WHERE id = ?",
+            (now, now, order_id),
         )
 
     # Restore stock on cancellation
@@ -973,16 +1194,170 @@ def mark_bank_transfer_paid(
         raise WrongPaymentMethodError(order_id, "bank_transfer", row["payment_method"])
     if row["payment_status"] == "paid":
         raise PaymentAlreadyPaidError(order_id)
+    if row["payment_status"] != "pending":
+        raise ManualPaymentActionError(
+            "INVALID_PAYMENT_STATE",
+            f"Cannot mark bank transfer paid from {row['payment_status']}",
+            409,
+        )
 
+    now = datetime.now(UTC).strftime(_DT_FMT)
     conn.execute(
-        "UPDATE orders SET payment_status = 'paid' WHERE id = ?",
-        (order_id,),
+        "UPDATE orders SET payment_status = 'paid', paid_at = COALESCE(paid_at, ?) WHERE id = ?",
+        (now, order_id),
     )
     conn.execute(
         "INSERT OR IGNORE INTO order_emails (order_id, event, recipient, status)"
         " VALUES (?, 'placed', (SELECT customer_email FROM orders WHERE id = ?), 'queued')",
         (order_id, order_id),
     )
+    order = _fetch_order_with_items(conn, order_id)
+    if order is None:
+        raise OrderNotFoundError(order_id)
+    return order
+
+
+def apply_manual_payment_action(
+    conn: sqlite3.Connection,
+    order_id: str,
+    action: str,
+    note: str,
+    *,
+    admin_id: str | None = None,
+    admin_email: str | None = None,
+    request_id: str | None = None,
+) -> OrderData:
+    """Apply a note-required manual payment action using the current status vocabulary."""
+    admin_note = note.strip()
+    if not admin_note:
+        raise ManualPaymentActionError("NOTE_REQUIRED", "A note is required")
+
+    row = conn.execute(
+        """
+        SELECT id, status, payment_method, payment_status, total_cents, customer_email
+        FROM orders
+        WHERE id = ?
+        """,
+        (order_id,),
+    ).fetchone()
+    if not row:
+        raise OrderNotFoundError(order_id)
+
+    old_order_status = row["status"]
+    old_payment_status = row["payment_status"]
+    payment_method = row["payment_method"]
+    provider = _payment_provider_for_method(payment_method)
+    now = datetime.now(UTC).strftime(_DT_FMT)
+    new_payment_status = old_payment_status
+    event_type = f"manual_{action}"
+    queue_placed_email = False
+
+    if action == "mark_paid":
+        if old_payment_status == "paid":
+            raise PaymentAlreadyPaidError(order_id)
+        if old_payment_status == "refunded":
+            raise ManualPaymentActionError(
+                "INVALID_PAYMENT_STATE",
+                "Cannot move a refunded payment to paid",
+                409,
+            )
+        new_payment_status = "paid"
+        conn.execute(
+            "UPDATE orders SET payment_status = 'paid', paid_at = COALESCE(paid_at, ?) "
+            "WHERE id = ?",
+            (now, order_id),
+        )
+        queue_placed_email = payment_method in {"card", "bank_transfer"}
+    elif action == "mark_collected":
+        if payment_method != "cod":
+            raise WrongPaymentMethodError(order_id, "cod", payment_method)
+        if old_payment_status == "paid":
+            raise PaymentAlreadyPaidError(order_id)
+        if old_payment_status == "refunded":
+            raise ManualPaymentActionError(
+                "INVALID_PAYMENT_STATE",
+                "Cannot collect a refunded payment",
+                409,
+            )
+        new_payment_status = "paid"
+        conn.execute(
+            """
+            UPDATE orders
+            SET payment_status = 'paid',
+                paid_at = COALESCE(paid_at, ?),
+                collected_at = COALESCE(collected_at, ?)
+            WHERE id = ?
+            """,
+            (now, now, order_id),
+        )
+    elif action == "mark_refunded":
+        if old_payment_status == "refunded":
+            raise ManualPaymentActionError("ALREADY_REFUNDED", "Payment is already refunded", 409)
+        if old_payment_status != "paid":
+            raise ManualPaymentActionError(
+                "INVALID_PAYMENT_STATE",
+                "Only paid payments can be marked refunded",
+                409,
+            )
+        new_payment_status = "refunded"
+        conn.execute("UPDATE orders SET payment_status = 'refunded' WHERE id = ?", (order_id,))
+    elif action in {"mark_failed", "mark_review"}:
+        if old_payment_status in {"paid", "refunded"}:
+            raise ManualPaymentActionError(
+                "INVALID_PAYMENT_STATE",
+                f"Cannot move payment from {old_payment_status} to failed",
+                409,
+            )
+        new_payment_status = "failed"
+        conn.execute("UPDATE orders SET payment_status = 'failed' WHERE id = ?", (order_id,))
+    elif action == "cancel":
+        if old_order_status == "cancelled":
+            raise ManualPaymentActionError("ALREADY_CANCELLED", "Order is already cancelled", 409)
+        if "cancelled" not in VALID_TRANSITIONS.get(old_order_status, set()):
+            raise InvalidStateTransitionError(order_id, old_order_status, "cancelled")
+        update_status(conn, order_id, "cancelled")
+        if old_payment_status not in {"paid", "refunded"}:
+            new_payment_status = "failed"
+            conn.execute("UPDATE orders SET payment_status = 'failed' WHERE id = ?", (order_id,))
+    else:
+        raise ManualPaymentActionError("INVALID_PAYMENT_ACTION", f"Unknown action: {action}")
+
+    if queue_placed_email:
+        conn.execute(
+            "INSERT OR IGNORE INTO order_emails (order_id, event, recipient, status) "
+            "VALUES (?, 'placed', ?, 'queued')",
+            (order_id, row["customer_email"]),
+        )
+
+    payment_id = _ensure_payment_row(
+        conn,
+        order_id=order_id,
+        provider=provider,
+        amount_cents=row["total_cents"],
+        provider_status=new_payment_status,
+        now=now,
+    )
+    _append_payment_event(
+        conn,
+        order_id=order_id,
+        payment_id=payment_id,
+        event_type=event_type,
+        provider=provider,
+        provider_status=new_payment_status,
+        details={
+            "action": action,
+            "old_order_status": old_order_status,
+            "new_order_status": "cancelled" if action == "cancel" else old_order_status,
+            "old_payment_status": old_payment_status,
+            "new_payment_status": new_payment_status,
+            "current_vocabulary": True,
+        },
+        admin_id=admin_id,
+        admin_email=admin_email,
+        admin_note=admin_note,
+        request_id=request_id,
+    )
+
     order = _fetch_order_with_items(conn, order_id)
     if order is None:
         raise OrderNotFoundError(order_id)

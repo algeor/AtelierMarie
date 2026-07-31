@@ -12,7 +12,7 @@ Items:
 - {{ item.product_name }} × {{ item.quantity }} — {{ item.line_total_display }}
 {% endfor %}
 
-Shipping: {{ shipping_display }}{% if shipping_is_fallback %} (estimated){% endif %}
+Shipping: {{ shipping_display }}{{ " (estimated)" if shipping_is_fallback else "" }}
 {% if delivery_method_display or delivery_courier_display or delivery_lines %}
 Delivery:
 {% if delivery_method_display %}- Method: {{ delivery_method_display }}

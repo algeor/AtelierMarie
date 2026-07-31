@@ -1,11 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Link, useRouter } from "@/i18n/navigation";
 import { useCart } from "@/contexts/CartContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { createOrder, calculateShipping, getDeliverySettings } from "@/lib/api";
+import {
+  createOrder,
+  calculateShipping,
+  getDeliverySettings,
+  getPublicPaymentSettings,
+} from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
 import { trackAnalytics } from "@/lib/analytics";
 import { useLocalizedError } from "@/lib/useLocalizedError";
@@ -28,12 +33,11 @@ import type {
   DeliveryInfo,
   DeliverySettingsResponse,
   PaymentMethod,
+  PublicPaymentSettingsResponse,
   ShippingQuote,
 } from "@/lib/types";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const STRIPE_ENABLED = process.env.NEXT_PUBLIC_STRIPE_ENABLED === "true";
-const BANK_TRANSFER_ENABLED = Boolean(process.env.NEXT_PUBLIC_BANK_IBAN);
 
 type DeliveryPhase = "method" | "approximate" | "exact" | "ready";
 
@@ -60,17 +64,6 @@ function enabledCouriersForMethod(
   method: "office" | "door",
 ): Courier[] {
   return ALL_COURIERS.filter((courier) => courierMethodEnabled(settings, courier, method));
-}
-
-function paymentMethodEnabled(
-  settings: DeliverySettingsResponse | null,
-  method: PaymentMethod,
-): boolean {
-  if (!settings) return false;
-  return settings[`${method}_enabled` as keyof Pick<
-    DeliverySettingsResponse,
-    "cod_enabled" | "card_enabled" | "bank_transfer_enabled"
-  >];
 }
 
 export default function CheckoutPage() {
@@ -103,21 +96,18 @@ export default function CheckoutPage() {
   const [deliverySettings, setDeliverySettings] = useState<DeliverySettingsResponse | null>(null);
 
   const qualifiesForFreeShipping = total_cents >= FREE_SHIPPING_THRESHOLD_CENTS;
-  const paymentOptions = useMemo<PaymentMethod[]>(
-    () =>
-      (["cod", "card", "bank_transfer"] as PaymentMethod[]).filter((method) => {
-        if (method === "card" && !STRIPE_ENABLED) return false;
-        if (method === "bank_transfer" && !BANK_TRANSFER_ENABLED) return false;
-        return paymentMethodEnabled(deliverySettings, method);
-      }),
-    [deliverySettings],
-  );
 
   const emailRef = useRef<HTMLInputElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const hasRedirected = useRef(false);
   const trackedCheckoutStart = useRef(false);
+  const paymentMethodTouched = useRef(false);
   const lastDeliverySignatureRef = useRef("");
+
+  const [paymentSettings, setPaymentSettings] =
+    useState<PublicPaymentSettingsResponse | null>(null);
+  const [paymentSettingsLoading, setPaymentSettingsLoading] = useState(true);
+  const [paymentSettingsError, setPaymentSettingsError] = useState(false);
 
   useEffect(() => {
     refreshCart();
@@ -132,6 +122,34 @@ export default function CheckoutPage() {
       })
       .catch(() => {
         if (!cancelled) setDeliverySettings(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPaymentSettingsLoading(true);
+    setPaymentSettingsError(false);
+    getPublicPaymentSettings()
+      .then((settings) => {
+        if (cancelled) return;
+        setPaymentSettings(settings);
+        setPaymentMethod((current) => {
+          const methods = settings.available_payment_methods;
+          if (paymentMethodTouched.current && methods.includes(current)) return current;
+          return methods[0] ?? "cod";
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPaymentSettings(null);
+          setPaymentSettingsError(true);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setPaymentSettingsLoading(false);
       });
     return () => {
       cancelled = true;
@@ -155,14 +173,6 @@ export default function CheckoutPage() {
       router.push("/products");
     }
   }, [isLoading, items.length, router]);
-
-  useEffect(() => {
-    if (paymentOptions.length === 0) return;
-    if (!paymentOptions.includes(paymentMethod)) {
-      const nextPaymentMethod = paymentOptions[0];
-      if (nextPaymentMethod) setPaymentMethod(nextPaymentMethod);
-    }
-  }, [paymentMethod, paymentOptions]);
 
   useEffect(() => {
     if (!isLoading && items.length > 0 && !trackedCheckoutStart.current) {
@@ -407,6 +417,12 @@ export default function CheckoutPage() {
         return;
       }
 
+      const availablePaymentMethods = paymentSettings?.available_payment_methods ?? [];
+      if (!availablePaymentMethods.includes(paymentMethod)) {
+        setSubmitError(t("paymentMethod.unavailable"));
+        return;
+      }
+
       setIsSubmitting(true);
 
       try {
@@ -444,7 +460,11 @@ export default function CheckoutPage() {
           });
           window.location.href = order.stripe_checkout_url;
         } else {
-          router.push(`/orders/${order.id}/confirmation`);
+          const tokenQuery =
+            order.payment_method === "card" && order.payment_return_token
+              ? `?token=${encodeURIComponent(order.payment_return_token)}`
+              : "";
+          router.push(`/orders/${order.id}/confirmation${tokenQuery}`);
         }
       } catch (error) {
         if (error instanceof ApiError) {
@@ -463,6 +483,7 @@ export default function CheckoutPage() {
       notes,
       delivery,
       paymentMethod,
+      paymentSettings,
       validateEmail,
       validateName,
       router,
@@ -494,6 +515,15 @@ export default function CheckoutPage() {
       {t("legalSuffix")}
     </p>
   );
+
+  const availablePaymentMethods = paymentSettings?.available_payment_methods ?? [];
+  const showPaymentUnavailable =
+    !paymentSettingsLoading && (paymentSettingsError || availablePaymentMethods.length === 0);
+
+  const handlePaymentMethodChange = (method: PaymentMethod) => {
+    paymentMethodTouched.current = true;
+    setPaymentMethod(method);
+  };
 
   if (isLoading) {
     return (
@@ -636,27 +666,50 @@ export default function CheckoutPage() {
             />
           </div>
 
-          {/* Payment method */}
-          {paymentOptions.length > 0 && (
           <div className="mb-6">
             <p className="mb-2 text-sm font-medium text-soft-brown">{t("paymentMethod.label")}</p>
-            <div className="flex flex-col gap-2">
-              {paymentOptions.map((method) => (
-                <label key={method} className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="payment_method"
-                    value={method}
-                    checked={paymentMethod === method}
-                    onChange={() => setPaymentMethod(method)}
-                    className="accent-soft-brown"
-                  />
-                  <span className="text-sm text-charcoal">{t(`paymentMethod.${method}`)}</span>
-                </label>
-              ))}
-            </div>
+            {paymentSettingsLoading ? (
+              <Skeleton className="h-12 w-full" />
+            ) : showPaymentUnavailable ? (
+              <div className="rounded-brand border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+                {t("paymentMethod.unavailable")}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2" role="radiogroup" aria-label={t("paymentMethod.label")}>
+                {availablePaymentMethods.map((method) => {
+                  const label = t(`paymentMethod.${method}`);
+                  return (
+                    <label key={method} className="flex cursor-pointer items-start gap-3 rounded-brand border border-champagne-beige px-4 py-3">
+                      <input
+                        type="radio"
+                        name="payment_method"
+                        value={method}
+                        checked={paymentMethod === method}
+                        onChange={() => handlePaymentMethodChange(method)}
+                        aria-label={label}
+                        className="mt-1 accent-soft-brown"
+                      />
+                      <span>
+                        <span className="block text-sm font-medium text-charcoal">{label}</span>
+                        {method === "card" && (
+                          <span className="mt-1 block text-xs leading-5 text-soft-brown/75">
+                            {t("paymentMethod.cardCopy")}
+                          </span>
+                        )}
+                        {method === "cod" && (
+                          <span className="mt-1 block text-xs leading-5 text-soft-brown/75">
+                            {t("paymentMethod.codCopy", {
+                              amount: formatPrice(paymentSettings?.pay_on_delivery_max_cents ?? 5000),
+                            })}
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
           </div>
-          )}
 
           <div className="lg:hidden">
             <Button type="submit" variant="primary" size="lg" isLoading={isSubmitting} className="w-full">

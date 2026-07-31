@@ -469,39 +469,3 @@ class TestDeliverySettings:
         )
         assert resp.status_code == 422
         assert resp.json()["error"]["code"] == "DELIVERY_METHOD_UNAVAILABLE"
-
-    @pytest.mark.asyncio
-    async def test_disabled_payment_method_rejected_for_checkout(self, admin_client, client):
-        await admin_client.put(
-            "/v1/admin/delivery-settings",
-            json={
-                "speedy_office_enabled": True,
-                "speedy_door_enabled": True,
-                "econt_office_enabled": True,
-                "econt_door_enabled": True,
-                "cod_enabled": False,
-                "card_enabled": True,
-                "bank_transfer_enabled": True,
-            },
-        )
-
-        resp = await client.post(
-            "/v1/orders",
-            json={
-                "customer_email": "buyer@example.com",
-                "customer_name": "Test Buyer",
-                "payment_method": "cod",
-                "delivery": {
-                    "method": "door",
-                    "door": {
-                        "courier": "speedy",
-                        "city": "София",
-                        "postal_code": "1000",
-                        "street": "Витоша",
-                        "phone": "+359888123456",
-                    },
-                },
-            },
-        )
-        assert resp.status_code == 422
-        assert resp.json()["error"]["code"] == "PAYMENT_METHOD_UNAVAILABLE"

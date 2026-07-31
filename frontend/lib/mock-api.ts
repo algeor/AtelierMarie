@@ -35,6 +35,7 @@ import type {
   Courier,
   DeliverySettingsResponse,
   DeliverySettingsUpdate,
+  AdminOrderDetailResponse,
   CityPlace,
   CreateOrderRequest,
   CreateAboutItemRequest,
@@ -52,10 +53,15 @@ import type {
   OrderResponse,
   OrderStatus,
   PaymentMethod,
+  PaymentSettingsResponse,
+  PaymentSettingsUpdate,
+  PaymentStatus,
+  ManualPaymentAction,
   PatchAboutItemRequest,
   PatchAboutSectionRequest,
   ProductListResponse,
   ProductImage,
+  PublicPaymentSettingsResponse,
   ShippingQuote,
   ProductResponse,
   ProductVideo,
@@ -925,6 +931,41 @@ let mockDeliverySettings: DeliverySettingsResponse = {
   updated_at: new Date().toISOString(),
 };
 
+let mockPaymentSettings: PublicPaymentSettingsResponse = {
+  card_payments_enabled: true,
+  pay_on_delivery_enabled: true,
+  pay_on_delivery_max_cents: 5000,
+  bank_transfer_enabled: false,
+  available_payment_methods: ["card", "cod"],
+};
+
+let mockAdminPaymentSettings: PaymentSettingsResponse = {
+  card_payments_enabled: true,
+  pay_on_delivery_enabled: true,
+  pay_on_delivery_max_cents: 5000,
+  stripe: {
+    mode: "test",
+    secret_key_configured: true,
+    webhook_secret_configured: true,
+    publishable_key_configured: true,
+    ready_for_card_payments: true,
+    problems: [],
+  },
+};
+
+function syncPublicPaymentSettings(): void {
+  mockPaymentSettings = {
+    card_payments_enabled: mockAdminPaymentSettings.card_payments_enabled,
+    pay_on_delivery_enabled: mockAdminPaymentSettings.pay_on_delivery_enabled,
+    pay_on_delivery_max_cents: mockAdminPaymentSettings.pay_on_delivery_max_cents,
+    bank_transfer_enabled: false,
+    available_payment_methods: [
+      ...(mockAdminPaymentSettings.card_payments_enabled ? ["card" as const] : []),
+      ...(mockAdminPaymentSettings.pay_on_delivery_enabled ? ["cod" as const] : []),
+    ],
+  };
+}
+
 function deliveryEnabled(courier: Courier, method: "office" | "door"): boolean {
   const key = `${courier}_${method}_enabled` as keyof DeliverySettingsUpdate;
   return mockDeliverySettings[key];
@@ -1080,6 +1121,41 @@ export async function createOrder(
 export async function getDeliverySettings(): Promise<DeliverySettingsResponse> {
   await delay();
   return { ...mockDeliverySettings };
+}
+
+export async function getPublicPaymentSettings(): Promise<PublicPaymentSettingsResponse> {
+  await delay();
+  syncPublicPaymentSettings();
+  return {
+    ...mockPaymentSettings,
+    available_payment_methods: [...mockPaymentSettings.available_payment_methods],
+  };
+}
+
+export async function getAdminPaymentSettings(): Promise<PaymentSettingsResponse> {
+  await delay();
+  return {
+    ...mockAdminPaymentSettings,
+    stripe: {
+      ...mockAdminPaymentSettings.stripe,
+      problems: [...mockAdminPaymentSettings.stripe.problems],
+    },
+  };
+}
+
+export async function updateAdminPaymentSettings(
+  data: PaymentSettingsUpdate
+): Promise<PaymentSettingsResponse> {
+  await delay();
+  if (!data.card_payments_enabled && !data.pay_on_delivery_enabled) {
+    mockError("PAYMENT_SETTINGS_INVALID", "At least one payment method must be enabled");
+  }
+  mockAdminPaymentSettings = {
+    ...mockAdminPaymentSettings,
+    ...data,
+  };
+  syncPublicPaymentSettings();
+  return getAdminPaymentSettings();
 }
 
 export async function getAdminDeliverySettings(): Promise<DeliverySettingsResponse> {
@@ -1626,13 +1702,18 @@ export async function updateProductVideoSortOrder(
 export async function getAdminOrders(
   page = 1,
   limit = 20,
-  status?: string
+  status?: string,
+  paymentStatus?: PaymentStatus | "",
+  paymentMethod?: PaymentMethod | ""
 ): Promise<OrderListResponse> {
   await delay();
   const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders];
-  const filtered = status
-    ? allOrders.filter((o) => o.status === status)
-    : allOrders;
+  const filtered = allOrders.filter((order) => {
+    if (status && order.status !== status) return false;
+    if (paymentStatus && order.payment_status !== paymentStatus) return false;
+    if (paymentMethod && order.payment_method !== paymentMethod) return false;
+    return true;
+  });
   const start = (page - 1) * limit;
   const slice = filtered.slice(start, start + limit);
   return {
@@ -1643,12 +1724,57 @@ export async function getAdminOrders(
   };
 }
 
-export async function getAdminOrder(orderId: string): Promise<OrderResponse> {
+export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailResponse> {
   await delay();
   const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders];
   const order = allOrders.find((o) => o.id === orderId);
   if (!order) mockError("NOT_FOUND", `Order ${orderId} not found`);
-  return order;
+  return {
+    ...order,
+    payment_events: [
+      {
+        id: `evt-${order.id}`,
+        order_id: order.id,
+        payment_id: null,
+        event_type: "manual_mark_collected",
+        source: "admin",
+        provider: order.payment_method,
+        provider_status: order.payment_status,
+        processing_status: "processed",
+        admin_email: "marie@ateliermarie.com",
+        admin_note: "Mock payment note",
+        request_id: "mock-request",
+        created_at: order.updated_at,
+      },
+    ],
+  };
+}
+
+export async function applyManualPaymentAction(
+  orderId: string,
+  action: ManualPaymentAction,
+  note: string
+): Promise<OrderResponse> {
+  await delay();
+  if (!note.trim()) mockError("NOTE_REQUIRED", "A note is required");
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders];
+  const order = allOrders.find((o) => o.id === orderId);
+  if (!order) mockError("NOT_FOUND", `Order ${orderId} not found`);
+
+  if (action === "mark_paid" || action === "mark_collected") {
+    order.payment_status = "paid";
+  } else if (action === "mark_refunded") {
+    order.payment_status = "refunded";
+  } else if (action === "mark_failed" || action === "mark_review") {
+    order.payment_status = "failed";
+  } else if (action === "cancel") {
+    order.status = "cancelled";
+    if (order.payment_status !== "paid" && order.payment_status !== "refunded") {
+      order.payment_status = "failed";
+    }
+  }
+  order.updated_at = new Date().toISOString();
+  return { ...order };
 }
 
 export async function updateOrderStatus(

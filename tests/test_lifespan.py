@@ -134,3 +134,37 @@ async def test_lifespan_cleanup_loop_logs_count(tmp_path, monkeypatch):
                 await task
 
         mock_logger.info.assert_called_with("Cleaned up expired sessions", count=5)
+
+
+@pytest.mark.asyncio
+async def test_payment_reservation_cleanup_loop_calls_cleanup(tmp_path, monkeypatch):
+    """The payment cleanup loop calls expired reservation cleanup after sleeping."""
+    from app.main import payment_reservation_cleanup_loop
+
+    cleanup_called = asyncio.Event()
+    sleep_count = 0
+
+    async def one_shot_sleep(_seconds):
+        nonlocal sleep_count
+        sleep_count += 1
+        if sleep_count == 1:
+            return
+        await asyncio.Event().wait()
+
+    def mock_cleanup():
+        cleanup_called.set()
+        return 1
+
+    task = asyncio.create_task(
+        payment_reservation_cleanup_loop(
+            interval_seconds=0,
+            sleep=one_shot_sleep,
+            cleanup=mock_cleanup,
+        )
+    )
+    try:
+        await asyncio.wait_for(cleanup_called.wait(), timeout=1.0)
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task

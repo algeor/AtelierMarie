@@ -1,13 +1,15 @@
-## ADDED Requirements
+## Purpose
 
+Defines product image upload, processing, validation, storage, and image safety behavior.
+## Requirements
 ### Requirement: Product image upload endpoint
 The system SHALL provide `POST /v1/admin/products/{product_id}/images` that accepts a multipart file upload, processes the image, and stores it as a new WebP image belonging to the product (appended, not overwriting existing images). This endpoint requires admin authentication.
 
 #### Scenario: Successful image upload
-- **WHEN** an admin sends a valid JPEG or PNG file (≤5MB) to `POST /v1/admin/products/{product_id}/images`
+- **WHEN** an admin sends a valid JPEG or PNG file (≤25MB) to `POST /v1/admin/products/{product_id}/images`
 - **THEN** the system:
   1. Validates the file is JPEG or PNG (by magic bytes, not just extension)
-  2. Resizes to main (max 1200×1500px, aspect ratio preserved) and thumbnail (max 400×500px)
+  2. Resizes to main (max 2000×2500px, aspect ratio preserved) and thumbnail (max 400×500px)
   3. Converts both to WebP format
   4. Saves to `{static_file_path}/products/{product_id}_{image_id}.webp` and `{product_id}_{image_id}_thumb.webp`
   5. Inserts a `product_images` row (image_url, thumbnail_url, sort_order, is_primary)
@@ -41,41 +43,54 @@ The system SHALL reject files that are not JPEG or PNG. Validation is by file ma
 - **THEN** the system returns 422 with error `"invalid_image_type"` and message indicating only JPEG/PNG are accepted
 
 ### Requirement: File size limit
-The system SHALL reject uploaded files larger than 5MB before attempting to process them.
+The system SHALL reject uploaded files larger than 25MB before attempting to process them.
 
 #### Scenario: File within limit
-- **WHEN** the uploaded file is ≤5MB (5,242,880 bytes)
+- **WHEN** the uploaded file is ≤25MB (26,214,400 bytes)
 - **THEN** the file is accepted for processing
 
 #### Scenario: File exceeds limit
-- **WHEN** the uploaded file is >5MB
-- **THEN** the system returns 422 with error `"file_too_large"` and message indicating the 5MB limit
+- **WHEN** the uploaded file is >25MB
+- **THEN** the system returns 422 with error `"file_too_large"` and message indicating the 25MB limit
 
-#### Scenario: Nginx rejects oversized upload before it reaches the app
-- **WHEN** a file larger than 5MB is uploaded in production
-- **THEN** Nginx (configured with `client_max_body_size 5m`) rejects the request with 413 before the body reaches FastAPI. The application-level 5MB check in image_service is a defense-in-depth fallback (handles cases where Nginx is bypassed in dev or config is misconfigured).
+#### Scenario: Streaming chunk guard rejects oversized upload mid-stream
+- **WHEN** an upload's accumulated bytes exceed 25MB during streaming read in the admin route
+- **THEN** the route stops reading and returns 422 `"file_too_large"` before buffering the whole body
+
+#### Scenario: Nginx allows exact-limit multipart uploads and caps truly oversized bodies
+- **WHEN** an exact 25MB file is uploaded in production as multipart form data
+- **THEN** Nginx does not reject it solely because of multipart overhead because `client_max_body_size` is configured to `27m`
+- **AND** the application-level 25MB checks in image_service and the admin route remain the source of truth for file-byte validation
+
+#### Scenario: Nginx rejects bodies above the proxy cap
+- **WHEN** an upload request body exceeds `client_max_body_size 27m`
+- **THEN** Nginx rejects the request with 413 before the body reaches FastAPI.
 
 ### Requirement: Image resize preserves aspect ratio
-The system SHALL resize images using "thumbnail" mode (fit within bounding box, never upscale, preserve aspect ratio). Two sizes are produced: main (1200×1500) and thumbnail (400×500).
+The system SHALL resize images using "thumbnail" mode (fit within bounding box, never upscale, preserve aspect ratio). Three sizes are produced: thumbnail (400×500), main (2000×2500), and zoom (3000×3750).
 
 #### Scenario: Landscape image resized
-- **WHEN** a 3000×2000px image is uploaded
-- **THEN** the main image is resized to 1200×800px (width-constrained) and thumbnail to 400×267px
+- **WHEN** a 6000×4000px image is uploaded
+- **THEN** the zoom image is width-constrained to 3000×2000px, the main to 2000×1333px, and the thumbnail to 400×267px
 
 #### Scenario: Portrait image resized
-- **WHEN** a 1000×2000px image is uploaded
-- **THEN** the main image is resized to 750×1500px (height-constrained) and thumbnail to 250×500px
+- **WHEN** a 4000×6000px image is uploaded
+- **THEN** the zoom image is height-constrained to 2500×3750px, the main to 1667×2500px, and the thumbnail to 333×500px
 
 #### Scenario: Small image not upscaled
 - **WHEN** a 300×400px image is uploaded
-- **THEN** the image is NOT upscaled — saved at original dimensions (300×400) as WebP
+- **THEN** none of the derivatives are upscaled — each is saved at the original 300×400 dimensions as WebP
+
+#### Scenario: Zoom dimensions stay under the pixel-flood ceiling
+- **WHEN** the zoom bounding box (3000×3750 = 11.25 megapixels) is applied
+- **THEN** it remains below the `MAX_IMAGE_PIXELS` 25-megapixel safety ceiling, which is left unchanged
 
 ### Requirement: WebP output format
 The system SHALL save all processed images as WebP format for optimal file size and browser compatibility.
 
 #### Scenario: WebP output with quality settings
 - **WHEN** an image is processed
-- **THEN** the main image is saved as WebP with quality=85 and the thumbnail with quality=80
+- **THEN** the thumbnail is saved as WebP with quality=80, the main with quality=92, and the zoom with quality=95
 
 ### Requirement: Static directory created if missing
 The system SHALL create the target directory `{static_file_path}/products/` if it does not exist when saving an image.
@@ -122,8 +137,28 @@ The system SHALL reject images with excessively large pixel dimensions to preven
 - **THEN** the system returns 422 with error `"image_dimensions_too_large"` (set `PIL.Image.MAX_IMAGE_PIXELS = 25_000_000`)
 
 ### Requirement: EXIF metadata stripped
-The system SHALL strip all EXIF/metadata from uploaded images before saving. The WebP output SHALL contain no embedded metadata from the original file (prevents leaking GPS coordinates, device info, or other PII).
+The system SHALL apply the source image's EXIF orientation to the pixels (uprighting the image) **before** any resizing, and SHALL strip all EXIF/metadata from the saved output. The WebP output SHALL contain no embedded metadata from the original file (prevents leaking GPS coordinates, device info, or other PII) **and** SHALL be visually upright regardless of the camera/phone orientation flag on the original.
 
 #### Scenario: Metadata removed
 - **WHEN** an image containing EXIF data (GPS, camera model, etc.) is processed
 - **THEN** the saved WebP files contain no EXIF or XMP metadata from the original
+
+#### Scenario: Orientation applied so portrait photos are upright
+- **WHEN** a photo whose EXIF orientation flag indicates rotation (e.g. a portrait phone photo stored as landscape-plus-flag) is processed
+- **THEN** the saved WebP derivatives are rotated to their upright orientation before resizing, so they display the correct way up even though the EXIF flag itself is stripped
+
+### Requirement: High-resolution zoom derivative
+The system SHALL produce a high-resolution "zoom" WebP derivative (max bounding box 3000×3750, quality 95) for every uploaded product image, in addition to the main and thumbnail derivatives. The zoom derivative SHALL be a downscaled, EXIF-stripped re-encode — never the byte-for-byte uploaded original. The processing result SHALL include a `zoom_url` (`/static/products/{stem}_zoom.webp`).
+
+#### Scenario: Zoom derivative generated on upload
+- **WHEN** an image is successfully processed
+- **THEN** a `{stem}_zoom.webp` file is written under `static/products/` and the result includes a `zoom_url` pointing to it
+
+#### Scenario: Zoom derivative path is traversal-safe
+- **WHEN** the zoom output path is resolved
+- **THEN** it is verified to be under the products base directory (same guard as main/thumbnail); a path escaping the base directory raises a processing error
+
+#### Scenario: Zoom respects the pixel ceiling
+- **WHEN** any image is processed
+- **THEN** the 25-megapixel decompression-bomb cap (`MAX_IMAGE_PIXELS`) still applies unchanged; a source exceeding 25MP is rejected regardless of the 25MB byte limit
+

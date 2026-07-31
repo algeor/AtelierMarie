@@ -1,5 +1,7 @@
-## ADDED Requirements
+## Purpose
 
+Defines product image gallery ordering, primary image behavior, storefront rendering, and gallery management contracts.
+## Requirements
 ### Requirement: Products support multiple images
 The system SHALL persist product images in a `product_images` table (id, product_id, image_url, thumbnail_url, sort_order, is_primary, created_at), supporting up to 6 images per product. Images SHALL belong to a product and have a stable display order via `sort_order`.
 
@@ -75,3 +77,43 @@ The system SHALL migrate existing single-image data into `product_images` and re
 #### Scenario: Migration runs once
 - **WHEN** the app restarts after migration
 - **THEN** no duplicate image rows are created
+
+### Requirement: Retina-crisp gallery hero
+The product gallery hero SHALL render the main (`image_url`) derivative, which is sized large enough (max 2000×2500) to appear crisp on high-density (2×) displays at the gallery's on-page layout size without browser upscaling.
+
+#### Scenario: Hero renders the main derivative
+- **WHEN** the product detail page renders a product with images
+- **THEN** the hero image `src` resolves to the selected image's `image_url` (main) derivative
+
+### Requirement: Click-to-zoom lightbox
+The product gallery SHALL provide a single, unified media lightbox that displays **all** of the product's media — every image and the video (if present) — as an ordered, navigable carousel following the gallery's existing display order (`sort_order`, primary image first). Activating any gallery item (hero or thumbnail) SHALL open the lightbox positioned on that item.
+
+Within the lightbox:
+- **Image slides** SHALL support pan and pinch/scroll zoom into detail, sourced from the high-resolution `zoom_url` derivative, falling back to `image_url` when `zoom_url` is null or absent. The zoom asset SHALL be loaded lazily — only when its slide is shown, not on initial product page load.
+- The lightbox SHALL allow navigation across the entire media set (next/previous via arrow keys and swipe, and direct selection via thumbnails), so the user can move photo → video → photo without leaving the viewer.
+- The lightbox SHALL be keyboard accessible: it exposes a dialog role, traps focus, and closes on Escape or backdrop interaction.
+
+#### Scenario: Open unified media lightbox
+- **WHEN** the customer activates a gallery item (hero or a thumbnail)
+- **THEN** the lightbox opens positioned on that item, containing all of the product's images and video as ordered slides
+
+#### Scenario: Pan and pinch-zoom into image detail
+- **WHEN** an image slide is shown and the customer zooms in
+- **THEN** the slide renders the `zoom_url` derivative and the customer can pan around the enlarged image to inspect fine detail
+
+#### Scenario: Navigate across images and video in one flow
+- **WHEN** the lightbox is open on an image slide adjacent to the video slide
+- **THEN** advancing (arrow/swipe/thumbnail) moves to the video slide, and continuing advances to the next image — all within the same lightbox
+
+#### Scenario: Zoom asset loaded lazily
+- **WHEN** the product detail page first loads
+- **THEN** no `zoom_url` asset is requested until its slide is displayed in the lightbox
+
+#### Scenario: Zoom fallback when no zoom asset
+- **WHEN** an image slide's `zoom_url` is null or absent
+- **THEN** the slide falls back to rendering `image_url` rather than failing
+
+#### Scenario: Lightbox is keyboard accessible
+- **WHEN** the lightbox is open
+- **THEN** it exposes a dialog role, traps focus, and closes on Escape or backdrop interaction
+

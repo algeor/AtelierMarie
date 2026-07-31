@@ -1,5 +1,7 @@
-## MODIFIED Requirements
+## Purpose
 
+Defines global storefront layout behavior shared across localized pages, including header, footer, language, fonts, and announcement surfaces.
+## Requirements
 ### Requirement: Header includes language toggle
 The global layout header SHALL include a language toggle button (flag icon) in the right-side utility area, positioned adjacent to the auth and cart controls. The toggle SHALL be visible on all viewport sizes (not collapsed into mobile menu).
 
@@ -30,7 +32,7 @@ The system SHALL load Playfair Display and Inter fonts with both `latin` and `cy
 - **THEN** the text renders in the correct font (Playfair Display for headings, Inter for body) without fallback to system fonts
 
 ### Requirement: Footer with links and branding
-The system SHALL render a footer on all localized storefront pages containing navigation links, Atelier Marie social icon links, brand messaging, and copyright information.
+The system SHALL render a footer on all localized storefront pages containing navigation links (including a link to the atelier story page), Atelier Marie social icon links, brand messaging, and copyright information.
 
 #### Scenario: Footer renders on localized pages
 - **WHEN** any localized storefront page loads
@@ -41,10 +43,14 @@ The system SHALL render a footer on all localized storefront pages containing na
 - **THEN** the Contact navigation item links to `/contact` through the existing localized `Link` component
 - **AND** activating it navigates to the localized contact page
 
+#### Scenario: Footer includes Atelier story link
+- **WHEN** the footer renders
+- **THEN** it includes an "Atelier" link to `/[locale]/atelier` through the localized `Link` component
+
 #### Scenario: Existing footer links remain unchanged unless in scope
 - **WHEN** this change updates the footer
 - **THEN** existing Home and Shop links keep their current localized destinations
-- **AND** unrelated placeholder links, such as About, are not changed unless covered by another change
+- **AND** unrelated placeholder links are not changed unless covered by another change
 
 #### Scenario: Footer includes social media section
 - **WHEN** the footer renders
@@ -78,3 +84,61 @@ Dismissal SHALL be keyed by the banner's public dismiss key, not a single static
 #### Scenario: Announcement bar remains responsive
 - **WHEN** the banner renders on mobile, tablet, or desktop widths
 - **THEN** message text, optional link, and dismiss control do not overlap and remain readable/clickable
+
+### Requirement: Footer includes FAQ link
+
+The footer SHALL include a link to the FAQ page (`/[locale]/faq`), localized. The FAQ SHALL be discoverable from the footer and SHALL NOT be added to the main/header navigation.
+
+#### Scenario: FAQ reachable from footer
+- **WHEN** a visitor views the footer on any page
+- **THEN** a localized "FAQ" (or equivalent) link is present and navigates to `/[locale]/faq`
+
+#### Scenario: FAQ absent from main navigation
+- **WHEN** a visitor views the header main navigation
+- **THEN** no FAQ link is present there
+
+### Requirement: Main navigation includes Atelier link
+The global header navigation SHALL include a link to the atelier story page at `/[locale]/atelier`, using the existing localized `Link` component, on all viewport sizes.
+
+#### Scenario: Nav shows Atelier link
+- **WHEN** a user views any localized storefront page
+- **THEN** the header navigation includes an "Atelier" (story) link pointing to `/[locale]/atelier`
+
+#### Scenario: Atelier link is localized
+- **WHEN** the user is browsing under `/bg/...`
+- **THEN** the Atelier nav link resolves to `/bg/atelier` and its label renders in Bulgarian
+
+### Requirement: Footer includes legal policy links
+The global storefront footer SHALL include localized links to Terms & Conditions, Privacy Policy, Cookie Policy, FAQ, Contact, and existing social links. The footer SHALL NOT add a standalone Returns link while returns are covered inside Terms & Conditions.
+
+#### Scenario: Footer shows legal links
+- **WHEN** the footer renders on a localized storefront page
+- **THEN** Terms & Conditions, Privacy Policy, and Cookie Policy links are visible and navigable through localized routes
+
+#### Scenario: Footer avoids obsolete returns and ODR links
+- **WHEN** the footer renders
+- **THEN** it does not show a standalone Returns link
+- **AND** it does not include an outdated EU ODR platform link
+
+### Requirement: Footer exposes quiet trader contact discoverability
+The footer SHALL make legal/trader contact discoverable without turning the layout into a legal notice block.
+
+#### Scenario: Trader contact remains discoverable
+- **WHEN** a customer needs legal or order contact details
+- **THEN** footer navigation provides access to Terms, Privacy, and Contact pages that contain the trader/contact information
+
+### Requirement: Global layout hosts consent controls
+The global storefront layout SHALL render the cookie consent popup and expose a persistent cookie settings entry point from global navigation or footer areas. Consent controls SHALL appear on localized storefront pages and SHALL NOT appear inside the admin layout.
+
+#### Scenario: Consent popup available on storefront pages
+- **WHEN** a visitor opens any localized storefront page without current consent
+- **THEN** the global layout renders the cookie consent popup
+
+#### Scenario: Admin layout excludes storefront consent popup
+- **WHEN** an admin opens `/admin` or an admin subpage
+- **THEN** the storefront consent popup is not rendered inside the admin layout
+
+#### Scenario: Footer links to cookie settings
+- **WHEN** a visitor views the footer
+- **THEN** a cookie settings or Cookie Policy link is available so consent can be reviewed later
+

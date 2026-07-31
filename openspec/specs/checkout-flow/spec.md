@@ -1,5 +1,8 @@
-## Requirements
+## Purpose
 
+Defines the backend checkout flow that converts a cart into an order, including delivery data, shipping pricing, stock, and order response behavior.
+
+## Requirements
 ### Requirement: Checkout converts cart to order atomically
 The system SHALL expose `POST /v1/orders` accepting customer_email, customer_name (optional), delivery (required object), shipping_cents (required integer), and notes (optional). The `delivery` object SHALL contain: method ("office" or "door"), and either an `office` sub-object (courier, office_id, office_name, office_type, phone) or a `door` sub-object (courier, city, postal_code, street, building, apartment, phone). The endpoint SHALL use `BEGIN IMMEDIATE` to acquire a write lock at transaction start, then atomically validate stock, validate delivery data, validate shipping_cents against server-side recalculation (tolerance ±50 cents for rounding), create an order with status "pending", snapshot product names and **effective (discounted) prices** into order_items, store delivery details and shipping cost, decrement product stock, and clear the session's cart — all within that transaction. The checkout operation SHALL capture `now` once inside the transaction and use that timestamp for every effective-price computation in the order. The price snapshotted into `order_items.price_cents` SHALL be each product's effective price at checkout time (computed by the shared pricing helper); the customer is charged the discounted amount. On success it SHALL return the created order with HTTP 201.
 
@@ -84,3 +87,29 @@ The system SHALL include delivery and shipping information in the order response
 #### Scenario: Legacy order response has shipping_address
 - **WHEN** a legacy order (pre-migration) is retrieved via `GET /v1/orders/{id}`
 - **THEN** the response includes shipping_address as a string, shipping_cents as 0, and delivery_method/delivery_courier/delivery_details as null
+
+### Requirement: Shipping cost included and validated at checkout
+`POST /v1/orders` SHALL persist `shipping_cents` on the order such that `total_cents = items_total_cents + shipping_cents`. The server SHALL re-derive and enforce `shipping_cents` (free-shipping threshold and a bounded range check) rather than trusting the client-submitted value.
+
+#### Scenario: Total reflects shipping
+- **WHEN** an order is placed with a non-zero shipping cost
+- **THEN** the persisted `total_cents` equals `items_total_cents + shipping_cents`
+
+#### Scenario: Free-shipping enforced server-side
+- **WHEN** the client submits a non-zero `shipping_cents` but the items subtotal is >= €50
+- **THEN** the server overrides `shipping_cents` to 0
+
+#### Scenario: Out-of-range shipping rejected
+- **WHEN** the client submits a `shipping_cents` outside the accepted bounded range
+- **THEN** the server rejects the request with a validation error (422)
+
+### Requirement: Shipping price provenance persisted on the order
+`POST /v1/orders` SHALL persist the price provenance of the selected shipping quote on the order: `price_source` (`live`/`table`/`flat`), `is_fallback`, and `quoted_at`. This makes every order's shipping price auditable and enables later reconciliation against the courier invoice.
+
+#### Scenario: Live-priced order records live provenance
+- **WHEN** an order is placed with a shipping price that was quoted live
+- **THEN** the persisted order records `price_source = "live"` and `is_fallback = false`
+
+#### Scenario: Fallback-priced order records fallback provenance
+- **WHEN** an order is placed while the courier API was unavailable and a fallback price was used
+- **THEN** the persisted order records `is_fallback = true` and the corresponding `price_source`

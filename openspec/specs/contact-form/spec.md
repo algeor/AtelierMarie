@@ -1,5 +1,7 @@
-## ADDED Requirements
+## Purpose
 
+Defines the localized contact page, contact form behavior, backend persistence, and notification requirements.
+## Requirements
 ### Requirement: Localized contact page with submission form
 The system SHALL provide a localized contact page at `/{locale}/contact` for supported locales (`en`, `bg`) containing a form with fields for name, email address, and message. Requests to `/contact` SHALL continue through the existing locale middleware and redirect to the detected localized route.
 
@@ -116,3 +118,15 @@ The system SHALL deliver owner notifications for accepted contact messages throu
 #### Scenario: Contact templates are localized
 - **WHEN** a contact notification is rendered for locale `en` or `bg`
 - **THEN** the system renders `app/email/templates/{locale}/contact_message.txt`, falling back according to the existing renderer behavior if needed
+
+### Requirement: Contact form privacy notice
+The localized contact form SHALL display a concise privacy notice near the submit button. The notice SHALL state that submitted contact details and message content are used to respond to the inquiry and SHALL link to the localized Privacy Policy.
+
+#### Scenario: Contact privacy notice renders
+- **WHEN** the contact page renders
+- **THEN** the form displays a privacy notice with a link to `/privacy` through the localized Link component
+
+#### Scenario: Notice appears before submission
+- **WHEN** a visitor fills the contact form
+- **THEN** the privacy notice is visible before the Send message button is submitted
+

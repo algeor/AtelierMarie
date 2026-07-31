@@ -2,13 +2,27 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, computed_field, field_validator
 
 from app.models.delivery import DeliveryInfo
 
 OrderStatus = Literal["pending", "confirmed", "shipped", "delivered", "cancelled"]
 PaymentMethod = Literal["cod", "card", "bank_transfer"]
 PaymentStatus = Literal["pending", "paid", "cod_pending", "failed", "refunded"]
+
+PAYMENT_METHOD_LABELS: dict[str, str] = {
+    "cod": "Pay on delivery",
+    "card": "Card payment",
+    "bank_transfer": "Bank transfer",
+}
+
+PAYMENT_STATUS_LABELS: dict[str, str] = {
+    "pending": "Payment pending",
+    "paid": "Paid",
+    "cod_pending": "Pay on delivery",
+    "failed": "Payment failed",
+    "refunded": "Refunded",
+}
 
 
 class OrderItemResponse(BaseModel):
@@ -29,6 +43,8 @@ class OrderResponse(BaseModel):
     """
 
     id: str
+    internal_sequence: int | None = None
+    order_number: str | None = None
     status: OrderStatus
     items_total_cents: int
     shipping_cents: int = 0
@@ -50,12 +66,26 @@ class OrderResponse(BaseModel):
     # Payment fields (payment-integration).
     payment_method: PaymentMethod = "cod"
     payment_status: PaymentStatus = "cod_pending"
+    reserved_until: str | None = None
+    paid_at: str | None = None
+    collected_at: str | None = None
+    payment_return_token: str | None = None
     stripe_checkout_session_id: str | None = None
     stripe_checkout_url: str | None = None
     analytics_consent: bool = False
     items: list[OrderItemResponse]
     created_at: str
     updated_at: str
+
+    @computed_field
+    @property
+    def payment_method_label(self) -> str:
+        return PAYMENT_METHOD_LABELS.get(self.payment_method, self.payment_method)
+
+    @computed_field
+    @property
+    def payment_status_label(self) -> str:
+        return PAYMENT_STATUS_LABELS.get(self.payment_status, self.payment_status)
 
 
 class OrderListResponse(BaseModel):
@@ -65,6 +95,12 @@ class OrderListResponse(BaseModel):
     total: int
     page: int
     limit: int
+
+
+class AdminOrderDetailResponse(OrderResponse):
+    """Admin order detail with payment timeline."""
+
+    payment_events: list[dict] = Field(default_factory=list)
 
 
 class CreateOrderRequest(BaseModel):
@@ -112,6 +148,34 @@ class MarkPaymentPaidRequest(BaseModel):
     """Input for admin marking a bank_transfer order as paid."""
 
     payment_status: Literal["paid"]
+
+
+ManualPaymentAction = Literal[
+    "mark_paid",
+    "mark_collected",
+    "mark_refunded",
+    "mark_failed",
+    "mark_review",
+    "cancel",
+]
+
+
+class ManualPaymentActionRequest(BaseModel):
+    """Input for note-required manual admin payment actions."""
+
+    action: ManualPaymentAction
+    note: str = Field(..., min_length=1, max_length=2000)
+
+    @field_validator("note", mode="before")
+    @classmethod
+    def _strip_note(cls, v: str | None) -> str | None:
+        if v is None or not isinstance(v, str):
+            return v
+        stripped = v.strip()
+        if not stripped:
+            msg = "note must not be blank"
+            raise ValueError(msg)
+        return stripped
 
 
 class UpdateOrderStatusRequest(BaseModel):

@@ -6,35 +6,43 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AtelierMarie is a luxury candle e-commerce platform for a small family business. The primary goal is selling candles reliably. A secondary goal is learning ML/analytics through an optional sandbox layer.
 
-**Status:** Core e-commerce backend fully implemented (products, cart, checkout, orders, auth, admin, reactions, comments). Next.js frontend with full page coverage (products, cart, checkout, orders, admin, auth/account). Layer 2 (analytics/ML) deferred — not yet started.
+**Status:** Core e-commerce fully implemented plus many add-ons. Backend: products, cart, checkout, orders, auth, admin, reactions, comments, transactional email, product images + video, promotions/campaigns, dynamic taxonomy, admin-managed FAQ, contact form, "atelier" story/about pages, legal/GDPR (terms/privacy/cookies + data erasure), **Stripe payments**, **courier shipping (Econt + Speedy) with live pricing**. Bilingual (en/bg) via next-intl. Frontend: full page coverage under `frontend/app/[locale]/`. A consent-gated **first-party funnel analytics** subsystem exists (SQLite events + periodic DuckDB aggregation), disabled by default. Layer 2 ML sandbox remains deferred.
 
 ## Architecture: Two Strict Layers
 
 ### Layer 1 — Production E-Commerce (Critical Path)
-- Products, cart, checkout, orders, auth, admin, reactions, comments
-- SQLite only (WAL mode) — never touches DuckDB
-- Must work perfectly if Layer 2 is completely OFF
+- Products, cart, checkout, orders, auth, admin, reactions, comments, email, media, promotions, taxonomy, FAQ, contact, about/story, legal, payments (Stripe), shipping (Econt/Speedy)
+- SQLite only (WAL mode) — system of record
+- Must work perfectly if analytics/ML are completely OFF
 - All responses <200ms
 
-### Layer 2 — Analytics & ML Sandbox (Non-Critical)
-- Event collection (async, fire-and-forget)
-- DuckDB for analytics storage
+### First-Party Analytics (consent-gated, disabled by default)
+- Funnel analytics: `app/routes/analytics.py` + `app/services/analytics_service.py`
+- Raw events → SQLite/JSONL (fire-and-forget); periodic aggregation into a **separate DuckDB** file for reporting
+- Gated by `analytics_enabled` (default `False`) and `analytics_legal_approved`; cookie-consent driven on the frontend (`CookieConsentContext`)
+- Isolated: its own DuckDB connection, never shares SQLite's; failures must never affect checkout
+
+### Layer 2 — ML Sandbox (Non-Critical, deferred)
 - ML recommendations (pre-computed cache, fallback to popular)
 - Can crash, be disabled, or be deleted without affecting the store
-- **Currently deferred** — no code exists yet
+- **Currently deferred** — no code exists yet (`openspec/changes/deferred/`)
 
-**Cardinal rule:** Layer 1 code NEVER imports from Layer 2 modules (`app/analytics/`, `app/ml/`). This is a hard blocker in code review — no exceptions.
+**Cardinal rule:** Critical-path Layer 1 code NEVER depends on ML sandbox modules, and treats analytics as optional/fire-and-forget. This is a hard blocker in code review — no exceptions.
 
-See `ARCHITECTURE.md` for full system design and `IMPLEMENTATION_PLAN.md` for the build sequence.
+See `docs/ARCHITECTURE.md` for full system design.
 
 ## Technology Stack
 
 - **Backend:** Python 3.11, FastAPI, Pydantic 2, Uvicorn, structlog
 - **Database:** SQLite (WAL mode) — system of record
 - **Auth:** Google OAuth 2.0 + JWT (PyJWT)
-- **Frontend:** Next.js 14 (App Router, TypeScript, Tailwind CSS)
+- **Payments:** Stripe Checkout Sessions + webhooks (`stripe` SDK, imported only in `payment_service.py`)
+- **Shipping:** Econt + Speedy courier APIs (live pricing, office/address lookup) via `httpx`
+- **Email:** Jinja2 plain-text templates, ZeptoMail provider (durable outbox)
+- **Media:** Pillow (images), ffmpeg/ffprobe (video transcode)
+- **Frontend:** Next.js 15 (App Router, TypeScript, Tailwind CSS), next-intl for bilingual en/bg i18n
 - **Testing:** pytest + pytest-xdist (parallel), vitest (frontend)
-- **Analytics (deferred):** DuckDB
+- **Analytics (consent-gated, off by default):** DuckDB for aggregation
 - **Hosting:** Oracle Cloud Free Tier (single VPS), Nginx, systemd
 
 ## Development Commands
@@ -71,11 +79,13 @@ make format             # Auto-format Python (ruff format + ruff check --fix)
 
 ```
 app/
-├── main.py              # FastAPI app factory + lifespan (session cleanup task)
+├── main.py              # FastAPI app factory + lifespan (background sweepers)
 ├── config.py            # pydantic-settings (env vars)
 ├── constants.py         # Cross-module constants (single source of truth)
 ├── database.py          # SQLite connection management + schema + session cleanup
 ├── exceptions.py        # Global exception handlers (standard error envelope)
+├── responses.py         # Shared HTTP response helpers (error envelope)
+├── legal.py             # Public legal identity values (trading name, address, VAT)
 ├── logging_config.py    # structlog configuration
 ├── middleware/
 │   ├── session.py       # Session cookie middleware (eager DB row creation)
@@ -83,36 +93,34 @@ app/
 ├── dependencies/        # FastAPI Depends() callables
 │   ├── auth.py          # require_admin, get_current_user
 │   └── session.py       # require_session
-├── models/              # Pydantic request/response schemas
-│   ├── products.py
-│   ├── cart.py
-│   ├── orders.py
-│   ├── users.py
-│   ├── auth.py
-│   ├── comments.py
-│   ├── reactions.py
-│   ├── admin.py
-│   └── common.py        # Shared types (pagination, errors)
+├── models/              # Pydantic request/response schemas (one per domain)
+│   ├── products.py  cart.py  orders.py  users.py  auth.py
+│   ├── comments.py  reactions.py  admin.py  common.py
+│   ├── promotions.py  taxonomy.py  faq.py  about.py  contact.py
+│   ├── delivery.py  shipping.py  analytics.py
 ├── routes/              # FastAPI routers (thin — HTTP only)
-│   ├── products.py
-│   ├── cart.py
-│   ├── orders.py
-│   ├── auth.py
-│   ├── admin.py
-│   ├── comments.py
-│   └── reactions.py
+│   ├── products.py  cart.py  orders.py  auth.py  admin.py
+│   ├── comments.py  reactions.py  promotions.py  taxonomy.py
+│   ├── faq.py  about.py  contact.py  delivery.py  locale.py
+│   ├── analytics.py  webhooks.py
 ├── services/            # Business logic (testable, no HTTP)
 │   ├── product_service.py
-│   ├── product_video_service.py # Product video queue/status/delete + transcode sweeper
+│   ├── product_video_service.py # Video queue/status/delete + transcode sweeper
 │   ├── video_service.py     # ffprobe validation, ffmpeg transcode, poster extraction
-│   ├── cart_service.py
-│   ├── order_service.py
-│   ├── auth_service.py
-│   ├── admin_service.py
-│   ├── comment_service.py
-│   ├── reaction_service.py
+│   ├── image_service.py / product_image_service.py  # Image upload + gallery
+│   ├── cart_service.py  order_service.py  auth_service.py  admin_service.py
+│   ├── comment_service.py  reaction_service.py
+│   ├── payment_service.py   # Stripe Checkout Sessions + webhook event handling
+│   ├── shipping_service.py  # Courier orchestration + live pricing
+│   ├── econt_client.py / speedy_client.py  # Courier API clients (httpx)
+│   ├── delivery_service.py / delivery_settings_service.py  # Delivery config
+│   ├── pricing.py           # Shipping/order price computation
+│   ├── promotion_service.py # Discounts + campaign management
+│   ├── taxonomy_service.py  # Dynamic categories/types/labels
+│   ├── faq_service.py  about_service.py  contact_service.py  banner_service.py
 │   ├── email_service.py     # Durable-outbox send path + sweeper drain
-│   ├── webhook_service.py   # ZeptoMail bounce/complaint signature verify + suppression
+│   ├── webhook_service.py   # ZeptoMail bounce/complaint verify + suppression
+│   ├── analytics_service.py # First-party funnel analytics (SQLite events + DuckDB)
 │   └── gdpr_service.py      # Scrub order_emails PII, age out suppressed_emails
 ├── email/               # Email subsystem (Layer 1 — transactional notifications)
 │   ├── providers/       # EmailProvider protocol + console/zeptomail impls + factory
@@ -123,38 +131,46 @@ app/
     ├── blocklist.py     # Session/token blocklist
     ├── circuit_breaker.py
     ├── row_access.py    # Dict-like access for sqlite3.Row
+    ├── slugify.py       # Slug generation
     └── sanitize.py      # Input sanitization (HTML/XSS)
 
 # NOTE: app/email/templates/*.txt are loaded from the source tree at runtime
 # (FileSystemLoader). Deploy from a source checkout; if the app is ever packaged
 # as a wheel, add the templates to setuptools package-data so they ship.
 
-frontend/                # Next.js 14 app
-├── app/                 # App Router pages
-│   ├── products/        # Product listing + detail
-│   ├── checkout/        # Checkout flow
-│   ├── orders/          # Order history + detail
-│   ├── admin/           # Admin dashboard + product management
-│   ├── auth/            # Login/callback
-│   ├── account/         # User account
-│   └── design-system/   # Component gallery
+frontend/                # Next.js 15 app (bilingual en/bg via next-intl)
+├── middleware.ts        # next-intl locale routing + detection (NEXT_LOCALE cookie)
+├── i18n/                # routing.ts, request.ts, navigation.ts (locale config)
+├── messages/            # en.json, bg.json (translation catalogs)
+├── app/
+│   ├── [locale]/        # All pages are locale-prefixed (/en/..., /bg/...)
+│   │   ├── products/  checkout/  orders/  admin/  auth/  account/
+│   │   ├── atelier/  contact/  faq/            # story/about, contact, FAQ
+│   │   ├── terms/  privacy/  cookies/          # legal pages
+│   │   └── layout.tsx  page.tsx  loading.tsx
+│   ├── design-system/   # Component gallery
+│   ├── sitemap.ts  layout.tsx  globals.css
 ├── components/
 │   ├── ui/              # Base components (Button, Input, Badge, Skeleton)
-│   ├── products/        # ProductCard, ProductGrid, ReactionBar, CommentThread
+│   ├── products/        # ProductCard, ProductGrid, ReactionBar, CommentThread, lightbox
 │   ├── cart/            # CartDrawer, CartItem, AddToCartButton, CartBadge
+│   ├── checkout/        # DeliverySection, CourierComparison, ShippingPriceSummary
 │   ├── admin/           # AdminGuard, AdminSidebar, ProductForm, StatsCard
 │   ├── orders/          # OrderStatusBadge, StatusTimeline
 │   ├── auth/            # LoginButton, UserMenu
+│   ├── atelier/         # AtelierSections, BodyRenderer (story pages)
+│   ├── faq/  contact/  seo/  # FAQ, contact form, AlternateLinks
 │   └── layout/          # Header, Footer, AnnouncementBar
 ├── contexts/            # React contexts
-│   ├── CartContext.tsx
-│   ├── AuthContext.tsx
-│   └── AdminContext.tsx
+│   ├── CartContext.tsx  AuthContext.tsx  AdminContext.tsx
+│   └── CookieConsentContext.tsx   # Consent gate for analytics/tracking
 ├── lib/
 │   ├── types.ts         # TypeScript interfaces (mirrors Pydantic models)
 │   ├── api-client.ts    # Real API client
 │   ├── mock-api.ts      # Mock API for dev without backend
 │   ├── api.ts           # Switches between real/mock via env
+│   ├── analytics.ts / tracking.ts  # Consent-gated first-party event tracking
+│   ├── legal.ts  seo.ts  social.ts  media.ts  datetime.ts  constants.ts
 │   ├── utils.ts         # cn() helper, formatters
 │   └── validateRedirectPath.ts
 ├── __tests__/           # Frontend unit tests (vitest + testing-library)
@@ -177,14 +193,16 @@ deploy/
 
 openspec/                # Feature specifications
 ├── config.yaml
-├── changes/             # Active specs
+├── changes/             # Active / recently-built specs (flat, one dir per change)
 │   ├── core-ecommerce/
-│   ├── product-reactions-comments/
-│   ├── admin-polish-edge-cases/
-│   ├── auth-image-upload/
-│   ├── add-ons/         # owner-stories-blog, shipping, social buttons
-│   └── deferred/        # analytics-sandbox, ml-experiments
-├── changes/archive/     # Completed/superseded specs
+│   ├── payment-integration/  shipping-pricing/  speedy-integration/
+│   ├── product-media-editor-and-lightbox/  add-product-video/  crisp-zoom-images/
+│   ├── legal-compliance-foundation/  minimal-terms-returns-policy/  gdpr-data-erasure/
+│   ├── first-party-funnel-analytics/  admin-managed-faq/  atelier-story-page/
+│   ├── product-mgmt-completeness/  product-image-gallery/
+│   ├── archive/         # Completed/superseded specs (date-prefixed)
+│   ├── deferred/        # analytics-sandbox, ml-experiments, stripe-refunds, pay-on-delivery-email-otp
+│   └── exploration/     # Pre-spec discussion docs (not yet planned)
 └── specs/               # Shared reference specs (per-feature)
 ```
 
@@ -226,6 +244,7 @@ openspec/                # Feature specifications
 - `CHECK (stock >= 0)` constraint at DB level — last line of defense against negative stock
 - FTS5 virtual table for product search (synced via triggers on INSERT/UPDATE/DELETE)
 - Schema created on app startup in `database.py`
+- Full table/column reference: `docs/DATABASE_SCHEMA.md`
 - Expired session cleanup runs as a background asyncio task (hourly)
 
 ### Error Handling
@@ -310,26 +329,37 @@ openspec/                # Feature specifications
 - **Product reactions:** Emoji-style reactions (heart, fire, etc.) per session. Toggle on/off, rate-limited.
 - **Product comments:** Session-based comments with input sanitization (XSS prevention). Admin moderation (hide/delete).
 - **Input sanitization:** All user-generated text (comments, display names) runs through `app/utils/sanitize.py` to strip HTML/scripts.
+- **Bilingual (en/bg):** next-intl locale routing; all frontend pages under `[locale]/`. Locale from `NEXT_LOCALE` cookie / Accept-Language. Email templates and backend messages are per-locale too.
+- **Payments (Stripe):** Stripe Checkout Sessions; `stripe` SDK imported only in `payment_service.py`. Webhook idempotency via `INSERT OR IGNORE` on `stripe_events.event_id`. Stripe errors wrapped so routes never see Stripe internals.
+- **Shipping (Econt + Speedy):** Live courier pricing and office/address lookup via `httpx` clients (`econt_client.py`, `speedy_client.py`); orchestrated in `shipping_service.py` with pricing in `pricing.py`.
+- **Consent-gated analytics:** No tracking without cookie consent; disabled by default (`analytics_enabled=False`).
 
-## Layer 2 Design Decisions (Planned — Not Yet Implemented)
+## Analytics & ML Design Decisions
 
-- **Event collection:** Fire-and-forget JSONL append (O_APPEND, crash-safe, multi-worker safe). Background thread loads into DuckDB every 60s.
+**First-party funnel analytics (BUILT, consent-gated, off by default):**
+- **Event collection:** Fire-and-forget append; validated events land in SQLite/JSONL. Background aggregation loads into a **separate DuckDB** file periodically.
+- **Consent:** Only collected after cookie consent (`CookieConsentContext`). Requires `analytics_enabled` + `analytics_legal_approved` config flags in production.
+- **Isolation:** DuckDB has its own connection; never shares SQLite's. Analytics failures never affect checkout — log and return empty/default.
+- **Retention:** `analytics_retention_days` (default 395); events aged out on schedule.
+
+**ML sandbox (DEFERRED — no code yet):**
 - **Recommendations:** Pre-computed cache updated every 30min. Fallback chain: ML → popularity → featured → random. Never errors — always returns something.
 - **GDPR:** NULL-ification of PII fields (not cascade delete) — preserves order structure.
-- **Analytics isolation:** DuckDB has its own connection; never shares SQLite's. All analytics code optional-import guarded.
 - **Failure mode:** Layer 2 crashes → log the error, return empty/default data. Never 500. Never affects checkout.
 
 ## Feature Specifications
 
-Lean specs live in `openspec/changes/`:
+Lean specs live in `openspec/changes/`. Notable ones:
 - `core-ecommerce/` — Products, cart, checkout, orders, auth, admin
-- `product-reactions-comments/` — Reactions & comments on products
-- `admin-polish-edge-cases/` — Admin UX refinements
-- `auth-image-upload/` — Profile images, auth enhancements
-- `add-ons/` — Future nice-to-haves (blog, shipping integration, social buttons)
-- `deferred/` — analytics-sandbox, ml-experiments (paused)
+- `payment-integration/` — Stripe Checkout Sessions + webhooks
+- `shipping-pricing/`, `speedy-integration/` — Econt + Speedy courier integration & live pricing
+- `legal-compliance-foundation/`, `minimal-terms-returns-policy/`, `gdpr-data-erasure/` — Legal & GDPR
+- `first-party-funnel-analytics/` — Consent-gated funnel analytics (SQLite + DuckDB)
+- `admin-managed-faq/`, `atelier-story-page/`, `product-media-editor-and-lightbox/` — Content & media
 
-Archived (completed) specs: `openspec/changes/archive/`
+Archived (completed) specs: `openspec/changes/archive/` (date-prefixed)
+Deferred specs: `openspec/changes/deferred/` (analytics-sandbox, ml-experiments, stripe-refunds, pay-on-delivery-email-otp)
+Exploration (pre-spec) docs: `openspec/changes/exploration/`
 Shared reference specs: `openspec/specs/` (per-feature granular specs)
 
 ## Testing Standards

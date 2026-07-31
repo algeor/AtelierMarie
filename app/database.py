@@ -214,6 +214,8 @@ CREATE INDEX IF NOT EXISTS idx_cart_items_session_id ON cart_items(session_id);
 
 CREATE TABLE IF NOT EXISTS orders (
     id          TEXT PRIMARY KEY,
+    internal_sequence INTEGER UNIQUE,
+    order_number TEXT UNIQUE,
     session_id  TEXT NOT NULL,
     user_id     TEXT REFERENCES users(id),
     status      TEXT NOT NULL DEFAULT 'pending'
@@ -252,11 +254,67 @@ CREATE TABLE IF NOT EXISTS orders (
                     CHECK (payment_status IN (
                         'pending', 'paid', 'cod_pending', 'failed', 'refunded'
                     )),
+    reserved_until TEXT,
+    paid_at TEXT,
+    collected_at TEXT,
+    payment_return_token TEXT UNIQUE,
     stripe_checkout_session_id TEXT,
     stripe_payment_intent_id   TEXT,
     analytics_consent INTEGER NOT NULL DEFAULT 0 CHECK (analytics_consent IN (0, 1)),
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS payments (
+    id          TEXT PRIMARY KEY,
+    order_id    TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    provider    TEXT NOT NULL,
+    amount_cents INTEGER NOT NULL CHECK (amount_cents >= 0),
+    currency    TEXT NOT NULL DEFAULT 'EUR',
+    stripe_checkout_session_id TEXT UNIQUE,
+    stripe_payment_intent_id   TEXT,
+    provider_status TEXT,
+    provider_details TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS payment_events (
+    id          TEXT PRIMARY KEY,
+    order_id    TEXT REFERENCES orders(id) ON DELETE CASCADE,
+    payment_id  TEXT REFERENCES payments(id) ON DELETE SET NULL,
+    event_type  TEXT NOT NULL,
+    source      TEXT NOT NULL DEFAULT 'system',
+    stripe_event_id TEXT UNIQUE,
+    stripe_event_type TEXT,
+    provider    TEXT,
+    provider_status TEXT,
+    processing_status TEXT NOT NULL DEFAULT 'processed',
+    details     TEXT,
+    admin_user_id TEXT,
+    admin_email TEXT,
+    admin_note  TEXT,
+    request_id  TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS site_settings (
+    key         TEXT PRIMARY KEY,
+    value       TEXT NOT NULL,
+    value_type  TEXT NOT NULL DEFAULT 'json',
+    is_public   INTEGER NOT NULL DEFAULT 0 CHECK (is_public IN (0, 1)),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS site_setting_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    setting_key TEXT NOT NULL,
+    old_value   TEXT,
+    new_value   TEXT NOT NULL,
+    admin_id    TEXT,
+    admin_email TEXT,
+    request_id  TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- Stripe webhook dedup table — mirrors order_emails pattern (payment-integration Decision 7).
@@ -267,9 +325,58 @@ CREATE TABLE IF NOT EXISTS stripe_events (
     received_at TEXT NOT NULL       -- YYYY-MM-DD HH:MM:SS UTC
 );
 
+CREATE TABLE IF NOT EXISTS payment_rate_limit_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    action     TEXT NOT NULL,
+    scope      TEXT NOT NULL,
+    key        TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS admin_alerts (
+    id          TEXT PRIMARY KEY,
+    alert_type  TEXT NOT NULL,
+    order_id    TEXT REFERENCES orders(id) ON DELETE CASCADE,
+    source      TEXT NOT NULL DEFAULT 'system',
+    severity    TEXT NOT NULL DEFAULT 'warning',
+    title       TEXT NOT NULL,
+    message     TEXT NOT NULL,
+    details     TEXT,
+    is_read     INTEGER NOT NULL DEFAULT 0 CHECK (is_read IN (0, 1)),
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_orders_session_id ON orders(session_id);
 CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_internal_sequence ON orders(internal_sequence);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_order_number ON orders(order_number);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_payment_return_token
+    ON orders(payment_return_token);
+CREATE INDEX IF NOT EXISTS idx_orders_payment_status ON orders(payment_status);
+CREATE INDEX IF NOT EXISTS idx_orders_payment_method ON orders(payment_method);
+CREATE INDEX IF NOT EXISTS idx_orders_reserved_until ON orders(reserved_until);
+CREATE INDEX IF NOT EXISTS idx_orders_stripe_checkout_session_id
+    ON orders(stripe_checkout_session_id);
+CREATE INDEX IF NOT EXISTS idx_orders_stripe_payment_intent_id
+    ON orders(stripe_payment_intent_id);
+CREATE INDEX IF NOT EXISTS idx_payments_order_id ON payments(order_id);
+CREATE INDEX IF NOT EXISTS idx_payments_provider ON payments(provider);
+CREATE INDEX IF NOT EXISTS idx_payments_stripe_checkout_session_id
+    ON payments(stripe_checkout_session_id);
+CREATE INDEX IF NOT EXISTS idx_payments_stripe_payment_intent_id
+    ON payments(stripe_payment_intent_id);
+CREATE INDEX IF NOT EXISTS idx_payment_events_order_id ON payment_events(order_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_payment_events_stripe_event_id
+    ON payment_events(stripe_event_id);
+CREATE INDEX IF NOT EXISTS idx_payment_rate_limit_lookup
+    ON payment_rate_limit_events(action, scope, key, created_at);
+CREATE INDEX IF NOT EXISTS idx_admin_alerts_unread_created
+    ON admin_alerts(is_read, created_at);
+CREATE INDEX IF NOT EXISTS idx_admin_alerts_order_id
+    ON admin_alerts(order_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_site_setting_events_key_created
+    ON site_setting_events(setting_key, created_at);
 
 -- Transactional email outbox + audit trail (email-notifications Decisions 11, 25).
 -- A 'queued' row is written in the same transaction as the order state change
@@ -516,6 +623,16 @@ BEGIN
     UPDATE orders SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
 END;
 
+CREATE TRIGGER IF NOT EXISTS payments_updated_at AFTER UPDATE ON payments
+BEGIN
+    UPDATE payments SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS site_settings_updated_at AFTER UPDATE ON site_settings
+BEGIN
+    UPDATE site_settings SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
 CREATE TRIGGER IF NOT EXISTS delivery_settings_updated_at AFTER UPDATE ON delivery_settings
 BEGIN
     UPDATE delivery_settings SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
@@ -706,6 +823,7 @@ def init_db(path: str) -> None:
         _migrate_existing_schema(conn)
         conn.executescript(_SCHEMA_SQL)
         _migrate_delivery_settings(conn)
+        _backfill_order_payment_summary(conn)
         _migrate_taxonomy(conn)
         _migrate_product_label_assignments_table(conn)
         _seed_site_banner(conn)
@@ -1229,6 +1347,85 @@ def _add_column_if_missing(
         columns.add(column)
 
 
+_ORDER_NUMBER_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+
+
+def _order_number_from_seed(seed: str) -> str:
+    """Generate a stable AM-xxxxxx code from a seed for legacy backfills."""
+    value = uuid.uuid5(uuid.NAMESPACE_URL, f"atelier-marie/order-number/{seed}").int
+    chars: list[str] = []
+    for _ in range(6):
+        value, idx = divmod(value, len(_ORDER_NUMBER_ALPHABET))
+        chars.append(_ORDER_NUMBER_ALPHABET[idx])
+    return "AM-" + "".join(chars)
+
+
+def _backfill_order_payment_summary(conn: sqlite3.Connection) -> None:
+    """Populate payment summary fields added after the first order schema."""
+    if not _table_exists(conn, "orders"):
+        return
+
+    columns = _table_columns(conn, "orders")
+    required = {"internal_sequence", "order_number", "payment_return_token"}
+    if not required.issubset(columns):
+        return
+
+    sequence = conn.execute(
+        "SELECT COALESCE(MAX(internal_sequence), 0) FROM orders"
+    ).fetchone()[0]
+    rows = conn.execute(
+        "SELECT id FROM orders WHERE internal_sequence IS NULL ORDER BY created_at, id"
+    ).fetchall()
+    for row in rows:
+        sequence += 1
+        conn.execute(
+            "UPDATE orders SET internal_sequence = ? WHERE id = ?",
+            (sequence, row["id"]),
+        )
+
+    rows = conn.execute(
+        "SELECT id FROM orders WHERE order_number IS NULL OR TRIM(order_number) = '' "
+        "ORDER BY internal_sequence, created_at, id"
+    ).fetchall()
+    for row in rows:
+        for attempt in range(10):
+            order_number = _order_number_from_seed(f"{row['id']}:{attempt}")
+            exists = conn.execute(
+                "SELECT 1 FROM orders WHERE order_number = ? AND id != ?",
+                (order_number, row["id"]),
+            ).fetchone()
+            if exists is None:
+                conn.execute(
+                    "UPDATE orders SET order_number = ? WHERE id = ?",
+                    (order_number, row["id"]),
+                )
+                break
+        else:
+            msg = f"Could not generate unique order_number for order {row['id']}"
+            raise RuntimeError(msg)
+
+    rows = conn.execute(
+        "SELECT id FROM orders "
+        "WHERE payment_return_token IS NULL OR TRIM(payment_return_token) = ''"
+    ).fetchall()
+    for row in rows:
+        for _ in range(10):
+            token = uuid.uuid4().hex
+            exists = conn.execute(
+                "SELECT 1 FROM orders WHERE payment_return_token = ? AND id != ?",
+                (token, row["id"]),
+            ).fetchone()
+            if exists is None:
+                conn.execute(
+                    "UPDATE orders SET payment_return_token = ? WHERE id = ?",
+                    (token, row["id"]),
+                )
+                break
+        else:
+            msg = f"Could not generate unique payment_return_token for order {row['id']}"
+            raise RuntimeError(msg)
+
+
 def _legacy_product_image_id(product_id: str) -> str:
     """Return a stable UUID hex for a migrated legacy product image."""
     return uuid.uuid5(uuid.NAMESPACE_URL, f"atelier-marie/product-image/{product_id}").hex
@@ -1340,6 +1537,20 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
             conn,
             "orders",
             order_columns,
+            "internal_sequence",
+            "internal_sequence INTEGER",
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "order_number",
+            "order_number TEXT",
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
             "payment_method",
             "payment_method TEXT NOT NULL DEFAULT 'cod'",
         )
@@ -1349,6 +1560,28 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
             order_columns,
             "payment_status",
             "payment_status TEXT NOT NULL DEFAULT 'cod_pending'",
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "reserved_until",
+            "reserved_until TEXT",
+        )
+        _add_column_if_missing(conn, "orders", order_columns, "paid_at", "paid_at TEXT")
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "collected_at",
+            "collected_at TEXT",
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "payment_return_token",
+            "payment_return_token TEXT",
         )
         _add_column_if_missing(
             conn,

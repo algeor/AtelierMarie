@@ -6,7 +6,6 @@ import structlog
 
 from app.database import get_db
 from app.models.delivery import Courier, DeliveryMethod
-from app.models.orders import PaymentMethod
 from app.services import pricing
 
 logger = structlog.get_logger(__name__)
@@ -103,12 +102,6 @@ def is_delivery_method_enabled(courier: Courier, method: DeliveryMethod) -> bool
     """True when the given courier/method pair is currently available."""
     settings = get_delivery_settings()
     return bool(settings[f"{courier}_{method}_enabled"])
-
-
-def is_payment_method_enabled(payment_method: PaymentMethod) -> bool:
-    """True when the given payment method is currently available."""
-    settings = get_delivery_settings()
-    return bool(settings[f"{payment_method}_enabled"])
 
 
 def disabled_requested_methods(couriers: list[Courier], method: DeliveryMethod) -> list[dict]:

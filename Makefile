@@ -1,10 +1,11 @@
 .PHONY: help setup setup-backend setup-frontend test test-backend test-unit test-integration \
-       test-frontend test-chrome-stack lint lint-backend lint-frontend format clean dev
+       test-frontend test-chrome-stack lint lint-backend lint-frontend format clean dev \
+       stripe-webhook-secret dev-stripe-webhook
 
 # Default
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+		awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-24s\033[0m %s\n", $$1, $$2}'
 
 # ─── Setup ────────────────────────────────────────────────────────────────────
 
@@ -16,6 +17,7 @@ setup-backend: ## Create venv and install Python deps (including dev)
 	.venv/bin/pip install --quiet --upgrade pip
 	.venv/bin/pip install --quiet -e ".[dev]"
 	@echo "✓ Backend ready (.venv activated)"
+	@echo "Stripe webhooks: run 'make stripe-webhook-secret', set STRIPE_WEBHOOK_SECRET, then 'make dev-stripe-webhook'"
 
 setup-frontend: ## Install Node.js dependencies
 	@echo "═══ Setting up Next.js frontend ═══"
@@ -80,6 +82,14 @@ dev-backend: ## Start FastAPI dev server (port 8000)
 
 dev-frontend: ## Start Next.js dev server (port 3000)
 	npm run dev
+
+stripe-webhook-secret: ## Print local Stripe webhook secret for STRIPE_WEBHOOK_SECRET
+	.venv/bin/python scripts/stripe_webhook_forward.py secret
+
+dev-stripe-webhook: ## Forward Stripe CLI webhooks to the local backend
+	.venv/bin/python scripts/stripe_webhook_forward.py listen
+
+
 
 # ─── Clean ────────────────────────────────────────────────────────────────────
 

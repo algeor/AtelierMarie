@@ -12,7 +12,7 @@ import {
   ShipOrderModal,
   type ShipTrackingInput,
 } from "@/components/admin/ShipOrderModal";
-import type { OrderResponse, OrderStatus, PaymentStatus } from "@/lib/types";
+import type { OrderResponse, OrderStatus, PaymentMethod, PaymentStatus } from "@/lib/types";
 
 const STATUS_FILTERS: (OrderStatus | "")[] = [
   "",
@@ -21,6 +21,22 @@ const STATUS_FILTERS: (OrderStatus | "")[] = [
   "shipped",
   "delivered",
   "cancelled",
+];
+
+const PAYMENT_STATUS_FILTERS: (PaymentStatus | "")[] = [
+  "",
+  "pending",
+  "paid",
+  "cod_pending",
+  "failed",
+  "refunded",
+];
+
+const PAYMENT_METHOD_FILTERS: (PaymentMethod | "")[] = [
+  "",
+  "card",
+  "cod",
+  "bank_transfer",
 ];
 
 const STATUS_COLORS: Record<OrderStatus, string> = {
@@ -76,6 +92,8 @@ export default function AdminOrdersPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<PaymentStatus | "">("");
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState<PaymentMethod | "">("");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   // Order awaiting the shipping form (tracking is required before we ship).
   const [shippingOrder, setShippingOrder] = useState<OrderResponse | null>(null);
@@ -90,7 +108,14 @@ export default function AdminOrdersPage() {
           setIsRefreshing(true);
         }
         setError(null);
-        const data = await getAdminOrders(1, 100, statusFilter || undefined);
+        const args: Parameters<typeof getAdminOrders> = [1, 100];
+        if (statusFilter) args[2] = statusFilter;
+        if (paymentStatusFilter || paymentMethodFilter) {
+          args[2] = statusFilter || undefined;
+          args[3] = paymentStatusFilter || undefined;
+          args[4] = paymentMethodFilter || undefined;
+        }
+        const data = await getAdminOrders(...args);
         setOrders(data.items);
       } catch (err) {
         setError(err instanceof ApiError ? getLocalizedError(err.code) : t("errors.loadOrders"));
@@ -101,7 +126,7 @@ export default function AdminOrdersPage() {
       }
     }
     loadOrders();
-  }, [statusFilter, getLocalizedError, t]);
+  }, [statusFilter, paymentStatusFilter, paymentMethodFilter, getLocalizedError, t]);
 
   async function handleStatusChange(
     order: OrderResponse,
@@ -162,23 +187,76 @@ export default function AdminOrdersPage() {
         </p>
       </div>
 
-      {/* Status Filter Pills */}
-      <div className="mb-6 flex flex-wrap gap-2">
-        {STATUS_FILTERS.map((filter) => (
-          <button
-            key={filter}
-            onClick={() => setStatusFilter(filter)}
-            className={cn(
-              "rounded-pill px-4 py-1.5 text-sm font-medium transition-colors duration-fast",
-              statusFilter === filter
-                ? "bg-muted-gold text-charcoal"
-                : "bg-champagne-beige/50 text-soft-brown hover:bg-champagne-beige"
-            )}
-            aria-pressed={statusFilter === filter}
-          >
-            {filter ? tStatus(filter) : t("all")}
-          </button>
-        ))}
+      {/* Filter Pills */}
+      <div className="mb-6 space-y-3">
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase text-soft-brown">
+            {t("fulfillmentFilter")}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {STATUS_FILTERS.map((filter) => (
+              <button
+                key={filter}
+                onClick={() => setStatusFilter(filter)}
+                className={cn(
+                  "rounded-pill px-4 py-1.5 text-sm font-medium transition-colors duration-fast",
+                  statusFilter === filter
+                    ? "bg-muted-gold text-charcoal"
+                    : "bg-champagne-beige/50 text-soft-brown hover:bg-champagne-beige"
+                )}
+                aria-pressed={statusFilter === filter}
+              >
+                {filter ? tStatus(filter) : t("all")}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase text-soft-brown">
+            {t("paymentStatusFilter")}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {PAYMENT_STATUS_FILTERS.map((filter) => (
+              <button
+                key={filter || "all-payment-statuses"}
+                onClick={() => setPaymentStatusFilter(filter)}
+                className={cn(
+                  "rounded-pill px-4 py-1.5 text-sm font-medium transition-colors duration-fast",
+                  paymentStatusFilter === filter
+                    ? "bg-muted-gold text-charcoal"
+                    : "bg-champagne-beige/50 text-soft-brown hover:bg-champagne-beige"
+                )}
+                aria-pressed={paymentStatusFilter === filter}
+              >
+                {filter ? tPayment(`status.${filter}` as Parameters<typeof tPayment>[0]) : t("all")}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase text-soft-brown">
+            {t("paymentMethodFilter")}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {PAYMENT_METHOD_FILTERS.map((filter) => (
+              <button
+                key={filter || "all-payment-methods"}
+                onClick={() => setPaymentMethodFilter(filter)}
+                className={cn(
+                  "rounded-pill px-4 py-1.5 text-sm font-medium transition-colors duration-fast",
+                  paymentMethodFilter === filter
+                    ? "bg-muted-gold text-charcoal"
+                    : "bg-champagne-beige/50 text-soft-brown hover:bg-champagne-beige"
+                )}
+                aria-pressed={paymentMethodFilter === filter}
+              >
+                {filter ? tPayment(`method.${filter}` as Parameters<typeof tPayment>[0]) : t("all")}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {error && (
@@ -238,7 +316,7 @@ export default function AdminOrdersPage() {
                       href={`/admin/orders/${order.id}`}
                       className="transition-colors duration-fast hover:text-charcoal hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown"
                     >
-                      {order.id.slice(0, 8)}...
+                      {order.order_number || `${order.id.slice(0, 8)}...`}
                     </Link>
                   </td>
                   <td className="px-4 py-3 text-charcoal">

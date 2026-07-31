@@ -1,8 +1,11 @@
 """Integration tests for order routes with TestClient."""
 
 import sqlite3
+import sys
+import types
 import uuid
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -38,6 +41,30 @@ DELIVERY_DOOR_SPEEDY = {
 }
 
 
+def _set_payment_settings(
+    db_path: str,
+    *,
+    card_payments_enabled: bool = False,
+    pay_on_delivery_enabled: bool = True,
+    pay_on_delivery_max_cents: int = 5000,
+) -> None:
+    conn = sqlite3.connect(db_path)
+    conn.executemany(
+        """
+        INSERT INTO site_settings (key, value, value_type, is_public)
+        VALUES (?, ?, 'json', 1)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, is_public = 1
+        """,
+        [
+            ("card_payments_enabled", "true" if card_payments_enabled else "false"),
+            ("pay_on_delivery_enabled", "true" if pay_on_delivery_enabled else "false"),
+            ("pay_on_delivery_max_cents", str(pay_on_delivery_max_cents)),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+
 @pytest.fixture(autouse=True)
 def _seed_order_products(db_path, app):
     """Seed products needed by order tests (uses realapp conftest's app)."""
@@ -52,6 +79,7 @@ def _seed_order_products(db_path, app):
     )
     conn.commit()
     conn.close()
+    _set_payment_settings(db_path, pay_on_delivery_enabled=True)
 
 
 @pytest.fixture()
@@ -65,11 +93,7 @@ def order_session_id(db_path):
         (sid, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
     )
     conn.execute(
-        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, 'lavender-dream', 2)",
-        (sid,),
-    )
-    conn.execute(
-        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, 'midnight-amber', 1)",
+        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, 'lavender-dream', 1)",
         (sid,),
     )
     conn.commit()
@@ -119,8 +143,195 @@ class TestCreateOrder:
         data = resp.json()
         assert data["status"] == "pending"
         assert data["customer_email"] == "marie@example.com"
-        assert data["total_cents"] == 2500 * 2 + 3500 * 1
-        assert len(data["items"]) == 2
+        assert data["total_cents"] == 2500
+        assert len(data["items"]) == 1
+
+    async def test_card_unavailable_without_stripe_key(self, order_client):
+        resp = await order_client.post(
+            "/v1/orders",
+            json={
+                "customer_email": "marie@example.com",
+                "customer_name": "Marie",
+                "delivery": DELIVERY_OFFICE_ECONT,
+                "payment_method": "card",
+            },
+        )
+
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "PAYMENT_METHOD_UNAVAILABLE"
+
+    async def test_bank_transfer_unavailable_without_iban(self, order_client):
+        resp = await order_client.post(
+            "/v1/orders",
+            json={
+                "customer_email": "marie@example.com",
+                "customer_name": "Marie",
+                "delivery": DELIVERY_OFFICE_ECONT,
+                "payment_method": "bank_transfer",
+            },
+        )
+
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "PAYMENT_METHOD_UNAVAILABLE"
+
+    async def test_cod_above_cap_rejected(self, app, db_path):
+        sid = str(uuid.uuid4())
+        now = datetime.now(UTC)
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
+            (sid, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
+        )
+        conn.execute(
+            "INSERT INTO cart_items (session_id, product_id, quantity) "
+            "VALUES (?, 'lavender-dream', 2)",
+            (sid,),
+        )
+        conn.execute(
+            "INSERT INTO cart_items (session_id, product_id, quantity) "
+            "VALUES (?, 'midnight-amber', 1)",
+            (sid,),
+        )
+        conn.commit()
+        conn.close()
+
+        settings = get_settings()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            c.cookies.set(settings.session_cookie_name, sid)
+            resp = await c.post(
+                "/v1/orders",
+                json={
+                    "customer_email": "marie@example.com",
+                    "customer_name": "Marie",
+                    "delivery": DELIVERY_OFFICE_ECONT,
+                    "payment_method": "cod",
+                },
+            )
+
+        assert resp.status_code == 422
+        body = resp.json()
+        assert body["error"]["code"] == "PAY_ON_DELIVERY_LIMIT_EXCEEDED"
+        assert body["error"]["details"] == {"total_cents": 8500, "max_cents": 5000}
+
+    async def test_cod_disabled_by_payment_settings_rejected(
+        self, app, db_path, order_session_id
+    ):
+        _set_payment_settings(db_path, pay_on_delivery_enabled=False)
+
+        settings = get_settings()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            c.cookies.set(settings.session_cookie_name, order_session_id)
+            resp = await c.post(
+                "/v1/orders",
+                json={
+                    "customer_email": "marie@example.com",
+                    "customer_name": "Marie",
+                    "delivery": DELIVERY_OFFICE_ECONT,
+                    "payment_method": "cod",
+                },
+            )
+
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "PAYMENT_METHOD_UNAVAILABLE"
+
+    async def test_cod_rate_limit_returns_429(self, order_client, db_path, order_session_id):
+        payload = {
+            "customer_email": "marie@example.com",
+            "customer_name": "Marie",
+            "delivery": DELIVERY_OFFICE_ECONT,
+            "payment_method": "cod",
+        }
+
+        first = await order_client.post("/v1/orders", json=payload)
+        assert first.status_code == 201
+
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT INTO cart_items (session_id, product_id, quantity) "
+            "VALUES (?, 'lavender-dream', 1)",
+            (order_session_id,),
+        )
+        conn.commit()
+        conn.close()
+
+        second = await order_client.post("/v1/orders", json=payload)
+        assert second.status_code == 201
+
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT INTO cart_items (session_id, product_id, quantity) "
+            "VALUES (?, 'lavender-dream', 1)",
+            (order_session_id,),
+        )
+        conn.commit()
+        conn.close()
+
+        third = await order_client.post("/v1/orders", json=payload)
+        assert third.status_code == 429
+        assert third.json()["error"]["code"] == "RATE_LIMITED"
+
+    async def test_card_checkout_returns_stripe_url(self, app, db_path, order_session_id):
+        from app.config import Settings
+
+        _set_payment_settings(
+            db_path,
+            card_payments_enabled=True,
+            pay_on_delivery_enabled=True,
+        )
+
+        class FakeSession:
+            id = "cs_route_card"
+            url = "https://checkout.example/route-card"
+            status = "open"
+            payment_intent = None
+
+        class FakeCheckoutSession:
+            @staticmethod
+            def create(**_kwargs):
+                return FakeSession()
+
+        fake_stripe = types.ModuleType("stripe")
+        fake_stripe.api_key = None
+        fake_stripe.checkout = types.SimpleNamespace(Session=FakeCheckoutSession)
+
+        settings = get_settings()
+        transport = ASGITransport(app=app)
+        with (
+            patch.dict(sys.modules, {"stripe": fake_stripe}),
+            patch(
+                "app.routes.orders.get_settings",
+                return_value=Settings(
+                    stripe_secret_key="sk_test_route_card",
+                    stripe_webhook_secret="whsec_route_card",
+                    stripe_success_url="https://shop.example/success/{order_id}",
+                    stripe_cancel_url="https://shop.example/cancel/{order_id}",
+                ),
+            ),
+        ):
+            async with AsyncClient(transport=transport, base_url="http://test") as c:
+                c.cookies.set(settings.session_cookie_name, order_session_id)
+                resp = await c.post(
+                    "/v1/orders",
+                    json={
+                        "customer_email": "marie@example.com",
+                        "customer_name": "Marie",
+                        "delivery": DELIVERY_OFFICE_ECONT,
+                        "payment_method": "card",
+                    },
+                )
+
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["order_number"].startswith("AM-")
+        assert body["payment_method"] == "card"
+        assert body["payment_method_label"] == "Card payment"
+        assert body["payment_status"] == "pending"
+        assert body["payment_status_label"] == "Payment pending"
+        assert body["reserved_until"] is not None
+        assert body["payment_return_token"]
+        assert body["stripe_checkout_url"] == "https://checkout.example/route-card"
 
     # 7.3: POST returns 400 on empty cart, 409 on stock issues
     async def test_checkout_empty_cart_400(self, app, db_path):
@@ -632,6 +843,48 @@ class TestAdminListOrders:
         data = resp.json()
         assert data["total"] >= 1
 
+    async def test_admin_filter_by_payment_method(
+        self, admin_order_client, db_path, order_session_id
+    ):
+        from app.models.delivery import DeliveryInfo
+        from app.services.order_service import checkout
+
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        checkout(
+            conn,
+            session_id=order_session_id,
+            customer_email="card@example.com",
+            customer_name="Card Buyer",
+            delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
+            notes=None,
+            payment_method="card",
+        )
+        conn.execute(
+            "INSERT INTO cart_items (session_id, product_id, quantity) "
+            "VALUES (?, 'lavender-dream', 1)",
+            (order_session_id,),
+        )
+        conn.commit()
+        checkout(
+            conn,
+            session_id=order_session_id,
+            customer_email="cod@example.com",
+            customer_name="COD Buyer",
+            delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
+            notes=None,
+            payment_method="cod",
+        )
+        conn.close()
+
+        resp = await admin_order_client.get("/v1/admin/orders?payment_method=card")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["items"][0]["payment_method"] == "card"
+        assert body["items"][0]["payment_method_label"] == "Card payment"
+
     async def test_admin_filter_by_status(self, admin_order_client):
         # Create an order (status: pending)
         await admin_order_client.post(
@@ -712,7 +965,45 @@ class TestAdminGetOrderDetail:
         assert data["delivery_method"] == "office"
         assert data["delivery_courier"] == "econt"
         assert data["delivery_details"]["office_id"] == "econt-1029"
-        assert len(data["items"]) == 2
+        assert len(data["items"]) == 1
+
+    async def test_admin_detail_includes_payment_timeline(
+        self, admin_order_client, db_path, order_session_id
+    ):
+        from app.models.delivery import DeliveryInfo
+        from app.services.order_service import apply_manual_payment_action, checkout
+
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        order = checkout(
+            conn,
+            session_id=order_session_id,
+            customer_email="timeline@example.com",
+            customer_name="Timeline Buyer",
+            delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
+            notes=None,
+            payment_method="cod",
+        )
+        apply_manual_payment_action(
+            conn,
+            order["id"],
+            "mark_collected",
+            "Collected at delivery",
+            admin_id="admin-1",
+            admin_email="owner@example.com",
+            request_id="req-timeline",
+        )
+        conn.commit()
+        conn.close()
+
+        resp = await admin_order_client.get(f"/v1/admin/orders/{order['id']}")
+
+        assert resp.status_code == 200
+        events = resp.json()["payment_events"]
+        assert len(events) == 1
+        assert events[0]["event_type"] == "manual_mark_collected"
+        assert events[0]["admin_note"] == "Collected at delivery"
+        assert events[0]["request_id"] == "req-timeline"
 
     async def test_non_admin_gets_401(self, order_client):
         resp = await order_client.get("/v1/admin/orders/some-id")
@@ -780,6 +1071,107 @@ class TestCsrfProtection:
         assert resp.status_code == 422
         assert resp.json()["error"]["code"] == "INVALID_CONTENT_TYPE"
 
+    async def test_stripe_retry_wrong_session_rejected(self, app, db_path, order_session_id):
+        """Retry payment endpoint must not expose another session's card order."""
+        from app.config import Settings
+        from app.models.delivery import DeliveryInfo
+        from app.services.order_service import checkout
+
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        order = checkout(
+            conn,
+            session_id=order_session_id,
+            customer_email="buyer@example.com",
+            customer_name="Buyer",
+            delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
+            notes=None,
+            payment_method="card",
+        )
+        other_sid = str(uuid.uuid4())
+        now = datetime.now(UTC)
+        conn.execute(
+            "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
+            (other_sid, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
+        )
+        conn.commit()
+        conn.close()
+
+        settings = get_settings()
+        transport = ASGITransport(app=app)
+        with patch(
+            "app.routes.orders.get_settings",
+            return_value=Settings(
+                stripe_secret_key="sk_test_retry",
+                stripe_success_url="https://shop.example/success",
+                stripe_cancel_url="https://shop.example/cancel",
+            ),
+        ):
+            async with AsyncClient(transport=transport, base_url="http://test") as c:
+                c.cookies.set(settings.session_cookie_name, other_sid)
+                resp = await c.post(
+                    f"/v1/orders/{order['id']}/stripe-session",
+                    json={"payment_return_token": order["payment_return_token"]},
+                )
+
+        assert resp.status_code == 404
+
+    async def test_stripe_retry_wrong_token_does_not_consume_rate_limit(
+        self, app, db_path, order_session_id
+    ):
+        """Bad retry tokens must not burn the fresh Stripe-session budget."""
+        from app.config import Settings
+        from app.models.delivery import DeliveryInfo
+        from app.services.order_service import checkout
+
+        _set_payment_settings(
+            db_path,
+            card_payments_enabled=True,
+            pay_on_delivery_enabled=True,
+        )
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        order = checkout(
+            conn,
+            session_id=order_session_id,
+            customer_email="buyer@example.com",
+            customer_name="Buyer",
+            delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
+            notes=None,
+            payment_method="card",
+        )
+        conn.commit()
+        conn.close()
+
+        settings = get_settings()
+        transport = ASGITransport(app=app)
+        with patch(
+            "app.routes.orders.get_settings",
+            return_value=Settings(
+                stripe_secret_key="sk_test_retry",
+                stripe_webhook_secret="whsec_retry",
+                stripe_success_url="https://shop.example/success",
+                stripe_cancel_url="https://shop.example/cancel",
+            ),
+        ):
+            async with AsyncClient(transport=transport, base_url="http://test") as c:
+                c.cookies.set(settings.session_cookie_name, order_session_id)
+                resp = await c.post(
+                    f"/v1/orders/{order['id']}/stripe-session",
+                    json={"payment_return_token": "wrong-token"},
+                )
+
+        assert resp.status_code == 404
+        conn = sqlite3.connect(db_path)
+        count = conn.execute(
+            """
+            SELECT COUNT(*) FROM payment_rate_limit_events
+            WHERE action = 'stripe_session_create'
+            """
+        ).fetchone()[0]
+        conn.close()
+        assert count == 0
+
 
 class TestAdminMarkPaymentPaid:
     async def test_bank_transfer_paid_queues_one_placed_email(
@@ -814,6 +1206,112 @@ class TestAdminMarkPaymentPaid:
         ).fetchone()[0]
         conn.close()
         assert placed_count == 1
+
+
+class TestAdminManualPaymentActions:
+    async def test_mark_review_uses_failed_status_and_writes_event(
+        self, admin_order_client, db_path, order_session_id
+    ):
+        from app.models.delivery import DeliveryInfo
+        from app.services.order_service import checkout
+
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        order = checkout(
+            conn,
+            session_id=order_session_id,
+            customer_email="review@example.com",
+            customer_name=None,
+            delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
+            notes=None,
+            payment_method="card",
+        )
+        conn.close()
+
+        resp = await admin_order_client.post(
+            f"/v1/admin/orders/{order['id']}/payment-actions",
+            json={"action": "mark_review", "note": "Late Stripe success after expiry"},
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["payment_status"] == "failed"
+
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        event = conn.execute(
+            "SELECT event_type, provider_status, admin_note, details "
+            "FROM payment_events WHERE order_id = ?",
+            (order["id"],),
+        ).fetchone()
+        conn.close()
+        assert event["event_type"] == "manual_mark_review"
+        assert event["provider_status"] == "failed"
+        assert event["admin_note"] == "Late Stripe success after expiry"
+        assert '"current_vocabulary":true' in event["details"]
+
+    async def test_blank_note_rejected_without_mutation(
+        self, admin_order_client, db_path, order_session_id
+    ):
+        from app.models.delivery import DeliveryInfo
+        from app.services.order_service import checkout
+
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        order = checkout(
+            conn,
+            session_id=order_session_id,
+            customer_email="blank-note@example.com",
+            customer_name=None,
+            delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
+            notes=None,
+            payment_method="card",
+        )
+        conn.close()
+
+        resp = await admin_order_client.post(
+            f"/v1/admin/orders/{order['id']}/payment-actions",
+            json={"action": "mark_review", "note": "   "},
+        )
+
+        assert resp.status_code == 422
+        conn = sqlite3.connect(db_path)
+        row = conn.execute(
+            "SELECT payment_status FROM orders WHERE id = ?",
+            (order["id"],),
+        ).fetchone()
+        event_count = conn.execute(
+            "SELECT COUNT(*) FROM payment_events WHERE order_id = ?",
+            (order["id"],),
+        ).fetchone()[0]
+        conn.close()
+        assert row[0] == "pending"
+        assert event_count == 0
+
+
+class TestAdminAlerts:
+    async def test_admin_lists_unread_alerts(self, admin_order_client, db_path):
+        from app.services.admin_alert_service import create_admin_alert
+
+        conn = sqlite3.connect(db_path)
+        create_admin_alert(
+            conn,
+            alert_type="payment_requires_review",
+            title="Payment review required",
+            message="Late Stripe success arrived after expiry.",
+            source="stripe",
+            details={"payment_intent_id": "pi_alert"},
+        )
+        conn.commit()
+        conn.close()
+
+        resp = await admin_order_client.get("/v1/admin/alerts?unread_only=true")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["alerts"][0]["alert_type"] == "payment_requires_review"
+        assert body["alerts"][0]["details"]["payment_intent_id"] == "pi_alert"
 
 
 # ===========================================================================
