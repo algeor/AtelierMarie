@@ -14,7 +14,7 @@ from app.models.orders import (
     OrderResponse,
 )
 from app.responses import error_response
-from app.services import analytics_service
+from app.services import analytics_service, delivery_settings_service
 from app.services.order_service import (
     DeliveryMethodUnavailableError,
     EmptyCartError,
@@ -58,6 +58,13 @@ def create_order(
         return error_response(422, "INVALID_CONTENT_TYPE", "Content-Type must be application/json")
 
     settings = get_settings()
+
+    if not delivery_settings_service.is_payment_method_enabled(body.payment_method):
+        return error_response(
+            422,
+            "PAYMENT_METHOD_UNAVAILABLE",
+            "This payment method is currently unavailable",
+        )
 
     # Validate card payments: Stripe must be configured.
     if body.payment_method == "card" and not settings.stripe_secret_key:

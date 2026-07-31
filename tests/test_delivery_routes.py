@@ -344,6 +344,9 @@ class TestDeliverySettings:
         assert data["speedy_door_enabled"] is True
         assert data["econt_office_enabled"] is True
         assert data["econt_door_enabled"] is True
+        assert data["cod_enabled"] is True
+        assert data["card_enabled"] is True
+        assert data["bank_transfer_enabled"] is True
         assert data["updated_at"]
 
     @pytest.mark.asyncio
@@ -353,16 +356,21 @@ class TestDeliverySettings:
             "speedy_door_enabled": True,
             "econt_office_enabled": True,
             "econt_door_enabled": False,
+            "cod_enabled": True,
+            "card_enabled": False,
+            "bank_transfer_enabled": True,
         }
         update = await admin_client.put("/v1/admin/delivery-settings", json=payload)
         assert update.status_code == 200
         assert update.json()["speedy_office_enabled"] is False
         assert update.json()["econt_door_enabled"] is False
+        assert update.json()["card_enabled"] is False
 
         public = await client.get("/v1/delivery/settings")
         assert public.status_code == 200
         assert public.json()["speedy_office_enabled"] is False
         assert public.json()["econt_door_enabled"] is False
+        assert public.json()["card_enabled"] is False
 
     @pytest.mark.asyncio
     async def test_disabled_office_discovery_returns_empty(self, admin_client, client):
@@ -461,3 +469,39 @@ class TestDeliverySettings:
         )
         assert resp.status_code == 422
         assert resp.json()["error"]["code"] == "DELIVERY_METHOD_UNAVAILABLE"
+
+    @pytest.mark.asyncio
+    async def test_disabled_payment_method_rejected_for_checkout(self, admin_client, client):
+        await admin_client.put(
+            "/v1/admin/delivery-settings",
+            json={
+                "speedy_office_enabled": True,
+                "speedy_door_enabled": True,
+                "econt_office_enabled": True,
+                "econt_door_enabled": True,
+                "cod_enabled": False,
+                "card_enabled": True,
+                "bank_transfer_enabled": True,
+            },
+        )
+
+        resp = await client.post(
+            "/v1/orders",
+            json={
+                "customer_email": "buyer@example.com",
+                "customer_name": "Test Buyer",
+                "payment_method": "cod",
+                "delivery": {
+                    "method": "door",
+                    "door": {
+                        "courier": "speedy",
+                        "city": "София",
+                        "postal_code": "1000",
+                        "street": "Витоша",
+                        "phone": "+359888123456",
+                    },
+                },
+            },
+        )
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "PAYMENT_METHOD_UNAVAILABLE"

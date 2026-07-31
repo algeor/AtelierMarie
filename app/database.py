@@ -455,6 +455,9 @@ CREATE TABLE IF NOT EXISTS delivery_settings (
     speedy_door_enabled   INTEGER NOT NULL DEFAULT 1 CHECK (speedy_door_enabled IN (0, 1)),
     econt_office_enabled  INTEGER NOT NULL DEFAULT 1 CHECK (econt_office_enabled IN (0, 1)),
     econt_door_enabled    INTEGER NOT NULL DEFAULT 1 CHECK (econt_door_enabled IN (0, 1)),
+    cod_enabled           INTEGER NOT NULL DEFAULT 1 CHECK (cod_enabled IN (0, 1)),
+    card_enabled          INTEGER NOT NULL DEFAULT 1 CHECK (card_enabled IN (0, 1)),
+    bank_transfer_enabled INTEGER NOT NULL DEFAULT 1 CHECK (bank_transfer_enabled IN (0, 1)),
     updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -702,6 +705,7 @@ def init_db(path: str) -> None:
         conn.execute("PRAGMA foreign_keys=ON")
         _migrate_existing_schema(conn)
         conn.executescript(_SCHEMA_SQL)
+        _migrate_delivery_settings(conn)
         _migrate_taxonomy(conn)
         _migrate_product_label_assignments_table(conn)
         _seed_site_banner(conn)
@@ -739,14 +743,41 @@ def _seed_site_banner(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_delivery_settings(conn: sqlite3.Connection) -> None:
+    """Add newly introduced delivery/payment availability switches."""
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(delivery_settings)")}
+    _add_column_if_missing(
+        conn,
+        "delivery_settings",
+        columns,
+        "cod_enabled",
+        "cod_enabled INTEGER NOT NULL DEFAULT 1",
+    )
+    _add_column_if_missing(
+        conn,
+        "delivery_settings",
+        columns,
+        "card_enabled",
+        "card_enabled INTEGER NOT NULL DEFAULT 1",
+    )
+    _add_column_if_missing(
+        conn,
+        "delivery_settings",
+        columns,
+        "bank_transfer_enabled",
+        "bank_transfer_enabled INTEGER NOT NULL DEFAULT 1",
+    )
+
+
 def _seed_delivery_settings(conn: sqlite3.Connection) -> None:
     """Seed the singleton delivery availability row with all methods enabled."""
     conn.execute(
         """
         INSERT OR IGNORE INTO delivery_settings (
             id, speedy_office_enabled, speedy_door_enabled,
-            econt_office_enabled, econt_door_enabled, updated_at
-        ) VALUES ('default', 1, 1, 1, 1, datetime('now'))
+            econt_office_enabled, econt_door_enabled,
+            cod_enabled, card_enabled, bank_transfer_enabled, updated_at
+        ) VALUES ('default', 1, 1, 1, 1, 1, 1, 1, datetime('now'))
         """
     )
 

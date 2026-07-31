@@ -43,5 +43,5 @@
 ## 7. Tests + verification
 - [x] Payload-contract test: assert assembled Speedy calculate payload has numeric `sender.clientId` (+ numeric `pickupOfficeId` in office mode) — independent of the mocked HTTP response, so a bad payload can't stay green.
 - [x] Unit tests: shipment/track/print happy path + error mapping (mock httpx).
-- [ ] Live verification (section "Verification plan" in design.md) against demo account.
+- [x] Live verification (section "Verification plan" in design.md) against demo account.
 - [x] Full backend suite + ruff green; frontend order-detail tracking render test.

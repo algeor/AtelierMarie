@@ -6,6 +6,7 @@ import structlog
 
 from app.database import get_db
 from app.models.delivery import Courier, DeliveryMethod
+from app.models.orders import PaymentMethod
 from app.services import pricing
 
 logger = structlog.get_logger(__name__)
@@ -19,6 +20,9 @@ def _row_to_settings(row: sqlite3.Row) -> dict:
         "speedy_door_enabled": bool(row["speedy_door_enabled"]),
         "econt_office_enabled": bool(row["econt_office_enabled"]),
         "econt_door_enabled": bool(row["econt_door_enabled"]),
+        "cod_enabled": bool(row["cod_enabled"]),
+        "card_enabled": bool(row["card_enabled"]),
+        "bank_transfer_enabled": bool(row["bank_transfer_enabled"]),
         "updated_at": row["updated_at"],
     }
 
@@ -33,8 +37,9 @@ def _get_row(conn: sqlite3.Connection) -> sqlite3.Row:
             """
             INSERT OR IGNORE INTO delivery_settings (
                 id, speedy_office_enabled, speedy_door_enabled,
-                econt_office_enabled, econt_door_enabled, updated_at
-            ) VALUES (?, 1, 1, 1, 1, ?)
+                econt_office_enabled, econt_door_enabled,
+                cod_enabled, card_enabled, bank_transfer_enabled, updated_at
+            ) VALUES (?, 1, 1, 1, 1, 1, 1, 1, ?)
             """,
             (_SETTINGS_ID, pricing.now_utc()),
         )
@@ -61,7 +66,9 @@ def update_delivery_settings(data: dict) -> dict:
             """
             UPDATE delivery_settings
             SET speedy_office_enabled = ?, speedy_door_enabled = ?,
-                econt_office_enabled = ?, econt_door_enabled = ?, updated_at = ?
+                econt_office_enabled = ?, econt_door_enabled = ?,
+                cod_enabled = ?, card_enabled = ?, bank_transfer_enabled = ?,
+                updated_at = ?
             WHERE id = ?
             """,
             (
@@ -69,6 +76,9 @@ def update_delivery_settings(data: dict) -> dict:
                 1 if data.get("speedy_door_enabled") else 0,
                 1 if data.get("econt_office_enabled") else 0,
                 1 if data.get("econt_door_enabled") else 0,
+                1 if data.get("cod_enabled") else 0,
+                1 if data.get("card_enabled") else 0,
+                1 if data.get("bank_transfer_enabled") else 0,
                 now,
                 _SETTINGS_ID,
             ),
@@ -82,6 +92,9 @@ def update_delivery_settings(data: dict) -> dict:
         speedy_door_enabled=settings["speedy_door_enabled"],
         econt_office_enabled=settings["econt_office_enabled"],
         econt_door_enabled=settings["econt_door_enabled"],
+        cod_enabled=settings["cod_enabled"],
+        card_enabled=settings["card_enabled"],
+        bank_transfer_enabled=settings["bank_transfer_enabled"],
     )
     return settings
 
@@ -90,6 +103,12 @@ def is_delivery_method_enabled(courier: Courier, method: DeliveryMethod) -> bool
     """True when the given courier/method pair is currently available."""
     settings = get_delivery_settings()
     return bool(settings[f"{courier}_{method}_enabled"])
+
+
+def is_payment_method_enabled(payment_method: PaymentMethod) -> bool:
+    """True when the given payment method is currently available."""
+    settings = get_delivery_settings()
+    return bool(settings[f"{payment_method}_enabled"])
 
 
 def disabled_requested_methods(couriers: list[Courier], method: DeliveryMethod) -> list[dict]:

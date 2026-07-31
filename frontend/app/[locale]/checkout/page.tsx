@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Link, useRouter } from "@/i18n/navigation";
 import { useCart } from "@/contexts/CartContext";
@@ -62,6 +62,17 @@ function enabledCouriersForMethod(
   return ALL_COURIERS.filter((courier) => courierMethodEnabled(settings, courier, method));
 }
 
+function paymentMethodEnabled(
+  settings: DeliverySettingsResponse | null,
+  method: PaymentMethod,
+): boolean {
+  if (!settings) return false;
+  return settings[`${method}_enabled` as keyof Pick<
+    DeliverySettingsResponse,
+    "cod_enabled" | "card_enabled" | "bank_transfer_enabled"
+  >];
+}
+
 export default function CheckoutPage() {
   const t = useTranslations("checkout");
   const tRoot = useTranslations();
@@ -92,6 +103,15 @@ export default function CheckoutPage() {
   const [deliverySettings, setDeliverySettings] = useState<DeliverySettingsResponse | null>(null);
 
   const qualifiesForFreeShipping = total_cents >= FREE_SHIPPING_THRESHOLD_CENTS;
+  const paymentOptions = useMemo<PaymentMethod[]>(
+    () =>
+      (["cod", "card", "bank_transfer"] as PaymentMethod[]).filter((method) => {
+        if (method === "card" && !STRIPE_ENABLED) return false;
+        if (method === "bank_transfer" && !BANK_TRANSFER_ENABLED) return false;
+        return paymentMethodEnabled(deliverySettings, method);
+      }),
+    [deliverySettings],
+  );
 
   const emailRef = useRef<HTMLInputElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -135,6 +155,14 @@ export default function CheckoutPage() {
       router.push("/products");
     }
   }, [isLoading, items.length, router]);
+
+  useEffect(() => {
+    if (paymentOptions.length === 0) return;
+    if (!paymentOptions.includes(paymentMethod)) {
+      const nextPaymentMethod = paymentOptions[0];
+      if (nextPaymentMethod) setPaymentMethod(nextPaymentMethod);
+    }
+  }, [paymentMethod, paymentOptions]);
 
   useEffect(() => {
     if (!isLoading && items.length > 0 && !trackedCheckoutStart.current) {
@@ -608,48 +636,24 @@ export default function CheckoutPage() {
             />
           </div>
 
-          {/* Payment method — only shown when more than one option is available */}
-          {(STRIPE_ENABLED || BANK_TRANSFER_ENABLED) && (
+          {/* Payment method */}
+          {paymentOptions.length > 0 && (
           <div className="mb-6">
             <p className="mb-2 text-sm font-medium text-soft-brown">{t("paymentMethod.label")}</p>
             <div className="flex flex-col gap-2">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="radio"
-                  name="payment_method"
-                  value="cod"
-                  checked={paymentMethod === "cod"}
-                  onChange={() => setPaymentMethod("cod")}
-                  className="accent-soft-brown"
-                />
-                <span className="text-sm text-charcoal">{t("paymentMethod.cod")}</span>
-              </label>
-              {STRIPE_ENABLED && (
-                <label className="flex items-center gap-3 cursor-pointer">
+              {paymentOptions.map((method) => (
+                <label key={method} className="flex items-center gap-3 cursor-pointer">
                   <input
                     type="radio"
                     name="payment_method"
-                    value="card"
-                    checked={paymentMethod === "card"}
-                    onChange={() => setPaymentMethod("card")}
+                    value={method}
+                    checked={paymentMethod === method}
+                    onChange={() => setPaymentMethod(method)}
                     className="accent-soft-brown"
                   />
-                  <span className="text-sm text-charcoal">{t("paymentMethod.card")}</span>
+                  <span className="text-sm text-charcoal">{t(`paymentMethod.${method}`)}</span>
                 </label>
-              )}
-              {BANK_TRANSFER_ENABLED && (
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="payment_method"
-                    value="bank_transfer"
-                    checked={paymentMethod === "bank_transfer"}
-                    onChange={() => setPaymentMethod("bank_transfer")}
-                    className="accent-soft-brown"
-                  />
-                  <span className="text-sm text-charcoal">{t("paymentMethod.bank_transfer")}</span>
-                </label>
-              )}
+              ))}
             </div>
           </div>
           )}

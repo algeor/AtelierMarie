@@ -75,6 +75,9 @@ vi.mock("@/lib/api", () => ({
     speedy_door_enabled: true,
     econt_office_enabled: true,
     econt_door_enabled: true,
+    cod_enabled: true,
+    card_enabled: true,
+    bank_transfer_enabled: true,
     updated_at: "2026-07-31 12:00:00",
   }),
 }));
@@ -125,10 +128,11 @@ vi.mock("next/image", () => ({
   default: (props: Record<string, unknown>) => <img {...props} />,
 }));
 
-import { createOrder } from "@/lib/api";
+import { createOrder, getDeliverySettings } from "@/lib/api";
 import CheckoutPage from "@/app/[locale]/checkout/page";
 
 const mockedCreateOrder = vi.mocked(createOrder);
+const mockedGetDeliverySettings = vi.mocked(getDeliverySettings);
 
 describe("Checkout Page", () => {
   beforeEach(() => {
@@ -204,6 +208,42 @@ describe("Checkout Page", () => {
     expect(screen.getAllByText("€20.00").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("Shipping")).toBeInTheDocument();
     expect(screen.getByText("Calculated at delivery step")).toBeInTheDocument();
+  });
+
+  it("keeps cash on delivery visible when card payment is disabled", async () => {
+    mockedGetDeliverySettings.mockResolvedValueOnce({
+      speedy_office_enabled: true,
+      speedy_door_enabled: true,
+      econt_office_enabled: true,
+      econt_door_enabled: true,
+      cod_enabled: true,
+      card_enabled: false,
+      bank_transfer_enabled: false,
+      updated_at: "2026-07-31 12:00:00",
+    });
+
+    renderWithIntl(<CheckoutPage />);
+
+    expect(await screen.findByRole("radio", { name: "Cash on delivery" })).toBeChecked();
+    expect(screen.queryByRole("radio", { name: /card/i })).not.toBeInTheDocument();
+  });
+
+  it("hides cash on delivery when it is disabled", async () => {
+    mockedGetDeliverySettings.mockResolvedValueOnce({
+      speedy_office_enabled: true,
+      speedy_door_enabled: true,
+      econt_office_enabled: true,
+      econt_door_enabled: true,
+      cod_enabled: false,
+      card_enabled: true,
+      bank_transfer_enabled: false,
+      updated_at: "2026-07-31 12:00:00",
+    });
+
+    renderWithIntl(<CheckoutPage />);
+
+    await waitFor(() => expect(mockedGetDeliverySettings).toHaveBeenCalled());
+    expect(screen.queryByRole("radio", { name: "Cash on delivery" })).not.toBeInTheDocument();
   });
 
   it("successful submission calls createOrder and navigates", async () => {

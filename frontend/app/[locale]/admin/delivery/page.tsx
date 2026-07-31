@@ -9,7 +9,7 @@ import type { DeliverySettingsResponse, DeliverySettingsUpdate } from "@/lib/typ
 
 type ToggleKey = keyof DeliverySettingsUpdate;
 
-const TOGGLES: Array<{
+const DELIVERY_TOGGLES: Array<{
   key: ToggleKey;
   courier: "speedy" | "econt";
   method: "office" | "door";
@@ -20,12 +20,24 @@ const TOGGLES: Array<{
   { key: "econt_door_enabled", courier: "econt", method: "door" },
 ];
 
+const PAYMENT_TOGGLES: Array<{
+  key: ToggleKey;
+  method: "cod" | "card" | "bank_transfer";
+}> = [
+  { key: "cod_enabled", method: "cod" },
+  { key: "card_enabled", method: "card" },
+  { key: "bank_transfer_enabled", method: "bank_transfer" },
+];
+
 function toUpdate(settings: DeliverySettingsResponse): DeliverySettingsUpdate {
   return {
     speedy_office_enabled: settings.speedy_office_enabled,
     speedy_door_enabled: settings.speedy_door_enabled,
     econt_office_enabled: settings.econt_office_enabled,
     econt_door_enabled: settings.econt_door_enabled,
+    cod_enabled: settings.cod_enabled,
+    card_enabled: settings.card_enabled,
+    bank_transfer_enabled: settings.bank_transfer_enabled,
   };
 }
 
@@ -65,8 +77,11 @@ export default function AdminDeliveryPage() {
     [settings, lastSaved],
   );
 
-  const enabledCount = settings
-    ? TOGGLES.filter((toggle) => settings[toggle.key]).length
+  const enabledDeliveryCount = settings
+    ? DELIVERY_TOGGLES.filter((toggle) => settings[toggle.key]).length
+    : 0;
+  const enabledPaymentCount = settings
+    ? PAYMENT_TOGGLES.filter((toggle) => settings[toggle.key]).length
     : 0;
 
   async function handleSave() {
@@ -115,7 +130,7 @@ export default function AdminDeliveryPage() {
               {t("methodsTitle")}
             </h2>
             <p className="mt-1 text-sm text-soft-brown">
-              {t("enabledSummary", { count: enabledCount, total: TOGGLES.length })}
+              {t("enabledSummary", { count: enabledDeliveryCount, total: DELIVERY_TOGGLES.length })}
             </p>
           </div>
           {updatedAt && <p className="text-xs text-soft-brown">{t("updatedAt", { updatedAt })}</p>}
@@ -125,7 +140,7 @@ export default function AdminDeliveryPage() {
           <p className="px-5 py-6 text-sm text-soft-brown">{t("loading")}</p>
         ) : (
           <div className="divide-y divide-champagne-beige">
-            {TOGGLES.map((toggle) => {
+            {DELIVERY_TOGGLES.map((toggle) => {
               const enabled = settings[toggle.key];
               return (
                 <label
@@ -155,6 +170,50 @@ export default function AdminDeliveryPage() {
               );
             })}
           </div>
+        )}
+
+        {!isLoading && settings && (
+          <>
+            <div className="border-t border-champagne-beige px-5 py-4">
+              <h2 className="font-heading text-lg font-semibold text-charcoal">
+                {t("paymentTitle")}
+              </h2>
+              <p className="mt-1 text-sm text-soft-brown">
+                {t("paymentSummary", { count: enabledPaymentCount, total: PAYMENT_TOGGLES.length })}
+              </p>
+            </div>
+            <div className="divide-y divide-champagne-beige border-t border-champagne-beige">
+              {PAYMENT_TOGGLES.map((toggle) => {
+                const enabled = settings[toggle.key];
+                return (
+                  <label
+                    key={toggle.key}
+                    className="flex cursor-pointer items-center justify-between gap-4 px-5 py-4 transition-colors hover:bg-cream/60"
+                  >
+                    <span>
+                      <span className="block text-sm font-semibold text-charcoal">
+                        {t(`payment.${toggle.method}`)}
+                      </span>
+                      <span className="mt-1 block text-xs text-soft-brown">
+                        {enabled ? t("enabled") : t("disabled")}
+                      </span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      className="h-5 w-5 accent-muted-gold"
+                      checked={enabled}
+                      onChange={(event) => {
+                        setSaved(false);
+                        setSettings((current) =>
+                          current ? { ...current, [toggle.key]: event.target.checked } : current,
+                        );
+                      }}
+                    />
+                  </label>
+                );
+              })}
+            </div>
+          </>
         )}
 
         <div className="flex items-center justify-end gap-3 border-t border-champagne-beige px-5 py-4">

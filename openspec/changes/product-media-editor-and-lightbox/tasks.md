@@ -71,5 +71,5 @@
 ## 10. Verification
 
 - [ ] 10.1 `make lint` and `make format` clean
-- [ ] 10.2 `make test-backend` and `make test-frontend` green
+- [x] 10.2 `make test-backend` and `make test-frontend` green
 - [ ] 10.3 Manual: upload a sideways phone photo → saved upright; frame it in the editor → storefront card matches; open lightbox → pan-zoom an image, page to the video, back to an image
