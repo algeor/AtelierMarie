@@ -120,6 +120,9 @@ class DeliverySettingsUpdate(BaseModel):
     speedy_door_enabled: bool = True
     econt_office_enabled: bool = True
     econt_door_enabled: bool = True
+    cod_enabled: bool = True
+    card_enabled: bool = True
+    bank_transfer_enabled: bool = True
 
 
 class DeliverySettingsResponse(DeliverySettingsUpdate):

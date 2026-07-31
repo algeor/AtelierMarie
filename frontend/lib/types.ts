@@ -433,6 +433,9 @@ export interface DeliverySettingsResponse {
   speedy_door_enabled: boolean;
   econt_office_enabled: boolean;
   econt_door_enabled: boolean;
+  cod_enabled: boolean;
+  card_enabled: boolean;
+  bank_transfer_enabled: boolean;
   updated_at: string;
 }
 
@@ -441,6 +444,9 @@ export interface DeliverySettingsUpdate {
   speedy_door_enabled: boolean;
   econt_office_enabled: boolean;
   econt_door_enabled: boolean;
+  cod_enabled: boolean;
+  card_enabled: boolean;
+  bank_transfer_enabled: boolean;
 }
 
 export interface StripeConfigHealth {

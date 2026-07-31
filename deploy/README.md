@@ -9,6 +9,7 @@ Reference config and notes for deploying AtelierMarie to the target host
 |------|---------|
 | `nginx-ratelimit.conf` | Nginx `limit_req_zone` / `map` directives (http context) plus a commented example `server { }` block with `limit_req`, custom 429 handler, and reverse-proxy setup. |
 | `free-deployment-plan.md` | Narrative plan for the Oracle Cloud Free Tier deployment (VPS sizing, systemd units, backup strategy). |
+| `docker-deployment.md` | Docker Compose deployment path for a VPS, with host Nginx, persistent volumes, env setup, updates, and backups. |
 
 ## Wiring `nginx-ratelimit.conf` into Nginx
 

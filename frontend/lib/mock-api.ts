@@ -925,6 +925,9 @@ let mockDeliverySettings: DeliverySettingsResponse = {
   speedy_door_enabled: true,
   econt_office_enabled: true,
   econt_door_enabled: true,
+  cod_enabled: true,
+  card_enabled: true,
+  bank_transfer_enabled: true,
   updated_at: new Date().toISOString(),
 };
 
@@ -965,6 +968,11 @@ function syncPublicPaymentSettings(): void {
 
 function deliveryEnabled(courier: Courier, method: "office" | "door"): boolean {
   const key = `${courier}_${method}_enabled` as keyof DeliverySettingsUpdate;
+  return mockDeliverySettings[key];
+}
+
+function paymentEnabled(method: PaymentMethod): boolean {
+  const key = `${method}_enabled` as keyof DeliverySettingsUpdate;
   return mockDeliverySettings[key];
 }
 
@@ -1045,6 +1053,9 @@ export async function createOrder(
       : data.delivery.door?.courier;
   if (courier && !deliveryEnabled(courier, data.delivery.method)) {
     mockError("DELIVERY_METHOD_UNAVAILABLE", "Delivery method is currently unavailable");
+  }
+  if (!paymentEnabled(data.payment_method ?? "cod")) {
+    mockError("PAYMENT_METHOD_UNAVAILABLE", "Payment method is currently unavailable");
   }
   if (mockCartItems.length === 0) {
     mockError("VALIDATION_ERROR", "Cart is empty");

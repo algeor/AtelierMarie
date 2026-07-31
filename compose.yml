@@ -1,0 +1,55 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: atelier-marie-backend:latest
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    environment:
+      DATABASE_PATH: /data/db/atelier_marie.db
+      STATIC_FILE_PATH: /data/static
+      VIDEO_UPLOAD_TEMP_PATH: /data/video-temp
+      ANALYTICS_DATA_DIR: /data/analytics
+      ANALYTICS_EVENTS_JSONL_PATH: /data/analytics/events.jsonl
+      ANALYTICS_DUCKDB_PATH: /data/analytics/analytics.duckdb
+      FFMPEG_PATH: ffmpeg
+      FFPROBE_PATH: ffprobe
+    ports:
+      - "127.0.0.1:8001:8001"
+    volumes:
+      - atelier_db:/data/db
+      - atelier_static:/data/static
+      - atelier_video_temp:/data/video-temp
+      - atelier_analytics:/data/analytics
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8001}
+        NEXT_PUBLIC_MEDIA_URL: ${NEXT_PUBLIC_MEDIA_URL:-http://localhost:8001/static}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+        NEXT_PUBLIC_USE_MOCK_API: ${NEXT_PUBLIC_USE_MOCK_API:-false}
+        NEXT_PUBLIC_STRIPE_ENABLED: ${NEXT_PUBLIC_STRIPE_ENABLED:-false}
+        NEXT_PUBLIC_BANK_IBAN: ${NEXT_PUBLIC_BANK_IBAN:-}
+        NEXT_PUBLIC_BANK_BIC: ${NEXT_PUBLIC_BANK_BIC:-}
+        NEXT_PUBLIC_BANK_NAME: ${NEXT_PUBLIC_BANK_NAME:-}
+        NEXT_PUBLIC_INSTAGRAM_URL: ${NEXT_PUBLIC_INSTAGRAM_URL:-}
+        NEXT_PUBLIC_TIKTOK_URL: ${NEXT_PUBLIC_TIKTOK_URL:-}
+        NEXT_PUBLIC_ANALYTICS_CONSENT_VERSION: ${NEXT_PUBLIC_ANALYTICS_CONSENT_VERSION:-2026-07-31}
+    image: atelier-marie-frontend:latest
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:3000"
+
+volumes:
+  atelier_db:
+  atelier_static:
+  atelier_video_temp:
+  atelier_analytics:

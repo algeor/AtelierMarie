@@ -13,8 +13,10 @@ Luxury handcrafted candle e-commerce platform.
 ```
 ├── app/              # Python backend (FastAPI)
 ├── frontend/         # Next.js 14 frontend
-├── deploy/           # Nginx, systemd, provisioning
-└── openspec/         # Feature specifications
+├── deploy/           # Nginx, systemd, provisioning, Docker deployment guide
+├── openspec/         # Feature specifications
+├── compose.yml       # Docker Compose stack (backend + frontend)
+└── Dockerfile.backend
 ```
 
 ## Quick Start
@@ -42,6 +44,36 @@ uvicorn app.main:app --reload --port 8000
 ```
 
 The API runs at [http://localhost:8000](http://localhost:8000).
+
+### With Docker (backend + frontend)
+
+Run both services as containers with Docker Compose. Nginx stays on the host as the only public listener; runtime data lives in Docker volumes.
+
+```bash
+# 1. Create the env file and fill in real values
+cp .env.docker.example .env.docker
+chmod 600 .env.docker
+#    Set at least: JWT_SECRET, ADMIN_API_KEY, FRONTEND_URL, CORS_ORIGINS,
+#    NEXT_PUBLIC_API_URL, NEXT_PUBLIC_MEDIA_URL, NEXT_PUBLIC_SITE_URL
+#    (generate secrets with: openssl rand -base64 48)
+
+# 2. Build and start (detached)
+docker compose --env-file .env.docker up -d --build
+
+# 3. Verify
+docker compose ps
+curl http://127.0.0.1:8001/health   # backend
+curl -I http://127.0.0.1:3000       # frontend
+
+# Logs / update / stop
+docker compose logs -f
+docker compose --env-file .env.docker up -d --build   # pull + rebuild after `git pull`
+docker compose down
+```
+
+The backend listens on `127.0.0.1:8001` and the frontend on `127.0.0.1:3000`. Frontend `NEXT_PUBLIC_*` values are baked in at build time, so re-run the build step after changing them.
+
+See [`deploy/docker-deployment.md`](deploy/docker-deployment.md) for the full VPS deployment guide (host Nginx config, persistent volumes, backups, and updates).
 
 ## Environment Variables
 

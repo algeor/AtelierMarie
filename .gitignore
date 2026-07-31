@@ -18,6 +18,7 @@ frontend/.next-dev/
 .env
 .env.*
 !.env.example
+!.env.docker.example
 !frontend/.env.local.example
 
 # Development

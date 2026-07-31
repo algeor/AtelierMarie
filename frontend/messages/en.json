@@ -893,12 +893,14 @@
       }
     },
     "delivery": {
-      "title": "Delivery",
-      "subtitle": "Control which courier delivery options customers can select at checkout.",
+      "title": "Delivery and payment methods",
+      "subtitle": "Control which courier delivery and payment options customers can select at checkout.",
       "pricingTitle": "Shipping price calculation",
       "pricingBody": "Live delivery prices are returned by the configured Speedy or Econt account. If that courier account has negotiated discounts, the courier API may reflect them. Atelier Marie only applies the free-shipping threshold and the flat fallback price when a courier quote is unavailable.",
       "methodsTitle": "Available methods",
       "enabledSummary": "{count} of {total} methods enabled",
+      "paymentTitle": "Available payment methods",
+      "paymentSummary": "{count} of {total} payment methods enabled",
       "updatedAt": "Updated {updatedAt}",
       "loading": "Loading delivery settings...",
       "enabled": "Enabled",
@@ -915,6 +917,11 @@
       "method": {
         "office": "Office pickup",
         "door": "Door delivery"
+      },
+      "payment": {
+        "cod": "Cash on delivery",
+        "card": "Card payment",
+        "bank_transfer": "Bank transfer"
       }
     },
     "promotions": {
