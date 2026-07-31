@@ -36,6 +36,7 @@ const mockOrder: OrderResponse = {
   status: "confirmed",
   payment_method: "cod",
   payment_status: "cod_pending",
+  stripe_checkout_url: null,
   items_total_cents: 7700,
   shipping_cents: 0,
   total_cents: 7700,

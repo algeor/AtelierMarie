@@ -169,6 +169,7 @@ class OrderData(TypedDict):
     payment_status: str
     stripe_checkout_session_id: str | None
     stripe_payment_intent_id: str | None
+    analytics_consent: bool
     created_at: str
     updated_at: str
     items: list[OrderItemData]
@@ -197,6 +198,7 @@ def checkout(
     locale: Locale = "en",
     admin_notification_email: str = "",
     payment_method: str = "cod",
+    analytics_consent: bool = False,
 ) -> OrderData:
     """Convert cart to an order atomically.
 
@@ -323,8 +325,8 @@ def checkout(
                                delivery_method, delivery_courier, delivery_details,
                                locale, notes,
                                payment_method, payment_status,
-                               created_at, updated_at)
-            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               analytics_consent, created_at, updated_at)
+            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 order_id,
@@ -340,6 +342,7 @@ def checkout(
                 notes,
                 payment_method,
                 initial_payment_status,
+                1 if analytics_consent else 0,
                 now,
                 now,
             ),
@@ -439,6 +442,7 @@ def checkout(
         payment_status=initial_payment_status,
         stripe_checkout_session_id=None,
         stripe_payment_intent_id=None,
+        analytics_consent=analytics_consent,
         created_at=now,
         updated_at=now,
         items=items,
@@ -514,6 +518,7 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
         stripe_payment_intent_id=(
             row["stripe_payment_intent_id"] if "stripe_payment_intent_id" in row_keys else None
         ),
+        analytics_consent=bool(row["analytics_consent"] if "analytics_consent" in row_keys else 0),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         items=items,

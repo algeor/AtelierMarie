@@ -7,6 +7,7 @@ import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { CartProvider } from "@/contexts/CartContext";
+import { CookieConsentProvider } from "@/contexts/CookieConsentContext";
 import { CartDrawer } from "@/components/cart/CartDrawer";
 
 type Props = {
@@ -28,13 +29,15 @@ export default async function LocaleLayout({ children, params }: Props) {
   return (
     <NextIntlClientProvider messages={messages}>
       <AuthProvider>
-        <CartProvider>
-          <AnnouncementBar />
-          <Header />
-          <CartDrawer />
-          <main>{children}</main>
-          <Footer />
-        </CartProvider>
+        <CookieConsentProvider>
+          <CartProvider>
+            <AnnouncementBar />
+            <Header />
+            <CartDrawer />
+            <main>{children}</main>
+            <Footer />
+          </CartProvider>
+        </CookieConsentProvider>
       </AuthProvider>
     </NextIntlClientProvider>
   );

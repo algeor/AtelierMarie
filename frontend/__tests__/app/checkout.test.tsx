@@ -44,6 +44,14 @@ vi.mock("@/contexts/CartContext", () => ({
   useCart: () => mockCartState,
 }));
 
+vi.mock("@/contexts/CookieConsentContext", () => ({
+  useCookieConsent: () => ({ analytics: true }),
+}));
+
+vi.mock("@/lib/analytics", () => ({
+  trackAnalytics: vi.fn(),
+}));
+
 vi.mock("@/lib/api", () => ({
   createOrder: vi.fn(),
 }));
@@ -147,6 +155,9 @@ describe("Checkout Page", () => {
     mockedCreateOrder.mockResolvedValue({
       id: "order-abc",
       status: "pending",
+      payment_method: "cod",
+      payment_status: "cod_pending",
+      stripe_checkout_url: null,
       items_total_cents: 2500,
       shipping_cents: 0,
       total_cents: 2500,

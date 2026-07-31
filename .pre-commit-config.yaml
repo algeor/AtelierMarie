@@ -45,6 +45,40 @@ repos:
         types: [python]
         exclude: '^tests/'
 
+  # --- Frontend ---
+  - repo: local
+    hooks:
+      - id: frontend-lint
+        name: frontend lint
+        language: system
+        entry: npm --prefix frontend run lint
+        pass_filenames: false
+        files: '^frontend/.*\.(ts|tsx|js|jsx)$|^frontend/(package(-lock)?\.json|tsconfig\.json|next\.config\.js)$'
+
+      - id: frontend-typecheck
+        name: frontend typecheck
+        language: system
+        entry: npm --prefix frontend run typecheck
+        pass_filenames: false
+        stages: [pre-push]
+        files: '^frontend/.*\.(ts|tsx|js|jsx)$|^frontend/(package(-lock)?\.json|tsconfig\.json|next\.config\.js)$'
+
+      - id: backend-unit-tests
+        name: backend unit tests
+        language: system
+        entry: .venv/bin/pytest tests/ -m "not integration"
+        pass_filenames: false
+        stages: [pre-push]
+        types: [python]
+
+      - id: mypy
+        name: mypy
+        language: system
+        entry: .venv/bin/mypy app
+        pass_filenames: false
+        stages: [manual]
+        types: [python]
+
   # --- Secrets detection ---
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0

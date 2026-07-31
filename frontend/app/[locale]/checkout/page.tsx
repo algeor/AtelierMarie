@@ -6,7 +6,9 @@ import { Link, useRouter } from "@/i18n/navigation";
 import { useCart } from "@/contexts/CartContext";
 import { createOrder } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
+import { trackAnalytics } from "@/lib/analytics";
 import { useLocalizedError } from "@/lib/useLocalizedError";
+import { useCookieConsent } from "@/contexts/CookieConsentContext";
 import { policyPath } from "@/lib/legal";
 import { formatPrice } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
@@ -29,6 +31,7 @@ export default function CheckoutPage() {
   const getLocalizedError = useLocalizedError();
   const router = useRouter();
   const { items, total_cents, isLoading, refreshCart } = useCart();
+  const { analytics: analyticsConsent } = useCookieConsent();
 
   // Form state
   const [email, setEmail] = useState("");
@@ -43,6 +46,8 @@ export default function CheckoutPage() {
 
   const emailRef = useRef<HTMLInputElement>(null);
   const hasRedirected = useRef(false);
+  const trackedCheckoutStart = useRef(false);
+  const lastDeliverySignatureRef = useRef("");
 
   useEffect(() => {
     refreshCart();
@@ -55,6 +60,30 @@ export default function CheckoutPage() {
       router.push("/products");
     }
   }, [isLoading, items.length, router]);
+
+  useEffect(() => {
+    if (!isLoading && items.length > 0 && !trackedCheckoutStart.current) {
+      trackAnalytics("checkout_start", {
+        item_count: items.reduce((sum, item) => sum + item.quantity, 0),
+        value_cents: total_cents,
+        currency: "BGN",
+      });
+      trackedCheckoutStart.current = true;
+    }
+  }, [isLoading, items, total_cents]);
+
+  const handleDeliveryChange = useCallback((next: Partial<DeliveryInfo>) => {
+    setDelivery(next);
+    const courier = next.office?.courier || next.door?.courier || null;
+    if (!next.method || !courier) return;
+    const signature = `${next.method}:${courier}`;
+    if (signature === lastDeliverySignatureRef.current) return;
+    lastDeliverySignatureRef.current = signature;
+    trackAnalytics("delivery_selected", {
+      delivery_method: next.method,
+      delivery_courier: courier,
+    });
+  }, []);
 
   const validateEmail = useCallback(
     (value: string): string | null => {
@@ -98,14 +127,28 @@ export default function CheckoutPage() {
       setIsSubmitting(true);
 
       try {
+        trackAnalytics("order_submit", {
+          payment_method: paymentMethod,
+          delivery_method: normalized.method,
+          value_cents: total_cents,
+          currency: "BGN",
+        });
         const order = await createOrder({
           customer_email: email.trim(),
           customer_name: name.trim() || null,
           delivery: normalized,
           notes: notes.trim() || null,
           payment_method: paymentMethod,
+          analytics_consent: analyticsConsent,
         });
         if (order.stripe_checkout_url) {
+          trackAnalytics("payment_redirect", {
+            order_id: order.id,
+            payment_method: paymentMethod,
+            payment_provider: "stripe",
+            value_cents: order.total_cents,
+            currency: "BGN",
+          });
           window.location.href = order.stripe_checkout_url;
         } else {
           router.push(`/orders/${order.id}/confirmation`);
@@ -120,7 +163,20 @@ export default function CheckoutPage() {
         setIsSubmitting(false);
       }
     },
-    [email, name, notes, delivery, paymentMethod, validateEmail, router, t, tRoot, getLocalizedError],
+    [
+      analyticsConsent,
+      delivery,
+      email,
+      getLocalizedError,
+      name,
+      notes,
+      paymentMethod,
+      router,
+      t,
+      tRoot,
+      total_cents,
+      validateEmail,
+    ],
   );
 
   const renderLegalDisclosure = () => (
@@ -224,7 +280,7 @@ export default function CheckoutPage() {
           </div>
 
           {/* Delivery */}
-          <DeliverySection value={delivery} onChange={setDelivery} errors={deliveryErrors} />
+          <DeliverySection value={delivery} onChange={handleDeliveryChange} errors={deliveryErrors} />
 
           {/* Order Notes */}
           <div className="mb-6">

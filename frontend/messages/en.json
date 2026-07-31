@@ -499,6 +499,64 @@
     "dashboard": "Dashboard",
     "products": "Products",
     "orders": "Orders",
+    "analytics": {
+      "navLabel": "Analytics",
+      "title": "Analytics",
+      "subtitle": "Consented behavioral funnel data is shown separately from backend order truth.",
+      "startDate": "Start date",
+      "endDate": "End date",
+      "exportCsv": "Export CSV",
+      "loading": "Loading analytics...",
+      "error": "Analytics could not be loaded.",
+      "summary": "Analytics summary",
+      "metrics": {
+        "sessions": "Consented sessions",
+        "events": "Accepted events",
+        "conversion": "Conversion",
+        "orders": "Backend orders",
+        "revenue": "Backend revenue",
+        "health": "Load status"
+      },
+      "coverageWarning": "Consented orders ({consented}) exceed analytics purchases ({purchases}). Review delivery health.",
+      "coverageTitle": "Order coverage",
+      "businessTruth": "Business truth",
+      "measuredCoverage": "Measured analytics coverage",
+      "coveragePercent": "Coverage",
+      "consentedDelta": "Consented-order delta",
+      "healthTitle": "Delivery health",
+      "accepted": "Accepted",
+      "rejected": "Rejected",
+      "duplicates": "Duplicates",
+      "validationFailures": "Validation failures",
+      "funnelTitle": "Funnel",
+      "step": "Step",
+      "count": "Count",
+      "conversionFromPrevious": "From previous",
+      "productsTitle": "Product analytics",
+      "empty": "No analytics events in this date range.",
+      "product": "Product",
+      "views": "Views",
+      "adds": "Add-to-cart",
+      "purchases": "Purchases",
+      "revenue": "Revenue",
+      "conversion": "Conversion",
+      "checkoutTitle": "Checkout, delivery, and payment",
+      "checkoutSteps": "Checkout steps",
+      "deliveryMethods": "Delivery methods",
+      "paymentMethods": "Payment methods",
+      "events": {
+        "product_view": "Product view",
+        "listing_filter": "Listing filter",
+        "add_to_cart": "Add to cart",
+        "cart_open": "Cart open",
+        "checkout_start": "Checkout start",
+        "delivery_selected": "Delivery selected",
+        "shipping_quote_selected": "Shipping quote selected",
+        "order_submit": "Order submit",
+        "payment_redirect": "Payment redirect",
+        "purchase_confirmed": "Purchase confirmed"
+      }
+    },
     "atelierNav": "Atelier",
     "faqNav": "FAQ",
     "manageOrders": "Manage customer orders",
@@ -884,6 +942,15 @@
     "cookiePolicy": "Cookie Policy",
     "contactPage": "Contact page"
   },
+  "cookieConsent": {
+    "title": "Cookie preferences",
+    "body": "We use necessary cookies for cart, checkout, security, and language. With your consent, we also use first-party analytics to measure product views, cart, checkout, delivery, payment handoff, and purchase confirmation. Analytics is not sent to a third-party analytics provider.",
+    "accept": "Accept analytics",
+    "necessary": "Necessary only",
+    "policyLink": "Read the Cookie Policy",
+    "settingsLink": "Cookie settings",
+    "close": "Close settings"
+  },
   "privacy": {
     "metaTitle": "Privacy Policy | Atelier Marie",
     "metaDescription": "How Atelier Marie processes order, delivery, contact, account, comment, payment, cookie, and email data.",
@@ -911,6 +978,7 @@
         "body": [
           "We use order, cart, delivery, and payment data to take steps before entering into a contract, perform the sales contract, arrange delivery, provide order support, and keep purchase records.",
           "We use contact-form messages and replies to handle your inquiry and any custom-order request. We use account/session data to authenticate you and protect the service.",
+          "With your consent, we use first-party analytics events to understand product discovery, cart, checkout, delivery, payment handoff, and purchase confirmation. Analytics events are stored on the Atelier Marie backend and are not sent to a third-party analytics provider. They are linked to the existing session cookie as a pseudonymous session key and do not include email, phone, name, address, order notes, card data, advertising pixels, session replay, heatmaps, cross-site tracking, or profiling.",
           "We use comments and reactions to provide public product feedback features. We use operational logs, fraud-prevention data, and email delivery records for legitimate interests in security, reliability, and customer support.",
           "Where the law requires records to be kept, we process the relevant data to comply with legal obligations."
         ]
@@ -921,7 +989,7 @@
         "nav": "Recipients",
         "body": [
           "We share data only where needed for the current store features: hosting and infrastructure providers, email delivery providers, Google OAuth when you choose Google sign-in, Stripe for card-payment processing references, and courier/order-fulfilment partners where delivery is required.",
-          "We do not describe or use analytics, advertising pixels, newsletter marketing, profiling, or similar non-essential tracking in the current app."
+          "Optional first-party analytics stays on the Atelier Marie backend and is not sent to a third-party analytics provider. We do not use advertising pixels, cross-site tracking, session replay, heatmaps, newsletter marketing tracking, or profiling."
         ]
       },
       {
@@ -930,6 +998,7 @@
         "nav": "Retention",
         "body": [
           "Order and accounting records are kept for the period required by applicable law and for handling customer support, returns, withdrawal, and warranty questions.",
+          "First-party analytics events are retained for the configured analytics retention period, currently up to 395 days, unless consent is withdrawn for future events or a valid erasure request requires deletion or irreversible pseudonymization sooner.",
           "Contact messages, email delivery audit rows, suppression records, sessions, carts, comments, and technical logs are kept only as long as needed for the feature, security, support, or legal reason that created them. The executable deletion and erasure workflow is tracked separately from this policy baseline."
         ]
       },
@@ -947,8 +1016,8 @@
         "title": "Cookies and similar storage",
         "nav": "Cookies",
         "body": [
-          "The store currently uses necessary session/authentication cookies and a locale preference cookie. See the Cookie Policy for the current cookie inventory and retention notes.",
-          "A separate consent mechanism should be added before analytics, advertising, profiling, or other non-essential tracking cookies are introduced."
+          "The store uses necessary session/authentication cookies, a locale preference cookie, and a first-party consent preference cookie. See the Cookie Policy for the current cookie inventory and retention notes.",
+          "Optional first-party analytics runs only after consent. You can withdraw analytics consent from Cookie settings; future behavioral analytics events stop and unsent events are discarded."
         ]
       },
       {
@@ -993,6 +1062,12 @@
         "purpose": "Stores the selected language so localized pages open in the chosen locale.",
         "type": "Preference cookie",
         "duration": "Persistent preference cookie unless cleared by the browser."
+      },
+      {
+        "name": "atelier_cookie_consent",
+        "purpose": "Stores the current cookie preference, consent version, analytics choice, locale, and timestamp. It does not contain a tracking ID.",
+        "type": "Consent preference cookie",
+        "duration": "Up to 12 months or until changed or cleared by the browser."
       }
     ],
     "sections": [
@@ -1005,18 +1080,18 @@
         ]
       },
       {
-        "id": "no-tracking",
-        "title": "No non-essential tracking in the current app",
+        "id": "analytics",
+        "title": "Optional first-party analytics",
         "body": [
-          "The codebase currently contains no analytics, advertising pixels, behavioral profiling, or newsletter marketing tracking. For that reason, the store does not show a marketing-style cookie consent banner now.",
-          "If non-essential tracking is added later, the cookie inventory and consent controls must be updated before that tracking is enabled."
+          "If you accept analytics, the store sends minimal first-party events such as product view, filter use, add to cart, cart open, checkout start, delivery selection, order submission, payment redirect, and purchase confirmation.",
+          "Analytics events stay on the Atelier Marie backend and are not sent to a third-party analytics provider. They are linked to the existing session cookie as a pseudonymous session key. They do not include email, phone, name, address, order notes, card details, advertising pixels, cross-site tracking, session replay, heatmaps, or profiling. Owner/legal review is required before production analytics is enabled."
         ]
       },
       {
         "id": "control",
         "title": "How to control cookies",
         "body": [
-          "You can block or delete cookies through your browser settings. Blocking necessary cookies may break sign-in, cart, checkout, or locale features.",
+          "You can change analytics consent from Cookie settings or block/delete cookies through your browser settings. Blocking necessary cookies may break sign-in, cart, checkout, or locale features.",
           "For privacy questions, use the contact details in the Privacy Policy."
         ]
       }

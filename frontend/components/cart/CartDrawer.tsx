@@ -1,11 +1,13 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { cn, formatPrice } from "@/lib/utils";
 import { useCart } from "@/contexts/CartContext";
 import { useFocusTrap } from "@/lib/useFocusTrap";
 import { Portal } from "@/components/ui/Portal";
+import { trackAnalytics } from "@/lib/analytics";
 import { CartItem } from "./CartItem";
 
 export function CartDrawer() {
@@ -21,6 +23,7 @@ export function CartDrawer() {
     error,
     dismissError,
   } = useCart();
+  const trackedOpenRef = useRef(false);
 
   // Escape-to-close, Tab focus trap, focus save/restore, and body scroll lock —
   // all keyed off isDrawerOpen. The ref goes on the drawer panel below.
@@ -28,6 +31,18 @@ export function CartDrawer() {
     active: isDrawerOpen,
     onClose: closeDrawer,
   });
+
+  useEffect(() => {
+    if (isDrawerOpen && !trackedOpenRef.current) {
+      trackAnalytics("cart_open", {
+        item_count,
+        value_cents: total_cents,
+        currency: "BGN",
+      });
+      trackedOpenRef.current = true;
+    }
+    if (!isDrawerOpen) trackedOpenRef.current = false;
+  }, [isDrawerOpen, item_count, total_cents]);
 
   return (
     <Portal>

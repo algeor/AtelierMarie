@@ -53,6 +53,9 @@ describe("Order Confirmation Page", () => {
     mockedGetOrder.mockResolvedValue({
       id: "test-order-123",
       status: "pending",
+      payment_method: "cod",
+      payment_status: "cod_pending",
+      stripe_checkout_url: null,
       items_total_cents: 5000,
       shipping_cents: 0,
       total_cents: 5000,
@@ -115,6 +118,9 @@ describe("Order Confirmation Page", () => {
     mockedGetOrder.mockResolvedValue({
       id: "test-order-123",
       status: "pending",
+      payment_method: "cod",
+      payment_status: "cod_pending",
+      stripe_checkout_url: null,
       items_total_cents: 5000,
       shipping_cents: 0,
       total_cents: 5000,

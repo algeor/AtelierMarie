@@ -28,7 +28,6 @@ class ResizeObserverStub {
 }
 
 if (!("ResizeObserver" in globalThis)) {
-  // @ts-expect-error test stub
   globalThis.ResizeObserver = ResizeObserverStub;
 }
 

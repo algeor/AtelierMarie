@@ -277,6 +277,14 @@ def _clean_tables(db_path, app):
     # Delete sessions except the fake middleware session
     if fake_session_id:
         conn.execute("DELETE FROM sessions WHERE id != ?", (fake_session_id,))
+        # The OAuth callback rotates by deleting the old session. Recreate the
+        # middleware's fixed test session so later tests do not inherit that deletion.
+        now = datetime.now(UTC)
+        expires_at = now + timedelta(days=30)
+        conn.execute(
+            "INSERT OR IGNORE INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
+            (fake_session_id, now.strftime(_DT_FMT), expires_at.strftime(_DT_FMT)),
+        )
         # Unlink fake session from user before deleting users
         conn.execute("UPDATE sessions SET user_id = NULL WHERE id = ?", (fake_session_id,))
     else:

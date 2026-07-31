@@ -2,6 +2,7 @@ import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { INSTAGRAM_URL, TIKTOK_URL } from "@/lib/social";
 import { policyPath } from "@/lib/legal";
+import { CookieSettingsButton } from "@/components/layout/CookieSettingsButton";
 
 function InstagramIcon({ className }: { className?: string }) {
   return (
@@ -109,6 +110,9 @@ export function Footer() {
                 >
                   {t("legal.cookiePolicy")}
                 </Link>
+              </li>
+              <li>
+                <CookieSettingsButton />
               </li>
               </ul>
             </nav>

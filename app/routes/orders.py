@@ -14,6 +14,7 @@ from app.models.orders import (
     OrderResponse,
 )
 from app.responses import error_response
+from app.services import analytics_service
 from app.services.order_service import (
     EmptyCartError,
     InsufficientStockError,
@@ -72,6 +73,7 @@ def create_order(
             locale = (
                 row["preferred_locale"] if row and row["preferred_locale"] in {"en", "bg"} else "en"
             )
+            analytics_consent = analytics_service.has_current_analytics_consent(session_id)
 
             order_data = checkout(
                 conn=conn,
@@ -84,6 +86,19 @@ def create_order(
                 locale=locale,
                 admin_notification_email=settings.admin_notification_email,
                 payment_method=body.payment_method,
+                analytics_consent=analytics_consent,
+            )
+
+            analytics_service.record_purchase_confirmed(
+                order_id=order_data["id"],
+                session_id=session_id,
+                user_id=user_id,
+                locale=locale,
+                total_cents=order_data["total_cents"],
+                payment_method=body.payment_method,
+                delivery_method=order_data["delivery_method"],
+                delivery_courier=order_data["delivery_courier"],
+                analytics_consent=analytics_consent,
             )
 
             stripe_checkout_url: str | None = None

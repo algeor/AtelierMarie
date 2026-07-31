@@ -96,7 +96,18 @@ class Settings(BaseSettings):
     bank_bic: str = ""
     bank_name: str = ""
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    # First-party analytics (first-party-funnel-analytics)
+    analytics_enabled: bool = False
+    analytics_data_dir: str = "./analytics-data"
+    analytics_events_jsonl_path: str = "./analytics-data/events.jsonl"
+    analytics_duckdb_path: str = "./analytics-data/analytics.duckdb"
+    analytics_consent_version: str = "2026-07-31"
+    analytics_batch_size: int = Field(default=25, ge=1, le=100)
+    analytics_retention_days: int = Field(default=395, ge=1)
+    analytics_delivery_tolerance: int = Field(default=0, ge=0)
+    analytics_legal_approved: bool = False
+
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
     @model_validator(mode="after")
     def validate_production_config(self) -> "Settings":
@@ -118,6 +129,13 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         if self.environment == "production" and "*" in self.cors_origins:
             msg = "CORS wildcard '*' is not allowed in production."
+            raise ValueError(msg)
+        if (
+            self.environment == "production"
+            and self.analytics_enabled
+            and not self.analytics_legal_approved
+        ):
+            msg = "ANALYTICS_LEGAL_APPROVED must be true before enabling analytics in production."
             raise ValueError(msg)
         if self.environment == "production" and not (
             self.google_client_id and self.google_client_secret
