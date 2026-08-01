@@ -1,6 +1,7 @@
 """Application configuration via environment variables."""
 
 from functools import lru_cache
+import os
 from typing import Literal
 
 import structlog
@@ -23,7 +24,7 @@ class Settings(BaseSettings):
 
     # Core
     environment: str = "development"
-    database_path: str = "./atelier_marie.db"
+    database_url: str = "postgresql://atelier:atelier@localhost:5432/atelier_marie"
 
     # Auth
     jwt_secret: str = _DEV_JWT_SECRET
@@ -163,6 +164,12 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_production_config(self) -> "Settings":
         """Refuse to start in production with insecure defaults."""
+        if not self.database_url.startswith(("postgresql://", "postgres://")):
+            msg = "DATABASE_URL must be a Postgres connection URL. SQLite is no longer supported."
+            raise ValueError(msg)
+        if self.environment == "production" and not os.getenv("DATABASE_URL"):
+            msg = "DATABASE_URL must be set in production."
+            raise ValueError(msg)
         if self.jwt_secret == _DEV_JWT_SECRET and self.environment not in (
             "development",
             "test",

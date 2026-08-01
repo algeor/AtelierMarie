@@ -113,8 +113,7 @@ Mock mode is best for UI work that does not need backend state:
 NEXT_PUBLIC_USE_MOCK_API=true
 ```
 
-Real mode is required for backend integration, SQLite data, sessions, auth, admin API, and real checkout flows:
-
+Real mode is required for backend integration, Postgres data, sessions, auth, admin API, and real checkout flows:
 ```env
 NEXT_PUBLIC_USE_MOCK_API=false
 NEXT_PUBLIC_API_URL=http://localhost:8000
@@ -156,7 +155,7 @@ Backend:
 
 - `app/main.py`: FastAPI app, middleware, router registration, background tasks.
 - `app/config.py`: all backend settings via pydantic-settings.
-- `app/database.py`: SQLite schema, migrations, connection helpers, cleanup.
+- `app/database.py`: Postgres connection helpers, migration checks, cleanup.
 - `app/middleware/`: request ID and anonymous session middleware.
 - `app/dependencies/`: FastAPI auth/session dependencies.
 - `app/models/`: Pydantic request/response models.
@@ -211,7 +210,7 @@ Admin:
 
 Backend operations:
 
-- SQLite is the system of record.
+- Postgres is the system of record.
 - Session rows are created eagerly for public requests.
 - Static files are served from `STATIC_FILE_PATH` under `/static`.
 - Email uses a durable outbox and defaults to the console provider.
@@ -226,7 +225,7 @@ Backend settings live in `app/config.py` and load from `.env`.
 Important local backend variables:
 
 - `ENVIRONMENT=development` keeps local cookies HTTP-compatible.
-- `DATABASE_PATH=./atelier_marie.db` points at the local SQLite DB.
+- `DATABASE_URL=postgresql://atelier:atelier@localhost:5432/atelier_marie` points at the local Postgres DB.
 - `JWT_SECRET=change-me-in-production` is acceptable only for local work.
 - `ADMIN_API_KEY=` disables API-key admin access until set.
 - `CORS_ORIGINS=["http://localhost:3000"]` allows the local frontend.
@@ -298,7 +297,7 @@ curl -H "Authorization: Bearer dev-admin-key" \
 - Read settings through `app.config.get_settings()`, not direct `os.environ` in app code.
 - Store prices as integer cents using `price_cents`.
 - Product IDs are text slugs/SKUs, not integer DB IDs.
-- SQLite is the production data store for e-commerce state.
+- Postgres is the production data store for e-commerce state.
 - Wrap stock/order/payment mutations in explicit transactions.
 - Use the standard error envelope: `{"error":{"code":...,"message":...,"details":...}}`.
 - Keep transactional email in Layer 1. It must not depend on analytics.
@@ -408,7 +407,7 @@ Avoid these as first tasks:
 
 - Payment provider behavior.
 - Session/auth rotation.
-- SQLite schema migrations.
+- Alembic schema migrations.
 - Analytics consent/legal behavior.
 - Product video processing.
 - Cross-stack checkout changes.

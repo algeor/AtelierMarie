@@ -373,7 +373,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: initialize database on startup, run background tasks."""
     settings = get_settings()
     configure_logging(settings.environment)
-    init_db(settings.database_path)
+    init_db(settings.database_url)
     if settings.analytics_enabled:
         await asyncio.to_thread(initialize_storage)
 

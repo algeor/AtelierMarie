@@ -4,10 +4,10 @@
 
 - [x] 1.1 Add `psycopg[binary,pool]` Postgres driver and pooling support to production dependencies.
 - [x] 1.2 Add Alembic to development dependencies and regenerate the lockfile.
-- [ ] 1.3 Replace `DATABASE_PATH` settings with `DATABASE_URL` settings and production validation.
-- [ ] 1.4 Add a Postgres service, healthcheck, credentials, and persistent volume to `compose.yml`.
-- [ ] 1.5 Update `.env.example`, `.env.docker.example`, and local setup docs for Postgres URLs.
-- [ ] 1.6 Add Makefile or documented commands for starting Postgres, running migrations, and resetting the local dev DB.
+- [x] 1.3 Replace `DATABASE_PATH` settings with `DATABASE_URL` settings and production validation.
+- [x] 1.4 Add a Postgres service, healthcheck, credentials, and persistent volume to `compose.yml`.
+- [x] 1.5 Update `.env.example`, `.env.docker.example`, and local setup docs for Postgres URLs.
+- [x] 1.6 Add Makefile or documented commands for starting Postgres, running migrations, and resetting the local dev DB.
 - [ ] 1.7 Add a local/Compose migration command or one-shot migration service so `alembic upgrade head` is explicit before backend startup.
 - [ ] 1.8 Review active OpenSpec changes and document which pending schema work is included in, or deferred from, the initial Postgres baseline.
 

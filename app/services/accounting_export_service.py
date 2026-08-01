@@ -82,7 +82,8 @@ def _get_package_row(conn: sqlite3.Connection, export_id: str) -> sqlite3.Row:
 
 
 def _private_export_root() -> Path:
-    db_parent = Path(get_settings().database_path).resolve().parent
+    db_parent = Path("./data/exports").resolve()
+    db_parent.mkdir(parents=True, exist_ok=True)
     return db_parent / "private-exports" / "accounting"
 
 

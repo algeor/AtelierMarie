@@ -58,7 +58,7 @@ The lifespan function runs when the ASGI app starts.
 It does this:
 
 1. Configures logging for the current environment.
-2. Calls `init_db(settings.database_path)`.
+2. Calls `init_db(settings.database_url)`.
 3. Initializes analytics storage only if analytics is enabled.
 4. Ensures static directories exist.
 5. Ensures video temp directory exists and is private.

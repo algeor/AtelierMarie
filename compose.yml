@@ -1,5 +1,22 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: atelier_marie
+      POSTGRES_USER: atelier
+      POSTGRES_PASSWORD: atelier
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U atelier -d atelier_marie" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - atelier_postgres:/var/lib/postgresql/data
   backend:
+    depends_on:
+      postgres:
+        condition: service_healthy
     build:
       context: .
       dockerfile: Dockerfile.backend
@@ -8,7 +25,7 @@ services:
     env_file:
       - .env.docker
     environment:
-      DATABASE_PATH: /data/db/atelier_marie.db
+      DATABASE_URL: postgresql://atelier:atelier@postgres:5432/atelier_marie
       STATIC_FILE_PATH: /data/static
       VIDEO_UPLOAD_TEMP_PATH: /data/video-temp
       ANALYTICS_DATA_DIR: /data/analytics
@@ -49,7 +66,7 @@ services:
       - "127.0.0.1:3000:3000"
 
 volumes:
-  atelier_db:
+  atelier_postgres:
   atelier_static:
   atelier_video_temp:
   atelier_analytics:
