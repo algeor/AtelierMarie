@@ -2,14 +2,25 @@ name: Backend Ruff Lint Analysis
 
 on:
   push:
+    branches: [main]
   pull_request:
+    paths:
+      - 'app/**'
+      - 'tests/**'
+      - 'Makefile'
+      - 'pyproject.toml'
+      - '.github/workflows/ruff.yml'
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  lint-frontend:
-    name: Frontend Lint Analysis
+  lint-backend:
+    name: Backend Ruff Lint Analysis
     runs-on: ubuntu-latest
 
     steps:
@@ -21,7 +32,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Setup Frontend
+      - name: Setup Backend
         run: make setup-backend
 
       - name: Run backend Ruff linting

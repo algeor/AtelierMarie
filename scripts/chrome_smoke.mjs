@@ -384,14 +384,36 @@ async function waitForHttp(url, timeoutMs = 30_000) {
   throw new Error(`Frontend did not become available at ${url}`);
 }
 
-async function waitForDevTools(stderrLines) {
+async function getFreePort() {
+  const server = http.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const { port } = server.address();
+  await new Promise((resolve) => server.close(resolve));
+  return port;
+}
+
+async function waitForDevTools(port, chrome, stderrLines) {
   const started = Date.now();
-  while (Date.now() - started < 15_000) {
-    const match = stderrLines.join("\n").match(/DevTools listening on (ws:\/\/[^\s]+)/);
-    if (match) return match[1];
-    await sleep(100);
+  const versionUrl = `http://127.0.0.1:${port}/json/version`;
+  while (Date.now() - started < 30_000) {
+    if (isProcessExited(chrome)) {
+      throw new Error(
+        `Chrome exited before DevTools became available\n${stderrLines.join("\n")}`.trim()
+      );
+    }
+    try {
+      const version = await httpGetJson(versionUrl);
+      if (version.webSocketDebuggerUrl) return version.webSocketDebuggerUrl;
+    } catch {
+      await sleep(250);
+    }
   }
-  throw new Error("Timed out waiting for Chrome DevTools endpoint");
+  throw new Error(
+    `Timed out waiting for Chrome DevTools endpoint at ${versionUrl}\n${stderrLines.join("\n")}`.trim()
+  );
 }
 
 class CdpClient {
@@ -791,13 +813,14 @@ async function main() {
 
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), "atelier-chrome-"));
   const stderrLines = [];
+  const chromeDebugPort = await getFreePort();
   const chrome = spawn(findChrome(), [
     "--headless=new",
     "--disable-gpu",
     "--disable-dev-shm-usage",
     "--no-first-run",
     "--no-default-browser-check",
-    "--remote-debugging-port=0",
+    `--remote-debugging-port=${chromeDebugPort}`,
     `--user-data-dir=${userDataDir}`,
     "about:blank",
   ], { stdio: ["ignore", "ignore", "pipe"] });
@@ -807,7 +830,7 @@ async function main() {
 
   let client;
   try {
-    const browserWs = await waitForDevTools(stderrLines);
+    const browserWs = await waitForDevTools(chromeDebugPort, chrome, stderrLines);
     const port = new URL(browserWs).port;
     const pages = await httpGetJson(`http://127.0.0.1:${port}/json/list`);
     const page = pages.find((entry) => entry.type === "page");

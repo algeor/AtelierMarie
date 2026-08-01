@@ -19,6 +19,9 @@ const DEFAULT_SETTINGS: DeliverySettingsResponse = {
   speedy_door_enabled: true,
   econt_office_enabled: true,
   econt_door_enabled: true,
+  cod_enabled: true,
+  card_enabled: true,
+  bank_transfer_enabled: true,
   updated_at: "2026-07-31 12:00:00",
 };
 
@@ -36,7 +39,9 @@ describe("Admin delivery settings page", () => {
   it("saves courier/method availability toggles", async () => {
     renderWithIntl(<AdminDeliveryPage />);
 
-    expect(await screen.findByRole("heading", { name: "Delivery", level: 1 })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Delivery and payment methods", level: 1 }),
+    ).toBeInTheDocument();
     expect(screen.getByText(/Live delivery prices are returned/)).toBeInTheDocument();
 
     const speedyDoor = screen.getByLabelText(/Speedy.*Door delivery/) as HTMLInputElement;
@@ -51,8 +56,33 @@ describe("Admin delivery settings page", () => {
         speedy_door_enabled: false,
         econt_office_enabled: true,
         econt_door_enabled: true,
+        cod_enabled: true,
+        card_enabled: true,
+        bank_transfer_enabled: true,
       }),
     );
     expect(await screen.findByText("Delivery settings saved.")).toBeInTheDocument();
+  });
+
+  it("saves payment availability toggles", async () => {
+    renderWithIntl(<AdminDeliveryPage />);
+
+    const card = await screen.findByLabelText(/Card payment/);
+    expect((card as HTMLInputElement).checked).toBe(true);
+
+    fireEvent.click(card);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(mockedUpdateSettings).toHaveBeenCalledWith({
+        speedy_office_enabled: true,
+        speedy_door_enabled: true,
+        econt_office_enabled: true,
+        econt_door_enabled: true,
+        cod_enabled: true,
+        card_enabled: false,
+        bank_transfer_enabled: true,
+      }),
+    );
   });
 });

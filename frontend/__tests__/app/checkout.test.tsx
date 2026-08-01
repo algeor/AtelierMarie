@@ -76,6 +76,9 @@ vi.mock("@/lib/api", () => ({
     speedy_door_enabled: true,
     econt_office_enabled: true,
     econt_door_enabled: true,
+    cod_enabled: true,
+    card_enabled: true,
+    bank_transfer_enabled: true,
     updated_at: "2026-07-31 12:00:00",
   }),
 }));
