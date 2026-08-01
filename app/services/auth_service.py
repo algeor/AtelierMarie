@@ -13,10 +13,12 @@ import time
 import uuid
 from base64 import urlsafe_b64encode
 from datetime import UTC, datetime
+from typing import cast
 from urllib.parse import urlencode
 
 import httpx
 import jwt
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from jwt.algorithms import RSAAlgorithm
 
 from app.config import get_settings
@@ -292,7 +294,7 @@ async def verify_google_id_token(id_token: str) -> dict:
 
     # Convert JWK to public key and verify
     try:
-        public_key = RSAAlgorithm.from_jwk(jwk_data)
+        public_key = cast(RSAPublicKey, RSAAlgorithm.from_jwk(jwk_data))
         claims = jwt.decode(
             id_token,
             public_key,

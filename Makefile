@@ -1,6 +1,6 @@
 .PHONY: help setup setup-backend setup-frontend test test-backend test-unit test-integration \
-       test-frontend test-chrome-stack lint lint-backend lint-frontend format clean dev \
-       stripe-webhook-secret dev-stripe-webhook
+       test-frontend test-chrome-stack lint lint-backend lint-frontend typecheck format clean dev \
+       stripe-webhook-secret dev-stripe-webhook audit-cookie-inventory sync-cookie-inventory
 
 # Default
 help: ## Show this help
@@ -67,6 +67,10 @@ lint-frontend: ## Lint frontend with ESLint
 	@echo "═══ Linting frontend (eslint) ═══"
 	cd frontend && npx next lint
 
+typecheck: ## Type-check Python with mypy
+	@echo "═══ Type-checking backend (mypy) ═══"
+	.venv/bin/mypy
+
 format: ## Auto-format Python code with ruff
 	.venv/bin/ruff format .
 	.venv/bin/ruff check --fix .
@@ -88,6 +92,12 @@ stripe-webhook-secret: ## Print local Stripe webhook secret for STRIPE_WEBHOOK_S
 
 dev-stripe-webhook: ## Forward Stripe CLI webhooks to the local backend
 	.venv/bin/python scripts/stripe_webhook_forward.py listen
+
+audit-cookie-inventory: ## Browser-audit storefront cookies/storage and sync Cookie Policy inventory
+	node scripts/audit_cookie_inventory.mjs
+
+sync-cookie-inventory: ## Sync known app-owned cookies without browser audit
+	.venv/bin/python scripts/sync_cookie_inventory.py
 
 
 

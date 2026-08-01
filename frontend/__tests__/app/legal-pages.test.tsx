@@ -10,6 +10,24 @@ vi.mock("@/i18n/navigation", () => ({
   ),
 }));
 
+vi.mock("@/lib/api", () => ({
+  getCookies: vi.fn(async () => {
+    throw new Error("Use static fallback in test");
+  }),
+  getLegalIdentity: vi.fn(async () => ({
+    trading_name: "Atelier Marie",
+    legal_name: "Atelier Marie OOD",
+    country: "Bulgaria",
+    geographic_address: "1 Candle Street, Sofia, Bulgaria",
+    contact_email: "contacts@theateliermarie.com",
+    registration_number: "123456789",
+    vat_number: "not VAT registered",
+    responsible_party_name: "Atelier Marie",
+    responsible_party_address: "1 Candle Street, Sofia, Bulgaria",
+    responsible_party_email: "contacts@theateliermarie.com",
+  })),
+}));
+
 describe("Legal policy pages", () => {
   it("renders the English privacy policy with controller details and cookie link", async () => {
     const ui = await PrivacyPage({ params: Promise.resolve({ locale: "en" }) });

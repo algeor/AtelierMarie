@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import { getTranslations } from "next-intl/server";
 import type { Locale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
+import { getCookies } from "@/lib/api";
 import { policyPath } from "@/lib/legal";
 import { getLocalizedAlternates } from "@/lib/seo";
+import type { CookiesResponse } from "@/lib/types";
 import enMessages from "@/messages/en.json";
 import bgMessages from "@/messages/bg.json";
 
@@ -37,24 +38,47 @@ interface CookiesMessages {
   sections: CookieSection[];
 }
 
-function getCookiesMessages(locale: Locale): CookiesMessages {
+function getStaticCookiesMessages(locale: Locale): CookiesMessages {
   return (locale === "bg" ? bgMessages.cookies : enMessages.cookies) as CookiesMessages;
+}
+
+function mapCookiesResponse(cookies: CookiesResponse): CookiesMessages {
+  return {
+    metaTitle: cookies.meta_title,
+    metaDescription: cookies.meta_description,
+    eyebrow: cookies.eyebrow,
+    title: cookies.title,
+    subtitle: cookies.subtitle,
+    lastUpdated: cookies.last_updated,
+    inventoryTitle: cookies.inventory_title,
+    headers: cookies.headers,
+    cookies: cookies.cookies,
+    sections: cookies.sections,
+  };
+}
+
+async function getCookiesMessages(locale: Locale): Promise<CookiesMessages> {
+  try {
+    return mapCookiesResponse(await getCookies(locale));
+  } catch {
+    return getStaticCookiesMessages(locale);
+  }
 }
 
 export async function generateMetadata({ params }: CookiesPageProps): Promise<Metadata> {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "cookies" });
+  const cookies = await getCookiesMessages(locale);
 
   return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
+    title: cookies.metaTitle,
+    description: cookies.metaDescription,
     alternates: getLocalizedAlternates(locale, policyPath("cookies")),
   };
 }
 
 export default async function CookiesPage({ params }: CookiesPageProps) {
   const { locale } = await params;
-  const cookies = getCookiesMessages(locale);
+  const cookies = await getCookiesMessages(locale);
   const legal = locale === "bg" ? bgMessages.legal : enMessages.legal;
 
   return (

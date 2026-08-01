@@ -190,8 +190,7 @@ describe("Admin Dashboard", () => {
       expect(screen.getByText("Dashboard")).toBeInTheDocument();
     });
 
-    // Skeleton elements should be present and helper text is available through the info trigger.
-    expect(screen.getByRole("button", { name: "More information" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "More information" })).not.toBeInTheDocument();
   });
 
   it("shows error when stats fail to load", async () => {

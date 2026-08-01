@@ -1,6 +1,6 @@
 import { AdminProvider } from "@/contexts/AdminContext";
 import { AdminGuard } from "@/components/admin/AdminGuard";
-import { AdminSidebar } from "@/components/admin/AdminSidebar";
+import { AdminShell } from "@/components/admin/AdminShell";
 import type { Locale } from "@/i18n/routing";
 import { getLocalizedAlternates } from "@/lib/seo";
 
@@ -20,14 +20,7 @@ export default function AdminLayout({
   return (
     <AdminProvider>
       <AdminGuard>
-        <div className="flex min-h-screen bg-warm-ivory">
-          <AdminSidebar />
-          <main className="flex-1 pt-16 lg:pl-64 lg:pt-0">
-            <div className="p-6 lg:p-8">
-              {children}
-            </div>
-          </main>
-        </div>
+        <AdminShell>{children}</AdminShell>
       </AdminGuard>
     </AdminProvider>
   );

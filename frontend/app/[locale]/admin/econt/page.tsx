@@ -10,7 +10,6 @@ import {
 import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
 import { cn } from "@/lib/utils";
-import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
 import { Skeleton } from "@/components/ui/Skeleton";
 import type {
   EcontConnectionTestResponse,
@@ -198,7 +197,6 @@ export default function AdminEcontSettingsPage() {
     <div className="max-w-5xl">
       <div className="mb-8 flex items-center gap-2">
         <h1 className="font-heading text-2xl font-semibold text-charcoal">{t("title")}</h1>
-        <AdminInfoPopover content={t("subtitle")} />
       </div>
 
       {(error || validationError || success) && (

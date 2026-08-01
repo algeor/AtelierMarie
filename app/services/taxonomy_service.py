@@ -368,7 +368,12 @@ def replace_product_labels(conn: sqlite3.Connection, product_id: str, slugs: lis
     conn.execute("DELETE FROM product_label_assignments WHERE product_id = ?", (product_id,))
     # De-duplicate while preserving order.
     seen: set[str] = set()
-    unique = [s for s in slugs if not (s in seen or seen.add(s))]
+    unique: list[str] = []
+    for slug in slugs:
+        if slug in seen:
+            continue
+        seen.add(slug)
+        unique.append(slug)
     conn.executemany(
         "INSERT INTO product_label_assignments (product_id, label_slug) VALUES (?, ?)",
         [(product_id, s) for s in unique],

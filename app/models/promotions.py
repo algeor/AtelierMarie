@@ -80,10 +80,10 @@ class BulkDiscountRequest(BaseModel):
         if has_ids == has_filter:
             msg = "exactly one of product_ids or filter must be provided"
             raise ValueError(msg)
-        if has_ids and len(self.product_ids) == 0:
+        if self.product_ids is not None and len(self.product_ids) == 0:
             msg = "product_ids must not be empty"
             raise ValueError(msg)
-        if has_filter and not self.filter.has_criteria():
+        if self.filter is not None and not self.filter.has_criteria():
             msg = "filter must specify at least one criterion"
             raise ValueError(msg)
         if self.operation == "apply":
@@ -136,10 +136,10 @@ class CampaignCreateRequest(BaseModel):
         if has_ids == has_filter:
             msg = "exactly one of product_ids or filter must be provided"
             raise ValueError(msg)
-        if has_ids and len(self.product_ids) == 0:
+        if self.product_ids is not None and len(self.product_ids) == 0:
             msg = "product_ids must not be empty"
             raise ValueError(msg)
-        if has_filter and not self.filter.has_criteria():
+        if self.filter is not None and not self.filter.has_criteria():
             msg = "filter must specify at least one criterion"
             raise ValueError(msg)
         _validate_discount_window(

@@ -2,9 +2,11 @@ const path = require("path");
 const createNextIntlPlugin = require("next-intl/plugin");
 
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
+const distDir = process.env.NEXT_DIST_DIR;
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  ...(distDir ? { distDir } : {}),
   // Two lockfiles exist (repo-root workspace wrapper + this app). Pin the trace
   // root to this directory so Next.js stops guessing and warning about it.
   outputFileTracingRoot: path.join(__dirname),

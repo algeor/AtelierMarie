@@ -286,7 +286,9 @@ def create_item(section: str, payload: dict) -> dict:
                 fields["is_published"],
             ),
         )
-        item_id = int(cursor.lastrowid)
+        item_id = cursor.lastrowid
+        if item_id is None:
+            raise RuntimeError("About item insert did not return an id")
     return get_admin_item(section, item_id)
 
 

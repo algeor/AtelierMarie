@@ -428,9 +428,9 @@ def ingest_events(
         seen_in_batch.add(event.event_id)
         normalized.append(_normalized_event(event, session_id=session_id, user_id=user_id))
 
-    for event in normalized:
-        _append_jsonl(event)
-        _insert_duckdb(event)
+    for normalized_event in normalized:
+        _append_jsonl(normalized_event)
+        _insert_duckdb(normalized_event)
         accepted += 1
 
     if accepted:
@@ -781,7 +781,7 @@ def get_product_metrics(
             ).fetchall():
                 names.setdefault(row["id"], row["name"])
 
-    result = []
+    result: list[dict[str, Any]] = []
     for product_id, row_metrics in metrics.items():
         views_i = row_metrics["views"]
         purchases_i = row_metrics["purchases"]

@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import { getTranslations } from "next-intl/server";
 import type { Locale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
-import { LEGAL_IDENTITY, policyPath } from "@/lib/legal";
+import { getTerms } from "@/lib/api";
+import { loadLegalIdentity, policyPath } from "@/lib/legal";
 import { getLocalizedAlternates } from "@/lib/seo";
+import type { TermsResponse } from "@/lib/types";
 import enMessages from "@/messages/en.json";
 import bgMessages from "@/messages/bg.json";
 
@@ -37,25 +38,60 @@ interface TermsMessages {
   sections: TermSection[];
 }
 
-function getTermsMessages(locale: Locale): TermsMessages {
+function getStaticTermsMessages(locale: Locale): TermsMessages {
   return (locale === "bg" ? bgMessages.terms : enMessages.terms) as TermsMessages;
+}
+
+function mapTermsResponse(terms: TermsResponse): TermsMessages {
+  return {
+    metaTitle: terms.meta_title,
+    metaDescription: terms.meta_description,
+    eyebrow: terms.eyebrow,
+    title: terms.title,
+    subtitle: terms.subtitle,
+    lastUpdated: terms.last_updated,
+    identityIntro: terms.identity_intro,
+    policyLinksTitle: terms.policy_links_title,
+    privacyLink: terms.privacy_link,
+    cookiesLink: terms.cookies_link,
+    navLabel: terms.nav_label,
+    backToTop: terms.back_to_top,
+    sections: terms.sections.map((section) => ({
+      id: section.id,
+      title: section.title,
+      nav: section.nav,
+      body: section.body,
+      modelFormTitle: section.model_form_title ?? undefined,
+      modelFormIntro: section.model_form_intro ?? undefined,
+      modelFormLines: section.model_form_lines ?? undefined,
+    })),
+  };
+}
+
+async function getTermsMessages(locale: Locale): Promise<TermsMessages> {
+  try {
+    return mapTermsResponse(await getTerms(locale));
+  } catch {
+    return getStaticTermsMessages(locale);
+  }
 }
 
 export async function generateMetadata({ params }: TermsPageProps): Promise<Metadata> {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "terms" });
+  const terms = await getTermsMessages(locale);
 
   return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
+    title: terms.metaTitle,
+    description: terms.metaDescription,
     alternates: getLocalizedAlternates(locale, "/terms"),
   };
 }
 
 export default async function TermsPage({ params }: TermsPageProps) {
   const { locale } = await params;
-  const terms = getTermsMessages(locale);
+  const terms = await getTermsMessages(locale);
   const legal = locale === "bg" ? bgMessages.legal : enMessages.legal;
+  const legalIdentity = await loadLegalIdentity();
 
   return (
     <main className="overflow-x-hidden bg-warm-ivory">
@@ -99,13 +135,13 @@ export default async function TermsPage({ params }: TermsPageProps) {
           <section className="min-w-0 rounded-brand border border-champagne-beige bg-cream p-5">
             <h2 className="font-heading text-2xl text-charcoal">{legal.identityTitle}</h2>
             <dl className="mt-4 grid gap-3 text-sm text-soft-brown sm:grid-cols-2">
-              <div><dt className="font-medium text-charcoal">{legal.tradingName}</dt><dd>{LEGAL_IDENTITY.tradingName}</dd></div>
-              <div><dt className="font-medium text-charcoal">{legal.legalName}</dt><dd>{LEGAL_IDENTITY.legalName}</dd></div>
-              <div><dt className="font-medium text-charcoal">{legal.geographicAddress}</dt><dd>{LEGAL_IDENTITY.geographicAddress}</dd></div>
-              <div><dt className="font-medium text-charcoal">{legal.country}</dt><dd>{LEGAL_IDENTITY.country}</dd></div>
-              <div><dt className="font-medium text-charcoal">{legal.contactEmail}</dt><dd>{LEGAL_IDENTITY.contactEmail}</dd></div>
-              <div><dt className="font-medium text-charcoal">{legal.registrationNumber}</dt><dd>{LEGAL_IDENTITY.registrationNumber}</dd></div>
-              <div><dt className="font-medium text-charcoal">{legal.vatNumber}</dt><dd>{LEGAL_IDENTITY.vatNumber}</dd></div>
+              <div><dt className="font-medium text-charcoal">{legal.tradingName}</dt><dd>{legalIdentity.tradingName}</dd></div>
+              <div><dt className="font-medium text-charcoal">{legal.legalName}</dt><dd>{legalIdentity.legalName}</dd></div>
+              <div><dt className="font-medium text-charcoal">{legal.geographicAddress}</dt><dd>{legalIdentity.geographicAddress}</dd></div>
+              <div><dt className="font-medium text-charcoal">{legal.country}</dt><dd>{legalIdentity.country}</dd></div>
+              <div><dt className="font-medium text-charcoal">{legal.contactEmail}</dt><dd>{legalIdentity.contactEmail}</dd></div>
+              <div><dt className="font-medium text-charcoal">{legal.registrationNumber}</dt><dd>{legalIdentity.registrationNumber}</dd></div>
+              <div><dt className="font-medium text-charcoal">{legal.vatNumber}</dt><dd>{legalIdentity.vatNumber}</dd></div>
             </dl>
           </section>
 

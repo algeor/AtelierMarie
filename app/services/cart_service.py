@@ -6,7 +6,7 @@ No HTTP concerns — testable without FastAPI/Starlette.
 
 import sqlite3
 from dataclasses import dataclass, field
-from typing import Literal, NotRequired, TypedDict
+from typing import Literal, NotRequired, TypedDict, cast
 
 import structlog
 
@@ -241,9 +241,12 @@ def get_cart(conn: sqlite3.Connection, session_id: str, locale: Locale = "en") -
         # window timestamps are stripped and never returned to the client.
         product_data = pricing.annotate_product_pricing(product_data, now, public=True)
         effective_price = product_data["effective_price_cents"]
-        product: ProductDict = with_image_fields(
-            product_data,
-            image_map.get(row["p_id"], []),
+        product = cast(
+            ProductDict,
+            with_image_fields(
+                product_data,
+                image_map.get(row["p_id"], []),
+            ),
         )
         items.append(
             CartItem(

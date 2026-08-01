@@ -148,6 +148,25 @@ docker compose --env-file .env.docker up -d --build
 docker image prune -f
 ```
 
+After a successful deploy, refresh the public Cookie Policy inventory from the
+live storefront audit. For Docker, the browser audit can run on the host, but
+the DB write should happen inside the backend container:
+
+```bash
+FRONTEND_URL=https://yourdomain.com \
+COOKIE_AUDIT_SYNC_COMMAND="docker compose --env-file .env.docker exec -T backend python scripts/sync_cookie_inventory.py" \
+  make audit-cookie-inventory
+```
+
+The audit launches Chrome, visits public storefront routes, detects cookies and
+browser storage, and writes the inventory into the backend database. If Chrome
+is not available on the deploy host, run the registry-only fallback until a
+browser-capable cron runner is configured:
+
+```bash
+docker compose --env-file .env.docker exec -T backend python scripts/sync_cookie_inventory.py
+```
+
 ## Backups
 
 The Compose stack creates these named volumes:

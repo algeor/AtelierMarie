@@ -297,6 +297,280 @@ export interface UpdateFaqSectionRequest {
   sort_order?: number;
 }
 
+// --- Terms & Conditions ---
+
+export interface TermsSectionResponse {
+  id: string;
+  title: string;
+  nav: string;
+  body: string[];
+  model_form_title: string | null;
+  model_form_intro: string | null;
+  model_form_lines: string[] | null;
+}
+
+export interface TermsResponse {
+  meta_title: string;
+  meta_description: string;
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+  last_updated: string;
+  identity_intro: string;
+  policy_links_title: string;
+  privacy_link: string;
+  cookies_link: string;
+  nav_label: string;
+  back_to_top: string;
+  sections: TermsSectionResponse[];
+}
+
+export interface TermsPageAdminResponse {
+  id: string;
+  meta_title_en: string;
+  meta_title_bg: string | null;
+  meta_description_en: string;
+  meta_description_bg: string | null;
+  eyebrow_en: string;
+  eyebrow_bg: string | null;
+  title_en: string;
+  title_bg: string | null;
+  subtitle_en: string;
+  subtitle_bg: string | null;
+  last_updated_en: string;
+  last_updated_bg: string | null;
+  identity_intro_en: string;
+  identity_intro_bg: string | null;
+  policy_links_title_en: string;
+  policy_links_title_bg: string | null;
+  privacy_link_en: string;
+  privacy_link_bg: string | null;
+  cookies_link_en: string;
+  cookies_link_bg: string | null;
+  nav_label_en: string;
+  nav_label_bg: string | null;
+  back_to_top_en: string;
+  back_to_top_bg: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TermsSectionAdminResponse {
+  slug: string;
+  title_en: string;
+  title_bg: string | null;
+  nav_en: string;
+  nav_bg: string | null;
+  body_en: string[];
+  body_bg: string[] | null;
+  model_form_title_en: string | null;
+  model_form_title_bg: string | null;
+  model_form_intro_en: string | null;
+  model_form_intro_bg: string | null;
+  model_form_lines_en: string[] | null;
+  model_form_lines_bg: string[] | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TermsAdminResponse {
+  page: TermsPageAdminResponse;
+  sections: TermsSectionAdminResponse[];
+}
+
+export type UpdateTermsPageRequest = Partial<
+  Pick<
+    TermsPageAdminResponse,
+    | "meta_title_en"
+    | "meta_title_bg"
+    | "meta_description_en"
+    | "meta_description_bg"
+    | "eyebrow_en"
+    | "eyebrow_bg"
+    | "title_en"
+    | "title_bg"
+    | "subtitle_en"
+    | "subtitle_bg"
+    | "last_updated_en"
+    | "last_updated_bg"
+    | "identity_intro_en"
+    | "identity_intro_bg"
+    | "policy_links_title_en"
+    | "policy_links_title_bg"
+    | "privacy_link_en"
+    | "privacy_link_bg"
+    | "cookies_link_en"
+    | "cookies_link_bg"
+    | "nav_label_en"
+    | "nav_label_bg"
+    | "back_to_top_en"
+    | "back_to_top_bg"
+  >
+>;
+
+export type UpdateTermsSectionRequest = Partial<
+  Pick<
+    TermsSectionAdminResponse,
+    | "title_en"
+    | "title_bg"
+    | "nav_en"
+    | "nav_bg"
+    | "body_en"
+    | "body_bg"
+    | "model_form_title_en"
+    | "model_form_title_bg"
+    | "model_form_intro_en"
+    | "model_form_intro_bg"
+    | "model_form_lines_en"
+    | "model_form_lines_bg"
+  >
+>;
+
+// --- Cookie Policy ---
+
+export interface CookieHeadersResponse {
+  name: string;
+  purpose: string;
+  type: string;
+  duration: string;
+}
+
+export interface CookieInventoryResponse {
+  name: string;
+  purpose: string;
+  type: string;
+  duration: string;
+}
+
+export interface CookieSectionResponse {
+  id: string;
+  title: string;
+  body: string[];
+}
+
+export interface CookiesResponse {
+  meta_title: string;
+  meta_description: string;
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+  last_updated: string;
+  inventory_title: string;
+  headers: CookieHeadersResponse;
+  cookies: CookieInventoryResponse[];
+  sections: CookieSectionResponse[];
+}
+
+export interface CookiesPageAdminResponse {
+  id: string;
+  meta_title_en: string;
+  meta_title_bg: string | null;
+  meta_description_en: string;
+  meta_description_bg: string | null;
+  eyebrow_en: string;
+  eyebrow_bg: string | null;
+  title_en: string;
+  title_bg: string | null;
+  subtitle_en: string;
+  subtitle_bg: string | null;
+  last_updated_en: string;
+  last_updated_bg: string | null;
+  inventory_title_en: string;
+  inventory_title_bg: string | null;
+  header_name_en: string;
+  header_name_bg: string | null;
+  header_purpose_en: string;
+  header_purpose_bg: string | null;
+  header_type_en: string;
+  header_type_bg: string | null;
+  header_duration_en: string;
+  header_duration_bg: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CookieInventoryAdminResponse {
+  name: string;
+  purpose_en: string;
+  purpose_bg: string | null;
+  type_en: string;
+  type_bg: string | null;
+  duration_en: string;
+  duration_bg: string | null;
+  source: string;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  last_audited_at: string | null;
+  observed_on: string[];
+  is_active: boolean;
+  auto_detected: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CookieSectionAdminResponse {
+  slug: string;
+  title_en: string;
+  title_bg: string | null;
+  body_en: string[];
+  body_bg: string[] | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CookiesAdminResponse {
+  page: CookiesPageAdminResponse;
+  cookies: CookieInventoryAdminResponse[];
+  sections: CookieSectionAdminResponse[];
+}
+
+export type UpdateCookiesPageRequest = Partial<
+  Pick<
+    CookiesPageAdminResponse,
+    | "meta_title_en"
+    | "meta_title_bg"
+    | "meta_description_en"
+    | "meta_description_bg"
+    | "eyebrow_en"
+    | "eyebrow_bg"
+    | "title_en"
+    | "title_bg"
+    | "subtitle_en"
+    | "subtitle_bg"
+    | "last_updated_en"
+    | "last_updated_bg"
+    | "inventory_title_en"
+    | "inventory_title_bg"
+    | "header_name_en"
+    | "header_name_bg"
+    | "header_purpose_en"
+    | "header_purpose_bg"
+    | "header_type_en"
+    | "header_type_bg"
+    | "header_duration_en"
+    | "header_duration_bg"
+  >
+>;
+
+export type UpdateCookieInventoryRequest = Partial<
+  Pick<
+    CookieInventoryAdminResponse,
+    | "purpose_en"
+    | "purpose_bg"
+    | "type_en"
+    | "type_bg"
+    | "duration_en"
+    | "duration_bg"
+  >
+>;
+
+export type UpdateCookieSectionRequest = Partial<
+  Pick<CookieSectionAdminResponse, "title_en" | "title_bg" | "body_en" | "body_bg">
+>;
+
 export interface AdminTaxonomyTerm {
   slug: string;
   name_en: string;
@@ -1072,6 +1346,19 @@ export interface InventoryClosePreviewResponse {
   ending_value_cents: number;
   exception_count: number;
   policy_snapshot: Record<string, unknown>;
+}
+
+export interface LegalIdentityResponse {
+  trading_name: string;
+  legal_name: string;
+  country: string;
+  geographic_address: string;
+  contact_email: string;
+  registration_number: string;
+  vat_number: string;
+  responsible_party_name: string;
+  responsible_party_address: string;
+  responsible_party_email: string;
 }
 
 export interface SellerLegalProfileRequest {

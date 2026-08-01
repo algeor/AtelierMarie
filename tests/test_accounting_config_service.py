@@ -88,6 +88,42 @@ async def test_seller_and_vat_settings_are_versioned_redacted_and_audited(
 
 
 @pytest.mark.asyncio
+async def test_public_legal_identity_uses_latest_seller_profile(admin_client, client):
+    seller_resp = await admin_client.post(
+        "/v1/admin/accounting/config/seller-profile",
+        json={
+            "effective_date": "2026-08-01",
+            "reviewed": True,
+            "company_display_name": "Atelier Marie",
+            "legal_name": "Atelier Marie OOD",
+            "uic_eik": "123456789",
+            "vat_identification_number": "BG123456789",
+            "registered_address": {
+                "line1": "1 Candle Street",
+                "city": "Sofia",
+                "postal_code": "1000",
+                "country": "Bulgaria",
+            },
+            "contact_email": "contacts@theateliermarie.com",
+            "default_currency": "EUR",
+        },
+    )
+    assert seller_resp.status_code == 200
+
+    resp = await client.get("/v1/legal/identity")
+
+    assert resp.status_code == 200
+    assert resp.headers["cache-control"] == "no-store, no-cache"
+    body = resp.json()
+    assert body["trading_name"] == "Atelier Marie"
+    assert body["legal_name"] == "Atelier Marie OOD"
+    assert body["registration_number"] == "123456789"
+    assert body["vat_number"] == "BG123456789"
+    assert body["geographic_address"] == "1 Candle Street, 1000 Sofia, Bulgaria"
+    assert body["responsible_party_address"] == body["geographic_address"]
+
+
+@pytest.mark.asyncio
 async def test_mapping_and_singleton_settings_update_with_audit(admin_client, db):
     mapping_resp = await admin_client.put(
         "/v1/admin/accounting/config/category-mappings/material_purchases",

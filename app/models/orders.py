@@ -1,5 +1,6 @@
 """Order request and response models."""
 
+from collections.abc import Sequence
 from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, computed_field, field_validator, model_validator
@@ -188,17 +189,15 @@ class OrderResponse(BaseModel):
     blocking_exception_count: int = 0
     finance_hub_links: dict[str, str | None] | None = None
     analytics_consent: bool = False
-    items: list[OrderItemResponse]
+    items: Sequence[OrderItemResponse]
     created_at: str
     updated_at: str
 
     @computed_field
-    @property
     def payment_method_label(self) -> str:
         return PAYMENT_METHOD_LABELS.get(self.payment_method, self.payment_method)
 
     @computed_field
-    @property
     def payment_status_label(self) -> str:
         return PAYMENT_STATUS_LABELS.get(self.payment_status, self.payment_status)
 

@@ -1,5 +1,5 @@
 import React from "react";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithIntl } from "../../test-utils";
 import type {
@@ -363,6 +363,27 @@ describe("Admin inventory workspace", () => {
     vi.clearAllMocks();
     navigationMock.searchParams = new URLSearchParams();
     mockInventoryApi();
+  });
+
+  it("keeps the purchase unit helper out of selectable unit choices", async () => {
+    renderWithIntl(<InventoryWorkspace initialTab="materials" />);
+
+    const purchaseUnit = (await screen.findByLabelText("Purchase unit")) as HTMLSelectElement;
+    const purchaseUnitField = purchaseUnit.closest("div");
+    expect(purchaseUnitField).not.toBeNull();
+    fireEvent.click(within(purchaseUnitField as HTMLElement).getByRole("button", { name: "More information" }));
+    expect(screen.getByText("Optional. Unit from the supplier or invoice. Example: buy wax in kg, store it in g.")).toBeInTheDocument();
+
+    const placeholder = Array.from(purchaseUnit.options).find((option) => option.value === "");
+    expect(placeholder).toHaveTextContent("Bought in");
+    expect(placeholder).toBeDisabled();
+    expect(placeholder).toHaveAttribute("hidden");
+
+    const selectableLabels = Array.from(purchaseUnit.options)
+      .filter((option) => !option.disabled && !option.hidden)
+      .map((option) => option.textContent);
+    expect(selectableLabels).toContain("g");
+    expect(selectableLabels).not.toContain("Bought in");
   });
 
   it("shows material detail and records receipt plus write-off movement", async () => {

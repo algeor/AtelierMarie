@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { SaveConfirmation } from "@/components/admin/SaveConfirmation";
-import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
 import { ProductBulkDiscountBar } from "@/components/admin/promotions/ProductBulkDiscountBar";
 import type { AdminProductResponse } from "@/lib/types";
 
@@ -141,7 +140,6 @@ export default function AdminProductsPage() {
             <h1 className="font-heading text-2xl font-semibold text-charcoal">
               {t("products")}
             </h1>
-            <AdminInfoPopover content={t("manageProducts")} />
           </div>
         </div>
         <Link

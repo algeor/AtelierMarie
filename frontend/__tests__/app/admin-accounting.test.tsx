@@ -316,7 +316,7 @@ describe("Admin accounting frontend", () => {
     expect(await screen.findByRole("link", { name: "Download XLSX" })).toHaveAttribute("href", "/download/export-1/xlsx");
 
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    expect(await screen.findByText("Bank details redacted in hub view")).toBeInTheDocument();
+    expect(await screen.findByText("These values feed the public Terms, Privacy, and product safety legal blocks.")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Expenses" }));
     expect(await screen.findByText("Wax Supplier")).toBeInTheDocument();

@@ -325,6 +325,12 @@ def get_accounting_configuration(*, include_sensitive: bool = False) -> Accounti
     )
 
 
+def get_current_seller_legal_profile() -> SellerLegalProfileResponse | None:
+    """Return the latest seller legal profile without sensitive bank details."""
+    with get_db() as conn:
+        return _seller_profile_from_row(_latest_row(conn, "seller_legal_profile_versions"))
+
+
 def create_seller_legal_profile(
     body: SellerLegalProfileRequest,
     *,
