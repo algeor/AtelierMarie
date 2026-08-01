@@ -37,6 +37,11 @@ import type {
   CommentSort,
   ContactRequest,
   ContactResponse,
+  CookieInventoryAdminResponse,
+  CookieSectionAdminResponse,
+  CookiesAdminResponse,
+  CookiesPageAdminResponse,
+  CookiesResponse,
   CheckoutAnalyticsResponse,
   Courier,
   CodSettlementResponse,
@@ -109,6 +114,9 @@ import type {
   ReorderFaqItemsRequest,
   UpdateTermsPageRequest,
   UpdateTermsSectionRequest,
+  UpdateCookieInventoryRequest,
+  UpdateCookieSectionRequest,
+  UpdateCookiesPageRequest,
   UpdateFaqItemRequest,
   UpdateFaqSectionRequest,
   UpdateProductRequest,
@@ -498,6 +506,50 @@ export async function updateTermsSection(
   if (USE_MOCK) return (await getMock()).updateTermsSection(slug, data);
   return apiClient.patch<TermsSectionAdminResponse>(
     `/v1/admin/terms/sections/${encodeURIComponent(slug)}`,
+    data
+  );
+}
+
+// --- Cookie Policy ---
+
+export async function getCookies(locale?: Locale): Promise<CookiesResponse> {
+  if (USE_MOCK) return (await getMock()).getCookies(locale);
+  const params = new URLSearchParams();
+  if (locale) params.set("locale", locale);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<CookiesResponse>(`/v1/cookies${query}`);
+}
+
+export async function getAdminCookies(): Promise<CookiesAdminResponse> {
+  if (USE_MOCK) return (await getMock()).getAdminCookies();
+  return apiClient.get<CookiesAdminResponse>("/v1/admin/cookies");
+}
+
+export async function updateCookiesPage(
+  data: UpdateCookiesPageRequest
+): Promise<CookiesPageAdminResponse> {
+  if (USE_MOCK) return (await getMock()).updateCookiesPage(data);
+  return apiClient.patch<CookiesPageAdminResponse>("/v1/admin/cookies/page", data);
+}
+
+export async function updateCookieInventory(
+  name: string,
+  data: UpdateCookieInventoryRequest
+): Promise<CookieInventoryAdminResponse> {
+  if (USE_MOCK) return (await getMock()).updateCookieInventory(name, data);
+  return apiClient.patch<CookieInventoryAdminResponse>(
+    `/v1/admin/cookies/inventory/${encodeURIComponent(name)}`,
+    data
+  );
+}
+
+export async function updateCookieSection(
+  slug: string,
+  data: UpdateCookieSectionRequest
+): Promise<CookieSectionAdminResponse> {
+  if (USE_MOCK) return (await getMock()).updateCookieSection(slug, data);
+  return apiClient.patch<CookieSectionAdminResponse>(
+    `/v1/admin/cookies/sections/${encodeURIComponent(slug)}`,
     data
   );
 }

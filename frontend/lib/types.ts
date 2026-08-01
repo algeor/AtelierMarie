@@ -427,6 +427,143 @@ export type UpdateTermsSectionRequest = Partial<
   >
 >;
 
+// --- Cookie Policy ---
+
+export interface CookieHeadersResponse {
+  name: string;
+  purpose: string;
+  type: string;
+  duration: string;
+}
+
+export interface CookieInventoryResponse {
+  name: string;
+  purpose: string;
+  type: string;
+  duration: string;
+}
+
+export interface CookieSectionResponse {
+  id: string;
+  title: string;
+  body: string[];
+}
+
+export interface CookiesResponse {
+  meta_title: string;
+  meta_description: string;
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+  last_updated: string;
+  inventory_title: string;
+  headers: CookieHeadersResponse;
+  cookies: CookieInventoryResponse[];
+  sections: CookieSectionResponse[];
+}
+
+export interface CookiesPageAdminResponse {
+  id: string;
+  meta_title_en: string;
+  meta_title_bg: string | null;
+  meta_description_en: string;
+  meta_description_bg: string | null;
+  eyebrow_en: string;
+  eyebrow_bg: string | null;
+  title_en: string;
+  title_bg: string | null;
+  subtitle_en: string;
+  subtitle_bg: string | null;
+  last_updated_en: string;
+  last_updated_bg: string | null;
+  inventory_title_en: string;
+  inventory_title_bg: string | null;
+  header_name_en: string;
+  header_name_bg: string | null;
+  header_purpose_en: string;
+  header_purpose_bg: string | null;
+  header_type_en: string;
+  header_type_bg: string | null;
+  header_duration_en: string;
+  header_duration_bg: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CookieInventoryAdminResponse {
+  name: string;
+  purpose_en: string;
+  purpose_bg: string | null;
+  type_en: string;
+  type_bg: string | null;
+  duration_en: string;
+  duration_bg: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CookieSectionAdminResponse {
+  slug: string;
+  title_en: string;
+  title_bg: string | null;
+  body_en: string[];
+  body_bg: string[] | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CookiesAdminResponse {
+  page: CookiesPageAdminResponse;
+  cookies: CookieInventoryAdminResponse[];
+  sections: CookieSectionAdminResponse[];
+}
+
+export type UpdateCookiesPageRequest = Partial<
+  Pick<
+    CookiesPageAdminResponse,
+    | "meta_title_en"
+    | "meta_title_bg"
+    | "meta_description_en"
+    | "meta_description_bg"
+    | "eyebrow_en"
+    | "eyebrow_bg"
+    | "title_en"
+    | "title_bg"
+    | "subtitle_en"
+    | "subtitle_bg"
+    | "last_updated_en"
+    | "last_updated_bg"
+    | "inventory_title_en"
+    | "inventory_title_bg"
+    | "header_name_en"
+    | "header_name_bg"
+    | "header_purpose_en"
+    | "header_purpose_bg"
+    | "header_type_en"
+    | "header_type_bg"
+    | "header_duration_en"
+    | "header_duration_bg"
+  >
+>;
+
+export type UpdateCookieInventoryRequest = Partial<
+  Pick<
+    CookieInventoryAdminResponse,
+    | "purpose_en"
+    | "purpose_bg"
+    | "type_en"
+    | "type_bg"
+    | "duration_en"
+    | "duration_bg"
+  >
+>;
+
+export type UpdateCookieSectionRequest = Partial<
+  Pick<CookieSectionAdminResponse, "title_en" | "title_bg" | "body_en" | "body_bg">
+>;
+
 export interface AdminTaxonomyTerm {
   slug: string;
   name_en: string;

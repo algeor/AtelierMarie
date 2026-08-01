@@ -33,6 +33,11 @@ import type {
   CommentSort,
   ContactRequest,
   ContactResponse,
+  CookieInventoryAdminResponse,
+  CookieSectionAdminResponse,
+  CookiesAdminResponse,
+  CookiesPageAdminResponse,
+  CookiesResponse,
   CodSettlementResponse,
   Courier,
   CourierClaimStatus,
@@ -108,6 +113,9 @@ import type {
   ReorderFaqItemsRequest,
   UpdateTermsPageRequest,
   UpdateTermsSectionRequest,
+  UpdateCookieInventoryRequest,
+  UpdateCookieSectionRequest,
+  UpdateCookiesPageRequest,
   UpdateFaqItemRequest,
   UpdateFaqSectionRequest,
   UpdateProductRequest,
@@ -1259,6 +1267,89 @@ function cloneAdminTerms(): TermsAdminResponse {
       body_bg: section.body_bg ? [...section.body_bg] : null,
       model_form_lines_en: section.model_form_lines_en ? [...section.model_form_lines_en] : null,
       model_form_lines_bg: section.model_form_lines_bg ? [...section.model_form_lines_bg] : null,
+    })),
+  };
+}
+
+// --- Cookie Policy Mock ---
+
+type StaticCookies = typeof enMessages.cookies;
+type StaticCookieSection = StaticCookies["sections"][number];
+
+const mockCookiesTimestamp = "2026-07-29T00:00:00Z";
+const mockCookiesEn = enMessages.cookies as StaticCookies;
+const mockCookiesBg = bgMessages.cookies as StaticCookies;
+
+function findStaticBgCookieSection(slug: string): StaticCookieSection | undefined {
+  return mockCookiesBg.sections.find((section) => section.id === slug);
+}
+
+let mockCookiesPage: CookiesPageAdminResponse = {
+  id: "cookies",
+  meta_title_en: mockCookiesEn.metaTitle,
+  meta_title_bg: mockCookiesBg.metaTitle,
+  meta_description_en: mockCookiesEn.metaDescription,
+  meta_description_bg: mockCookiesBg.metaDescription,
+  eyebrow_en: mockCookiesEn.eyebrow,
+  eyebrow_bg: mockCookiesBg.eyebrow,
+  title_en: mockCookiesEn.title,
+  title_bg: mockCookiesBg.title,
+  subtitle_en: mockCookiesEn.subtitle,
+  subtitle_bg: mockCookiesBg.subtitle,
+  last_updated_en: mockCookiesEn.lastUpdated,
+  last_updated_bg: mockCookiesBg.lastUpdated,
+  inventory_title_en: mockCookiesEn.inventoryTitle,
+  inventory_title_bg: mockCookiesBg.inventoryTitle,
+  header_name_en: mockCookiesEn.headers.name,
+  header_name_bg: mockCookiesBg.headers.name,
+  header_purpose_en: mockCookiesEn.headers.purpose,
+  header_purpose_bg: mockCookiesBg.headers.purpose,
+  header_type_en: mockCookiesEn.headers.type,
+  header_type_bg: mockCookiesBg.headers.type,
+  header_duration_en: mockCookiesEn.headers.duration,
+  header_duration_bg: mockCookiesBg.headers.duration,
+  created_at: mockCookiesTimestamp,
+  updated_at: mockCookiesTimestamp,
+};
+
+let mockCookieInventory: CookieInventoryAdminResponse[] = mockCookiesEn.cookies.map((item, index) => {
+  const bgItem = mockCookiesBg.cookies.find((candidate) => candidate.name === item.name);
+  return {
+    name: item.name,
+    purpose_en: item.purpose,
+    purpose_bg: bgItem?.purpose ?? null,
+    type_en: item.type,
+    type_bg: bgItem?.type ?? null,
+    duration_en: item.duration,
+    duration_bg: bgItem?.duration ?? null,
+    sort_order: index,
+    created_at: mockCookiesTimestamp,
+    updated_at: mockCookiesTimestamp,
+  };
+});
+
+let mockCookieSections: CookieSectionAdminResponse[] = mockCookiesEn.sections.map((section, index) => {
+  const bgSection = findStaticBgCookieSection(section.id);
+  return {
+    slug: section.id,
+    title_en: section.title,
+    title_bg: bgSection?.title ?? null,
+    body_en: [...section.body],
+    body_bg: bgSection ? [...bgSection.body] : null,
+    sort_order: index,
+    created_at: mockCookiesTimestamp,
+    updated_at: mockCookiesTimestamp,
+  };
+});
+
+function cloneAdminCookies(): CookiesAdminResponse {
+  return {
+    page: { ...mockCookiesPage },
+    cookies: mockCookieInventory.map((item) => ({ ...item })),
+    sections: mockCookieSections.map((section) => ({
+      ...section,
+      body_en: [...section.body_en],
+      body_bg: section.body_bg ? [...section.body_bg] : null,
     })),
   };
 }
@@ -4356,6 +4447,101 @@ export async function updateTermsSection(
     body_bg: section.body_bg ? [...section.body_bg] : null,
     model_form_lines_en: section.model_form_lines_en ? [...section.model_form_lines_en] : null,
     model_form_lines_bg: section.model_form_lines_bg ? [...section.model_form_lines_bg] : null,
+  };
+}
+
+export async function getCookies(locale?: string): Promise<CookiesResponse> {
+  await delay();
+  return {
+    meta_title: localizedTermsValue(mockCookiesPage.meta_title_en, mockCookiesPage.meta_title_bg, locale),
+    meta_description: localizedTermsValue(
+      mockCookiesPage.meta_description_en,
+      mockCookiesPage.meta_description_bg,
+      locale
+    ),
+    eyebrow: localizedTermsValue(mockCookiesPage.eyebrow_en, mockCookiesPage.eyebrow_bg, locale),
+    title: localizedTermsValue(mockCookiesPage.title_en, mockCookiesPage.title_bg, locale),
+    subtitle: localizedTermsValue(mockCookiesPage.subtitle_en, mockCookiesPage.subtitle_bg, locale),
+    last_updated: localizedTermsValue(
+      mockCookiesPage.last_updated_en,
+      mockCookiesPage.last_updated_bg,
+      locale
+    ),
+    inventory_title: localizedTermsValue(
+      mockCookiesPage.inventory_title_en,
+      mockCookiesPage.inventory_title_bg,
+      locale
+    ),
+    headers: {
+      name: localizedTermsValue(mockCookiesPage.header_name_en, mockCookiesPage.header_name_bg, locale),
+      purpose: localizedTermsValue(
+        mockCookiesPage.header_purpose_en,
+        mockCookiesPage.header_purpose_bg,
+        locale
+      ),
+      type: localizedTermsValue(mockCookiesPage.header_type_en, mockCookiesPage.header_type_bg, locale),
+      duration: localizedTermsValue(
+        mockCookiesPage.header_duration_en,
+        mockCookiesPage.header_duration_bg,
+        locale
+      ),
+    },
+    cookies: mockCookieInventory
+      .slice()
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((item) => ({
+        name: item.name,
+        purpose: localizedTermsValue(item.purpose_en, item.purpose_bg, locale),
+        type: localizedTermsValue(item.type_en, item.type_bg, locale),
+        duration: localizedTermsValue(item.duration_en, item.duration_bg, locale),
+      })),
+    sections: mockCookieSections
+      .slice()
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((section) => ({
+        id: section.slug,
+        title: localizedTermsValue(section.title_en, section.title_bg, locale),
+        body: localizedTermsLines(section.body_en, section.body_bg, locale) ?? [],
+      })),
+  };
+}
+
+export async function getAdminCookies(): Promise<CookiesAdminResponse> {
+  await delay();
+  return cloneAdminCookies();
+}
+
+export async function updateCookiesPage(
+  data: UpdateCookiesPageRequest
+): Promise<CookiesPageAdminResponse> {
+  await delay();
+  mockCookiesPage = { ...mockCookiesPage, ...data, updated_at: new Date().toISOString() };
+  return { ...mockCookiesPage };
+}
+
+export async function updateCookieInventory(
+  name: string,
+  data: UpdateCookieInventoryRequest
+): Promise<CookieInventoryAdminResponse> {
+  await delay();
+  const item = mockCookieInventory.find((candidate) => candidate.name === name);
+  if (!item) mockError("cookie_inventory_not_found", `Cookie ${name} not found`);
+  Object.assign(item, data, { updated_at: new Date().toISOString() });
+  return { ...item };
+}
+
+export async function updateCookieSection(
+  slug: string,
+  data: UpdateCookieSectionRequest
+): Promise<CookieSectionAdminResponse> {
+  await delay();
+  const section = mockCookieSections.find((candidate) => candidate.slug === slug);
+  if (!section) mockError("cookie_section_not_found", `Cookie section ${slug} not found`);
+  Object.assign(section, data, { updated_at: new Date().toISOString() });
+  return {
+    ...section,
+    body_en: [...section.body_en],
+    body_bg: section.body_bg ? [...section.body_bg] : null,
   };
 }
 

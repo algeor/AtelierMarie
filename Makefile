@@ -1,5 +1,5 @@
 .PHONY: help setup setup-backend setup-frontend test test-backend test-unit test-integration \
-       test-frontend test-chrome-stack lint lint-backend lint-frontend format clean dev \
+       test-frontend test-chrome-stack lint lint-backend lint-frontend typecheck format clean dev \
        stripe-webhook-secret dev-stripe-webhook
 
 # Default
@@ -66,6 +66,10 @@ lint-backend: ## Lint Python with ruff
 lint-frontend: ## Lint frontend with ESLint
 	@echo "═══ Linting frontend (eslint) ═══"
 	cd frontend && npx next lint
+
+typecheck: ## Type-check Python with mypy
+	@echo "═══ Type-checking backend (mypy) ═══"
+	.venv/bin/mypy
 
 format: ## Auto-format Python code with ruff
 	.venv/bin/ruff format .

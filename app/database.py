@@ -187,6 +187,71 @@ CREATE TABLE IF NOT EXISTS terms_sections (
 
 CREATE INDEX IF NOT EXISTS idx_terms_sections_order ON terms_sections(sort_order, slug);
 
+-- Admin-managed Cookie Policy page. Cookie names and section slugs are stable;
+-- user-facing labels and text are editable in both storefront languages.
+CREATE TABLE IF NOT EXISTS cookies_page (
+    id                    TEXT PRIMARY KEY CHECK (id = 'cookies'),
+    meta_title_en         TEXT NOT NULL,
+    meta_title_bg         TEXT,
+    meta_description_en   TEXT NOT NULL,
+    meta_description_bg   TEXT,
+    eyebrow_en            TEXT NOT NULL,
+    eyebrow_bg            TEXT,
+    title_en              TEXT NOT NULL,
+    title_bg              TEXT,
+    subtitle_en           TEXT NOT NULL,
+    subtitle_bg           TEXT,
+    last_updated_en       TEXT NOT NULL,
+    last_updated_bg       TEXT,
+    inventory_title_en    TEXT NOT NULL,
+    inventory_title_bg    TEXT,
+    header_name_en        TEXT NOT NULL,
+    header_name_bg        TEXT,
+    header_purpose_en     TEXT NOT NULL,
+    header_purpose_bg     TEXT,
+    header_type_en        TEXT NOT NULL,
+    header_type_bg        TEXT,
+    header_duration_en    TEXT NOT NULL,
+    header_duration_bg    TEXT,
+    created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS cookies_inventory (
+    name                  TEXT PRIMARY KEY,
+    purpose_en            TEXT NOT NULL,
+    purpose_bg            TEXT,
+    type_en               TEXT NOT NULL,
+    type_bg               TEXT,
+    duration_en           TEXT NOT NULL,
+    duration_bg           TEXT,
+    source                TEXT NOT NULL DEFAULT 'seed',
+    first_seen_at         TEXT,
+    last_seen_at          TEXT,
+    last_audited_at       TEXT,
+    observed_on           TEXT,
+    is_active             INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+    auto_detected         INTEGER NOT NULL DEFAULT 0 CHECK (auto_detected IN (0, 1)),
+    sort_order            INTEGER NOT NULL DEFAULT 0,
+    created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_cookies_inventory_order ON cookies_inventory(sort_order, name);
+
+CREATE TABLE IF NOT EXISTS cookies_sections (
+    slug                  TEXT PRIMARY KEY,
+    title_en              TEXT NOT NULL,
+    title_bg              TEXT,
+    body_en               TEXT NOT NULL,
+    body_bg               TEXT,
+    sort_order            INTEGER NOT NULL DEFAULT 0,
+    created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_cookies_sections_order ON cookies_sections(sort_order, slug);
+
 CREATE TABLE IF NOT EXISTS product_images (
     id            TEXT PRIMARY KEY,
     product_id    TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
@@ -1893,6 +1958,21 @@ BEGIN
     UPDATE terms_sections SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
 END;
 
+CREATE TRIGGER IF NOT EXISTS cookies_page_updated_at AFTER UPDATE ON cookies_page
+BEGIN
+    UPDATE cookies_page SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS cookies_inventory_updated_at AFTER UPDATE ON cookies_inventory
+BEGIN
+    UPDATE cookies_inventory SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS cookies_sections_updated_at AFTER UPDATE ON cookies_sections
+BEGIN
+    UPDATE cookies_sections SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
 -- Full-text search for products — English index (content-backed via triggers).
 -- Indexes name + description only; the legacy `category` column is no longer
 -- written (taxonomy moved to product_type_slug/category_slug/labels), so it was
@@ -2272,6 +2352,7 @@ def init_db(path: str) -> None:
         _migrate_faq_returns_policy_reference(conn)
         _migrate_faq_uncollected_refused_reference(conn)
         _migrate_terms(conn)
+        _migrate_cookies(conn)
         _rebuild_product_fts(conn)
         conn.commit()
     finally:
@@ -3015,6 +3096,38 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
             session_columns,
             "preferred_locale",
             "preferred_locale TEXT NOT NULL DEFAULT 'en'",
+        )
+
+    if _table_exists(conn, "cookies_inventory"):
+        cookie_columns = _table_columns(conn, "cookies_inventory")
+        _add_column_if_missing(
+            conn, "cookies_inventory", cookie_columns, "source", "source TEXT NOT NULL DEFAULT 'seed'"
+        )
+        _add_column_if_missing(
+            conn, "cookies_inventory", cookie_columns, "first_seen_at", "first_seen_at TEXT"
+        )
+        _add_column_if_missing(
+            conn, "cookies_inventory", cookie_columns, "last_seen_at", "last_seen_at TEXT"
+        )
+        _add_column_if_missing(
+            conn, "cookies_inventory", cookie_columns, "last_audited_at", "last_audited_at TEXT"
+        )
+        _add_column_if_missing(
+            conn, "cookies_inventory", cookie_columns, "observed_on", "observed_on TEXT"
+        )
+        _add_column_if_missing(
+            conn,
+            "cookies_inventory",
+            cookie_columns,
+            "is_active",
+            "is_active INTEGER NOT NULL DEFAULT 1",
+        )
+        _add_column_if_missing(
+            conn,
+            "cookies_inventory",
+            cookie_columns,
+            "auto_detected",
+            "auto_detected INTEGER NOT NULL DEFAULT 0",
         )
 
     if _table_exists(conn, "orders"):
@@ -4198,6 +4311,184 @@ def _migrate_terms(conn: sqlite3.Connection) -> None:
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)",
             (_TERMS_SEED_MARKER,),
+        )
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+
+# ---------------------------------------------------------------------------
+# Cookie Policy content seed migration (admin-managed-cookies)
+# ---------------------------------------------------------------------------
+
+_COOKIES_SEED_MARKER = "cookies_content_v1"
+
+_COOKIES_PAGE_KEY_MAP = [
+    ("metaTitle", "meta_title"),
+    ("metaDescription", "meta_description"),
+    ("eyebrow", "eyebrow"),
+    ("title", "title"),
+    ("subtitle", "subtitle"),
+    ("lastUpdated", "last_updated"),
+    ("inventoryTitle", "inventory_title"),
+]
+
+_COOKIES_HEADER_KEY_MAP = [
+    ("name", "header_name"),
+    ("purpose", "header_purpose"),
+    ("type", "header_type"),
+    ("duration", "header_duration"),
+]
+
+_MINIMAL_COOKIES_SEED = {
+    "metaTitle": "Cookie Policy | Atelier Marie",
+    "metaDescription": "Current cookie inventory for Atelier Marie.",
+    "eyebrow": "Legal information",
+    "title": "Cookie Policy",
+    "subtitle": "This policy lists the cookies currently used by the store.",
+    "lastUpdated": "Last updated",
+    "inventoryTitle": "Current cookie inventory",
+    "headers": {"name": "Name", "purpose": "Purpose", "type": "Type", "duration": "Duration"},
+    "cookies": [
+        {
+            "name": "session_id",
+            "purpose": "Keeps the visitor session associated with the same browser.",
+            "type": "Necessary session cookie",
+            "duration": "Up to the configured session lifetime.",
+        }
+    ],
+    "sections": [
+        {
+            "id": "necessary",
+            "title": "Necessary cookies",
+            "body": ["The store uses cookies needed for core site functionality."],
+        }
+    ],
+}
+
+
+def _load_cookies_seed(locale: str) -> dict:
+    """Load the current frontend Cookie Policy copy so first DB seed matches it."""
+    path = Path(__file__).resolve().parents[1] / "frontend" / "messages" / f"{locale}.json"
+    try:
+        with path.open(encoding="utf-8") as handle:
+            cookies = json.load(handle).get("cookies", {})
+            if isinstance(cookies, dict) and cookies:
+                return cookies
+    except (OSError, json.JSONDecodeError):
+        pass
+    return _MINIMAL_COOKIES_SEED if locale == "en" else {}
+
+
+def _migrate_cookies(conn: sqlite3.Connection) -> None:
+    """Seed the editable Cookie Policy page exactly once from existing frontend copy."""
+    if _migration_applied(conn, _COOKIES_SEED_MARKER):
+        return
+
+    en_cookies = _load_cookies_seed("en")
+    bg_cookies = _load_cookies_seed("bg")
+    if conn.in_transaction:
+        conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if _migration_applied(conn, _COOKIES_SEED_MARKER):
+            conn.execute("ROLLBACK")
+            return
+
+        page_columns = ["id"]
+        page_values: list[object] = ["cookies"]
+        for json_key, column_prefix in _COOKIES_PAGE_KEY_MAP:
+            page_columns.extend([f"{column_prefix}_en", f"{column_prefix}_bg"])
+            page_values.extend(
+                [
+                    _terms_seed_string(en_cookies, json_key)
+                    or _terms_seed_string(_MINIMAL_COOKIES_SEED, json_key),
+                    _terms_seed_string(bg_cookies, json_key),
+                ]
+            )
+        en_headers = en_cookies.get("headers", {}) if isinstance(en_cookies, dict) else {}
+        bg_headers = bg_cookies.get("headers", {}) if isinstance(bg_cookies, dict) else {}
+        for json_key, column_prefix in _COOKIES_HEADER_KEY_MAP:
+            page_columns.extend([f"{column_prefix}_en", f"{column_prefix}_bg"])
+            page_values.extend(
+                [
+                    _terms_seed_string(en_headers, json_key)
+                    or _terms_seed_string(_MINIMAL_COOKIES_SEED["headers"], json_key),
+                    _terms_seed_string(bg_headers, json_key),
+                ]
+            )
+        placeholders = ", ".join("?" for _ in page_columns)
+        conn.execute(
+            f"INSERT OR IGNORE INTO cookies_page ({', '.join(page_columns)}) VALUES ({placeholders})",
+            page_values,
+        )
+
+        bg_cookie_rows = {
+            item.get("name"): item
+            for item in bg_cookies.get("cookies", [])
+            if isinstance(item, dict)
+        }
+        cookie_rows = []
+        for sort_order, en_item in enumerate(en_cookies.get("cookies", [])):
+            if not isinstance(en_item, dict) or not en_item.get("name"):
+                continue
+            name = str(en_item["name"])
+            bg_item = bg_cookie_rows.get(name, {})
+            cookie_rows.append(
+                (
+                    name,
+                    _terms_seed_string(en_item, "purpose") or " ",
+                    _terms_seed_string(bg_item, "purpose"),
+                    _terms_seed_string(en_item, "type") or " ",
+                    _terms_seed_string(bg_item, "type"),
+                    _terms_seed_string(en_item, "duration") or " ",
+                    _terms_seed_string(bg_item, "duration"),
+                    sort_order,
+                )
+            )
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO cookies_inventory (
+                name, purpose_en, purpose_bg, type_en, type_bg, duration_en, duration_bg,
+                sort_order
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            cookie_rows,
+        )
+
+        bg_sections = {
+            section.get("id"): section
+            for section in bg_cookies.get("sections", [])
+            if isinstance(section, dict)
+        }
+        section_rows = []
+        for sort_order, en_section in enumerate(en_cookies.get("sections", [])):
+            if not isinstance(en_section, dict) or not en_section.get("id"):
+                continue
+            slug = str(en_section["id"])
+            bg_section = bg_sections.get(slug, {})
+            section_rows.append(
+                (
+                    slug,
+                    _terms_seed_string(en_section, "title") or slug,
+                    _terms_seed_string(bg_section, "title"),
+                    _terms_seed_lines(en_section.get("body")) or "[]",
+                    _terms_seed_lines(bg_section.get("body")),
+                    sort_order,
+                )
+            )
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO cookies_sections (
+                slug, title_en, title_bg, body_en, body_bg, sort_order
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            section_rows,
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)",
+            (_COOKIES_SEED_MARKER,),
         )
         conn.execute("COMMIT")
     except Exception:
