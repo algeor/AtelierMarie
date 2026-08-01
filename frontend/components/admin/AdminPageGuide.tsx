@@ -35,6 +35,7 @@ const GUIDE_PAGES: GuidePage[] = [
   { key: "taxonomy", match: (path) => path === "/admin/taxonomy" },
   { key: "atelier", match: (path) => path === "/admin/atelier" },
   { key: "terms", match: (path) => path === "/admin/terms" },
+  { key: "cookies", match: (path) => path === "/admin/cookies" },
   { key: "legal", match: (path) => path === "/admin/legal" },
   { key: "faq", match: (path) => path === "/admin/faq" },
   { key: "promotions", match: (path) => path === "/admin/promotions" },

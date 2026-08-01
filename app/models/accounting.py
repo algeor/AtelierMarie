@@ -1,5 +1,6 @@
 """Pydantic models for Accounting & Finance Hub admin APIs."""
 
+from collections.abc import Sequence
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
@@ -579,7 +580,7 @@ class ProductCostVersionRequest(BaseModel):
     review_status: ProductCostReviewStatus = "estimate"
     source_expense_ids: list[str] = Field(default_factory=list)
     notes: str | None = Field(default=None, max_length=1000)
-    components: list[ProductCostComponentRequest] = Field(default_factory=list)
+    components: Sequence[ProductCostComponentRequest] = Field(default_factory=list)
 
     @field_validator("currency", mode="before")
     @classmethod

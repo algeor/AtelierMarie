@@ -6,7 +6,7 @@ import json
 import os
 import sqlite3
 import uuid
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -2467,7 +2467,7 @@ def _seed_inventory_settings(conn: sqlite3.Connection) -> None:
     )
 
 
-_ABOUT_SECTIONS = [
+_ABOUT_SECTIONS: list[dict[str, str | int | None]] = [
     {
         "slug": "hero",
         "type": "hero",
@@ -3603,7 +3603,7 @@ _TAXONOMY_MIGRATION_MARKER = "product_taxonomy_v1"
 def _seed_taxonomy_table(
     conn: sqlite3.Connection,
     table: str,
-    rows: list[tuple[str, str, str | None, int]],
+    rows: Sequence[tuple[str, str, str | None, int]],
 ) -> None:
     """Insert seed terms if absent. Idempotent (INSERT OR IGNORE by slug)."""
     conn.executemany(
@@ -4219,7 +4219,9 @@ def _load_terms_seed(locale: str) -> dict:
     return _MINIMAL_TERMS_SEED if locale == "en" else {}
 
 
-def _terms_seed_string(seed: dict, key: str) -> str | None:
+def _terms_seed_string(seed: object, key: str) -> str | None:
+    if not isinstance(seed, dict):
+        return None
     value = seed.get(key)
     if not isinstance(value, str):
         return None

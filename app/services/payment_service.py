@@ -13,6 +13,7 @@ import json
 import sqlite3
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import structlog
@@ -423,13 +424,18 @@ def _stripe_refund_create(
     import stripe  # local import keeps Stripe isolated to the payment layer
 
     stripe.api_key = stripe_secret_key
-    payload: dict[str, object] = {
-        "payment_intent": payment_intent_id,
-        "amount": amount_cents,
-    }
     if reason:
-        payload["metadata"] = {"admin_reason": reason}
-    return stripe.Refund.create(**payload, idempotency_key=idempotency_key)
+        return stripe.Refund.create(
+            payment_intent=payment_intent_id,
+            amount=amount_cents,
+            metadata={"admin_reason": reason},
+            idempotency_key=idempotency_key,
+        )
+    return stripe.Refund.create(
+        payment_intent=payment_intent_id,
+        amount=amount_cents,
+        idempotency_key=idempotency_key,
+    )
 
 
 def _refund_row(conn: sqlite3.Connection, refund_id: str) -> dict:
@@ -752,7 +758,7 @@ def construct_stripe_webhook_event(
     sig_header: str,
     webhook_secret: str,
     stripe_secret_key: str,
-) -> object:
+) -> Any:
     """Verify and construct a Stripe webhook event behind the service boundary."""
     try:
         import stripe  # local import — isolates the Stripe dependency
@@ -823,7 +829,7 @@ def handle_payment_succeeded(
         can_mark_paid = False
         processing_status = "ignored"
         provider_status = "ignored"
-        details = {
+        details: dict[str, object] = {
             "checkout_session_id": stripe_session_id,
             "payment_intent_id": payment_intent_id,
         }

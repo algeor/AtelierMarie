@@ -38,6 +38,16 @@ _VALID_PRICE_SOURCES: frozenset[str] = frozenset(get_args(ShippingPriceSource))
 _DEFAULT_SHIPMENT_WEIGHT_GRAMS = 300
 
 
+class AccountingAdminFields(TypedDict):
+    accounting_readiness_status: str
+    document_reference_status: str
+    payment_reconciliation_status: str
+    payout_reconciliation_status: str
+    cod_settlement_status: str
+    blocking_exception_count: int
+    finance_hub_links: dict[str, str | None] | None
+
+
 def _generate_order_number(conn: sqlite3.Connection) -> str:
     """Generate AM-xxxxxx public order numbers with bounded collision retries."""
     for _ in range(10):
@@ -318,7 +328,7 @@ def _accounting_admin_fields(
     finance_period_id: str | None,
     stripe_payment_intent_id: str | None,
     fallback_readiness_status: str,
-) -> dict[str, object]:
+) -> AccountingAdminFields:
     """Compute admin display flags from accounting evidence without guessing policy."""
 
     exception_rows = conn.execute(
@@ -810,6 +820,12 @@ class OrderData(TypedDict):
     accounting_snapshot: dict | None
     accounting_readiness_status: str
     finance_period_id: str | None
+    document_reference_status: str
+    payment_reconciliation_status: str
+    payout_reconciliation_status: str
+    cod_settlement_status: str
+    blocking_exception_count: int
+    finance_hub_links: dict[str, str | None] | None
     analytics_consent: bool
     created_at: str
     updated_at: str
@@ -863,47 +879,47 @@ def checkout(
     # Serialize delivery sub-object (office or door) into JSON blob.
     # ensure_ascii=False preserves Cyrillic — see HANDOFF gotcha #5.
     if delivery.method == "office" and delivery.office is not None:
-        delivery_sub = delivery.office
+        office_delivery = delivery.office
         if not delivery_settings_service.is_delivery_method_enabled(
-            delivery_sub.courier,
+            office_delivery.courier,
             "office",
         ):
-            raise DeliveryMethodUnavailableError(delivery_sub.courier, "office")
+            raise DeliveryMethodUnavailableError(office_delivery.courier, "office")
         catalogue_office = delivery_service.get_office(
-            delivery_sub.courier,
-            delivery_sub.office_id,
+            office_delivery.courier,
+            office_delivery.office_id,
             locale="bg",
         )
         if catalogue_office is None:
-            raise InvalidDeliveryOfficeError(delivery_sub.office_id, delivery_sub.courier)
-        if catalogue_office["type"] != delivery_sub.office_type:
+            raise InvalidDeliveryOfficeError(office_delivery.office_id, office_delivery.courier)
+        if catalogue_office["type"] != office_delivery.office_type:
             raise InvalidDeliveryOfficeError(
-                delivery_sub.office_id,
-                delivery_sub.courier,
+                office_delivery.office_id,
+                office_delivery.courier,
                 reason=f"office_type must be {catalogue_office['type']}",
             )
-        delivery_details = delivery_sub.model_dump()
+        delivery_details = office_delivery.model_dump()
         delivery_details["office_name"] = catalogue_office["name"]
         delivery_details["office_type"] = catalogue_office["type"]
-        if delivery_sub.courier == "econt":
+        if office_delivery.courier == "econt":
             office_code = catalogue_office.get("code")
             if not office_code:
                 raise InvalidDeliveryOfficeError(
-                    delivery_sub.office_id,
-                    delivery_sub.courier,
+                    office_delivery.office_id,
+                    office_delivery.courier,
                     reason="office_code required for Econt office delivery",
                 )
             delivery_details["office_code"] = office_code
-        delivery_courier = delivery_sub.courier
+        delivery_courier = office_delivery.courier
     else:
-        delivery_sub = delivery.door
-        if delivery_sub is not None and not delivery_settings_service.is_delivery_method_enabled(
-            delivery_sub.courier,
+        door_delivery = delivery.door
+        if door_delivery is not None and not delivery_settings_service.is_delivery_method_enabled(
+            door_delivery.courier,
             "door",
         ):
-            raise DeliveryMethodUnavailableError(delivery_sub.courier, "door")
-        delivery_details = delivery_sub.model_dump() if delivery_sub is not None else None
-        delivery_courier = delivery_sub.courier if delivery_sub is not None else None
+            raise DeliveryMethodUnavailableError(door_delivery.courier, "door")
+        delivery_details = door_delivery.model_dump() if door_delivery is not None else None
+        delivery_courier = door_delivery.courier if door_delivery is not None else None
 
     delivery_details_json = json.dumps(delivery_details, ensure_ascii=False)
 
@@ -1297,6 +1313,12 @@ def checkout(
         accounting_snapshot=accounting_snapshot,
         accounting_readiness_status=accounting_readiness_status,
         finance_period_id=None,
+        document_reference_status="not_required",
+        payment_reconciliation_status="not_applicable",
+        payout_reconciliation_status="not_applicable",
+        cod_settlement_status="not_applicable",
+        blocking_exception_count=0,
+        finance_hub_links=None,
         analytics_consent=analytics_consent,
         created_at=now,
         updated_at=now,

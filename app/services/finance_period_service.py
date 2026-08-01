@@ -706,7 +706,8 @@ def _upsert_exception(
     period_id: str,
     spec: dict[str, object],
 ) -> None:
-    details = dict(spec.get("details") or {})
+    raw_details = spec.get("details")
+    details = dict(raw_details) if isinstance(raw_details, dict) else {}
     details["generated_by"] = _ENGINE_MARKER
     row = conn.execute(
         """

@@ -6,8 +6,8 @@ from fastapi.responses import JSONResponse
 from app.dependencies.auth import require_admin
 from app.models.cookies import (
     CookieInventoryAdmin,
-    CookieSectionAdmin,
     CookiesAdminResponse,
+    CookieSectionAdmin,
     CookiesPageAdmin,
     CookiesPublicResponse,
     PatchCookieInventoryRequest,

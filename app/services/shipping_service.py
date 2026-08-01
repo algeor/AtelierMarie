@@ -90,7 +90,9 @@ def _courier_office_id(courier: Courier, office_id: str | None) -> str | None:
     if courier != "econt":
         return office_id
     office = delivery_service.get_office("econt", office_id, locale="bg")
-    return (office or {}).get("code") or office_id
+    if office is None:
+        return office_id
+    return office["code"] or office_id
 
 
 async def calculate_quotes(

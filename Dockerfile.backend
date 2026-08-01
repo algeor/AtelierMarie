@@ -13,6 +13,8 @@ RUN apt-get update \
 COPY pyproject.toml ./
 COPY app ./app
 COPY data ./data
+COPY frontend/messages ./frontend/messages
+COPY scripts/sync_cookie_inventory.py ./scripts/sync_cookie_inventory.py
 
 RUN pip install --upgrade pip \
     && pip install .

@@ -172,6 +172,9 @@ class SessionMiddleware(BaseHTTPMiddleware):
                 media_type="application/json",
             )
 
+        if session_id is None:
+            raise RuntimeError("Session middleware did not create a session")
+
         request.state.session_id = session_id
         request.state.session_is_new = is_new
         request.state.preferred_locale = preferred_locale
@@ -182,10 +185,11 @@ class SessionMiddleware(BaseHTTPMiddleware):
         # If a route intentionally rotated/replaced the session cookie, do not append
         # a second Set-Cookie for the stale request session.
         response_session_id = getattr(request.state, "session_id", session_id)
+        cookie_value = response_session_id if isinstance(response_session_id, str) else session_id
         if not _response_sets_cookie(response, settings.session_cookie_name):
             response.set_cookie(
                 key=settings.session_cookie_name,
-                value=response_session_id,
+                value=cookie_value,
                 max_age=settings.session_max_age,
                 httponly=True,
                 secure=settings.session_cookie_secure and settings.environment != "development",

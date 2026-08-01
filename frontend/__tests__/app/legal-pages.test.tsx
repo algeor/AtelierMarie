@@ -11,6 +11,9 @@ vi.mock("@/i18n/navigation", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({
+  getCookies: vi.fn(async () => {
+    throw new Error("Use static fallback in test");
+  }),
   getLegalIdentity: vi.fn(async () => ({
     trading_name: "Atelier Marie",
     legal_name: "Atelier Marie OOD",

@@ -2,7 +2,9 @@
 
 import json
 import sqlite3
+from datetime import UTC, datetime
 
+from app.config import get_settings
 from app.database import get_db
 from app.models.cookies import MAX_COOKIE_TEXT_LENGTH
 
@@ -128,6 +130,13 @@ def _inventory_to_admin_dict(row: sqlite3.Row) -> dict:
         "type_bg": row["type_bg"],
         "duration_en": row["duration_en"],
         "duration_bg": row["duration_bg"],
+        "source": row["source"],
+        "first_seen_at": row["first_seen_at"],
+        "last_seen_at": row["last_seen_at"],
+        "last_audited_at": row["last_audited_at"],
+        "observed_on": _json_lines(row["observed_on"]) or [],
+        "is_active": bool(row["is_active"]),
+        "auto_detected": bool(row["auto_detected"]),
         "sort_order": row["sort_order"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
@@ -196,13 +205,177 @@ def _clean_lines(value: list[str] | None, *, required: bool) -> str | None:
     return json.dumps(lines, ensure_ascii=False)
 
 
+def _now() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _duration_text(seconds: int) -> tuple[str, str]:
+    days = max(1, round(seconds / 86_400))
+    return (f"Up to {days} days.", f"До {days} дни.")
+
+
+def default_detected_inventory() -> list[dict]:
+    """Return app-owned cookies that may not appear in an anonymous crawl."""
+    settings = get_settings()
+    session_duration_en, session_duration_bg = _duration_text(settings.session_max_age)
+    auth_duration_en, auth_duration_bg = _duration_text(settings.jwt_expiry_hours * 3600)
+    return [
+        {
+            "name": settings.session_cookie_name,
+            "purpose_en": "Keeps cart, checkout, language, and session continuity for the visitor.",
+            "purpose_bg": "Пази кошницата, поръчката, езика и сесията на посетителя.",
+            "type_en": "Necessary HttpOnly session cookie",
+            "type_bg": "Необходим HttpOnly session cookie",
+            "duration_en": session_duration_en,
+            "duration_bg": session_duration_bg,
+            "source": "app_registry",
+        },
+        {
+            "name": settings.jwt_cookie_name,
+            "purpose_en": "Keeps a signed-in account or admin session active after login.",
+            "purpose_bg": "Поддържа активен вход в профил или админ сесия след логин.",
+            "type_en": "Necessary HttpOnly authentication cookie",
+            "type_bg": "Необходим HttpOnly authentication cookie",
+            "duration_en": auth_duration_en,
+            "duration_bg": auth_duration_bg,
+            "source": "app_registry",
+        },
+        {
+            "name": "NEXT_LOCALE",
+            "purpose_en": "Stores the selected storefront language.",
+            "purpose_bg": "Запазва избрания език на магазина.",
+            "type_en": "Preference cookie",
+            "type_bg": "Cookie за предпочитание",
+            "duration_en": "Up to 1 year.",
+            "duration_bg": "До 1 година.",
+            "source": "app_registry",
+        },
+        {
+            "name": "atelier_cookie_consent",
+            "purpose_en": "Stores the visitor's cookie and analytics consent choice.",
+            "purpose_bg": "Запазва избора на посетителя за бисквитки и аналитика.",
+            "type_en": "Consent preference cookie",
+            "type_bg": "Cookie за съгласие",
+            "duration_en": "Up to 1 year.",
+            "duration_bg": "До 1 година.",
+            "source": "app_registry",
+        },
+    ]
+
+
+def sync_detected_inventory(
+    items: list[dict], *, source: str = "deploy_audit", deactivate_missing: bool = True
+) -> list[dict]:
+    """Upsert cookie inventory rows discovered by a deploy/browser audit."""
+    audited_at = _now()
+    cleaned: dict[str, dict] = {}
+    for item in items:
+        name = _clean_text(item.get("name"), required=True)
+        if name is None:
+            continue
+        purpose_en = _clean_text(
+            item.get("purpose_en") or "Detected by the deployment cookie audit.",
+            required=True,
+        )
+        type_en = _clean_text(item.get("type_en") or "Detected browser storage", required=True)
+        duration_en = _clean_text(
+            item.get("duration_en") or "Until expiry or browser clearing.", required=True
+        )
+        observed_on = item.get("observed_on")
+        if isinstance(observed_on, str):
+            observed_lines = [observed_on]
+        elif isinstance(observed_on, list):
+            observed_lines = [str(value).strip() for value in observed_on if str(value).strip()]
+        else:
+            observed_lines = []
+        cleaned[name] = {
+            "name": name,
+            "purpose_en": purpose_en,
+            "purpose_bg": _clean_text(item.get("purpose_bg"), required=False),
+            "type_en": type_en,
+            "type_bg": _clean_text(item.get("type_bg"), required=False),
+            "duration_en": duration_en,
+            "duration_bg": _clean_text(item.get("duration_bg"), required=False),
+            "source": _clean_text(item.get("source") or source, required=True),
+            "observed_on": json.dumps(sorted(set(observed_lines)), ensure_ascii=False),
+        }
+
+    with get_db() as conn:
+        max_order = conn.execute(
+            "SELECT COALESCE(MAX(sort_order), -1) FROM cookies_inventory"
+        ).fetchone()[0]
+        next_order = int(max_order) + 1
+        for row in cleaned.values():
+            existing = conn.execute(
+                "SELECT sort_order FROM cookies_inventory WHERE name = ?", (row["name"],)
+            ).fetchone()
+            sort_order = existing["sort_order"] if existing else next_order
+            if existing is None:
+                next_order += 1
+            conn.execute(
+                """
+                INSERT INTO cookies_inventory (
+                    name, purpose_en, purpose_bg, type_en, type_bg, duration_en, duration_bg,
+                    source, first_seen_at, last_seen_at, last_audited_at, observed_on,
+                    is_active, auto_detected, sort_order
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?)
+                ON CONFLICT(name) DO UPDATE SET
+                    purpose_en = excluded.purpose_en,
+                    purpose_bg = COALESCE(excluded.purpose_bg, cookies_inventory.purpose_bg),
+                    type_en = excluded.type_en,
+                    type_bg = COALESCE(excluded.type_bg, cookies_inventory.type_bg),
+                    duration_en = excluded.duration_en,
+                    duration_bg = COALESCE(excluded.duration_bg, cookies_inventory.duration_bg),
+                    source = excluded.source,
+                    first_seen_at = COALESCE(
+                        cookies_inventory.first_seen_at, excluded.first_seen_at
+                    ),
+                    last_seen_at = excluded.last_seen_at,
+                    last_audited_at = excluded.last_audited_at,
+                    observed_on = excluded.observed_on,
+                    is_active = 1,
+                    auto_detected = 1,
+                    sort_order = cookies_inventory.sort_order
+                """,
+                (
+                    row["name"],
+                    row["purpose_en"],
+                    row["purpose_bg"],
+                    row["type_en"],
+                    row["type_bg"],
+                    row["duration_en"],
+                    row["duration_bg"],
+                    row["source"],
+                    audited_at,
+                    audited_at,
+                    audited_at,
+                    row["observed_on"],
+                    sort_order,
+                ),
+            )
+        if deactivate_missing and cleaned:
+            placeholders = ", ".join("?" for _ in cleaned)
+            conn.execute(
+                f"""
+                UPDATE cookies_inventory
+                SET is_active = 0, last_audited_at = ?
+                WHERE auto_detected = 1 AND name NOT IN ({placeholders})
+                """,  # noqa: S608
+                [audited_at, *cleaned.keys()],
+            )
+        return [
+            _inventory_to_admin_dict(row)
+            for row in conn.execute("SELECT * FROM cookies_inventory ORDER BY sort_order, name")
+        ]
+
+
 def get_public_cookies(locale: str | None = "en") -> dict:
     """Return localized Cookie Policy content for the storefront."""
     resolved = _public_locale(locale)
     with get_db() as conn:
         page = _get_page(conn)
         inventory_rows = conn.execute(
-            "SELECT * FROM cookies_inventory ORDER BY sort_order, name"
+            "SELECT * FROM cookies_inventory WHERE is_active = 1 ORDER BY sort_order, name"
         ).fetchall()
         section_rows = conn.execute(
             "SELECT * FROM cookies_sections ORDER BY sort_order, slug"

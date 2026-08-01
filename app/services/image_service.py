@@ -22,6 +22,7 @@ _ZOOM_MAX_SIZE = (3000, 3750)  # 11.25 MP — enough pixels to pan into fine det
 _MAIN_QUALITY = 92
 _THUMB_QUALITY = 80
 _ZOOM_QUALITY = 95
+_RESAMPLE_LANCZOS = Image.Resampling.LANCZOS
 
 # File size limit
 MAX_FILE_SIZE = 25 * 1024 * 1024  # 25MB
@@ -158,7 +159,7 @@ def process_image(
         import io
         import warnings
 
-        img = Image.open(io.BytesIO(file_bytes))
+        img: Image.Image = Image.open(io.BytesIO(file_bytes))
         img.verify()  # Verify it's a valid image (doesn't load pixel data)
 
         # Re-open after verify (verify() leaves the file in an unusable state)
@@ -200,17 +201,17 @@ def process_image(
 
     # Create main image (thumbnail mode preserves aspect ratio, no upscale)
     main_img = img.copy()
-    main_img.thumbnail(_MAIN_MAX_SIZE, Image.LANCZOS)
+    main_img.thumbnail(_MAIN_MAX_SIZE, _RESAMPLE_LANCZOS)
     main_img.save(str(main_path), format="WEBP", quality=_MAIN_QUALITY)
 
     # Create thumbnail
     thumb_img = img.copy()
-    thumb_img.thumbnail(_THUMB_MAX_SIZE, Image.LANCZOS)
+    thumb_img.thumbnail(_THUMB_MAX_SIZE, _RESAMPLE_LANCZOS)
     thumb_img.save(str(thumb_path), format="WEBP", quality=_THUMB_QUALITY)
 
     # Create zoom image. It is still a bounded, EXIF-stripped derivative.
     zoom_img = img.copy()
-    zoom_img.thumbnail(_ZOOM_MAX_SIZE, Image.LANCZOS)
+    zoom_img.thumbnail(_ZOOM_MAX_SIZE, _RESAMPLE_LANCZOS)
     zoom_img.save(str(zoom_path), format="WEBP", quality=_ZOOM_QUALITY)
 
     return {

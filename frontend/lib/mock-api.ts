@@ -1322,6 +1322,13 @@ let mockCookieInventory: CookieInventoryAdminResponse[] = mockCookiesEn.cookies.
     type_bg: bgItem?.type ?? null,
     duration_en: item.duration,
     duration_bg: bgItem?.duration ?? null,
+    source: "mock_registry",
+    first_seen_at: mockCookiesTimestamp,
+    last_seen_at: mockCookiesTimestamp,
+    last_audited_at: mockCookiesTimestamp,
+    observed_on: ["mock://storefront"],
+    is_active: true,
+    auto_detected: true,
     sort_order: index,
     created_at: mockCookiesTimestamp,
     updated_at: mockCookiesTimestamp,
@@ -1345,7 +1352,7 @@ let mockCookieSections: CookieSectionAdminResponse[] = mockCookiesEn.sections.ma
 function cloneAdminCookies(): CookiesAdminResponse {
   return {
     page: { ...mockCookiesPage },
-    cookies: mockCookieInventory.map((item) => ({ ...item })),
+    cookies: mockCookieInventory.map((item) => ({ ...item, observed_on: [...item.observed_on] })),
     sections: mockCookieSections.map((section) => ({
       ...section,
       body_en: [...section.body_en],
@@ -4527,7 +4534,7 @@ export async function updateCookieInventory(
   const item = mockCookieInventory.find((candidate) => candidate.name === name);
   if (!item) mockError("cookie_inventory_not_found", `Cookie ${name} not found`);
   Object.assign(item, data, { updated_at: new Date().toISOString() });
-  return { ...item };
+  return { ...item, observed_on: [...item.observed_on] };
 }
 
 export async function updateCookieSection(

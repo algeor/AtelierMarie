@@ -653,10 +653,13 @@ async def valuation_exceptions(
     order_id: str | None = Query(default=None, min_length=1, max_length=100),
 ) -> list[InventoryExceptionResponse]:
     _no_store(response)
-    return inventory_service.valuation_exceptions(
-        target_type=target_type,
-        target_id=target_id,
-        source_type=source_type,
-        source_id=source_id,
-        order_id=order_id,
-    )
+    return [
+        InventoryExceptionResponse.model_validate(item)
+        for item in inventory_service.valuation_exceptions(
+            target_type=target_type,
+            target_id=target_id,
+            source_type=source_type,
+            source_id=source_id,
+            order_id=order_id,
+        )
+    ]

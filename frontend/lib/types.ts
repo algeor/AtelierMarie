@@ -498,6 +498,13 @@ export interface CookieInventoryAdminResponse {
   type_bg: string | null;
   duration_en: string;
   duration_bg: string | null;
+  source: string;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  last_audited_at: string | null;
+  observed_on: string[];
+  is_active: boolean;
+  auto_detected: boolean;
   sort_order: number;
   created_at: string;
   updated_at: string;

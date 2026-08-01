@@ -88,6 +88,13 @@ class CookieInventoryAdmin(BaseModel):
     type_bg: str | None = None
     duration_en: str
     duration_bg: str | None = None
+    source: str = "seed"
+    first_seen_at: str | None = None
+    last_seen_at: str | None = None
+    last_audited_at: str | None = None
+    observed_on: list[str] = Field(default_factory=list)
+    is_active: bool = True
+    auto_detected: bool = False
     sort_order: int
     created_at: str
     updated_at: str

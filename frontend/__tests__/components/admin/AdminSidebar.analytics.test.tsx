@@ -52,6 +52,7 @@ describe("AdminSidebar nav", () => {
     expect(screen.getByRole("button", { name: /collapse pages/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Atelier" })).toHaveAttribute("href", "/admin/atelier");
     expect(screen.getByRole("link", { name: "Terms" })).toHaveAttribute("href", "/admin/terms");
+    expect(screen.getByRole("link", { name: "Cookies" })).toHaveAttribute("href", "/admin/cookies");
     expect(screen.getByRole("link", { name: "Legal identity" })).toHaveAttribute("href", "/admin/legal");
     expect(screen.getByRole("link", { name: "FAQ" })).toHaveAttribute("href", "/admin/faq");
   });

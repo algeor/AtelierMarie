@@ -4,7 +4,6 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import {
   getAdminCookies,
-  updateCookieInventory,
   updateCookieSection,
   updateCookiesPage,
 } from "@/lib/api";
@@ -17,13 +16,6 @@ import type {
 } from "@/lib/types";
 
 type PageField = keyof Omit<CookiesPageAdminResponse, "id" | "created_at" | "updated_at">;
-type InventoryTextField =
-  | "purpose_en"
-  | "purpose_bg"
-  | "type_en"
-  | "type_bg"
-  | "duration_en"
-  | "duration_bg";
 type SectionTextField = "title_en" | "title_bg";
 type SectionDraft = { body_en: string; body_bg: string };
 
@@ -89,19 +81,6 @@ export function CookiesManager() {
     );
   }
 
-  function updateInventoryField(name: string, field: InventoryTextField, value: string) {
-    setPolicy((current) =>
-      current
-        ? {
-            ...current,
-            cookies: current.cookies.map((item) =>
-              item.name === name ? { ...item, [field]: value } : item
-            ),
-          }
-        : current
-    );
-  }
-
   function updateSectionField(slug: string, field: SectionTextField, value: string) {
     setPolicy((current) =>
       current
@@ -151,28 +130,6 @@ export function CookiesManager() {
         header_duration_bg: policy.page.header_duration_bg || null,
       });
       setPolicy((current) => (current ? { ...current, page } : current));
-      showSaved();
-    } catch {
-      setError(t("saveError"));
-    }
-  }
-
-  async function saveInventory(item: CookieInventoryAdminResponse) {
-    setError(null);
-    try {
-      const updated = await updateCookieInventory(item.name, {
-        purpose_en: item.purpose_en,
-        purpose_bg: item.purpose_bg || null,
-        type_en: item.type_en,
-        type_bg: item.type_bg || null,
-        duration_en: item.duration_en,
-        duration_bg: item.duration_bg || null,
-      });
-      setPolicy((current) =>
-        current
-          ? { ...current, cookies: current.cookies.map((row) => (row.name === updated.name ? updated : row)) }
-          : current
-      );
       showSaved();
     } catch {
       setError(t("saveError"));
@@ -234,24 +191,37 @@ export function CookiesManager() {
 
       {policy && (
         <section className="rounded-brand border border-champagne-beige bg-cream p-5">
-          <h2 className="font-heading text-xl text-charcoal">{t("inventorySection")}</h2>
+          <div>
+            <h2 className="font-heading text-xl text-charcoal">{t("inventorySection")}</h2>
+            <p className="mt-1 text-sm leading-6 text-soft-brown">{t("inventoryAutoNote")}</p>
+          </div>
           <div className="mt-5 space-y-4">
             {policy.cookies.map((item) => (
               <div key={item.name} className="rounded-brand border border-champagne-beige bg-white p-4">
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                  <h3 className="font-mono text-sm font-semibold text-charcoal">{item.name}</h3>
-                  <button type="button" onClick={() => saveInventory(item)} className="rounded-brand bg-charcoal px-4 py-2 text-sm font-medium text-white">
-                    {t("saveInventory")}
-                  </button>
+                  <div>
+                    <h3 className="font-mono text-sm font-semibold text-charcoal">{item.name}</h3>
+                    <p className="mt-1 text-xs text-soft-brown">
+                      {t("source")}: {item.source} · {t("lastSeen")}: {item.last_seen_at || t("unknown")}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-muted-gold/15 px-3 py-1 text-xs font-semibold text-charcoal">
+                    {item.auto_detected ? t("autoDetected") : t("manualRow")}
+                  </span>
                 </div>
                 <div className="grid gap-5 lg:grid-cols-2">
                   <LanguagePanel title={t("english")}>
-                    <InventoryFields item={item} suffix="en" onChange={(field, value) => updateInventoryField(item.name, field, value)} />
+                    <InventoryFields item={item} suffix="en" />
                   </LanguagePanel>
                   <LanguagePanel title={t("bulgarian")}>
-                    <InventoryFields item={item} suffix="bg" onChange={(field, value) => updateInventoryField(item.name, field, value)} />
+                    <InventoryFields item={item} suffix="bg" />
                   </LanguagePanel>
                 </div>
+                {item.observed_on.length > 0 && (
+                  <p className="mt-3 break-words text-xs leading-5 text-soft-brown">
+                    {t("observedOn")}: {item.observed_on.join(", ")}
+                  </p>
+                )}
               </div>
             ))}
           </div>
@@ -338,21 +308,28 @@ function PageFields({
 function InventoryFields({
   item,
   suffix,
-  onChange,
 }: {
   item: CookieInventoryAdminResponse;
   suffix: "en" | "bg";
-  onChange: (field: InventoryTextField, value: string) => void;
 }) {
   const t = useTranslations("admin.cookies");
-  const purposeField = `purpose_${suffix}` as InventoryTextField;
-  const typeField = `type_${suffix}` as InventoryTextField;
-  const durationField = `duration_${suffix}` as InventoryTextField;
+  const purpose = suffix === "bg" ? item.purpose_bg || item.purpose_en : item.purpose_en;
+  const type = suffix === "bg" ? item.type_bg || item.type_en : item.type_en;
+  const duration = suffix === "bg" ? item.duration_bg || item.duration_en : item.duration_en;
   return (
-    <div className="space-y-3">
-      <TextArea label={t("purpose")} rows={3} value={String(item[purposeField] ?? "")} onChange={(value) => onChange(purposeField, value)} />
-      <TextInput label={t("type")} value={String(item[typeField] ?? "")} onChange={(value) => onChange(typeField, value)} />
-      <TextArea label={t("duration")} rows={2} value={String(item[durationField] ?? "")} onChange={(value) => onChange(durationField, value)} />
+    <div className="space-y-3 text-sm">
+      <ReadOnlyField label={t("purpose")} value={purpose} />
+      <ReadOnlyField label={t("type")} value={type} />
+      <ReadOnlyField label={t("duration")} value={duration} />
+    </div>
+  );
+}
+
+function ReadOnlyField({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-gold">{label}</p>
+      <p className="mt-1 break-words leading-6 text-charcoal">{value}</p>
     </div>
   );
 }

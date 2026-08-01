@@ -43,6 +43,13 @@ markers = [
     "integration: marks tests as integration tests (real middleware, slower)",
 ]
 
+[tool.coverage.run]
+source = ["app"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 80
+
 [tool.mypy]
 python_version = "3.11"
 files = ["app"]
