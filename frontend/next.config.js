@@ -5,6 +5,10 @@ const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // The build/start npm scripts set NEXT_DIST_DIR=.next-build, but Next.js only
+  // honors the build output dir via `distDir` in this config — not that env var.
+  // Read it here so both scripts and the Docker build land in the same place.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   // Two lockfiles exist (repo-root workspace wrapper + this app). Pin the trace
   // root to this directory so Next.js stops guessing and warning about it.
   outputFileTracingRoot: path.join(__dirname),
