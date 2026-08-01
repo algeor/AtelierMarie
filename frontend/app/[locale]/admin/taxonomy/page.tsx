@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
+import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
 import { TaxonomyManager } from "@/components/admin/TaxonomyManager";
 import type { TaxonomyKind } from "@/lib/types";
 
@@ -27,9 +28,9 @@ export default function TaxonomyPage() {
 
   return (
     <div>
-      <div className="mb-8">
+      <div className="mb-8 flex items-center gap-2">
         <h1 className="font-heading text-2xl font-semibold text-charcoal">{t("taxonomy.title")}</h1>
-        <p className="mt-1 text-sm text-soft-brown">{t("taxonomy.subtitle")}</p>
+        <AdminInfoPopover content={t("taxonomy.subtitle")} />
       </div>
 
       <div

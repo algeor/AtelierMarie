@@ -4,6 +4,7 @@ import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react
 import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
+import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
 import {
   activateRecipe,
   archiveRecipe,
@@ -144,10 +145,13 @@ function parseComponents(text: string) {
     });
 }
 
-function SectionTitle({ title, subtitle }: { title: string; subtitle?: string }) {
+function SectionTitle({ title, subtitle, info }: { title: string; subtitle?: string; info?: string }) {
   return (
     <div>
-      <h2 className="font-heading text-lg font-semibold text-charcoal">{title}</h2>
+      <div className="flex items-center gap-2">
+        <h2 className="font-heading text-lg font-semibold text-charcoal">{title}</h2>
+        {info && <AdminInfoPopover content={info} />}
+      </div>
       {subtitle && <p className="mt-1 text-sm text-soft-brown">{subtitle}</p>}
     </div>
   );
@@ -511,7 +515,7 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
     return (
       <div className="space-y-6">
         <form onSubmit={handleCreateMaterial} className="rounded-brand border border-champagne-beige bg-cream p-4">
-          <SectionTitle title={t("materials.createTitle")} subtitle={t("materials.createSubtitle")} />
+          <SectionTitle title={t("materials.createTitle")} info={t("materials.createSubtitle")} />
           <div className="mt-4 grid gap-3 md:grid-cols-3">
             <input name="name" required className={inputClass()} placeholder={t("materials.name")} />
             <input name="sku" className={inputClass()} placeholder={t("materials.sku")} />
@@ -634,7 +638,7 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
     return (
       <div className="space-y-6">
         <form onSubmit={handleCreateRecipe} className="rounded-brand border border-champagne-beige bg-cream p-4">
-          <SectionTitle title={t("recipes.createTitle")} subtitle={t("recipes.componentHelp")} />
+          <SectionTitle title={t("recipes.createTitle")} info={t("recipes.componentHelp")} />
           <div className="mt-4 grid gap-3 md:grid-cols-3">
             <input name="product_id" required className={inputClass()} placeholder={t("productId")} />
             <input name="version_label" required className={inputClass()} placeholder={t("recipes.versionLabel")} />
@@ -746,7 +750,7 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
     return (
       <div className="space-y-6">
         <form key={settings?.settings_version ?? "settings"} onSubmit={handleSettings} className="rounded-brand border border-champagne-beige bg-cream p-4">
-          <SectionTitle title={t("valuation.settingsTitle")} subtitle={t("valuation.settingsSubtitle")} />
+          <SectionTitle title={t("valuation.settingsTitle")} info={t("valuation.settingsSubtitle")} />
           <div className="mt-4 grid gap-3 md:grid-cols-3">
             <select name="ledger_mode" className={inputClass()} defaultValue={settings?.ledger_mode ?? "setup"}><option value="legacy">legacy</option><option value="setup">setup</option><option value="ledger_managed">ledger managed</option></select>
             <select name="valuation_method" className={inputClass()} defaultValue={settings?.valuation_method ?? "weighted_average"}><option value="weighted_average">weighted average</option><option value="fifo">FIFO</option></select>
@@ -830,9 +834,9 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
+        <div className="flex items-center gap-2">
           <h1 className="font-heading text-2xl font-semibold text-charcoal">{t("title")}</h1>
-          <p className="mt-1 text-sm text-soft-brown">{t("subtitle")}</p>
+          <AdminInfoPopover content={t("subtitle")} />
         </div>
         {isRefreshing && <span className="text-sm text-soft-brown">{t("refreshing")}</span>}
       </div>

@@ -177,7 +177,7 @@ describe("Admin order payment detail", () => {
     renderWithIntl(<AdminOrderDetailPage />);
 
     expect(await screen.findByText("Stock issue: issued")).toBeInTheDocument();
-    expect(screen.getByText("COGS: estimate")).toBeInTheDocument();
+    expect(screen.getByText("Sold cost: estimate")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "B-001" })).toHaveAttribute(
       "href",
       expect.stringContaining("/admin/inventory/batches")
@@ -186,7 +186,7 @@ describe("Admin order payment detail", () => {
       "href",
       expect.stringContaining("/admin/inventory/movements")
     );
-    expect(screen.getByRole("link", { name: "COGS row" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Sold-cost row" })).toHaveAttribute(
       "href",
       expect.stringContaining("/admin/inventory/valuation/cogs")
     );

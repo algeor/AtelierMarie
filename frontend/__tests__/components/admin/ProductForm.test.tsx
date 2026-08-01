@@ -263,7 +263,7 @@ describe("ProductForm image crop editor", () => {
     );
 
     expect(screen.getByLabelText("Stock")).toBeDisabled();
-    expect(screen.getByText(/Stock is ledger-managed/i)).toBeInTheDocument();
+    expect(screen.getByText(/Stock is controlled in the Stock area/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Movements" })).toHaveAttribute(
       "href",
       expect.stringContaining("/admin/inventory/movements")

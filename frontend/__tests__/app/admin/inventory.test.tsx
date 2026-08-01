@@ -372,7 +372,7 @@ describe("Admin inventory workspace", () => {
 
     fireEvent.change(screen.getByPlaceholderText("Quantity delta"), { target: { value: "-50" } });
     fireEvent.change(screen.getByPlaceholderText("Reason"), { target: { value: "Spoiled wax" } });
-    fireEvent.click(screen.getByRole("button", { name: "Record movement" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save stock change" }));
     await waitFor(() => expect(createMaterialAdjustment).toHaveBeenCalledWith("mat-wax", expect.objectContaining({ quantity_delta: -50 })));
   });
 
@@ -380,7 +380,7 @@ describe("Admin inventory workspace", () => {
     renderWithIntl(<InventoryWorkspace initialTab="recipes" />);
 
     expect(await screen.findByText("lavender-candle")).toBeInTheDocument();
-    fireEvent.change(screen.getByPlaceholderText("Product ID"), { target: { value: "lavender-candle" } });
+    fireEvent.change(screen.getByPlaceholderText("Product code"), { target: { value: "lavender-candle" } });
     fireEvent.change(screen.getByPlaceholderText("Version label"), { target: { value: "v2" } });
     fireEvent.change(screen.getByPlaceholderText("Output quantity"), { target: { value: "24" } });
     fireEvent.change(screen.getByPlaceholderText("soy-wax,500,g,per_batch,3"), { target: { value: "mat-wax,500,g,per_batch,3" } });
@@ -396,23 +396,23 @@ describe("Admin inventory workspace", () => {
 
     expect(await screen.findByText("B-001")).toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText("Batch number"), { target: { value: "B-002" } });
-    fireEvent.change(screen.getByPlaceholderText("Product ID"), { target: { value: "lavender-candle" } });
+    fireEvent.change(screen.getByPlaceholderText("Product code"), { target: { value: "lavender-candle" } });
     fireEvent.change(screen.getByPlaceholderText("Planned output"), { target: { value: "24" } });
     fireEvent.click(screen.getByRole("button", { name: "Create batch" }));
 
     await waitFor(() => expect(createProductionBatch).toHaveBeenCalledWith(expect.objectContaining({ batch_number: "B-002" })));
-    fireEvent.click(screen.getByRole("button", { name: "Post produced" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mark produced" }));
     await waitFor(() => expect(postProductionBatch).toHaveBeenCalledWith("batch-1", expect.objectContaining({ actual_output_quantity: 24 })));
   });
 
   it("updates valuation settings, previews close, and generates layers and COGS", async () => {
     renderWithIntl(<InventoryWorkspace initialTab="valuation" />);
 
-    expect(await screen.findByText("Valuation settings")).toBeInTheDocument();
+    expect(await screen.findByText("Stock value settings")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
     await waitFor(() => expect(updateInventoryValuationSettings).toHaveBeenCalled());
 
-    fireEvent.change(screen.getByPlaceholderText("Item ID"), { target: { value: "mat-wax" } });
+    fireEvent.change(screen.getByPlaceholderText("Item code"), { target: { value: "mat-wax" } });
     fireEvent.change(screen.getByPlaceholderText("Quantity"), { target: { value: "500" } });
     fireEvent.click(screen.getByRole("button", { name: "Record opening balance" }));
     await waitFor(() => expect(recordOpeningBalance).toHaveBeenCalledWith(expect.objectContaining({ item_id: "mat-wax" })));
@@ -421,9 +421,9 @@ describe("Admin inventory workspace", () => {
     await waitFor(() => expect(getInventoryClosePreview).toHaveBeenCalled());
     expect(await screen.findByText("Ending value")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Generate layers" }));
+    fireEvent.click(screen.getByRole("button", { name: "Calculate stock value" }));
     await waitFor(() => expect(generateValuationLayers).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("button", { name: "Generate COGS" }));
+    fireEvent.click(screen.getByRole("button", { name: "Calculate sold cost" }));
     await waitFor(() => expect(generateCogsRows).toHaveBeenCalled());
   });
 
@@ -431,7 +431,7 @@ describe("Admin inventory workspace", () => {
     renderWithIntl(<InventoryWorkspace initialTab="movements" />);
 
     expect(await screen.findByText("receipt")).toBeInTheDocument();
-    fireEvent.change(screen.getByPlaceholderText("Item ID"), { target: { value: "mat-wax" } });
+    fireEvent.change(screen.getByPlaceholderText("Item code"), { target: { value: "mat-wax" } });
     fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
 
     await waitFor(() => expect(listInventoryMovements).toHaveBeenLastCalledWith(expect.objectContaining({ itemId: "mat-wax" })));

@@ -267,6 +267,61 @@ def test_cogs_rows_use_payment_date_source_movement_and_return_reversal(ledger_c
     assert reversal.rows[0].review_state == "reversed"
     assert reversal.rows[0].reversal_cogs_id == cogs.rows[0].id
     assert reversal.rows[0].source_movement_id is not None
+    assert reversal.rows[0].source_valuation_layer_id is not None
+
+
+def test_cogs_uses_sale_layer_when_order_depletes_stock_and_cancellation_reverses(ledger_conn):
+    session_id = _session(ledger_conn)
+    _seed_product(ledger_conn, "deplete-candle", stock=2, ledger_managed=True)
+    inventory_service.update_inventory_valuation_settings(
+        InventoryValuationSettingsRequest(
+            ledger_mode="setup",
+            valuation_enabled=True,
+            valuation_method="weighted_average",
+            effective_date="2026-09-01",
+            accountant_reviewed=True,
+        )
+    )
+    inventory_service.record_opening_balance(
+        OpeningBalanceRequest(
+            item_type="finished_good",
+            item_id="deplete-candle",
+            quantity=2,
+            uom="unit",
+            unit_value_amount="2.00",
+            reviewed=True,
+        )
+    )
+    _add_cart_item(ledger_conn, session_id, "deplete-candle", 2)
+    order = checkout(
+        conn=ledger_conn,
+        session_id=session_id,
+        customer_email="buyer@example.com",
+        customer_name="Buyer",
+        delivery=_delivery(),
+    )
+
+    inventory_service.generate_valuation_layers()
+    cogs = inventory_service.generate_cogs_rows()
+
+    assert cogs.total == 1
+    assert cogs.rows[0].unit_cost_amount == "2.000000"
+    assert cogs.rows[0].total_cost_cents == 400
+    assert cogs.rows[0].source_valuation_layer_id is not None
+
+    update_status(ledger_conn, order["id"], "cancelled")
+    ledger_conn.commit()
+    inventory_service.generate_valuation_layers()
+    reversal = inventory_service.generate_cogs_rows()
+
+    cancellation = ledger_conn.execute(
+        "SELECT id FROM inventory_movements WHERE movement_type = 'cancellation_reversal' AND order_id = ?",
+        (order["id"],),
+    ).fetchone()
+    assert reversal.total == 1
+    assert reversal.rows[0].review_state == "reversed"
+    assert reversal.rows[0].reversal_cogs_id == cogs.rows[0].id
+    assert reversal.rows[0].source_movement_id == cancellation["id"]
 
 
 def test_admin_order_inventory_context_and_product_stock_edit_blocking(ledger_conn):

@@ -110,6 +110,7 @@ async def list_inventory_movements(
     item_id: str | None = Query(default=None, min_length=1, max_length=100),
     source_type: str | None = Query(default=None, min_length=1, max_length=100),
     source_id: str | None = Query(default=None, min_length=1, max_length=100),
+    order_id: str | None = Query(default=None, min_length=1, max_length=100),
     movement_type: str | None = Query(default=None, min_length=1, max_length=100),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
@@ -120,6 +121,7 @@ async def list_inventory_movements(
         item_id=item_id,
         source_type=source_type,
         source_id=source_id,
+        order_id=order_id,
         movement_type=movement_type,
         limit=limit,
         offset=offset,
@@ -622,9 +624,11 @@ async def generate_cogs_rows(
 async def list_cogs_rows(
     response: Response,
     _current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+    product_id: str | None = Query(default=None, min_length=1, max_length=100),
+    order_id: str | None = Query(default=None, min_length=1, max_length=100),
 ) -> COGSLedgerListResponse:
     _no_store(response)
-    return inventory_service.list_cogs_rows()
+    return inventory_service.list_cogs_rows(product_id=product_id, order_id=order_id)
 
 
 @admin_router.get("/valuation/close-preview", response_model=InventoryClosePreviewResponse)
@@ -642,6 +646,17 @@ async def inventory_close_preview(
 async def valuation_exceptions(
     response: Response,
     _current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+    target_type: str | None = Query(default=None, min_length=1, max_length=100),
+    target_id: str | None = Query(default=None, min_length=1, max_length=100),
+    source_type: str | None = Query(default=None, min_length=1, max_length=100),
+    source_id: str | None = Query(default=None, min_length=1, max_length=100),
+    order_id: str | None = Query(default=None, min_length=1, max_length=100),
 ) -> list[InventoryExceptionResponse]:
     _no_store(response)
-    return inventory_service.valuation_exceptions()
+    return inventory_service.valuation_exceptions(
+        target_type=target_type,
+        target_id=target_id,
+        source_type=source_type,
+        source_id=source_id,
+        order_id=order_id,
+    )

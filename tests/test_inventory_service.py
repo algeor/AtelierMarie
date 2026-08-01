@@ -71,6 +71,36 @@ def test_material_catalog_crud_validation_and_reorder(inventory_db):
         )
 
 
+def test_reorder_filter_total_matches_filtered_materials(inventory_db):
+    low = inventory_service.create_material(
+        MaterialCreateRequest(
+            sku="LOW-WAX",
+            name="Low wax",
+            category="wax",
+            stock_uom="g",
+            reorder_threshold=100,
+        )
+    )
+    ok = inventory_service.create_material(
+        MaterialCreateRequest(
+            sku="OK-WAX",
+            name="OK wax",
+            category="wax",
+            stock_uom="g",
+            reorder_threshold=100,
+        )
+    )
+    inventory_service.create_material_receipt(
+        ok.id,
+        MaterialReceiptRequest(quantity=250, uom="g", total_cost_cents=2500),
+    )
+
+    listed = inventory_service.list_materials(needs_reorder=True)
+
+    assert listed.total == 1
+    assert [item.id for item in listed.materials] == [low.id]
+
+
 def test_material_receipt_creates_lot_movement_and_review_exceptions(inventory_db):
     material = inventory_service.create_material(
         MaterialCreateRequest(

@@ -311,23 +311,28 @@ def list_materials(
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
 
     with get_db() as conn:
+        limit_sql = "" if needs_reorder else "LIMIT ? OFFSET ?"
+        query_params = tuple(params) if needs_reorder else (*params, limit, offset)
         rows = conn.execute(
             f"""
             SELECT m.*, {_material_on_hand_expr()}
             FROM materials m
             {where_sql}
             ORDER BY m.category, m.name, m.id
-            LIMIT ? OFFSET ?
+            {limit_sql}
             """,  # noqa: S608
-            (*params, limit, offset),
+            query_params,
         ).fetchall()
         materials = [_material_response_from_row(row) for row in rows]
         if needs_reorder:
             materials = [m for m in materials if m.reorder_status == "below_threshold"]
-        total = conn.execute(
-            f"SELECT COUNT(*) FROM materials m {where_sql}",  # noqa: S608
-            params,
-        ).fetchone()[0]
+            total = len(materials)
+            materials = materials[offset : offset + limit]
+        else:
+            total = conn.execute(
+                f"SELECT COUNT(*) FROM materials m {where_sql}",  # noqa: S608
+                params,
+            ).fetchone()[0]
     return MaterialListResponse(materials=materials, total=total)
 
 
@@ -750,6 +755,7 @@ def list_inventory_movements(
     item_id: str | None = None,
     source_type: str | None = None,
     source_id: str | None = None,
+    order_id: str | None = None,
     movement_type: str | None = None,
     limit: int = 100,
     offset: int = 0,
@@ -769,6 +775,9 @@ def list_inventory_movements(
     if source_id:
         where.append("source_id = ?")
         params.append(source_id)
+    if order_id:
+        where.append("order_id = ?")
+        params.append(order_id)
     if movement_type:
         where.append("movement_type = ?")
         params.append(movement_type)
@@ -1538,6 +1547,30 @@ def _latest_material_cost(conn: sqlite3.Connection, material_id: str) -> str | N
     return row["unit_cost_amount"] if row else None
 
 
+def _line_cost_cents(quantity: float, unit_cost_amount: str | None) -> int | None:
+    if unit_cost_amount is None or quantity == 0:
+        return None
+    return int(
+        (
+            abs(_decimal(quantity, "quantity"))
+            * _decimal(unit_cost_amount, "unit_cost_amount")
+            * Decimal("100")
+        ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    )
+
+
+def _unit_value_from_total(total_cost_cents: int, quantity: float) -> str:
+    if quantity <= 0:
+        raise InventoryValidationError("output quantity must be positive")
+    return str(
+        (
+            Decimal(total_cost_cents)
+            / Decimal("100")
+            / _decimal(quantity, "quantity")
+        ).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+    )
+
+
 def _expected_consumption_rows(
     conn: sqlite3.Connection,
     recipe_id: str,
@@ -1820,7 +1853,42 @@ def post_production_batch(
             )
             return _batch_response_from_row(conn, _get_batch_row(conn, batch_id))
 
+        insufficient_lots = False
+        for row, actual_quantity, _waste_quantity, lot_id in actual_lines:
+            if not lot_id or actual_quantity == 0:
+                continue
+            lot = conn.execute("SELECT * FROM material_lots WHERE id = ?", (lot_id,)).fetchone()
+            if lot is None:
+                raise InventoryValidationError("Selected material lot does not exist")
+            if lot["material_id"] != row["material_id"]:
+                raise InventoryValidationError("Selected material lot does not belong to the consumed material")
+            remaining = lot["remaining_quantity_snapshot"]
+            if remaining is not None and actual_quantity > float(remaining):
+                insufficient_lots = True
+                _batch_exception(
+                    conn,
+                    batch_id=batch_id,
+                    exception_type="insufficient_material_lot_quantity",
+                    severity="blocking",
+                    message="Batch requires more material from the selected lot than remains available.",
+                    target_type="material_lot",
+                    target_id=lot_id,
+                    actor_user_id=actor_user_id,
+                )
+        if insufficient_lots:
+            conn.execute(
+                """
+                UPDATE production_batches
+                SET variance_review_state = 'warning', updated_by_admin_id = COALESCE(?, updated_by_admin_id)
+                WHERE id = ?
+                """,
+                (actor_user_id, batch_id),
+            )
+            return _batch_response_from_row(conn, _get_batch_row(conn, batch_id))
+
         exception_created = False
+        total_consumed_cost_cents = 0
+        missing_consumed_cost = False
         for row, actual_quantity, waste_quantity, lot_id in actual_lines:
             expected_quantity = float(row["expected_quantity"] or 0)
             if expected_quantity and actual_quantity > expected_quantity * (
@@ -1853,6 +1921,8 @@ def post_production_batch(
             unit_cost_amount = _latest_material_cost(conn, row["material_id"])
             if unit_cost_amount is None:
                 exception_created = True
+                if actual_quantity > 0:
+                    missing_consumed_cost = True
                 _batch_exception(
                     conn,
                     batch_id=batch_id,
@@ -1863,29 +1933,46 @@ def post_production_batch(
                     target_id=row["material_id"],
                     actor_user_id=actor_user_id,
                 )
-            movement_id = _uuid()
-            conn.execute(
-                """
-                INSERT INTO inventory_movements (
-                    id, item_type, item_id, movement_type, quantity_delta, uom,
-                    source_type, source_id, material_lot_id, actor_user_id,
-                    actor_email, review_state, occurred_at
-                ) VALUES (?, 'material', ?, 'production_consumption', ?, ?,
-                          'production_batch', ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    movement_id,
-                    row["material_id"],
-                    -actual_quantity,
-                    row["uom"],
-                    batch_id,
-                    lot_id,
-                    actor_user_id,
-                    actor_email,
-                    "unreviewed" if exception_created else "reviewed",
-                    batch["production_date"],
-                ),
-            )
+            line_cost = _line_cost_cents(actual_quantity, unit_cost_amount)
+            if line_cost is not None:
+                total_consumed_cost_cents += line_cost
+            movement_id = None
+            if actual_quantity != 0:
+                movement_id = _uuid()
+                conn.execute(
+                    """
+                    INSERT INTO inventory_movements (
+                        id, item_type, item_id, movement_type, quantity_delta, uom,
+                        source_type, source_id, material_lot_id, actor_user_id,
+                        actor_email, review_state, occurred_at
+                    ) VALUES (?, 'material', ?, 'production_consumption', ?, ?,
+                              'production_batch', ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        movement_id,
+                        row["material_id"],
+                        -actual_quantity,
+                        row["uom"],
+                        batch_id,
+                        lot_id,
+                        actor_user_id,
+                        actor_email,
+                        "unreviewed" if exception_created else "reviewed",
+                        batch["production_date"],
+                    ),
+                )
+                if lot_id:
+                    conn.execute(
+                        """
+                        UPDATE material_lots
+                        SET remaining_quantity_snapshot = MAX(
+                            COALESCE(remaining_quantity_snapshot, received_quantity) - ?,
+                            0
+                        )
+                        WHERE id = ?
+                        """,
+                        (actual_quantity, lot_id),
+                    )
             conn.execute(
                 """
                 UPDATE production_batch_consumption
@@ -1912,6 +1999,13 @@ def post_production_batch(
                 exception_type="produced_quantity_variance",
                 message="Actual produced quantity differs from planned output.",
                 actor_user_id=actor_user_id,
+            )
+
+        output_unit_cost_amount = None
+        if not missing_consumed_cost and total_consumed_cost_cents > 0:
+            output_unit_cost_amount = _unit_value_from_total(
+                total_consumed_cost_cents,
+                request.actual_output_quantity,
             )
 
         output_movement_id = _uuid()
@@ -1941,9 +2035,9 @@ def post_production_batch(
             """
             INSERT INTO production_batch_outputs (
                 id, production_batch_id, product_id, batch_number, quantity,
-                uom, movement_id, remaining_quantity_snapshot,
+                uom, unit_cost_amount, movement_id, remaining_quantity_snapshot,
                 valuation_review_state
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 _uuid(),
@@ -1952,6 +2046,7 @@ def post_production_batch(
                 batch["batch_number"],
                 request.actual_output_quantity,
                 batch["output_uom"],
+                output_unit_cost_amount,
                 output_movement_id,
                 request.actual_output_quantity,
                 "estimate" if exception_created else "reviewed",
@@ -2265,6 +2360,49 @@ def _weighted_average_before(
     return (value_cents / Decimal("100")) / quantity
 
 
+def _unit_value_from_layer(row: sqlite3.Row | None) -> str | None:
+    if row is None:
+        return None
+    if row["unit_value_amount"]:
+        return row["unit_value_amount"]
+    if row["total_value_cents"] is None or not row["quantity"]:
+        return None
+    return str(
+        (
+            Decimal(row["total_value_cents"])
+            / Decimal("100")
+            / abs(_decimal(row["quantity"], "quantity"))
+        ).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+    )
+
+
+def _source_layer_for_positive_movement(
+    conn: sqlite3.Connection,
+    movement: sqlite3.Row,
+) -> sqlite3.Row | None:
+    if movement["reversal_of_movement_id"]:
+        return _valuation_layer_for_movement(conn, movement["reversal_of_movement_id"])
+    if movement["movement_type"] not in {"return_restock", "cancellation_reversal"}:
+        return None
+    if not movement["order_id"] or not movement["product_id"]:
+        return None
+    return conn.execute(
+        """
+        SELECT vl.*
+        FROM inventory_movements sale
+        JOIN inventory_valuation_layers vl ON vl.movement_id = sale.id
+        WHERE sale.order_id = ?
+          AND sale.product_id = ?
+          AND sale.order_item_key = ?
+          AND sale.movement_type = 'sale_issue'
+          AND vl.review_state != 'reversed'
+        ORDER BY vl.valuation_date DESC, vl.created_at DESC, vl.id DESC
+        LIMIT 1
+        """,
+        (movement["order_id"], movement["product_id"], movement["order_item_key"]),
+    ).fetchone()
+
+
 def _ensure_inventory_exception(
     conn: sqlite3.Connection,
     *,
@@ -2445,6 +2583,18 @@ def generate_valuation_layers() -> ValuationLayerListResponse:
                 ).fetchone()
                 if output and output["unit_cost_amount"]:
                     unit_value = output["unit_cost_amount"]
+            elif quantity > 0:
+                source_layer = _source_layer_for_positive_movement(conn, movement)
+                unit_value = _unit_value_from_layer(source_layer)
+                if unit_value is None:
+                    avg = _weighted_average_before(
+                        conn,
+                        item_type=movement["item_type"],
+                        item_id=movement["item_id"],
+                        valuation_date=movement["occurred_at"],
+                    )
+                    if avg is not None:
+                        unit_value = str(avg.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP))
             elif quantity < 0:
                 avg = _weighted_average_before(
                     conn,
@@ -2611,13 +2761,26 @@ def generate_cogs_rows() -> COGSLedgerListResponse:
             """
         ).fetchall()
         for row in rows:
-            avg = _weighted_average_before(
-                conn,
-                item_type="finished_good",
-                item_id=row["product_id"],
-                valuation_date=row["created_at"],
+            source_movement = _sale_movement_for_order_item(
+                conn, order_id=row["order_id"], product_id=row["product_id"]
             )
-            if avg is None:
+            source_layer = _valuation_layer_for_movement(
+                conn, source_movement["id"] if source_movement else None
+            )
+            unit_value_text = _unit_value_from_layer(source_layer)
+            if unit_value_text is None:
+                avg = _weighted_average_before(
+                    conn,
+                    item_type="finished_good",
+                    item_id=row["product_id"],
+                    valuation_date=row["created_at"],
+                )
+                unit_value_text = (
+                    None
+                    if avg is None
+                    else str(avg.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP))
+                )
+            if unit_value_text is None:
                 _ensure_inventory_exception(
                     conn,
                     exception_type="missing_cogs_cost",
@@ -2628,13 +2791,9 @@ def generate_cogs_rows() -> COGSLedgerListResponse:
                     source_id=row["order_id"],
                 )
                 continue
-            source_movement = _sale_movement_for_order_item(
-                conn, order_id=row["order_id"], product_id=row["product_id"]
+            unit_value = _decimal(unit_value_text, "unit_value_amount").quantize(
+                Decimal("0.000001"), rounding=ROUND_HALF_UP
             )
-            source_layer = _valuation_layer_for_movement(
-                conn, source_movement["id"] if source_movement else None
-            )
-            unit_value = avg.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
             total_cost = int(
                 (_decimal(row["quantity"], "quantity") * unit_value * Decimal("100")).quantize(
                     Decimal("1"), rounding=ROUND_HALF_UP
@@ -2687,7 +2846,7 @@ def generate_cogs_rows() -> COGSLedgerListResponse:
             LEFT JOIN cogs_ledger reversal
               ON reversal.reversal_cogs_id = c.id
              AND reversal.source_movement_id = im.id
-            WHERE im.movement_type = 'return_restock'
+            WHERE im.movement_type IN ('return_restock', 'cancellation_reversal')
               AND im.quantity_delta > 0
               AND COALESCE(im.metadata_json, '') NOT LIKE '%write_off_pending%'
               AND reversal.id IS NULL
@@ -2745,9 +2904,21 @@ def generate_cogs_rows() -> COGSLedgerListResponse:
     return COGSLedgerListResponse(rows=created, total=len(created))
 
 
-def list_cogs_rows() -> COGSLedgerListResponse:
+def list_cogs_rows(product_id: str | None = None, order_id: str | None = None) -> COGSLedgerListResponse:
+    where: list[str] = []
+    params: list[object] = []
+    if product_id:
+        where.append("product_id = ?")
+        params.append(product_id)
+    if order_id:
+        where.append("order_id = ?")
+        params.append(order_id)
+    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
     with get_db() as conn:
-        rows = conn.execute("SELECT * FROM cogs_ledger ORDER BY cogs_date, created_at").fetchall()
+        rows = conn.execute(
+            f"SELECT * FROM cogs_ledger {where_sql} ORDER BY cogs_date, created_at",  # noqa: S608
+            params,
+        ).fetchall()
     cogs = [_cogs_response_from_row(row) for row in rows]
     return COGSLedgerListResponse(rows=cogs, total=len(cogs))
 
@@ -2816,7 +2987,13 @@ def inventory_close_preview(period_start: str, period_end: str) -> InventoryClos
     )
 
 
-def valuation_exceptions() -> list[dict[str, object]]:
+def valuation_exceptions(
+    target_type: str | None = None,
+    target_id: str | None = None,
+    source_type: str | None = None,
+    source_id: str | None = None,
+    order_id: str | None = None,
+) -> list[dict[str, object]]:
     """Refresh and return valuation readiness exceptions."""
     with get_db() as conn:
         settings = _ensure_inventory_settings(conn)
@@ -2870,10 +3047,30 @@ def valuation_exceptions() -> list[dict[str, object]]:
                 target_type="product",
                 target_id=row["id"],
             )
+        where = ["status = 'open'"]
+        params: list[object] = []
+        if target_type:
+            where.append("target_type = ?")
+            params.append(target_type)
+        if target_id:
+            where.append("target_id = ?")
+            params.append(target_id)
+        if source_type:
+            where.append("source_type = ?")
+            params.append(source_type)
+        if source_id:
+            where.append("source_id = ?")
+            params.append(source_id)
+        if order_id:
+            where.append("source_type = 'order'")
+            where.append("source_id = ?")
+            params.append(order_id)
+        where_sql = " AND ".join(where)
         exceptions = [
             _exception_response_from_row(row)
             for row in conn.execute(
-                "SELECT * FROM inventory_exceptions WHERE status = 'open' ORDER BY created_at DESC"
+                f"SELECT * FROM inventory_exceptions WHERE {where_sql} ORDER BY created_at DESC",  # noqa: S608
+                params,
             ).fetchall()
         ]
     return exceptions

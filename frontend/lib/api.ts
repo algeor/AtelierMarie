@@ -1113,6 +1113,7 @@ export async function listInventoryMovements(filters: {
   itemId?: string;
   sourceType?: string;
   sourceId?: string;
+  orderId?: string;
   movementType?: string;
   limit?: number;
   offset?: number;
@@ -1122,6 +1123,7 @@ export async function listInventoryMovements(filters: {
   if (filters.itemId) params.set("item_id", filters.itemId);
   if (filters.sourceType) params.set("source_type", filters.sourceType);
   if (filters.sourceId) params.set("source_id", filters.sourceId);
+  if (filters.orderId) params.set("order_id", filters.orderId);
   if (filters.movementType) params.set("movement_type", filters.movementType);
   if (filters.limit) params.set("limit", String(filters.limit));
   if (filters.offset) params.set("offset", String(filters.offset));
@@ -1233,8 +1235,12 @@ export async function generateCogsRows(): Promise<CogsLedgerListResponse> {
   return apiClient.post<CogsLedgerListResponse>("/v1/admin/inventory/valuation/cogs/generate", {});
 }
 
-export async function listCogsRows(): Promise<CogsLedgerListResponse> {
-  return apiClient.get<CogsLedgerListResponse>("/v1/admin/inventory/valuation/cogs");
+export async function listCogsRows(filters: { productId?: string; orderId?: string } = {}): Promise<CogsLedgerListResponse> {
+  const params = new URLSearchParams();
+  if (filters.productId) params.set("product_id", filters.productId);
+  if (filters.orderId) params.set("order_id", filters.orderId);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<CogsLedgerListResponse>(`/v1/admin/inventory/valuation/cogs${query}`);
 }
 
 export async function getInventoryClosePreview(periodStart: string, periodEnd: string): Promise<InventoryClosePreviewResponse> {
@@ -1242,8 +1248,21 @@ export async function getInventoryClosePreview(periodStart: string, periodEnd: s
   return apiClient.get<InventoryClosePreviewResponse>(`/v1/admin/inventory/valuation/close-preview?${params}`);
 }
 
-export async function listInventoryExceptions(): Promise<InventoryExceptionResponse[]> {
-  return apiClient.get<InventoryExceptionResponse[]>("/v1/admin/inventory/valuation/exceptions");
+export async function listInventoryExceptions(filters: {
+  targetType?: string;
+  targetId?: string;
+  sourceType?: string;
+  sourceId?: string;
+  orderId?: string;
+} = {}): Promise<InventoryExceptionResponse[]> {
+  const params = new URLSearchParams();
+  if (filters.targetType) params.set("target_type", filters.targetType);
+  if (filters.targetId) params.set("target_id", filters.targetId);
+  if (filters.sourceType) params.set("source_type", filters.sourceType);
+  if (filters.sourceId) params.set("source_id", filters.sourceId);
+  if (filters.orderId) params.set("order_id", filters.orderId);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<InventoryExceptionResponse[]>(`/v1/admin/inventory/valuation/exceptions${query}`);
 }
 
 // --- Accounting & Finance Hub ---

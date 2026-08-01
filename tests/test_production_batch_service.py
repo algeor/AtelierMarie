@@ -115,6 +115,7 @@ def test_batch_create_post_correct_and_traceability(batch_db):
     assert posted.status == "produced"
     assert posted.actual_output_quantity == 9
     assert posted.outputs[0].quantity == 9
+    assert posted.outputs[0].unit_cost_amount == "0.188889"
     assert {item.exception_type for item in posted.exceptions} == {
         "material_usage_variance",
         "produced_quantity_variance",
@@ -183,3 +184,118 @@ def test_batch_post_records_insufficient_material_exception(batch_db):
     assert result.status == "draft"
     assert result.exceptions[0].exception_type == "insufficient_materials"
     assert batch_db.execute("SELECT stock FROM products WHERE id = 'prod-batch'").fetchone()[0] == 0
+
+
+def test_posted_batch_decrements_lot_and_values_finished_output(batch_db):
+    material = inventory_service.create_material(
+        MaterialCreateRequest(
+            sku="BATCH-LOT-WAX",
+            name="Lot wax",
+            category="wax",
+            stock_uom="g",
+            lot_tracked=True,
+        )
+    )
+    receipt = inventory_service.create_material_receipt(
+        material.id,
+        MaterialReceiptRequest(
+            quantity=200,
+            uom="g",
+            total_cost_cents=2000,
+            supplier_lot="LOT-WAX-1",
+            document_reference="LOT-INV",
+        ),
+    )
+    recipe = inventory_service.create_recipe_version(
+        RecipeVersionCreateRequest(
+            product_id="prod-batch",
+            version_label="lot-v1",
+            effective_date="2026-09-01",
+            output_quantity=10,
+            components=[RecipeComponentRequest(material_id=material.id, quantity=100, uom="g")],
+        )
+    )
+    active_recipe_id = inventory_service.activate_recipe_version(recipe.id).id
+    batch = inventory_service.create_production_batch(
+        ProductionBatchCreateRequest(
+            batch_number="B-LOT-001",
+            product_id="prod-batch",
+            recipe_version_id=active_recipe_id,
+            planned_output_quantity=10,
+            production_date="2026-09-05",
+        )
+    )
+
+    posted = inventory_service.post_production_batch(
+        batch.id,
+        ProductionBatchPostRequest(
+            actual_output_quantity=10,
+            actual_consumption=[
+                ProductionBatchActualConsumptionRequest(
+                    batch_consumption_id=batch.consumption[0].id,
+                    material_id=material.id,
+                    material_lot_id=receipt.lot_id,
+                    actual_quantity=100,
+                )
+            ],
+        ),
+    )
+
+    assert posted.outputs[0].unit_cost_amount == "1.000000"
+    remaining = batch_db.execute(
+        "SELECT remaining_quantity_snapshot FROM material_lots WHERE id = ?",
+        (receipt.lot_id,),
+    ).fetchone()[0]
+    assert remaining == 100
+
+    layers = inventory_service.generate_valuation_layers()
+    output_layers = [
+        layer for layer in layers.layers
+        if layer.item_type == "finished_good" and layer.item_id == "prod-batch"
+    ]
+    assert output_layers[0].total_value_cents == 1000
+
+
+def test_batch_post_rejects_lot_for_different_material(batch_db):
+    wax_id = _material("BATCH-WAX-LOT-MISMATCH", "Batch wax", "wax", "g", 1000, 1000)
+    wick = inventory_service.create_material(
+        MaterialCreateRequest(sku="BATCH-WICK-LOT-MISMATCH", name="Batch wick", category="wick", stock_uom="piece")
+    )
+    wick_receipt = inventory_service.create_material_receipt(
+        wick.id,
+        MaterialReceiptRequest(quantity=100, uom="piece", total_cost_cents=500, supplier_lot="WICK-LOT"),
+    )
+    recipe = inventory_service.create_recipe_version(
+        RecipeVersionCreateRequest(
+            product_id="prod-batch",
+            version_label="lot-mismatch-v1",
+            effective_date="2026-09-01",
+            output_quantity=10,
+            components=[RecipeComponentRequest(material_id=wax_id, quantity=100, uom="g")],
+        )
+    )
+    batch = inventory_service.create_production_batch(
+        ProductionBatchCreateRequest(
+            batch_number="B-LOT-MISMATCH",
+            product_id="prod-batch",
+            recipe_version_id=inventory_service.activate_recipe_version(recipe.id).id,
+            planned_output_quantity=10,
+            production_date="2026-09-05",
+        )
+    )
+
+    with pytest.raises(inventory_service.InventoryValidationError):
+        inventory_service.post_production_batch(
+            batch.id,
+            ProductionBatchPostRequest(
+                actual_output_quantity=10,
+                actual_consumption=[
+                    ProductionBatchActualConsumptionRequest(
+                        batch_consumption_id=batch.consumption[0].id,
+                        material_id=wax_id,
+                        material_lot_id=wick_receipt.lot_id,
+                        actual_quantity=100,
+                    )
+                ],
+            ),
+        )

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
+import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
 import { Link } from "@/i18n/navigation";
 import {
   acceptAccountingExport,
@@ -433,9 +434,9 @@ export default function AdminAccountingPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
+        <div className="flex items-center gap-2">
           <h1 className="font-heading text-2xl font-semibold text-charcoal">{t("title")}</h1>
-          <p className="mt-1 max-w-3xl text-sm text-soft-brown">{t("subtitle")}</p>
+          <AdminInfoPopover content={t("subtitle")} />
         </div>
         <div className="flex flex-wrap gap-2">
           <select

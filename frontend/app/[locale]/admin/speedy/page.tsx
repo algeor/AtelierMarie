@@ -4,6 +4,7 @@ import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "re
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
+import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
 import {
   cancelSpeedyShipment,
   createSpeedyWaybill,
@@ -167,9 +168,9 @@ export default function AdminSpeedyPage() {
   return (
     <div className="max-w-7xl space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
+        <div className="flex items-center gap-2">
           <h1 className="font-heading text-2xl font-semibold text-charcoal">{t("title")}</h1>
-          <p className="mt-1 text-sm text-soft-brown">{t("subtitle")}</p>
+          <AdminInfoPopover content={t("subtitle")} />
         </div>
         <button
           type="button"

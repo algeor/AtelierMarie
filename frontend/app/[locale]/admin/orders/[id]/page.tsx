@@ -22,6 +22,7 @@ import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
 import { cn, formatPrice } from "@/lib/utils";
 import { DeliveryDetails } from "@/components/checkout/DeliveryDetails";
+import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
 import { EcontFulfillmentPanel } from "@/components/admin/EcontFulfillmentPanel";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
 import { StatusTimeline } from "@/components/orders/StatusTimeline";
@@ -833,13 +834,11 @@ export default function AdminOrderDetailPage() {
 
         <section className="border-t border-champagne-beige py-6">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
+            <div className="flex items-center gap-2">
               <h2 className="text-sm font-medium text-charcoal">
                 {tAdmin("manualPayment.title")}
               </h2>
-              <p className="mt-1 text-sm text-soft-brown">
-                {tAdmin("manualPayment.subtitle")}
-              </p>
+              <AdminInfoPopover content={tAdmin("manualPayment.subtitle")} />
             </div>
             <div className="flex flex-wrap gap-2">
               {availablePaymentActions(order).map((action) => (
@@ -938,13 +937,11 @@ export default function AdminOrderDetailPage() {
 
         <section className="border-t border-champagne-beige py-6">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
+            <div className="flex items-center gap-2">
               <h2 className="text-sm font-medium text-charcoal">
                 {tAdmin("accountingPanel.title")}
               </h2>
-              <p className="mt-1 text-sm text-soft-brown">
-                {tAdmin("accountingPanel.subtitle")}
-              </p>
+              <AdminInfoPopover content={tAdmin("accountingPanel.subtitle")} />
             </div>
             {order.finance_hub_links?.period_href && (
               <Link
@@ -1079,13 +1076,11 @@ export default function AdminOrderDetailPage() {
 
         {order.econt_cod_evidence && (
           <section className="mt-8 border-t border-champagne-beige pt-6">
-            <div className="mb-4">
+            <div className="mb-4 flex items-center gap-2">
               <h2 className="text-sm font-medium text-charcoal">
                 {tAdmin("econtCodEvidence.title")}
               </h2>
-              <p className="mt-1 text-sm text-soft-brown">
-                {tAdmin("econtCodEvidence.subtitle")}
-              </p>
+              <AdminInfoPopover content={tAdmin("econtCodEvidence.subtitle")} />
             </div>
             <dl className="grid gap-3 text-sm md:grid-cols-2">
               <div className="rounded-brand border border-champagne-beige bg-white p-3">
@@ -1123,13 +1118,11 @@ export default function AdminOrderDetailPage() {
         {isSpeedyOrder && (
           <section className="mt-8 border-t border-champagne-beige pt-6">
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
+              <div className="flex items-center gap-2">
                 <h2 className="text-sm font-medium text-charcoal">
                   {tAdmin("speedyFulfillment.title")}
                 </h2>
-                <p className="mt-1 text-sm text-soft-brown">
-                  {tAdmin("speedyFulfillment.subtitle")}
-                </p>
+                <AdminInfoPopover content={tAdmin("speedyFulfillment.subtitle")} />
               </div>
               <Link
                 href={`/admin/speedy?order_id=${order.id}`}
@@ -1192,13 +1185,11 @@ export default function AdminOrderDetailPage() {
 
         <section className="mt-8 border-t border-champagne-beige pt-6">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
+            <div className="flex items-center gap-2">
               <h2 className="text-sm font-medium text-charcoal">
                 {tAdmin("returnWorkflow.title")}
               </h2>
-              <p className="mt-1 text-sm text-soft-brown">
-                {tAdmin("returnWorkflow.subtitle")}
-              </p>
+              <AdminInfoPopover content={tAdmin("returnWorkflow.subtitle")} />
             </div>
             <div className="flex flex-wrap gap-2">
               <Button
@@ -1634,13 +1625,11 @@ export default function AdminOrderDetailPage() {
             onSubmit={handleManualActionSubmit}
             className="w-full max-w-md rounded-brand border border-champagne-beige bg-cream p-5 shadow-xl"
           >
-            <div className="mb-4">
+            <div className="mb-4 flex items-center gap-2">
               <h2 className="font-heading text-lg font-semibold text-charcoal">
                 {tAdmin(`manualPayment.actions.${manualAction}` as Parameters<typeof tAdmin>[0])}
               </h2>
-              <p className="mt-1 text-sm text-soft-brown">
-                {tAdmin("manualPayment.noteHelp")}
-              </p>
+              <AdminInfoPopover content={tAdmin("manualPayment.noteHelp")} />
             </div>
             {manualError && (
               <div className="mb-4 rounded-brand border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

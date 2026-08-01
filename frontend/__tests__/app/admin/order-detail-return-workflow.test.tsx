@@ -283,19 +283,19 @@ describe("Admin order return/refund workflow", () => {
     const user = userEvent.setup();
     renderWithIntl(<AdminOrderDetailPage />);
 
-    expect(await screen.findByText("Stripe refund")).toBeInTheDocument();
+    expect(await screen.findByText("Stripe money return")).toBeInTheDocument();
     expect(screen.getByText(/custom or personalized item policy/i)).toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Amount, cents"), "999999");
-    await user.click(screen.getByRole("button", { name: "Create refund" }));
+    await user.click(screen.getByRole("button", { name: "Return money" }));
 
     expect(await screen.findByText(/between 1 cent and the remaining refundable amount/i)).toBeInTheDocument();
     expect(mockedCreateStripeRefund).not.toHaveBeenCalled();
 
     await user.clear(screen.getByLabelText("Amount, cents"));
     await user.type(screen.getByLabelText("Amount, cents"), "1000");
-    await user.type(screen.getByLabelText("Refund reason"), "Returned item");
-    await user.click(screen.getByRole("button", { name: "Create refund" }));
+    await user.type(screen.getByLabelText("Reason for money return"), "Returned item");
+    await user.click(screen.getByRole("button", { name: "Return money" }));
 
     await waitFor(() =>
       expect(mockedCreateStripeRefund).toHaveBeenCalledWith("order-return-1", {
@@ -314,9 +314,9 @@ describe("Admin order return/refund workflow", () => {
 
     renderWithIntl(<AdminOrderDetailPage />);
 
-    await user.selectOptions(await screen.findByLabelText("Callback outcome"), "unreachable");
+    await user.selectOptions(await screen.findByLabelText("Call result"), "unreachable");
     await user.type(screen.getByLabelText("Admin note"), "Left voicemail");
-    await user.click(screen.getByRole("button", { name: "Record callback" }));
+    await user.click(screen.getByRole("button", { name: "Record call" }));
 
     await waitFor(() =>
       expect(mockedApplyManualPaymentAction).toHaveBeenCalledWith(
@@ -356,9 +356,9 @@ describe("Admin order return/refund workflow", () => {
     renderWithIntl(<AdminOrderDetailPage />);
 
     await user.type(await screen.findByLabelText("Courier fee, cents"), "650");
-    await user.type(screen.getByLabelText("Claim ID"), "CLM-123");
-    await user.selectOptions(screen.getByLabelText("Claim status"), "filed");
-    await user.type(screen.getByLabelText("Claim amount, cents"), "3000");
+    await user.type(screen.getByLabelText("Courier claim number"), "CLM-123");
+    await user.selectOptions(screen.getByLabelText("Courier claim status"), "filed");
+    await user.type(screen.getByLabelText("Courier claim amount, cents"), "3000");
     await user.click(screen.getByRole("button", { name: "Save accounting" }));
 
     await waitFor(() =>
@@ -373,10 +373,10 @@ describe("Admin order return/refund workflow", () => {
 
     await user.clear(screen.getByLabelText("Amount, cents"));
     await user.type(screen.getByLabelText("Amount, cents"), "5500");
-    await user.clear(screen.getByLabelText("Settlement date"));
-    await user.type(screen.getByLabelText("Settlement date"), "2026-08-01");
-    await user.type(screen.getByLabelText("Courier reference"), "COD-123");
-    await user.click(screen.getByRole("button", { name: "Record settlement" }));
+    await user.clear(screen.getByLabelText("Payment date"));
+    await user.type(screen.getByLabelText("Payment date"), "2026-08-01");
+    await user.type(screen.getByLabelText("Courier number"), "COD-123");
+    await user.click(screen.getByRole("button", { name: "Record payment" }));
 
     await waitFor(() =>
       expect(mockedRecordCodSettlement).toHaveBeenCalledWith("order-return-1", {

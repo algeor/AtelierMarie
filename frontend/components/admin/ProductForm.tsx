@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
 import { ApiError } from "@/lib/api-client";
 import { resolveMediaUrl } from "@/lib/media";
 import { getAdminTaxonomy } from "@/lib/api";
@@ -583,9 +584,9 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
       </div>
 
       <div className="space-y-4 rounded-brand border border-champagne-beige p-4">
-        <div>
+        <div className="flex items-center gap-2">
           <h2 className="font-heading text-lg text-charcoal">{t("safetySectionTitle")}</h2>
-          <p className="mt-1 text-xs text-soft-brown/70">{t("safetySectionHelp")}</p>
+          <AdminInfoPopover content={t("safetySectionHelp")} />
         </div>
         <div className="grid gap-6 sm:grid-cols-2">
           <div>
@@ -992,9 +993,9 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
 
       {/* Discount */}
       <div className="space-y-4 rounded-brand border border-champagne-beige p-4">
-        <div>
+        <div className="flex items-center gap-2">
           <h2 className="font-heading text-lg text-charcoal">{t("discount.title")}</h2>
-          <p className="mt-1 text-xs text-soft-brown/70">{t("discount.help")}</p>
+          <AdminInfoPopover content={t("discount.help")} />
         </div>
         <div className="grid gap-6 sm:grid-cols-3">
           <Input

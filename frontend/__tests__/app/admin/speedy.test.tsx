@@ -230,13 +230,13 @@ describe("AdminSpeedyPage", () => {
 
     renderWithIntl(<AdminSpeedyPage />);
     await user.click(await screen.findByRole("checkbox"));
-    await user.click(screen.getByRole("button", { name: "Get terms" }));
+    await user.click(screen.getByRole("button", { name: "Check details" }));
 
     expect(await screen.findByText("2026-08-02T14:00:00+03:00")).toBeInTheDocument();
     await user.type(screen.getByLabelText("Visit end time"), "17:00");
     await user.type(screen.getByLabelText("Contact name"), "Mira");
     await user.type(screen.getByLabelText("Phone"), "+359888123456");
-    await user.click(screen.getByRole("button", { name: "Request pickup" }));
+    await user.click(screen.getByRole("button", { name: "Request courier pickup" }));
 
     await waitFor(() => {
       expect(mockedRequestPickup).toHaveBeenCalledWith({
@@ -247,6 +247,6 @@ describe("AdminSpeedyPage", () => {
         phone: "+359888123456",
       });
     });
-    expect(await screen.findByText("Pickup requested")).toBeInTheDocument();
+    expect(await screen.findByText("Courier pickup requested")).toBeInTheDocument();
   });
 });

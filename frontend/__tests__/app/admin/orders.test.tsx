@@ -239,7 +239,7 @@ describe("Admin Orders List", () => {
       expect(screen.getByText("a***@example.com")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Missing COGS" }));
+    fireEvent.click(screen.getByRole("button", { name: "Missing sold cost" }));
 
     await waitFor(() => {
       expect(mockedGetAdminOrders).toHaveBeenCalledWith(

@@ -279,8 +279,8 @@ describe("Admin accounting frontend", () => {
   it("renders the finance hub overview and requires a reopen reason", async () => {
     renderWithIntl(<AdminAccountingPage />);
 
-    expect(await screen.findByText("Accounting & Finance Hub")).toBeInTheDocument();
-    expect(screen.getByText("Net sales")).toBeInTheDocument();
+    expect(await screen.findByText("Accounting and money")).toBeInTheDocument();
+    expect(screen.getByText("Sales after deductions")).toBeInTheDocument();
     api.closeFinancePeriod.mockRejectedValueOnce(new ApiError({ error: { code: "BLOCKING_EXCEPTIONS", message: "Blocking exceptions remain", details: null } }));
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(await screen.findByText("Blocking exceptions remain")).toBeInTheDocument();
@@ -291,7 +291,7 @@ describe("Admin accounting frontend", () => {
 
   it("supports exception actions, ledgers, exports, settings, expenses, and product costs", async () => {
     renderWithIntl(<AdminAccountingPage />);
-    await screen.findByText("Accounting & Finance Hub");
+    await screen.findByText("Accounting and money");
 
     fireEvent.click(screen.getByRole("button", { name: "Exceptions" }));
     expect(await screen.findByText("Missing document")).toBeInTheDocument();
@@ -302,15 +302,15 @@ describe("Admin accounting frontend", () => {
     fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
     await waitFor(() => expect(api.resolveFinanceException).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByRole("button", { name: "Ledgers" }));
+    fireEvent.click(screen.getByRole("button", { name: "Records" }));
     expect(await screen.findByText("AM-1001")).toBeInTheDocument();
     expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Date basis"), { target: { value: "payment_date" } });
     await waitFor(() => expect(api.getAccountingLedger).toHaveBeenLastCalledWith(period.id, "sales", { dateBasis: "payment_date", page: 1, limit: 50 }));
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() => expect(api.getAccountingLedger).toHaveBeenLastCalledWith(period.id, "sales", { dateBasis: "payment_date", page: 2, limit: 50 }));
-    fireEvent.click(screen.getByRole("button", { name: "COD/courier" }));
-    expect(await screen.findByText("No ledger rows.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Delivery payments" }));
+    expect(await screen.findByText("No records yet.")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Exports" }));
     expect(await screen.findByRole("link", { name: "Download XLSX" })).toHaveAttribute("href", "/download/export-1/xlsx");
@@ -339,14 +339,14 @@ describe("Admin accounting frontend", () => {
   it("shows order detail accounting documents and finance hub links", async () => {
     renderWithIntl(<AdminOrderDetailPage />);
 
-    expect(await screen.findByText("Accounting references")).toBeInTheDocument();
+    expect(await screen.findByText("Accounting documents")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Finance hub" })).toHaveAttribute("href", "/admin/accounting?period=period-2026-08");
     expect(screen.getByText("Readiness")).toBeInTheDocument();
     expect(screen.getByText("blocked")).toBeInTheDocument();
     expect(screen.getByText("INV-001")).toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText("Document number"), { target: { value: "FR-100" } });
-    fireEvent.change(screen.getByPlaceholderText("Gross cents"), { target: { value: "9000" } });
+    fireEvent.change(screen.getByPlaceholderText("Total amount, cents"), { target: { value: "9000" } });
     fireEvent.click(screen.getByRole("button", { name: "Add document" }));
 
     await waitFor(() => expect(api.createAccountingDocument).toHaveBeenCalledWith(expect.objectContaining({

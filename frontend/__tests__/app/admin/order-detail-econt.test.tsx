@@ -178,7 +178,7 @@ describe("Admin order Econt fulfillment", () => {
     await user.type(screen.getByLabelText("Package count"), "2");
     await user.type(screen.getByLabelText("Shipment description"), "Custom candle shipment");
     await user.selectOptions(screen.getByLabelText("Payment side"), "sender");
-    await user.click(screen.getByRole("button", { name: "Apply repairs" }));
+    await user.click(screen.getByRole("button", { name: "Save fixes" }));
 
     await waitFor(() => {
       expect(mockedRepairEcontOrder).toHaveBeenCalledWith("order-econt-1", {
@@ -254,11 +254,11 @@ describe("Admin order Econt fulfillment", () => {
 
     renderWithIntl(<AdminOrderDetailPage />);
 
-    expect(await screen.findByText("Econt COD evidence")).toBeInTheDocument();
+    expect(await screen.findByText("Econt payment proof")).toBeInTheDocument();
     expect(screen.getByText("25.00")).toBeInTheDocument();
     expect(screen.getByText("24.00")).toBeInTheDocument();
     expect(
-      screen.getByText(/does not replace the explicit settlement record/i),
+      screen.getByText(/Still record the final payment separately/i),
     ).toBeInTheDocument();
   });
 
@@ -309,9 +309,9 @@ describe("Admin order Econt fulfillment", () => {
 
     renderWithIntl(<AdminOrderDetailPage />);
 
-    await user.click(await screen.findByRole("button", { name: "Refresh trace" }));
+    await user.click(await screen.findByRole("button", { name: "Refresh tracking" }));
 
     await waitFor(() => expect(mockedRefreshEcontTrace).toHaveBeenCalledWith("order-econt-1"));
-    expect(await screen.findByText("Econt trace refreshed")).toBeInTheDocument();
+    expect(await screen.findByText("Econt tracking refreshed")).toBeInTheDocument();
   });
 });

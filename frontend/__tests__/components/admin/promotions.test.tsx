@@ -142,7 +142,7 @@ describe("CampaignsPanel", () => {
     // Confirmation dialog appears.
     const heading = await screen.findByText("Apply campaign discount?");
     const dialog = heading.closest("div")!;
-    expect(within(dialog).getByText(/Window: Always on/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Dates: Always on/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
 
     await waitFor(() => {
