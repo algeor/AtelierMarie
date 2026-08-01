@@ -1,15 +1,15 @@
 ## 1. Schema And Settings
 
-- [ ] 1.1 Add inventory settings table for ledger mode, valuation enabled state, method, COGS date basis, rounding policy, missing-cost behavior, review metadata, and timestamps.
-- [ ] 1.2 Add materials table with SKU/name/category, stock UOM, purchase UOM, conversion factor, supplier metadata, reorder threshold, active state, lot/expiry flags, and audit timestamps.
-- [ ] 1.3 Add material lots/receipts tables with supplier lot, expiry/use-by date, received quantity, unit cost, currency, supplier, expense/document references, review state, and audit fields.
-- [ ] 1.4 Add immutable inventory movement table with item type/id, movement type, quantity delta, UOM, source type/id, actor, reason, notes, reversal link, and timestamp.
-- [ ] 1.5 Add recipe/BOM version and component tables with product id, version status, effective date, output quantity, component quantities, UOM, wastage percent, substitute group, and review state.
-- [ ] 1.6 Add recipe cost snapshot table with material cost, packaging cost, optional labour/overhead estimates, unit cost, currency, source references, estimate/review labels, and timestamps.
-- [ ] 1.7 Add production batch, batch consumption, and finished output tables with batch number, product id, recipe version, planned/actual quantities, material lots, actual usage, waste, cost snapshots, and status.
-- [ ] 1.8 Add valuation layer, COGS ledger, inventory close, stock count, and inventory exception tables with review/audit metadata.
-- [ ] 1.9 Add indexes for movement item/date/source/type, material/category/active, recipe product/effective/status, batch product/status/date, valuation item/date, and COGS order/product/date.
-- [ ] 1.10 Add additive bootstrap migration that seeds valuation disabled and ledger mode setup state without changing existing checkout behavior.
+- [x] 1.1 Add inventory settings table for ledger mode, valuation enabled state, method, COGS date basis, rounding policy, missing-cost behavior, review metadata, and timestamps.
+- [x] 1.2 Add materials table with SKU/name/category, stock UOM, purchase UOM, conversion factor, supplier metadata, reorder threshold, active state, lot/expiry flags, and audit timestamps.
+- [x] 1.3 Add material lots/receipts tables with supplier lot, expiry/use-by date, received quantity, unit cost, currency, supplier, expense/document references, review state, and audit fields.
+- [x] 1.4 Add immutable inventory movement table with item type/id, movement type, quantity delta, UOM, source type/id, actor, reason, notes, reversal link, and timestamp.
+- [x] 1.5 Add recipe/BOM version and component tables with product id, version status, effective date, output quantity, component quantities, UOM, wastage percent, substitute group, and review state.
+- [x] 1.6 Add recipe cost snapshot table with material cost, packaging cost, optional labour/overhead estimates, unit cost, currency, source references, estimate/review labels, and timestamps.
+- [x] 1.7 Add production batch, batch consumption, and finished output tables with batch number, product id, recipe version, planned/actual quantities, material lots, actual usage, waste, cost snapshots, and status.
+- [x] 1.8 Add valuation layer, COGS ledger, inventory close, stock count, and inventory exception tables with review/audit metadata.
+- [x] 1.9 Add indexes for movement item/date/source/type, material/category/active, recipe product/effective/status, batch product/status/date, valuation item/date, and COGS order/product/date.
+- [x] 1.10 Add additive bootstrap migration that seeds valuation disabled and ledger mode setup state without changing existing checkout behavior.
 
 ## 2. Material Inventory Backend
 
@@ -93,7 +93,7 @@
 
 ## 9. Backend Tests
 
-- [ ] 9.1 Add migration/schema tests for all new inventory, recipe, production, valuation, COGS, and exception tables.
+- [x] 9.1 Add migration/schema tests for all new inventory, recipe, production, valuation, COGS, and exception tables.
 - [ ] 9.2 Add material service tests for CRUD, receipts, lots, UOM conversion, movements, write-offs, stock counts, reorder status, and admin access.
 - [ ] 9.3 Add recipe/BOM tests for version lifecycle, component validation, cost snapshots, review state, diagnostics, and inactive material warnings.
 - [ ] 9.4 Add production batch tests for draft creation, expected consumption, posting, material movement creation, finished stock movement creation, variances, corrections, and traceability.

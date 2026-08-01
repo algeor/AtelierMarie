@@ -611,6 +611,423 @@ CREATE TABLE IF NOT EXISTS product_cost_settings (
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS inventory_settings (
+    id          TEXT PRIMARY KEY DEFAULT 'default' CHECK (id = 'default'),
+    ledger_mode TEXT NOT NULL DEFAULT 'setup' CHECK (ledger_mode IN (
+                    'legacy', 'setup', 'ledger_managed'
+                )),
+    valuation_enabled INTEGER NOT NULL DEFAULT 0 CHECK (valuation_enabled IN (0, 1)),
+    valuation_method TEXT NOT NULL DEFAULT 'weighted_average' CHECK (valuation_method IN (
+                    'weighted_average', 'fifo'
+                )),
+    cogs_date_basis TEXT NOT NULL DEFAULT 'order_date' CHECK (cogs_date_basis IN (
+                    'order_date', 'payment_date', 'shipment_date',
+                    'delivery_date', 'period_close'
+                )),
+    rounding_policy TEXT NOT NULL DEFAULT 'half_up_2dp' CHECK (rounding_policy IN (
+                    'half_up_2dp', 'half_up_4dp'
+                )),
+    missing_cost_behavior TEXT NOT NULL DEFAULT 'block_official' CHECK (
+                    missing_cost_behavior IN ('allow_estimate', 'warn', 'block_official')
+                ),
+    included_cost_components_json TEXT,
+    write_off_mapping_json TEXT,
+    currency TEXT NOT NULL DEFAULT 'EUR',
+    settings_version INTEGER NOT NULL DEFAULT 1 CHECK (settings_version >= 1),
+    accountant_reviewed INTEGER NOT NULL DEFAULT 0 CHECK (accountant_reviewed IN (0, 1)),
+    reviewed_by_admin_id TEXT,
+    reviewed_by_name TEXT,
+    reviewed_at TEXT,
+    review_notes TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS product_inventory_profiles (
+    product_id  TEXT PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
+    inventory_mode TEXT NOT NULL DEFAULT 'legacy' CHECK (inventory_mode IN (
+                    'legacy', 'fallback', 'ledger_managed'
+                )),
+    stock_source TEXT NOT NULL DEFAULT 'product_stock' CHECK (stock_source IN (
+                    'product_stock', 'inventory_ledger', 'mixed'
+                )),
+    requires_recipe INTEGER NOT NULL DEFAULT 0 CHECK (requires_recipe IN (0, 1)),
+    opening_balance_state TEXT NOT NULL DEFAULT 'unreviewed' CHECK (
+                    opening_balance_state IN ('not_required', 'unreviewed', 'reviewed', 'blocked')
+                ),
+    latest_batch_id TEXT REFERENCES production_batches(id) ON DELETE SET NULL,
+    valuation_readiness TEXT NOT NULL DEFAULT 'setup_required' CHECK (
+                    valuation_readiness IN ('setup_required', 'estimate_only', 'ready', 'blocked')
+                ),
+    notes TEXT,
+    created_by_admin_id TEXT,
+    updated_by_admin_id TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS materials (
+    id          TEXT PRIMARY KEY,
+    sku         TEXT UNIQUE,
+    name        TEXT NOT NULL,
+    category    TEXT NOT NULL DEFAULT 'material',
+    stock_uom   TEXT NOT NULL,
+    purchase_uom TEXT,
+    purchase_to_stock_factor REAL CHECK (
+                    purchase_to_stock_factor IS NULL OR purchase_to_stock_factor > 0
+                ),
+    preferred_supplier_name TEXT,
+    preferred_supplier_sku TEXT,
+    reorder_threshold REAL CHECK (reorder_threshold IS NULL OR reorder_threshold >= 0),
+    active      INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+    lot_tracked INTEGER NOT NULL DEFAULT 0 CHECK (lot_tracked IN (0, 1)),
+    expiry_tracked INTEGER NOT NULL DEFAULT 0 CHECK (expiry_tracked IN (0, 1)),
+    evidence_required INTEGER NOT NULL DEFAULT 0 CHECK (evidence_required IN (0, 1)),
+    notes TEXT,
+    created_by_admin_id TEXT,
+    updated_by_admin_id TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS material_receipts (
+    id          TEXT PRIMARY KEY,
+    material_id TEXT NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+    receipt_date TEXT NOT NULL DEFAULT (date('now')),
+    quantity    REAL NOT NULL CHECK (quantity > 0),
+    uom         TEXT NOT NULL,
+    stock_quantity REAL NOT NULL CHECK (stock_quantity > 0),
+    stock_uom   TEXT NOT NULL,
+    unit_cost_amount TEXT,
+    total_cost_cents INTEGER CHECK (total_cost_cents IS NULL OR total_cost_cents >= 0),
+    currency    TEXT NOT NULL DEFAULT 'EUR',
+    supplier_name TEXT,
+    supplier_lot TEXT,
+    expiry_date TEXT,
+    use_by_date TEXT,
+    expense_evidence_id TEXT REFERENCES expense_evidence(id) ON DELETE SET NULL,
+    document_reference TEXT,
+    review_state TEXT NOT NULL DEFAULT 'draft' CHECK (review_state IN (
+                    'draft', 'needs_review', 'reviewed', 'rejected'
+                )),
+    created_by_admin_id TEXT,
+    updated_by_admin_id TEXT,
+    notes TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS material_lots (
+    id          TEXT PRIMARY KEY,
+    material_id TEXT NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+    receipt_id  TEXT REFERENCES material_receipts(id) ON DELETE SET NULL,
+    supplier_lot TEXT,
+    expiry_date TEXT,
+    use_by_date TEXT,
+    received_quantity REAL NOT NULL CHECK (received_quantity > 0),
+    stock_uom   TEXT NOT NULL,
+    remaining_quantity_snapshot REAL CHECK (
+                    remaining_quantity_snapshot IS NULL OR remaining_quantity_snapshot >= 0
+                ),
+    unit_cost_amount TEXT,
+    currency    TEXT NOT NULL DEFAULT 'EUR',
+    supplier_name TEXT,
+    review_state TEXT NOT NULL DEFAULT 'draft' CHECK (review_state IN (
+                    'draft', 'needs_review', 'reviewed', 'rejected'
+                )),
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS inventory_movements (
+    id          TEXT PRIMARY KEY,
+    item_type   TEXT NOT NULL CHECK (item_type IN ('material', 'finished_good')),
+    item_id     TEXT NOT NULL,
+    movement_type TEXT NOT NULL CHECK (movement_type IN (
+                    'receipt', 'opening_balance', 'production_consumption',
+                    'production_output', 'sale_issue', 'cancellation_reversal',
+                    'return_restock', 'return_write_off', 'adjustment', 'spoilage',
+                    'write_off', 'stock_count_correction', 'valuation_adjustment',
+                    'reversal'
+                )),
+    quantity_delta REAL NOT NULL CHECK (quantity_delta != 0),
+    uom         TEXT NOT NULL,
+    source_type TEXT,
+    source_id   TEXT,
+    material_lot_id TEXT REFERENCES material_lots(id) ON DELETE SET NULL,
+    product_id  TEXT REFERENCES products(id) ON DELETE SET NULL,
+    order_id    TEXT REFERENCES orders(id) ON DELETE SET NULL,
+    order_item_key TEXT,
+    actor_user_id TEXT,
+    actor_email TEXT,
+    reason      TEXT,
+    notes       TEXT,
+    reversal_of_movement_id TEXT REFERENCES inventory_movements(id) ON DELETE SET NULL,
+    review_state TEXT NOT NULL DEFAULT 'unreviewed' CHECK (review_state IN (
+                    'unreviewed', 'reviewed', 'estimate', 'official', 'reversed'
+                )),
+    metadata_json TEXT,
+    occurred_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS recipe_versions (
+    id          TEXT PRIMARY KEY,
+    product_id  TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    version_label TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'draft' CHECK (status IN (
+                    'draft', 'active', 'archived'
+                )),
+    effective_date TEXT NOT NULL,
+    output_quantity REAL NOT NULL CHECK (output_quantity > 0),
+    output_uom  TEXT NOT NULL DEFAULT 'unit',
+    review_state TEXT NOT NULL DEFAULT 'estimate' CHECK (review_state IN (
+                    'estimate', 'reviewed', 'accountant_reviewed', 'invalid'
+                )),
+    accountant_reviewed INTEGER NOT NULL DEFAULT 0 CHECK (accountant_reviewed IN (0, 1)),
+    reviewed_by_admin_id TEXT,
+    reviewed_at TEXT,
+    notes TEXT,
+    created_by_admin_id TEXT,
+    updated_by_admin_id TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (product_id, version_label)
+);
+
+CREATE TABLE IF NOT EXISTS recipe_components (
+    id          TEXT PRIMARY KEY,
+    recipe_version_id TEXT NOT NULL REFERENCES recipe_versions(id) ON DELETE CASCADE,
+    material_id TEXT NOT NULL REFERENCES materials(id) ON DELETE RESTRICT,
+    quantity    REAL NOT NULL CHECK (quantity > 0),
+    uom         TEXT NOT NULL,
+    quantity_basis TEXT NOT NULL DEFAULT 'per_batch' CHECK (quantity_basis IN (
+                    'per_unit', 'per_batch'
+                )),
+    wastage_percent REAL NOT NULL DEFAULT 0 CHECK (wastage_percent >= 0),
+    required    INTEGER NOT NULL DEFAULT 1 CHECK (required IN (0, 1)),
+    substitute_group TEXT,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    review_state TEXT NOT NULL DEFAULT 'valid' CHECK (review_state IN (
+                    'valid', 'warning', 'invalid'
+                )),
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS recipe_cost_snapshots (
+    id          TEXT PRIMARY KEY,
+    recipe_version_id TEXT NOT NULL REFERENCES recipe_versions(id) ON DELETE CASCADE,
+    currency    TEXT NOT NULL DEFAULT 'EUR',
+    material_cost_cents INTEGER NOT NULL DEFAULT 0 CHECK (material_cost_cents >= 0),
+    packaging_cost_cents INTEGER NOT NULL DEFAULT 0 CHECK (packaging_cost_cents >= 0),
+    labor_cost_cents INTEGER NOT NULL DEFAULT 0 CHECK (labor_cost_cents >= 0),
+    overhead_cost_cents INTEGER NOT NULL DEFAULT 0 CHECK (overhead_cost_cents >= 0),
+    batch_cost_cents INTEGER NOT NULL DEFAULT 0 CHECK (batch_cost_cents >= 0),
+    expected_unit_cost_cents INTEGER NOT NULL DEFAULT 0 CHECK (expected_unit_cost_cents >= 0),
+    source_cost_references_json TEXT,
+    missing_cost_count INTEGER NOT NULL DEFAULT 0 CHECK (missing_cost_count >= 0),
+    estimate_label TEXT NOT NULL DEFAULT 'management_estimate',
+    review_state TEXT NOT NULL DEFAULT 'estimate' CHECK (review_state IN (
+                    'estimate', 'incomplete', 'reviewed', 'accountant_reviewed'
+                )),
+    calculated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_by_admin_id TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS production_batches (
+    id          TEXT PRIMARY KEY,
+    batch_number TEXT NOT NULL UNIQUE,
+    product_id  TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+    recipe_version_id TEXT REFERENCES recipe_versions(id) ON DELETE SET NULL,
+    planned_output_quantity REAL NOT NULL CHECK (planned_output_quantity > 0),
+    actual_output_quantity REAL CHECK (actual_output_quantity IS NULL OR actual_output_quantity >= 0),
+    output_uom  TEXT NOT NULL DEFAULT 'unit',
+    status      TEXT NOT NULL DEFAULT 'draft' CHECK (status IN (
+                    'draft', 'produced', 'cancelled'
+                )),
+    production_date TEXT NOT NULL,
+    ready_date TEXT,
+    cost_snapshot_id TEXT REFERENCES recipe_cost_snapshots(id) ON DELETE SET NULL,
+    variance_review_state TEXT NOT NULL DEFAULT 'not_reviewed' CHECK (
+                    variance_review_state IN ('not_reviewed', 'warning', 'reviewed')
+                ),
+    actor_user_id TEXT,
+    notes TEXT,
+    created_by_admin_id TEXT,
+    updated_by_admin_id TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS production_batch_consumption (
+    id          TEXT PRIMARY KEY,
+    production_batch_id TEXT NOT NULL REFERENCES production_batches(id) ON DELETE CASCADE,
+    recipe_component_id TEXT REFERENCES recipe_components(id) ON DELETE SET NULL,
+    material_id TEXT NOT NULL REFERENCES materials(id) ON DELETE RESTRICT,
+    material_lot_id TEXT REFERENCES material_lots(id) ON DELETE SET NULL,
+    expected_quantity REAL CHECK (expected_quantity IS NULL OR expected_quantity >= 0),
+    actual_quantity REAL CHECK (actual_quantity IS NULL OR actual_quantity >= 0),
+    waste_quantity REAL NOT NULL DEFAULT 0 CHECK (waste_quantity >= 0),
+    uom         TEXT NOT NULL,
+    unit_cost_amount TEXT,
+    currency    TEXT NOT NULL DEFAULT 'EUR',
+    movement_id TEXT REFERENCES inventory_movements(id) ON DELETE SET NULL,
+    review_state TEXT NOT NULL DEFAULT 'draft' CHECK (review_state IN (
+                    'draft', 'needs_review', 'reviewed', 'rejected'
+                )),
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS production_batch_outputs (
+    id          TEXT PRIMARY KEY,
+    production_batch_id TEXT NOT NULL REFERENCES production_batches(id) ON DELETE CASCADE,
+    product_id  TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+    batch_number TEXT NOT NULL,
+    quantity    REAL NOT NULL CHECK (quantity > 0),
+    uom         TEXT NOT NULL DEFAULT 'unit',
+    unit_cost_amount TEXT,
+    currency    TEXT NOT NULL DEFAULT 'EUR',
+    movement_id TEXT REFERENCES inventory_movements(id) ON DELETE SET NULL,
+    remaining_quantity_snapshot REAL CHECK (
+                    remaining_quantity_snapshot IS NULL OR remaining_quantity_snapshot >= 0
+                ),
+    valuation_review_state TEXT NOT NULL DEFAULT 'estimate' CHECK (
+                    valuation_review_state IN ('estimate', 'reviewed', 'official')
+                ),
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS inventory_valuation_layers (
+    id          TEXT PRIMARY KEY,
+    movement_id TEXT REFERENCES inventory_movements(id) ON DELETE SET NULL,
+    item_type   TEXT NOT NULL CHECK (item_type IN ('material', 'finished_good')),
+    item_id     TEXT NOT NULL,
+    quantity    REAL NOT NULL CHECK (quantity != 0),
+    unit_value_amount TEXT,
+    total_value_cents INTEGER CHECK (total_value_cents IS NULL OR total_value_cents >= 0),
+    currency    TEXT NOT NULL DEFAULT 'EUR',
+    valuation_method TEXT NOT NULL CHECK (valuation_method IN (
+                    'weighted_average', 'fifo', 'revaluation'
+                )),
+    source_type TEXT,
+    source_id   TEXT,
+    valuation_date TEXT NOT NULL,
+    review_state TEXT NOT NULL DEFAULT 'estimate' CHECK (review_state IN (
+                    'estimate', 'reviewed', 'official', 'reversed'
+                )),
+    method_metadata_json TEXT,
+    reversal_layer_id TEXT REFERENCES inventory_valuation_layers(id) ON DELETE SET NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS cogs_ledger (
+    id          TEXT PRIMARY KEY,
+    order_id    TEXT REFERENCES orders(id) ON DELETE SET NULL,
+    order_number TEXT,
+    order_item_key TEXT,
+    product_id  TEXT REFERENCES products(id) ON DELETE SET NULL,
+    quantity_sold REAL NOT NULL CHECK (quantity_sold > 0),
+    cogs_date   TEXT NOT NULL,
+    unit_cost_amount TEXT,
+    total_cost_cents INTEGER NOT NULL CHECK (total_cost_cents >= 0),
+    currency    TEXT NOT NULL DEFAULT 'EUR',
+    valuation_method TEXT NOT NULL CHECK (valuation_method IN ('weighted_average', 'fifo')),
+    source_movement_id TEXT REFERENCES inventory_movements(id) ON DELETE SET NULL,
+    source_valuation_layer_id TEXT REFERENCES inventory_valuation_layers(id) ON DELETE SET NULL,
+    source_finished_batch_id TEXT REFERENCES production_batches(id) ON DELETE SET NULL,
+    review_state TEXT NOT NULL DEFAULT 'estimate' CHECK (review_state IN (
+                    'estimate', 'reviewed', 'official', 'reversed'
+                )),
+    reversal_cogs_id TEXT REFERENCES cogs_ledger(id) ON DELETE SET NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS inventory_closes (
+    id          TEXT PRIMARY KEY,
+    period_id   TEXT REFERENCES finance_periods(id) ON DELETE SET NULL,
+    period_start TEXT NOT NULL,
+    period_end   TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'draft' CHECK (status IN (
+                    'draft', 'reviewed', 'closed', 'blocked'
+                )),
+    currency    TEXT NOT NULL DEFAULT 'EUR',
+    valuation_method TEXT NOT NULL CHECK (valuation_method IN ('weighted_average', 'fifo')),
+    policy_snapshot_json TEXT,
+    opening_value_cents INTEGER NOT NULL DEFAULT 0 CHECK (opening_value_cents >= 0),
+    receipts_value_cents INTEGER NOT NULL DEFAULT 0 CHECK (receipts_value_cents >= 0),
+    production_consumption_value_cents INTEGER NOT NULL DEFAULT 0 CHECK (production_consumption_value_cents >= 0),
+    finished_output_value_cents INTEGER NOT NULL DEFAULT 0 CHECK (finished_output_value_cents >= 0),
+    sales_cogs_value_cents INTEGER NOT NULL DEFAULT 0 CHECK (sales_cogs_value_cents >= 0),
+    returns_value_cents INTEGER NOT NULL DEFAULT 0 CHECK (returns_value_cents >= 0),
+    adjustments_value_cents INTEGER NOT NULL DEFAULT 0 CHECK (adjustments_value_cents >= 0),
+    ending_value_cents INTEGER NOT NULL DEFAULT 0 CHECK (ending_value_cents >= 0),
+    exception_count INTEGER NOT NULL DEFAULT 0 CHECK (exception_count >= 0),
+    official INTEGER NOT NULL DEFAULT 0 CHECK (official IN (0, 1)),
+    reviewed_by_admin_id TEXT,
+    reviewed_at TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK (period_start <= period_end)
+);
+
+CREATE TABLE IF NOT EXISTS stock_counts (
+    id          TEXT PRIMARY KEY,
+    count_date  TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'draft' CHECK (status IN (
+                    'draft', 'posted', 'cancelled'
+                )),
+    scope_notes TEXT,
+    created_by_admin_id TEXT,
+    posted_by_admin_id TEXT,
+    posted_at TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS stock_count_lines (
+    id          TEXT PRIMARY KEY,
+    stock_count_id TEXT NOT NULL REFERENCES stock_counts(id) ON DELETE CASCADE,
+    item_type   TEXT NOT NULL CHECK (item_type IN ('material', 'finished_good')),
+    item_id     TEXT NOT NULL,
+    expected_quantity REAL CHECK (expected_quantity IS NULL OR expected_quantity >= 0),
+    counted_quantity REAL NOT NULL CHECK (counted_quantity >= 0),
+    variance_quantity REAL,
+    uom         TEXT NOT NULL,
+    correction_movement_id TEXT REFERENCES inventory_movements(id) ON DELETE SET NULL,
+    reason      TEXT,
+    review_state TEXT NOT NULL DEFAULT 'draft' CHECK (review_state IN (
+                    'draft', 'needs_review', 'reviewed'
+                )),
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS inventory_exceptions (
+    id          TEXT PRIMARY KEY,
+    period_id   TEXT REFERENCES finance_periods(id) ON DELETE CASCADE,
+    exception_type TEXT NOT NULL,
+    severity    TEXT NOT NULL DEFAULT 'blocking' CHECK (severity IN ('blocking', 'warning')),
+    target_type TEXT,
+    target_id   TEXT,
+    source_type TEXT,
+    source_id   TEXT,
+    status      TEXT NOT NULL DEFAULT 'open' CHECK (status IN (
+                    'open', 'resolved', 'waived'
+                )),
+    message     TEXT NOT NULL,
+    details_json TEXT,
+    created_by_admin_id TEXT,
+    resolved_by_admin_id TEXT,
+    resolved_at TEXT,
+    waived_by_admin_id TEXT,
+    waiver_reason TEXT,
+    waived_at TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS accounting_documents (
     id          TEXT PRIMARY KEY,
     document_type TEXT NOT NULL CHECK (document_type IN (
@@ -884,6 +1301,52 @@ CREATE INDEX IF NOT EXISTS idx_product_cost_versions_product_effective
     ON product_cost_versions(product_id, effective_date);
 CREATE INDEX IF NOT EXISTS idx_product_cost_components_version
     ON product_cost_components(cost_version_id);
+CREATE INDEX IF NOT EXISTS idx_product_inventory_profiles_mode
+    ON product_inventory_profiles(inventory_mode, valuation_readiness);
+CREATE INDEX IF NOT EXISTS idx_materials_category_active
+    ON materials(category, active);
+CREATE INDEX IF NOT EXISTS idx_material_receipts_material_date
+    ON material_receipts(material_id, receipt_date);
+CREATE INDEX IF NOT EXISTS idx_material_lots_material_expiry
+    ON material_lots(material_id, expiry_date);
+CREATE INDEX IF NOT EXISTS idx_inventory_movements_item_date
+    ON inventory_movements(item_type, item_id, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_inventory_movements_source
+    ON inventory_movements(source_type, source_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_movements_type_date
+    ON inventory_movements(movement_type, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_recipe_versions_product_effective_status
+    ON recipe_versions(product_id, effective_date, status);
+CREATE INDEX IF NOT EXISTS idx_recipe_components_version_sort
+    ON recipe_components(recipe_version_id, sort_order);
+CREATE INDEX IF NOT EXISTS idx_recipe_components_material
+    ON recipe_components(material_id);
+CREATE INDEX IF NOT EXISTS idx_recipe_cost_snapshots_version_calculated
+    ON recipe_cost_snapshots(recipe_version_id, calculated_at);
+CREATE INDEX IF NOT EXISTS idx_production_batches_product_status_date
+    ON production_batches(product_id, status, production_date);
+CREATE INDEX IF NOT EXISTS idx_production_batch_consumption_batch
+    ON production_batch_consumption(production_batch_id);
+CREATE INDEX IF NOT EXISTS idx_production_batch_consumption_lot
+    ON production_batch_consumption(material_lot_id);
+CREATE INDEX IF NOT EXISTS idx_production_batch_outputs_product_batch
+    ON production_batch_outputs(product_id, batch_number);
+CREATE INDEX IF NOT EXISTS idx_inventory_valuation_layers_item_date
+    ON inventory_valuation_layers(item_type, item_id, valuation_date);
+CREATE INDEX IF NOT EXISTS idx_inventory_valuation_layers_movement
+    ON inventory_valuation_layers(movement_id);
+CREATE INDEX IF NOT EXISTS idx_cogs_ledger_order_product_date
+    ON cogs_ledger(order_id, product_id, cogs_date);
+CREATE INDEX IF NOT EXISTS idx_cogs_ledger_product_date
+    ON cogs_ledger(product_id, cogs_date);
+CREATE INDEX IF NOT EXISTS idx_inventory_closes_period
+    ON inventory_closes(period_id, period_start, period_end);
+CREATE INDEX IF NOT EXISTS idx_stock_count_lines_item
+    ON stock_count_lines(item_type, item_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_exceptions_target
+    ON inventory_exceptions(target_type, target_id, status);
+CREATE INDEX IF NOT EXISTS idx_inventory_exceptions_period_status
+    ON inventory_exceptions(period_id, status, severity);
 CREATE INDEX IF NOT EXISTS idx_finance_exceptions_period_status
     ON finance_exceptions(period_id, status, severity);
 CREATE INDEX IF NOT EXISTS idx_finance_exceptions_target
@@ -1261,6 +1724,78 @@ CREATE TRIGGER IF NOT EXISTS product_cost_settings_updated_at
 AFTER UPDATE ON product_cost_settings
 BEGIN
     UPDATE product_cost_settings SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS inventory_settings_updated_at
+AFTER UPDATE ON inventory_settings
+BEGIN
+    UPDATE inventory_settings SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS product_inventory_profiles_updated_at
+AFTER UPDATE ON product_inventory_profiles
+BEGIN
+    UPDATE product_inventory_profiles SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS materials_updated_at
+AFTER UPDATE ON materials
+BEGIN
+    UPDATE materials SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS material_receipts_updated_at
+AFTER UPDATE ON material_receipts
+BEGIN
+    UPDATE material_receipts SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS material_lots_updated_at
+AFTER UPDATE ON material_lots
+BEGIN
+    UPDATE material_lots SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS recipe_versions_updated_at
+AFTER UPDATE ON recipe_versions
+BEGIN
+    UPDATE recipe_versions SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS recipe_components_updated_at
+AFTER UPDATE ON recipe_components
+BEGIN
+    UPDATE recipe_components SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS production_batches_updated_at
+AFTER UPDATE ON production_batches
+BEGIN
+    UPDATE production_batches SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS production_batch_consumption_updated_at
+AFTER UPDATE ON production_batch_consumption
+BEGIN
+    UPDATE production_batch_consumption SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS inventory_closes_updated_at
+AFTER UPDATE ON inventory_closes
+BEGIN
+    UPDATE inventory_closes SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS stock_counts_updated_at
+AFTER UPDATE ON stock_counts
+BEGIN
+    UPDATE stock_counts SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS inventory_exceptions_updated_at
+AFTER UPDATE ON inventory_exceptions
+BEGIN
+    UPDATE inventory_exceptions SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
 END;
 
 CREATE TRIGGER IF NOT EXISTS accounting_documents_updated_at AFTER UPDATE ON accounting_documents
@@ -1665,6 +2200,7 @@ def init_db(path: str) -> None:
         _seed_site_banner(conn)
         _seed_delivery_settings(conn)
         _seed_econt_settings(conn)
+        _seed_inventory_settings(conn)
         _seed_about_content(conn)
         _migrate_faq(conn)
         _migrate_faq_returns_policy_reference(conn)
@@ -1745,6 +2281,27 @@ def _seed_econt_settings(conn: sqlite3.Connection) -> None:
         INSERT OR IGNORE INTO econt_settings (id)
         VALUES ('default')
         """
+    )
+
+
+def _seed_inventory_settings(conn: sqlite3.Connection) -> None:
+    """Seed inventory in setup mode with official valuation disabled."""
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO inventory_settings (
+            id, ledger_mode, valuation_enabled, valuation_method,
+            cogs_date_basis, rounding_policy, missing_cost_behavior,
+            currency, settings_version, accountant_reviewed
+        ) VALUES (
+            'default', 'setup', 0, 'weighted_average',
+            'order_date', 'half_up_2dp', 'block_official',
+            'EUR', 1, 0
+        )
+        """
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)",
+        ("inventory_settings_bootstrap_v1",),
     )
 
 
