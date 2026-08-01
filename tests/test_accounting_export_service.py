@@ -30,7 +30,8 @@ def _seed_reviewed_settings(db: sqlite3.Connection) -> tuple[int, int]:
 
 def _seed_paid_order(db: sqlite3.Connection, app, *, seller_id: int, vat_id: int) -> None:
     db.execute(
-        "INSERT OR IGNORE INTO products (id, name_en, price_cents, stock) VALUES ('export-candle', 'Export Candle', 1000, 10)"
+        "INSERT OR IGNORE INTO products (id, name_en, price_cents, stock) "
+        "VALUES ('export-candle', 'Export Candle', 1000, 10)"
     )
     db.execute(
         """

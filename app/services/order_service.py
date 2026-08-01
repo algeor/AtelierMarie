@@ -1906,7 +1906,8 @@ def list_orders_admin(
         )
     elif accounting_filter == "vat_review_required":
         conditions.append(
-            "accounting_classification_state IN ('cross_border_candidate', 'manual_review_required')"
+            "accounting_classification_state IN "
+            "('cross_border_candidate', 'manual_review_required')"
         )
     elif accounting_filter == "missing_inventory_movement":
         conditions.append(
@@ -2227,7 +2228,9 @@ def update_status(
                     _insert_inventory_exception(
                         conn,
                         exception_type="missing_sale_issue_movement",
-                        message="Ledger-managed order cancellation has no original sale issue movement.",
+                        message=(
+                            "Ledger-managed order cancellation has no original sale issue movement."
+                        ),
                         target_type="order",
                         target_id=order_id,
                         source_type="order_item",

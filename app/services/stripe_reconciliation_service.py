@@ -113,7 +113,8 @@ def _normalize_import_row(row: dict[str, Any]) -> dict[str, Any]:
 
 def _tolerance_cents(conn: sqlite3.Connection) -> int:
     row = conn.execute(
-        "SELECT tolerance_cents FROM vat_fiscal_settings_versions ORDER BY effective_date DESC, id DESC LIMIT 1"
+        "SELECT tolerance_cents FROM vat_fiscal_settings_versions "
+        "ORDER BY effective_date DESC, id DESC LIMIT 1"
     ).fetchone()
     return int(row["tolerance_cents"] or 0) if row else 1
 

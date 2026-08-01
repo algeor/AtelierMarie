@@ -151,7 +151,8 @@ def _settings_rows() -> list[dict[str, object]]:
 
 def _exception_rows(conn: sqlite3.Connection, period_id: str) -> list[dict[str, object]]:
     rows = conn.execute(
-        "SELECT * FROM finance_exceptions WHERE period_id = ? ORDER BY status, severity, created_at",
+        "SELECT * FROM finance_exceptions WHERE period_id = ? "
+        "ORDER BY status, severity, created_at",
         (period_id,),
     ).fetchall()
     return [{key: row[key] for key in row.keys()} for row in rows]
@@ -426,7 +427,8 @@ def generate_export_package(
                 "Final export packages can only be generated for closed finance periods.",
             )
         version_row = conn.execute(
-            "SELECT COALESCE(MAX(version), 0) + 1 AS next_version FROM finance_export_packages WHERE period_id = ?",
+            "SELECT COALESCE(MAX(version), 0) + 1 AS next_version "
+            "FROM finance_export_packages WHERE period_id = ?",
             (period_id,),
         ).fetchone()
         version = int(version_row["next_version"])
@@ -499,7 +501,8 @@ def generate_export_package(
             ),
         )
         conn.execute(
-            "UPDATE finance_periods SET status = 'exported', updated_by_admin_id = ?, updated_at = ? WHERE id = ?",
+            "UPDATE finance_periods SET status = 'exported', "
+            "updated_by_admin_id = ?, updated_at = ? WHERE id = ?",
             (actor_user_id, pricing.now_utc(), period_id),
         )
         row = _get_package_row(conn, export_id)
@@ -546,7 +549,8 @@ def accept_export_package(
         after = _get_package_row(conn, export_id)
         if bool(after["current_final"]):
             conn.execute(
-                "UPDATE finance_periods SET status = 'accepted', accepted_at = ?, updated_by_admin_id = ?, updated_at = ? WHERE id = ?",
+                "UPDATE finance_periods SET status = 'accepted', accepted_at = ?, "
+                "updated_by_admin_id = ?, updated_at = ? WHERE id = ?",
                 (now, actor_user_id, now, after["period_id"]),
             )
         accounting_config_service.write_finance_audit_event(

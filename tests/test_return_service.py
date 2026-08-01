@@ -142,7 +142,8 @@ def test_receive_return_case_does_not_restock(conn, order_id):
     event_types = [
         row[0]
         for row in conn.execute(
-            "SELECT event_type FROM order_return_events WHERE order_return_id = ? ORDER BY created_at",
+            "SELECT event_type FROM order_return_events "
+            "WHERE order_return_id = ? ORDER BY created_at",
             (case["id"],),
         ).fetchall()
     ]

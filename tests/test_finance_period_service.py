@@ -379,7 +379,9 @@ async def test_finance_summary_includes_inventory_valuation_totals(admin_client,
         """
         INSERT INTO product_inventory_profiles (
             product_id, inventory_mode, stock_source, opening_balance_state, valuation_readiness
-        ) VALUES ('inventory-summary-candle', 'ledger_managed', 'inventory_ledger', 'reviewed', 'ready')
+        ) VALUES (
+            'inventory-summary-candle', 'ledger_managed', 'inventory_ledger', 'reviewed', 'ready'
+        )
         """
     )
     db.execute(

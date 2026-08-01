@@ -283,7 +283,8 @@ class TestReturnRefundSettlementSchema:
         order_id = self._insert_order(db_conn)
         with pytest.raises(sqlite3.IntegrityError):
             db_conn.execute(
-                "INSERT INTO order_returns (id, order_id, reason) VALUES ('ret-bad', ?, 'exchange')",
+                "INSERT INTO order_returns (id, order_id, reason) "
+                "VALUES ('ret-bad', ?, 'exchange')",
                 (order_id,),
             )
 

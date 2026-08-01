@@ -694,7 +694,10 @@ def create_material_adjustment(
                 id, item_type, item_id, movement_type, quantity_delta, uom,
                 source_type, source_id, actor_user_id, actor_email, reason,
                 notes, review_state, occurred_at
-            ) VALUES (?, 'material', ?, ?, ?, ?, 'manual_material_adjustment', ?, ?, ?, ?, ?, 'reviewed', ?)
+            ) VALUES (
+                ?, 'material', ?, ?, ?, ?, 'manual_material_adjustment', ?, ?, ?, ?, ?,
+                'reviewed', ?
+            )
             """,
             (
                 movement_id,
@@ -1500,7 +1503,8 @@ def _batch_response_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Prod
     outputs = [
         _batch_output_response_from_row(item)
         for item in conn.execute(
-            "SELECT * FROM production_batch_outputs WHERE production_batch_id = ? ORDER BY created_at",
+            "SELECT * FROM production_batch_outputs WHERE production_batch_id = ? "
+            "ORDER BY created_at",
             (row["id"],),
         ).fetchall()
     ]
@@ -1764,7 +1768,8 @@ def list_production_batches(
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
     with get_db() as conn:
         rows = conn.execute(
-            f"SELECT * FROM production_batches {where_sql} ORDER BY production_date DESC, created_at DESC",  # noqa: S608
+            f"SELECT * FROM production_batches {where_sql} "  # noqa: S608
+            "ORDER BY production_date DESC, created_at DESC",
             params,
         ).fetchall()
         batches = [_batch_response_from_row(conn, row) for row in rows]
@@ -1883,7 +1888,8 @@ def post_production_batch(
             conn.execute(
                 """
                 UPDATE production_batches
-                SET variance_review_state = 'warning', updated_by_admin_id = COALESCE(?, updated_by_admin_id)
+                SET variance_review_state = 'warning',
+                    updated_by_admin_id = COALESCE(?, updated_by_admin_id)
                 WHERE id = ?
                 """,
                 (actor_user_id, batch_id),
@@ -1909,7 +1915,9 @@ def post_production_batch(
                     batch_id=batch_id,
                     exception_type="insufficient_material_lot_quantity",
                     severity="blocking",
-                    message="Batch requires more material from the selected lot than remains available.",
+                    message=(
+                        "Batch requires more material from the selected lot than remains available."
+                    ),
                     target_type="material_lot",
                     target_id=lot_id,
                     actor_user_id=actor_user_id,
@@ -1918,7 +1926,8 @@ def post_production_batch(
             conn.execute(
                 """
                 UPDATE production_batches
-                SET variance_review_state = 'warning', updated_by_admin_id = COALESCE(?, updated_by_admin_id)
+                SET variance_review_state = 'warning',
+                    updated_by_admin_id = COALESCE(?, updated_by_admin_id)
                 WHERE id = ?
                 """,
                 (actor_user_id, batch_id),
@@ -2157,7 +2166,10 @@ def correct_production_batch(
                 id, item_type, item_id, movement_type, quantity_delta, uom,
                 source_type, source_id, product_id, actor_user_id, actor_email,
                 reason, notes, review_state, occurred_at
-            ) VALUES (?, ?, ?, 'adjustment', ?, ?, 'production_batch_correction', ?, ?, ?, ?, ?, ?, 'reviewed', ?)
+            ) VALUES (
+                ?, ?, ?, 'adjustment', ?, ?, 'production_batch_correction', ?, ?, ?, ?, ?, ?,
+                'reviewed', ?
+            )
             """,
             (
                 movement_id,
@@ -2284,7 +2296,9 @@ def update_inventory_valuation_settings(
             _ensure_inventory_exception(
                 conn,
                 exception_type="fifo_requires_lot_discipline",
-                message="FIFO valuation requires reviewed lot-layer discipline before official output.",
+                message=(
+                    "FIFO valuation requires reviewed lot-layer discipline before official output."
+                ),
                 severity="warning",
                 target_type="inventory_settings",
                 target_id="default",
@@ -2532,7 +2546,8 @@ def record_opening_balance(
             conn.execute(
                 """
                 UPDATE product_inventory_profiles
-                SET opening_balance_state = ?, updated_by_admin_id = COALESCE(?, updated_by_admin_id)
+                SET opening_balance_state = ?,
+                    updated_by_admin_id = COALESCE(?, updated_by_admin_id)
                 WHERE product_id = ?
                 """,
                 ("reviewed" if request.reviewed else "unreviewed", actor_user_id, request.item_id),
@@ -2738,7 +2753,8 @@ def list_valuation_layers(
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
     with get_db() as conn:
         rows = conn.execute(
-            f"SELECT * FROM inventory_valuation_layers {where_sql} ORDER BY valuation_date, created_at",  # noqa: S608
+            f"SELECT * FROM inventory_valuation_layers {where_sql} "  # noqa: S608
+            "ORDER BY valuation_date, created_at",
             params,
         ).fetchall()
     layers = [_layer_response_from_row(row) for row in rows]

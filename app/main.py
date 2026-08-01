@@ -211,7 +211,9 @@ def _cancel_abandoned_card_orders() -> int:
                   (reserved_until IS NOT NULL AND reserved_until < datetime('now'))
                   OR created_at < datetime('now', '-24 hours')
               )
-              AND status NOT IN ('cancelled', 'shipped', 'delivered', 'return_in_transit', 'returned')
+              AND status NOT IN (
+                  'cancelled', 'shipped', 'delivered', 'return_in_transit', 'returned'
+              )
             """
         ).fetchall()
 

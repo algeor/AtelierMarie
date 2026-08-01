@@ -39,7 +39,8 @@ def _seed_order(
     vat_id: int,
 ) -> None:
     db.execute(
-        "INSERT OR IGNORE INTO products (id, name_en, price_cents, stock) VALUES ('doc-candle', 'Doc Candle', 1000, 10)"
+        "INSERT OR IGNORE INTO products (id, name_en, price_cents, stock) "
+        "VALUES ('doc-candle', 'Doc Candle', 1000, 10)"
     )
     db.execute(
         """

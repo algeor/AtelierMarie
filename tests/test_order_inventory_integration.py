@@ -332,7 +332,8 @@ def test_cogs_uses_sale_layer_when_order_depletes_stock_and_cancellation_reverse
     reversal = inventory_service.generate_cogs_rows()
 
     cancellation = ledger_conn.execute(
-        "SELECT id FROM inventory_movements WHERE movement_type = 'cancellation_reversal' AND order_id = ?",
+        "SELECT id FROM inventory_movements "
+        "WHERE movement_type = 'cancellation_reversal' AND order_id = ?",
         (order["id"],),
     ).fetchone()
     assert reversal.total == 1

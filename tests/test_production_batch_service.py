@@ -26,7 +26,8 @@ def batch_db(tmp_path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute(
-        "INSERT INTO products (id, name_en, price_cents, stock) VALUES ('prod-batch', 'Batch Candle', 2500, 0)"
+        "INSERT INTO products (id, name_en, price_cents, stock) "
+        "VALUES ('prod-batch', 'Batch Candle', 2500, 0)"
     )
     conn.commit()
     yield conn

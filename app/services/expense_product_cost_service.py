@@ -380,7 +380,8 @@ def list_product_costs(product_id: str | None = None) -> ProductCostVersionListR
     with get_db() as conn:
         if product_id:
             rows = conn.execute(
-                "SELECT * FROM product_cost_versions WHERE product_id = ? ORDER BY effective_date DESC",
+                "SELECT * FROM product_cost_versions WHERE product_id = ? "
+                "ORDER BY effective_date DESC",
                 (product_id,),
             ).fetchall()
         else:
@@ -540,7 +541,8 @@ def missing_product_costs(period_id: str) -> MissingProductCostDiagnosticsRespon
             raise FinancePeriodError(404, "FINANCE_PERIOD_NOT_FOUND", "Finance period not found.")
         rows = conn.execute(
             """
-            SELECT DISTINCT o.id AS order_id, o.order_number, substr(o.created_at, 1, 10) AS order_date,
+            SELECT DISTINCT o.id AS order_id, o.order_number,
+                   substr(o.created_at, 1, 10) AS order_date,
                    oi.product_id, oi.product_name
             FROM orders o
             JOIN order_items oi ON oi.order_id = o.id

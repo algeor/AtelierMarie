@@ -210,10 +210,16 @@ def _attach_admin_inventory_context(conn: sqlite3.Connection, products: list[dic
         product["inventory_links"] = {
             "recipes_href": f"/admin/inventory/recipes?product_id={product_id}",
             "batches_href": f"/admin/inventory/batches?product_id={product_id}",
-            "movements_href": f"/admin/inventory/movements?item_type=finished_good&item_id={product_id}",
-            "valuation_href": f"/admin/inventory/valuation/layers?item_type=finished_good&item_id={product_id}",
+            "movements_href": (
+                f"/admin/inventory/movements?item_type=finished_good&item_id={product_id}"
+            ),
+            "valuation_href": (
+                f"/admin/inventory/valuation/layers?item_type=finished_good&item_id={product_id}"
+            ),
             "cogs_href": f"/admin/inventory/valuation/cogs?product_id={product_id}",
-            "exceptions_href": f"/admin/inventory/valuation/exceptions?target_type=product&target_id={product_id}",
+            "exceptions_href": (
+                f"/admin/inventory/valuation/exceptions?target_type=product&target_id={product_id}"
+            ),
         }
 
 

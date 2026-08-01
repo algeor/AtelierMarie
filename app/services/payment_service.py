@@ -591,7 +591,8 @@ async def create_stripe_refund_async(
         )
         if payment_id:
             conn.execute(
-                "UPDATE payments SET provider_status = 'refund_pending', updated_at = ? WHERE id = ?",
+                "UPDATE payments SET provider_status = 'refund_pending', "
+                "updated_at = ? WHERE id = ?",
                 (now, payment_id),
             )
         _append_admin_refund_event(
@@ -1282,7 +1283,8 @@ def handle_refund_updated(
             )
             if payment_id:
                 conn.execute(
-                    "UPDATE payments SET provider_status = 'review_required', updated_at = ? WHERE id = ?",
+                    "UPDATE payments SET provider_status = 'review_required', "
+                    "updated_at = ? WHERE id = ?",
                     (now, payment_id),
                 )
             provider_status = "failed"
