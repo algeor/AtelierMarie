@@ -72,6 +72,7 @@ import type {
   FaqResponse,
   FaqSectionAdminResponse,
   ImageUploadResponse,
+  LegalIdentityResponse,
   InspectReturnCaseRequest,
   OfficeResponse,
   OfficeType,
@@ -100,7 +101,13 @@ import type {
   ReactionToggleResponse,
   TaxonomyKind,
   TaxonomyResponse,
+  TermsAdminResponse,
+  TermsPageAdminResponse,
+  TermsResponse,
+  TermsSectionAdminResponse,
   ReorderFaqItemsRequest,
+  UpdateTermsPageRequest,
+  UpdateTermsSectionRequest,
   UpdateFaqItemRequest,
   UpdateFaqSectionRequest,
   UpdateProductRequest,
@@ -153,6 +160,8 @@ import type {
 } from "./types";
 import { ApiError } from "./api-client";
 import { buildTrackingUrl } from "./tracking";
+import enMessages from "@/messages/en.json";
+import bgMessages from "@/messages/bg.json";
 
 // --- Helpers ---
 
@@ -162,6 +171,24 @@ function mockError(code: string, message: string): never {
 
 function cloneMock<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function stringField(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function formatMockAddress(address: Record<string, unknown> | null | undefined): string | null {
+  if (!address) return null;
+  const formatted = stringField(address.formatted) ?? stringField(address.formatted_address);
+  if (formatted) return formatted;
+  const cityLine = [stringField(address.postal_code), stringField(address.city)].filter(Boolean).join(" ");
+  const parts = [
+    stringField(address.line1),
+    stringField(address.line2),
+    cityLine || null,
+    stringField(address.country),
+  ].filter(Boolean);
+  return parts.join(", ") || null;
 }
 
 /** Simulate network latency (50–150ms). */
@@ -1147,6 +1174,93 @@ function findFaqSection(slug: string): FaqSectionAdminResponse | undefined {
 
 function findFaqItem(itemId: number): FaqItemAdminResponse | undefined {
   return mockFaqSections.flatMap((section) => section.items).find((item) => item.id === itemId);
+}
+
+// --- Terms Mock ---
+
+type StaticTerms = typeof enMessages.terms;
+type StaticTermsSection = StaticTerms["sections"][number];
+
+const mockTermsTimestamp = "2026-07-29T00:00:00Z";
+const mockTermsEn = enMessages.terms as StaticTerms;
+const mockTermsBg = bgMessages.terms as StaticTerms;
+
+function findStaticBgTermsSection(slug: string): StaticTermsSection | undefined {
+  return mockTermsBg.sections.find((section) => section.id === slug);
+}
+
+let mockTermsPage: TermsPageAdminResponse = {
+  id: "terms",
+  meta_title_en: mockTermsEn.metaTitle,
+  meta_title_bg: mockTermsBg.metaTitle,
+  meta_description_en: mockTermsEn.metaDescription,
+  meta_description_bg: mockTermsBg.metaDescription,
+  eyebrow_en: mockTermsEn.eyebrow,
+  eyebrow_bg: mockTermsBg.eyebrow,
+  title_en: mockTermsEn.title,
+  title_bg: mockTermsBg.title,
+  subtitle_en: mockTermsEn.subtitle,
+  subtitle_bg: mockTermsBg.subtitle,
+  last_updated_en: mockTermsEn.lastUpdated,
+  last_updated_bg: mockTermsBg.lastUpdated,
+  identity_intro_en: mockTermsEn.identityIntro,
+  identity_intro_bg: mockTermsBg.identityIntro,
+  policy_links_title_en: mockTermsEn.policyLinksTitle,
+  policy_links_title_bg: mockTermsBg.policyLinksTitle,
+  privacy_link_en: mockTermsEn.privacyLink,
+  privacy_link_bg: mockTermsBg.privacyLink,
+  cookies_link_en: mockTermsEn.cookiesLink,
+  cookies_link_bg: mockTermsBg.cookiesLink,
+  nav_label_en: mockTermsEn.navLabel,
+  nav_label_bg: mockTermsBg.navLabel,
+  back_to_top_en: mockTermsEn.backToTop,
+  back_to_top_bg: mockTermsBg.backToTop,
+  created_at: mockTermsTimestamp,
+  updated_at: mockTermsTimestamp,
+};
+
+let mockTermsSections: TermsSectionAdminResponse[] = mockTermsEn.sections.map((section, index) => {
+  const bgSection = findStaticBgTermsSection(section.id);
+  return {
+    slug: section.id,
+    title_en: section.title,
+    title_bg: bgSection?.title ?? null,
+    nav_en: section.nav,
+    nav_bg: bgSection?.nav ?? null,
+    body_en: [...section.body],
+    body_bg: bgSection ? [...bgSection.body] : null,
+    model_form_title_en: "modelFormTitle" in section ? section.modelFormTitle ?? null : null,
+    model_form_title_bg: bgSection && "modelFormTitle" in bgSection ? bgSection.modelFormTitle ?? null : null,
+    model_form_intro_en: "modelFormIntro" in section ? section.modelFormIntro ?? null : null,
+    model_form_intro_bg: bgSection && "modelFormIntro" in bgSection ? bgSection.modelFormIntro ?? null : null,
+    model_form_lines_en: "modelFormLines" in section ? [...(section.modelFormLines ?? [])] : null,
+    model_form_lines_bg: bgSection && "modelFormLines" in bgSection ? [...(bgSection.modelFormLines ?? [])] : null,
+    sort_order: index,
+    created_at: mockTermsTimestamp,
+    updated_at: mockTermsTimestamp,
+  };
+});
+
+function localizedTermsValue(en: string, bg: string | null, locale?: string): string {
+  return locale === "bg" ? bg ?? en : en;
+}
+
+function localizedTermsLines(en: string[] | null, bg: string[] | null, locale?: string): string[] | null {
+  if (locale === "bg" && bg?.length) return [...bg];
+  return en ? [...en] : null;
+}
+
+function cloneAdminTerms(): TermsAdminResponse {
+  return {
+    page: { ...mockTermsPage },
+    sections: mockTermsSections.map((section) => ({
+      ...section,
+      body_en: [...section.body_en],
+      body_bg: section.body_bg ? [...section.body_bg] : null,
+      model_form_lines_en: section.model_form_lines_en ? [...section.model_form_lines_en] : null,
+      model_form_lines_bg: section.model_form_lines_bg ? [...section.model_form_lines_bg] : null,
+    })),
+  };
 }
 
 // --- In-Memory Cart State ---
@@ -2893,6 +3007,25 @@ export async function getAccountingConfig(): Promise<AccountingConfigurationResp
   return cloneMock(mockAccountingConfig);
 }
 
+export async function getLegalIdentity(): Promise<LegalIdentityResponse> {
+  await delay();
+  const seller = mockAccountingConfig.seller_profile;
+  const address = formatMockAddress(seller?.registered_address ?? null);
+  const identity: LegalIdentityResponse = {
+    trading_name: seller?.company_display_name || "Atelier Marie",
+    legal_name: seller?.legal_name || "TODO: legal entity name",
+    country: stringField(seller?.registered_address?.country) ?? "Bulgaria",
+    geographic_address: address || "TODO: geographic business address",
+    contact_email: seller?.contact_email || "contacts@theateliermarie.com",
+    registration_number: seller?.uic_eik || "TODO: registration number",
+    vat_number: seller?.vat_identification_number || "TODO: VAT number or not VAT registered",
+    responsible_party_name: seller?.company_display_name || "Atelier Marie",
+    responsible_party_address: address || "TODO: geographic business address",
+    responsible_party_email: seller?.contact_email || "contacts@theateliermarie.com",
+  };
+  return cloneMock(identity);
+}
+
 export async function createSellerLegalProfile(
   data: SellerLegalProfileRequest
 ): Promise<SellerLegalProfileResponse> {
@@ -4136,6 +4269,94 @@ export async function updateFaqSection(
   if (data.sort_order !== undefined) section.sort_order = data.sort_order;
   section.updated_at = new Date().toISOString();
   return { ...section, items: section.items.map((item) => ({ ...item })) };
+}
+
+export async function getTerms(locale?: string): Promise<TermsResponse> {
+  await delay();
+  return {
+    meta_title: localizedTermsValue(mockTermsPage.meta_title_en, mockTermsPage.meta_title_bg, locale),
+    meta_description: localizedTermsValue(
+      mockTermsPage.meta_description_en,
+      mockTermsPage.meta_description_bg,
+      locale
+    ),
+    eyebrow: localizedTermsValue(mockTermsPage.eyebrow_en, mockTermsPage.eyebrow_bg, locale),
+    title: localizedTermsValue(mockTermsPage.title_en, mockTermsPage.title_bg, locale),
+    subtitle: localizedTermsValue(mockTermsPage.subtitle_en, mockTermsPage.subtitle_bg, locale),
+    last_updated: localizedTermsValue(
+      mockTermsPage.last_updated_en,
+      mockTermsPage.last_updated_bg,
+      locale
+    ),
+    identity_intro: localizedTermsValue(
+      mockTermsPage.identity_intro_en,
+      mockTermsPage.identity_intro_bg,
+      locale
+    ),
+    policy_links_title: localizedTermsValue(
+      mockTermsPage.policy_links_title_en,
+      mockTermsPage.policy_links_title_bg,
+      locale
+    ),
+    privacy_link: localizedTermsValue(mockTermsPage.privacy_link_en, mockTermsPage.privacy_link_bg, locale),
+    cookies_link: localizedTermsValue(mockTermsPage.cookies_link_en, mockTermsPage.cookies_link_bg, locale),
+    nav_label: localizedTermsValue(mockTermsPage.nav_label_en, mockTermsPage.nav_label_bg, locale),
+    back_to_top: localizedTermsValue(mockTermsPage.back_to_top_en, mockTermsPage.back_to_top_bg, locale),
+    sections: mockTermsSections
+      .slice()
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((section) => ({
+        id: section.slug,
+        title: localizedTermsValue(section.title_en, section.title_bg, locale),
+        nav: localizedTermsValue(section.nav_en, section.nav_bg, locale),
+        body: localizedTermsLines(section.body_en, section.body_bg, locale) ?? [],
+        model_form_title: localizedTermsValue(
+          section.model_form_title_en ?? "",
+          section.model_form_title_bg,
+          locale
+        ) || null,
+        model_form_intro: localizedTermsValue(
+          section.model_form_intro_en ?? "",
+          section.model_form_intro_bg,
+          locale
+        ) || null,
+        model_form_lines: localizedTermsLines(
+          section.model_form_lines_en,
+          section.model_form_lines_bg,
+          locale
+        ),
+      })),
+  };
+}
+
+export async function getAdminTerms(): Promise<TermsAdminResponse> {
+  await delay();
+  return cloneAdminTerms();
+}
+
+export async function updateTermsPage(
+  data: UpdateTermsPageRequest
+): Promise<TermsPageAdminResponse> {
+  await delay();
+  mockTermsPage = { ...mockTermsPage, ...data, updated_at: new Date().toISOString() };
+  return { ...mockTermsPage };
+}
+
+export async function updateTermsSection(
+  slug: string,
+  data: UpdateTermsSectionRequest
+): Promise<TermsSectionAdminResponse> {
+  await delay();
+  const section = mockTermsSections.find((candidate) => candidate.slug === slug);
+  if (!section) mockError("terms_section_not_found", `Terms section ${slug} not found`);
+  Object.assign(section, data, { updated_at: new Date().toISOString() });
+  return {
+    ...section,
+    body_en: [...section.body_en],
+    body_bg: section.body_bg ? [...section.body_bg] : null,
+    model_form_lines_en: section.model_form_lines_en ? [...section.model_form_lines_en] : null,
+    model_form_lines_bg: section.model_form_lines_bg ? [...section.model_form_lines_bg] : null,
+  };
 }
 
 function termProductCount(kind: TaxonomyKind, slug: string): number {

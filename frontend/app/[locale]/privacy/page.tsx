@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import type { Locale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
-import { LEGAL_IDENTITY, policyPath } from "@/lib/legal";
+import { loadLegalIdentity, policyPath } from "@/lib/legal";
 import { getLocalizedAlternates } from "@/lib/seo";
 import enMessages from "@/messages/en.json";
 import bgMessages from "@/messages/bg.json";
@@ -48,6 +48,7 @@ export default async function PrivacyPage({ params }: PrivacyPageProps) {
   const { locale } = await params;
   const privacy = getPrivacyMessages(locale);
   const legal = locale === "bg" ? bgMessages.legal : enMessages.legal;
+  const legalIdentity = await loadLegalIdentity();
 
   return (
     <main className="overflow-x-hidden bg-warm-ivory">
@@ -79,12 +80,12 @@ export default async function PrivacyPage({ params }: PrivacyPageProps) {
           <section className="min-w-0 rounded-brand border border-champagne-beige bg-cream p-5">
             <h2 className="font-heading text-2xl text-charcoal">{privacy.controllerTitle}</h2>
             <dl className="mt-4 grid gap-3 text-sm text-soft-brown sm:grid-cols-2">
-              <div><dt className="font-medium text-charcoal">{legal.tradingName}</dt><dd>{LEGAL_IDENTITY.tradingName}</dd></div>
-              <div><dt className="font-medium text-charcoal">{legal.legalName}</dt><dd>{LEGAL_IDENTITY.legalName}</dd></div>
-              <div><dt className="font-medium text-charcoal">{legal.geographicAddress}</dt><dd>{LEGAL_IDENTITY.geographicAddress}</dd></div>
-              <div><dt className="font-medium text-charcoal">{legal.country}</dt><dd>{LEGAL_IDENTITY.country}</dd></div>
-              <div><dt className="font-medium text-charcoal">{legal.contactEmail}</dt><dd>{LEGAL_IDENTITY.contactEmail}</dd></div>
-              <div><dt className="font-medium text-charcoal">{legal.registrationNumber}</dt><dd>{LEGAL_IDENTITY.registrationNumber}</dd></div>
+              <div><dt className="font-medium text-charcoal">{legal.tradingName}</dt><dd>{legalIdentity.tradingName}</dd></div>
+              <div><dt className="font-medium text-charcoal">{legal.legalName}</dt><dd>{legalIdentity.legalName}</dd></div>
+              <div><dt className="font-medium text-charcoal">{legal.geographicAddress}</dt><dd>{legalIdentity.geographicAddress}</dd></div>
+              <div><dt className="font-medium text-charcoal">{legal.country}</dt><dd>{legalIdentity.country}</dd></div>
+              <div><dt className="font-medium text-charcoal">{legal.contactEmail}</dt><dd>{legalIdentity.contactEmail}</dd></div>
+              <div><dt className="font-medium text-charcoal">{legal.registrationNumber}</dt><dd>{legalIdentity.registrationNumber}</dd></div>
             </dl>
             <p className="mt-4 text-sm leading-6 text-soft-brown/80">{legal.ownerReviewNotice}</p>
           </section>

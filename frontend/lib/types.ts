@@ -297,6 +297,136 @@ export interface UpdateFaqSectionRequest {
   sort_order?: number;
 }
 
+// --- Terms & Conditions ---
+
+export interface TermsSectionResponse {
+  id: string;
+  title: string;
+  nav: string;
+  body: string[];
+  model_form_title: string | null;
+  model_form_intro: string | null;
+  model_form_lines: string[] | null;
+}
+
+export interface TermsResponse {
+  meta_title: string;
+  meta_description: string;
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+  last_updated: string;
+  identity_intro: string;
+  policy_links_title: string;
+  privacy_link: string;
+  cookies_link: string;
+  nav_label: string;
+  back_to_top: string;
+  sections: TermsSectionResponse[];
+}
+
+export interface TermsPageAdminResponse {
+  id: string;
+  meta_title_en: string;
+  meta_title_bg: string | null;
+  meta_description_en: string;
+  meta_description_bg: string | null;
+  eyebrow_en: string;
+  eyebrow_bg: string | null;
+  title_en: string;
+  title_bg: string | null;
+  subtitle_en: string;
+  subtitle_bg: string | null;
+  last_updated_en: string;
+  last_updated_bg: string | null;
+  identity_intro_en: string;
+  identity_intro_bg: string | null;
+  policy_links_title_en: string;
+  policy_links_title_bg: string | null;
+  privacy_link_en: string;
+  privacy_link_bg: string | null;
+  cookies_link_en: string;
+  cookies_link_bg: string | null;
+  nav_label_en: string;
+  nav_label_bg: string | null;
+  back_to_top_en: string;
+  back_to_top_bg: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TermsSectionAdminResponse {
+  slug: string;
+  title_en: string;
+  title_bg: string | null;
+  nav_en: string;
+  nav_bg: string | null;
+  body_en: string[];
+  body_bg: string[] | null;
+  model_form_title_en: string | null;
+  model_form_title_bg: string | null;
+  model_form_intro_en: string | null;
+  model_form_intro_bg: string | null;
+  model_form_lines_en: string[] | null;
+  model_form_lines_bg: string[] | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TermsAdminResponse {
+  page: TermsPageAdminResponse;
+  sections: TermsSectionAdminResponse[];
+}
+
+export type UpdateTermsPageRequest = Partial<
+  Pick<
+    TermsPageAdminResponse,
+    | "meta_title_en"
+    | "meta_title_bg"
+    | "meta_description_en"
+    | "meta_description_bg"
+    | "eyebrow_en"
+    | "eyebrow_bg"
+    | "title_en"
+    | "title_bg"
+    | "subtitle_en"
+    | "subtitle_bg"
+    | "last_updated_en"
+    | "last_updated_bg"
+    | "identity_intro_en"
+    | "identity_intro_bg"
+    | "policy_links_title_en"
+    | "policy_links_title_bg"
+    | "privacy_link_en"
+    | "privacy_link_bg"
+    | "cookies_link_en"
+    | "cookies_link_bg"
+    | "nav_label_en"
+    | "nav_label_bg"
+    | "back_to_top_en"
+    | "back_to_top_bg"
+  >
+>;
+
+export type UpdateTermsSectionRequest = Partial<
+  Pick<
+    TermsSectionAdminResponse,
+    | "title_en"
+    | "title_bg"
+    | "nav_en"
+    | "nav_bg"
+    | "body_en"
+    | "body_bg"
+    | "model_form_title_en"
+    | "model_form_title_bg"
+    | "model_form_intro_en"
+    | "model_form_intro_bg"
+    | "model_form_lines_en"
+    | "model_form_lines_bg"
+  >
+>;
+
 export interface AdminTaxonomyTerm {
   slug: string;
   name_en: string;
@@ -1072,6 +1202,19 @@ export interface InventoryClosePreviewResponse {
   ending_value_cents: number;
   exception_count: number;
   policy_snapshot: Record<string, unknown>;
+}
+
+export interface LegalIdentityResponse {
+  trading_name: string;
+  legal_name: string;
+  country: string;
+  geographic_address: string;
+  contact_email: string;
+  registration_number: string;
+  vat_number: string;
+  responsible_party_name: string;
+  responsible_party_address: string;
+  responsible_party_email: string;
 }
 
 export interface SellerLegalProfileRequest {

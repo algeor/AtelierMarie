@@ -32,6 +32,7 @@ from app.routes import (
     delivery,
     faq,
     inventory,
+    legal,
     locale,
     orders,
     payment_settings,
@@ -39,6 +40,7 @@ from app.routes import (
     promotions,
     reactions,
     taxonomy,
+    terms,
     webhooks,
 )
 from app.services.analytics_service import (
@@ -517,6 +519,9 @@ def create_app() -> FastAPI:
     application.include_router(taxonomy.admin_router, prefix="/v1/admin/taxonomy", tags=["admin"])
     application.include_router(faq.public_router, prefix="/v1/faq", tags=["faq"])
     application.include_router(faq.admin_router, prefix="/v1/admin/faq", tags=["admin-faq"])
+    application.include_router(terms.public_router, prefix="/v1/terms", tags=["terms"])
+    application.include_router(terms.admin_router, prefix="/v1/admin/terms", tags=["admin-terms"])
+    application.include_router(legal.router, prefix="/v1/legal", tags=["legal"])
     application.include_router(
         inventory.admin_router, prefix="/v1/admin/inventory", tags=["admin-inventory"]
     )

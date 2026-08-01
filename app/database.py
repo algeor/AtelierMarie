@@ -2,6 +2,7 @@
 
 # ruff: noqa: E501
 
+import json
 import os
 import sqlite3
 import uuid
@@ -132,6 +133,59 @@ CREATE TABLE IF NOT EXISTS faq_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_faq_items_section_order ON faq_items(section, sort_order);
+
+-- Admin-managed Terms & Conditions page. Section slugs are stable public
+-- anchors such as #returns, so slugs are immutable and only text is editable.
+CREATE TABLE IF NOT EXISTS terms_page (
+    id                    TEXT PRIMARY KEY CHECK (id = 'terms'),
+    meta_title_en         TEXT NOT NULL,
+    meta_title_bg         TEXT,
+    meta_description_en   TEXT NOT NULL,
+    meta_description_bg   TEXT,
+    eyebrow_en            TEXT NOT NULL,
+    eyebrow_bg            TEXT,
+    title_en              TEXT NOT NULL,
+    title_bg              TEXT,
+    subtitle_en           TEXT NOT NULL,
+    subtitle_bg           TEXT,
+    last_updated_en       TEXT NOT NULL,
+    last_updated_bg       TEXT,
+    identity_intro_en     TEXT NOT NULL,
+    identity_intro_bg     TEXT,
+    policy_links_title_en TEXT NOT NULL,
+    policy_links_title_bg TEXT,
+    privacy_link_en       TEXT NOT NULL,
+    privacy_link_bg       TEXT,
+    cookies_link_en       TEXT NOT NULL,
+    cookies_link_bg       TEXT,
+    nav_label_en          TEXT NOT NULL,
+    nav_label_bg          TEXT,
+    back_to_top_en        TEXT NOT NULL,
+    back_to_top_bg        TEXT,
+    created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS terms_sections (
+    slug                  TEXT PRIMARY KEY,
+    title_en              TEXT NOT NULL,
+    title_bg              TEXT,
+    nav_en                TEXT NOT NULL,
+    nav_bg                TEXT,
+    body_en               TEXT NOT NULL,
+    body_bg               TEXT,
+    model_form_title_en   TEXT,
+    model_form_title_bg   TEXT,
+    model_form_intro_en   TEXT,
+    model_form_intro_bg   TEXT,
+    model_form_lines_en   TEXT,
+    model_form_lines_bg   TEXT,
+    sort_order            INTEGER NOT NULL DEFAULT 0,
+    created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_terms_sections_order ON terms_sections(sort_order, slug);
 
 CREATE TABLE IF NOT EXISTS product_images (
     id            TEXT PRIMARY KEY,
@@ -1829,6 +1883,16 @@ BEGIN
     UPDATE faq_items SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
 END;
 
+CREATE TRIGGER IF NOT EXISTS terms_page_updated_at AFTER UPDATE ON terms_page
+BEGIN
+    UPDATE terms_page SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS terms_sections_updated_at AFTER UPDATE ON terms_sections
+BEGIN
+    UPDATE terms_sections SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
 -- Full-text search for products — English index (content-backed via triggers).
 -- Indexes name + description only; the legacy `category` column is no longer
 -- written (taxonomy moved to product_type_slug/category_slug/labels), so it was
@@ -2207,6 +2271,7 @@ def init_db(path: str) -> None:
         _migrate_faq(conn)
         _migrate_faq_returns_policy_reference(conn)
         _migrate_faq_uncollected_refused_reference(conn)
+        _migrate_terms(conn)
         _rebuild_product_fts(conn)
         conn.commit()
     finally:
@@ -3976,6 +4041,163 @@ def _migrate_faq_uncollected_refused_reference(conn: sqlite3.Connection) -> None
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)",
             (_FAQ_UNCOLLECTED_RETURNS_MARKER,),
+        )
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+
+# ---------------------------------------------------------------------------
+# Terms & Conditions content seed migration (admin-managed-terms)
+# ---------------------------------------------------------------------------
+
+_TERMS_SEED_MARKER = "terms_content_v1"
+
+_TERMS_PAGE_KEY_MAP = [
+    ("metaTitle", "meta_title"),
+    ("metaDescription", "meta_description"),
+    ("eyebrow", "eyebrow"),
+    ("title", "title"),
+    ("subtitle", "subtitle"),
+    ("lastUpdated", "last_updated"),
+    ("identityIntro", "identity_intro"),
+    ("policyLinksTitle", "policy_links_title"),
+    ("privacyLink", "privacy_link"),
+    ("cookiesLink", "cookies_link"),
+    ("navLabel", "nav_label"),
+    ("backToTop", "back_to_top"),
+]
+
+_MINIMAL_TERMS_SEED = {
+    "metaTitle": "Terms & Conditions | Atelier Marie",
+    "metaDescription": "Terms and conditions for Atelier Marie orders.",
+    "eyebrow": "Atelier Marie",
+    "title": "Terms & Conditions",
+    "subtitle": "Please read these terms before placing an order.",
+    "lastUpdated": "Last updated",
+    "identityIntro": "Please review the trader details on this page before placing an order.",
+    "policyLinksTitle": "Related policies",
+    "privacyLink": "Privacy Policy",
+    "cookiesLink": "Cookie Policy",
+    "navLabel": "Terms sections",
+    "backToTop": "Back to top",
+    "sections": [
+        {
+            "id": "seller",
+            "title": "Seller information",
+            "nav": "Seller",
+            "body": ["This website is operated by Atelier Marie."],
+        }
+    ],
+}
+
+
+def _load_terms_seed(locale: str) -> dict:
+    """Load the current frontend Terms copy so the first DB seed matches it."""
+    path = Path(__file__).resolve().parents[1] / "frontend" / "messages" / f"{locale}.json"
+    try:
+        with path.open(encoding="utf-8") as handle:
+            terms = json.load(handle).get("terms", {})
+            if isinstance(terms, dict) and terms:
+                return terms
+    except (OSError, json.JSONDecodeError):
+        pass
+    return _MINIMAL_TERMS_SEED if locale == "en" else {}
+
+
+def _terms_seed_string(seed: dict, key: str) -> str | None:
+    value = seed.get(key)
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _terms_seed_lines(value: object) -> str | None:
+    if not isinstance(value, list):
+        return None
+    lines = [str(line).strip() for line in value if str(line).strip()]
+    if not lines:
+        return None
+    return json.dumps(lines, ensure_ascii=False)
+
+
+def _migrate_terms(conn: sqlite3.Connection) -> None:
+    """Seed the editable Terms page exactly once from existing frontend copy."""
+    if _migration_applied(conn, _TERMS_SEED_MARKER):
+        return
+
+    en_terms = _load_terms_seed("en")
+    bg_terms = _load_terms_seed("bg")
+    if conn.in_transaction:
+        conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if _migration_applied(conn, _TERMS_SEED_MARKER):
+            conn.execute("ROLLBACK")
+            return
+
+        page_columns = ["id"]
+        page_values: list[object] = ["terms"]
+        for json_key, column_prefix in _TERMS_PAGE_KEY_MAP:
+            page_columns.extend([f"{column_prefix}_en", f"{column_prefix}_bg"])
+            page_values.extend(
+                [
+                    _terms_seed_string(en_terms, json_key)
+                    or _terms_seed_string(_MINIMAL_TERMS_SEED, json_key),
+                    _terms_seed_string(bg_terms, json_key),
+                ]
+            )
+        placeholders = ", ".join("?" for _ in page_columns)
+        conn.execute(
+            f"INSERT OR IGNORE INTO terms_page ({', '.join(page_columns)}) VALUES ({placeholders})",
+            page_values,
+        )
+
+        bg_sections = {
+            section.get("id"): section
+            for section in bg_terms.get("sections", [])
+            if isinstance(section, dict)
+        }
+        section_rows = []
+        for sort_order, en_section in enumerate(en_terms.get("sections", [])):
+            if not isinstance(en_section, dict) or not en_section.get("id"):
+                continue
+            slug = str(en_section["id"])
+            bg_section = bg_sections.get(slug, {})
+            section_rows.append(
+                (
+                    slug,
+                    _terms_seed_string(en_section, "title") or slug,
+                    _terms_seed_string(bg_section, "title"),
+                    _terms_seed_string(en_section, "nav") or slug,
+                    _terms_seed_string(bg_section, "nav"),
+                    _terms_seed_lines(en_section.get("body")) or "[]",
+                    _terms_seed_lines(bg_section.get("body")),
+                    _terms_seed_string(en_section, "modelFormTitle"),
+                    _terms_seed_string(bg_section, "modelFormTitle"),
+                    _terms_seed_string(en_section, "modelFormIntro"),
+                    _terms_seed_string(bg_section, "modelFormIntro"),
+                    _terms_seed_lines(en_section.get("modelFormLines")),
+                    _terms_seed_lines(bg_section.get("modelFormLines")),
+                    sort_order,
+                )
+            )
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO terms_sections (
+                slug, title_en, title_bg, nav_en, nav_bg, body_en, body_bg,
+                model_form_title_en, model_form_title_bg,
+                model_form_intro_en, model_form_intro_bg,
+                model_form_lines_en, model_form_lines_bg, sort_order
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            section_rows,
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)",
+            (_TERMS_SEED_MARKER,),
         )
         conn.execute("COMMIT")
     except Exception:

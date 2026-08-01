@@ -9,6 +9,24 @@ vi.mock("@/i18n/navigation", () => ({
   ),
 }));
 
+vi.mock("@/lib/api", () => ({
+  getTerms: vi.fn(async () => {
+    throw new Error("Use static terms messages");
+  }),
+  getLegalIdentity: vi.fn(async () => ({
+    trading_name: "Atelier Marie",
+    legal_name: "Atelier Marie OOD",
+    country: "Bulgaria",
+    geographic_address: "1 Candle Street, Sofia, Bulgaria",
+    contact_email: "contacts@theateliermarie.com",
+    registration_number: "123456789",
+    vat_number: "not VAT registered",
+    responsible_party_name: "Atelier Marie",
+    responsible_party_address: "1 Candle Street, Sofia, Bulgaria",
+    responsible_party_email: "contacts@theateliermarie.com",
+  })),
+}));
+
 describe("Terms page", () => {
   it("renders English terms content with the returns anchor", async () => {
     const ui = await TermsPage({ params: Promise.resolve({ locale: "en" }) });

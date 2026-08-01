@@ -158,6 +158,34 @@ function splitCsv(value: string): string[] {
   return value.split(",").map((item) => item.trim()).filter(Boolean);
 }
 
+function emptyToNull(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function addressString(address: Record<string, unknown> | null | undefined, key: string): string {
+  const value = address?.[key];
+  return typeof value === "string" ? value : "";
+}
+
+function buildRegisteredAddress(form: {
+  registered_address_line1: string;
+  registered_address_line2: string;
+  registered_address_city: string;
+  registered_address_postal_code: string;
+  registered_address_country: string;
+}): Record<string, string> | null {
+  const address = {
+    line1: form.registered_address_line1.trim(),
+    line2: form.registered_address_line2.trim(),
+    city: form.registered_address_city.trim(),
+    postal_code: form.registered_address_postal_code.trim(),
+    country: form.registered_address_country.trim(),
+  };
+  const entries = Object.entries(address).filter(([, value]) => value);
+  return entries.length > 0 ? Object.fromEntries(entries) : null;
+}
+
 function statusLabel(value: string): string {
   return value.replaceAll("_", " ");
 }
@@ -255,7 +283,20 @@ export default function AdminAccountingPage() {
   const [acceptanceNote, setAcceptanceNote] = useState("");
   const [exceptionReasons, setExceptionReasons] = useState<Record<string, string>>({});
   const [periodForm, setPeriodForm] = useState({ period_start: monthStart(), period_end: todayDate(), currency: "EUR" });
-  const [sellerForm, setSellerForm] = useState({ company_display_name: "", legal_name: "", default_currency: "EUR", reviewed: false });
+  const [sellerForm, setSellerForm] = useState({
+    company_display_name: "",
+    legal_name: "",
+    uic_eik: "",
+    vat_identification_number: "",
+    registered_address_line1: "",
+    registered_address_line2: "",
+    registered_address_city: "",
+    registered_address_postal_code: "",
+    registered_address_country: "Bulgaria",
+    contact_email: "",
+    default_currency: "EUR",
+    reviewed: false,
+  });
   const [vatForm, setVatForm] = useState<{ vat_mode: VatMode; fiscal_document_mode: FiscalDocumentMode; tolerance_cents: string; reviewed: boolean }>({
     vat_mode: "unknown",
     fiscal_document_mode: "external_reference",
@@ -341,9 +382,18 @@ export default function AdminAccountingPage() {
       const nextPeriodId = preferredPeriodId || selectedPeriodId || periodData.items[0]?.id || "";
       setSelectedPeriodId(nextPeriodId);
       if (configData.seller_profile) {
+        const registeredAddress = configData.seller_profile.registered_address;
         setSellerForm({
           company_display_name: configData.seller_profile.company_display_name ?? "",
           legal_name: configData.seller_profile.legal_name ?? "",
+          uic_eik: configData.seller_profile.uic_eik ?? "",
+          vat_identification_number: configData.seller_profile.vat_identification_number ?? "",
+          registered_address_line1: addressString(registeredAddress, "line1"),
+          registered_address_line2: addressString(registeredAddress, "line2"),
+          registered_address_city: addressString(registeredAddress, "city"),
+          registered_address_postal_code: addressString(registeredAddress, "postal_code"),
+          registered_address_country: addressString(registeredAddress, "country") || "Bulgaria",
+          contact_email: configData.seller_profile.contact_email ?? "",
           default_currency: configData.seller_profile.default_currency,
           reviewed: configData.seller_profile.reviewed,
         });
@@ -633,7 +683,77 @@ export default function AdminAccountingPage() {
       {activeTab === "settings" && config && (
         <div className="space-y-4">
           <div className="grid gap-4 lg:grid-cols-2">
-            <section className="rounded-brand border border-champagne-beige bg-cream p-4"><h2 className="font-heading text-lg font-semibold text-charcoal">{t("settings.seller")}</h2><p className="mt-1 text-xs text-soft-brown">{t("settings.bankRedacted")}</p><div className="mt-4 grid gap-3 md:grid-cols-2"><input value={sellerForm.company_display_name} onChange={(event) => setSellerForm((prev) => ({ ...prev, company_display_name: event.target.value }))} className="h-10 rounded-brand border border-champagne-beige bg-warm-ivory px-3 text-sm" placeholder="Atelier Marie" /><input value={sellerForm.legal_name} onChange={(event) => setSellerForm((prev) => ({ ...prev, legal_name: event.target.value }))} className="h-10 rounded-brand border border-champagne-beige bg-warm-ivory px-3 text-sm" placeholder="Legal name" /><label className="flex items-center gap-2 text-sm text-soft-brown"><input type="checkbox" checked={sellerForm.reviewed} onChange={(event) => setSellerForm((prev) => ({ ...prev, reviewed: event.target.checked }))} /> {t("settings.reviewed")}</label><button type="button" onClick={() => runAction("seller", () => createSellerLegalProfile({ ...sellerForm, effective_date: todayDate(), bank_details: null }))} className="rounded-brand bg-muted-gold px-3 py-2 text-sm font-medium text-charcoal">{common("save")}</button></div></section>
+            <section className="rounded-brand border border-champagne-beige bg-cream p-4">
+              <h2 className="font-heading text-lg font-semibold text-charcoal">{t("settings.seller")}</h2>
+              <p className="mt-1 text-xs text-soft-brown">{t("settings.publicLegalSource")}</p>
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <label className="text-sm text-soft-brown">
+                  {t("forms.companyDisplayName")}
+                  <input value={sellerForm.company_display_name} onChange={(event) => setSellerForm((prev) => ({ ...prev, company_display_name: event.target.value }))} className="mt-1 h-10 w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 text-sm text-charcoal" placeholder="Atelier Marie" />
+                </label>
+                <label className="text-sm text-soft-brown">
+                  {t("forms.legalName")}
+                  <input value={sellerForm.legal_name} onChange={(event) => setSellerForm((prev) => ({ ...prev, legal_name: event.target.value }))} className="mt-1 h-10 w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 text-sm text-charcoal" placeholder={t("forms.legalName")} />
+                </label>
+                <label className="text-sm text-soft-brown">
+                  {t("forms.uicEik")}
+                  <input value={sellerForm.uic_eik} onChange={(event) => setSellerForm((prev) => ({ ...prev, uic_eik: event.target.value }))} className="mt-1 h-10 w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 text-sm text-charcoal" placeholder={t("forms.uicEik")} />
+                </label>
+                <label className="text-sm text-soft-brown">
+                  {t("forms.vatIdentificationNumber")}
+                  <input value={sellerForm.vat_identification_number} onChange={(event) => setSellerForm((prev) => ({ ...prev, vat_identification_number: event.target.value }))} className="mt-1 h-10 w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 text-sm text-charcoal" placeholder={t("forms.vatIdentificationNumber")} />
+                </label>
+                <label className="text-sm text-soft-brown md:col-span-2">
+                  {t("forms.addressLine1")}
+                  <input value={sellerForm.registered_address_line1} onChange={(event) => setSellerForm((prev) => ({ ...prev, registered_address_line1: event.target.value }))} className="mt-1 h-10 w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 text-sm text-charcoal" placeholder={t("forms.addressLine1")} />
+                </label>
+                <label className="text-sm text-soft-brown md:col-span-2">
+                  {t("forms.addressLine2")}
+                  <input value={sellerForm.registered_address_line2} onChange={(event) => setSellerForm((prev) => ({ ...prev, registered_address_line2: event.target.value }))} className="mt-1 h-10 w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 text-sm text-charcoal" placeholder={t("forms.addressLine2")} />
+                </label>
+                <label className="text-sm text-soft-brown">
+                  {t("forms.city")}
+                  <input value={sellerForm.registered_address_city} onChange={(event) => setSellerForm((prev) => ({ ...prev, registered_address_city: event.target.value }))} className="mt-1 h-10 w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 text-sm text-charcoal" placeholder={t("forms.city")} />
+                </label>
+                <label className="text-sm text-soft-brown">
+                  {t("forms.postalCode")}
+                  <input value={sellerForm.registered_address_postal_code} onChange={(event) => setSellerForm((prev) => ({ ...prev, registered_address_postal_code: event.target.value }))} className="mt-1 h-10 w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 text-sm text-charcoal" placeholder={t("forms.postalCode")} />
+                </label>
+                <label className="text-sm text-soft-brown">
+                  {t("forms.country")}
+                  <input value={sellerForm.registered_address_country} onChange={(event) => setSellerForm((prev) => ({ ...prev, registered_address_country: event.target.value }))} className="mt-1 h-10 w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 text-sm text-charcoal" placeholder={t("forms.country")} />
+                </label>
+                <label className="text-sm text-soft-brown">
+                  {t("forms.contactEmail")}
+                  <input type="email" value={sellerForm.contact_email} onChange={(event) => setSellerForm((prev) => ({ ...prev, contact_email: event.target.value }))} className="mt-1 h-10 w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 text-sm text-charcoal" placeholder="contacts@theateliermarie.com" />
+                </label>
+                <label className="text-sm text-soft-brown">
+                  {t("forms.currency")}
+                  <input value={sellerForm.default_currency} onChange={(event) => setSellerForm((prev) => ({ ...prev, default_currency: event.target.value.toUpperCase() }))} className="mt-1 h-10 w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 text-sm text-charcoal" placeholder="EUR" />
+                </label>
+                <label className="flex items-center gap-2 text-sm text-soft-brown">
+                  <input type="checkbox" checked={sellerForm.reviewed} onChange={(event) => setSellerForm((prev) => ({ ...prev, reviewed: event.target.checked }))} /> {t("settings.reviewed")}
+                </label>
+                <button
+                  type="button"
+                  onClick={() => runAction("seller", () => createSellerLegalProfile({
+                    effective_date: todayDate(),
+                    reviewed: sellerForm.reviewed,
+                    company_display_name: emptyToNull(sellerForm.company_display_name),
+                    legal_name: emptyToNull(sellerForm.legal_name),
+                    uic_eik: emptyToNull(sellerForm.uic_eik),
+                    vat_identification_number: emptyToNull(sellerForm.vat_identification_number),
+                    registered_address: buildRegisteredAddress(sellerForm),
+                    contact_email: emptyToNull(sellerForm.contact_email),
+                    bank_details: null,
+                    default_currency: sellerForm.default_currency.trim().toUpperCase() || "EUR",
+                  }))}
+                  className="rounded-brand bg-muted-gold px-3 py-2 text-sm font-medium text-charcoal"
+                >
+                  {common("save")}
+                </button>
+              </div>
+            </section>
             <section className="rounded-brand border border-champagne-beige bg-cream p-4"><h2 className="font-heading text-lg font-semibold text-charcoal">{t("settings.vatFiscal")}</h2><p className="mt-1 text-xs text-soft-brown">{t("settings.vatWarning")}</p><div className="mt-4 grid gap-3 md:grid-cols-2"><select value={vatForm.vat_mode} onChange={(event) => setVatForm((prev) => ({ ...prev, vat_mode: event.target.value as VatMode }))} className="h-10 rounded-brand border border-champagne-beige bg-warm-ivory px-3 text-sm"><option value="unknown">unknown</option><option value="not_registered">not registered</option><option value="registered">registered</option><option value="oss_registered">OSS registered</option></select><select value={vatForm.fiscal_document_mode} onChange={(event) => setVatForm((prev) => ({ ...prev, fiscal_document_mode: event.target.value as FiscalDocumentMode }))} className="h-10 rounded-brand border border-champagne-beige bg-warm-ivory px-3 text-sm"><option value="external_reference">external reference</option><option value="app_invoice_reference">app invoice reference</option><option value="fiscal_device_reference">fiscal device reference</option><option value="alternative_sales_document">alternative sales document</option><option value="not_configured">not configured</option></select><input value={vatForm.tolerance_cents} onChange={(event) => setVatForm((prev) => ({ ...prev, tolerance_cents: event.target.value }))} className="h-10 rounded-brand border border-champagne-beige bg-warm-ivory px-3 text-sm" /><label className="flex items-center gap-2 text-sm text-soft-brown"><input type="checkbox" checked={vatForm.reviewed} onChange={(event) => setVatForm((prev) => ({ ...prev, reviewed: event.target.checked }))} /> {t("settings.reviewed")}</label><button type="button" onClick={() => runAction("vat", () => createVatFiscalSettings({ ...vatForm, effective_date: todayDate(), tolerance_cents: asCents(vatForm.tolerance_cents) }))} className="rounded-brand bg-muted-gold px-3 py-2 text-sm font-medium text-charcoal">{common("save")}</button></div></section>
           </div>
           <div className="grid gap-4 lg:grid-cols-3">
