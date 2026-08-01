@@ -16,6 +16,8 @@ const STATUS_INDEX: Record<OrderStatus, number> = {
   confirmed: 1,
   shipped: 2,
   delivered: 3,
+  return_in_transit: 3,
+  returned: 3,
   cancelled: -1,
 };
 

@@ -81,6 +81,20 @@ def test_seeded_section_anchor_is_preserved_when_empty(faq_db):
     assert shipping["items"] == []
 
 
+def test_seeded_returns_faq_mentions_uncollected_parcels_and_terms_link(faq_db):
+    en = faq_service.get_public_faq("en")
+    shipping_en = next(section for section in en["sections"] if section["slug"] == "shipping")
+    returns_en = next(item for item in shipping_en["items"] if item["question"] == "Do you accept returns?")
+    assert "Uncollected or refused courier parcels" in returns_en["answer"]
+    assert "(/en/terms#returns)" in returns_en["answer"]
+
+    bg = faq_service.get_public_faq("bg")
+    shipping_bg = next(section for section in bg["sections"] if section["slug"] == "shipping")
+    returns_bg = next(item for item in shipping_bg["items"] if item["question"] == "Приемате ли връщания?")
+    assert "Непотърсените или отказани куриерски пратки" in returns_bg["answer"]
+    assert "(/bg/terms#returns)" in returns_bg["answer"]
+
+
 def test_admin_crud_raw_storage_publish_reorder_and_section_update(faq_db):
     raw_answer = "We'd use Care & Safety—always.\n\n- First line"
     item = faq_service.create_item(

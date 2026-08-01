@@ -41,8 +41,8 @@ from app.services.payment_service import (
     InvalidRetryTokenError,
     PaymentAlreadyPaidError,
     StripeSessionError,
-    create_checkout_session,
-    create_retry_checkout_session,
+    create_checkout_session_async,
+    create_retry_checkout_session_async,
     prepare_retry_session,
 )
 from app.services.payment_settings_service import get_payment_settings, payment_method_available
@@ -74,7 +74,7 @@ def _public_order_response(order_data: object) -> OrderResponse:
     "Validates stock, snapshots prices, decrements stock, and clears cart atomically. "
     "For card payments, returns stripe_checkout_url to redirect the customer.",
 )
-def create_order(
+async def create_order(
     request: Request,
     body: CreateOrderRequest,
     session_id: Annotated[str, Depends(require_session)],
@@ -242,7 +242,7 @@ def create_order(
                         order_id=order_data["id"],
                         session_id=session_id,
                     )
-                    stripe_checkout_url = create_checkout_session(
+                    stripe_checkout_url = await create_checkout_session_async(
                         conn=conn,
                         order=order_data,
                         success_url=settings.stripe_success_url,
@@ -386,7 +386,7 @@ async def create_stripe_retry_session(
                 url = existing_url
             else:
                 consume_stripe_session_rate_limit(conn, order_id=order_id, session_id=session_id)
-                url = create_retry_checkout_session(
+                url = await create_retry_checkout_session_async(
                     conn=conn,
                     order=order,
                     success_url=settings.stripe_success_url,

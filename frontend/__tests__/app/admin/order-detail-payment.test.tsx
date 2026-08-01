@@ -18,6 +18,13 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/api", () => ({
   getAdminOrder: vi.fn(),
   applyManualPaymentAction: vi.fn(),
+  createReturnCase: vi.fn(),
+  receiveReturnCase: vi.fn(),
+  inspectReturnCase: vi.fn(),
+  closeReturnCase: vi.fn(),
+  updateReturnAccounting: vi.fn(),
+  createStripeRefund: vi.fn(),
+  recordCodSettlement: vi.fn(),
   getEcontOrderReadiness: vi.fn(),
   repairEcontOrder: vi.fn(),
   syncEcontOrder: vi.fn(),
@@ -90,6 +97,12 @@ const ORDER: AdminOrderDetailResponse = {
       created_at: "2026-07-31T12:01:00Z",
     },
   ],
+  return_cases: [],
+  return_events: [],
+  refund_records: [],
+  cod_settlement: null,
+  cod_settlement_required: false,
+  econt_cod_evidence: null,
 };
 
 describe("Admin order payment detail", () => {

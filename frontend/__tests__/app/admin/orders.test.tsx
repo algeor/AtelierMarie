@@ -22,14 +22,21 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/api", () => ({
   getCurrentUser: vi.fn(),
   getAdminOrders: vi.fn(),
+  createAndShipEcontOrder: vi.fn(),
   updateOrderStatus: vi.fn(),
 }));
 
-import { getCurrentUser, getAdminOrders, updateOrderStatus } from "@/lib/api";
+import {
+  createAndShipEcontOrder,
+  getAdminOrders,
+  getCurrentUser,
+  updateOrderStatus,
+} from "@/lib/api";
 import type { OrderListResponse, OrderResponse, UserResponse } from "@/lib/types";
 
 const mockedGetCurrentUser = vi.mocked(getCurrentUser);
 const mockedGetAdminOrders = vi.mocked(getAdminOrders);
+const mockedCreateAndShipEcontOrder = vi.mocked(createAndShipEcontOrder);
 const mockedUpdateOrderStatus = vi.mocked(updateOrderStatus);
 
 const ADMIN_USER: UserResponse = {
@@ -247,6 +254,49 @@ describe("Admin Orders List", () => {
         undefined
       );
     });
+  });
+
+  it("creates and ships Econt orders directly from the list", async () => {
+    mockedGetAdminOrders.mockResolvedValue(MOCK_ORDER_LIST);
+    mockedCreateAndShipEcontOrder.mockResolvedValue({
+      order_id: MOCK_ORDERS[1]!.id,
+      action: "create_label_and_ship",
+      status: "shipped",
+      courier_order_id: null,
+      shipment_number: "1234567890",
+      label_url: "https://label.test/123.pdf",
+      tracking_url: "https://www.econt.com/services/track-shipment/1234567890",
+      courier_status: null,
+      status_updated_to: "shipped",
+    });
+
+    const { AdminProvider } = await import("@/contexts/AdminContext");
+    const { AdminGuard } = await import("@/components/admin/AdminGuard");
+    const AdminOrdersPage = (await import("@/app/[locale]/admin/orders/page")).default;
+
+    renderWithIntl(
+      <AdminProvider>
+        <AdminGuard>
+          <AdminOrdersPage />
+        </AdminGuard>
+      </AdminProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("b***@example.com")).toBeInTheDocument();
+    });
+
+    const selects = screen.getAllByRole("combobox");
+    fireEvent.change(selects[1]!, { target: { value: "shipped" } });
+
+    await waitFor(() => {
+      expect(mockedCreateAndShipEcontOrder).toHaveBeenCalledWith(MOCK_ORDERS[1]!.id);
+    });
+    expect(mockedUpdateOrderStatus).not.toHaveBeenCalledWith(
+      MOCK_ORDERS[1]!.id,
+      "shipped",
+      expect.anything()
+    );
   });
 
   it("rolls back on status update failure", async () => {

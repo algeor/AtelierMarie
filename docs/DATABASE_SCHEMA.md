@@ -182,7 +182,7 @@ enforce the current config limit of `10`.
 | `id` | TEXT | Primary key |
 | `session_id` | TEXT | Not null; no DB FK |
 | `user_id` | TEXT | FK -> `users(id)` |
-| `status` | TEXT | Not null, default `pending`; one of `pending`, `confirmed`, `shipped`, `delivered`, `cancelled` |
+| `status` | TEXT | Not null, default `pending`; one of `pending`, `confirmed`, `shipped`, `delivered`, `return_in_transit`, `returned`, `cancelled` |
 | `total_cents` | INTEGER | Not null, `CHECK (total_cents >= 0)` |
 | `customer_email` | TEXT | Not null |
 | `customer_name` | TEXT | Nullable |
@@ -198,6 +198,19 @@ enforce the current config limit of `10`.
 | `tracking_url` | TEXT | Nullable |
 | `courier_status` | TEXT | Nullable |
 | `label_url` | TEXT | Nullable |
+| `courier_provider` | TEXT | Nullable; one of `speedy`, `econt` on fresh DB |
+| `courier_order_id` | TEXT | Nullable remote courier order id |
+| `courier_shipment_number` | TEXT | Nullable courier shipment/waybill number |
+| `courier_label_url` | TEXT | Nullable label URL when courier returns one |
+| `courier_label_created_at` | TEXT | Nullable |
+| `courier_sync_status` | TEXT | Nullable admin/courier sync marker |
+| `courier_last_error` | TEXT | Nullable redacted JSON/string error snapshot |
+| `courier_last_synced_at` | TEXT | Nullable |
+| `courier_last_polled_at` | TEXT | Nullable |
+| `courier_next_poll_at` | TEXT | Nullable |
+| `courier_poll_attempts` | INTEGER | Not null, default `0`, `CHECK (courier_poll_attempts >= 0)` |
+| `courier_poll_lease_token` | TEXT | Nullable |
+| `courier_poll_lease_expires_at` | TEXT | Nullable |
 | `locale` | TEXT | Not null, default `'en'` |
 | `notes` | TEXT | Nullable |
 | `payment_method` | TEXT | Not null, default `cod`; one of `cod`, `card`, `bank_transfer` on fresh DB |
@@ -369,6 +382,34 @@ validation still enforce the contract.
 | `econt_office_enabled` | INTEGER | Not null, default `1`, boolean check |
 | `econt_door_enabled` | INTEGER | Not null, default `1`, boolean check |
 | `updated_at` | TEXT | Not null, default `datetime('now')`; trigger maintained |
+
+`site_settings`
+
+| Column | Type | Constraints / notes |
+|---|---:|---|
+| `key` | TEXT | Primary key |
+| `value` | TEXT | Not null JSON/string payload |
+| `value_type` | TEXT | Not null, default `json` |
+| `is_public` | INTEGER | Not null, default `0`, boolean check |
+| `updated_at` | TEXT | Not null, default `datetime('now')`; trigger maintained |
+
+Current Speedy admin keys:
+
+- `speedy_admin_health`: safe last health check metadata.
+- `speedy_office_refresh_status`: optional DB-backed office refresh status override.
+
+`site_setting_events`
+
+| Column | Type | Constraints / notes |
+|---|---:|---|
+| `id` | INTEGER | Primary key autoincrement |
+| `setting_key` | TEXT | Not null |
+| `old_value` | TEXT | Nullable |
+| `new_value` | TEXT | Not null |
+| `admin_id` | TEXT | Nullable |
+| `admin_email` | TEXT | Nullable |
+| `request_id` | TEXT | Nullable |
+| `created_at` | TEXT | Not null, default `datetime('now')` |
 
 `faq_sections`
 
@@ -596,34 +637,39 @@ Seeded metrics: `accepted`, `rejected`, `duplicate`, `validation_failure`.
 | `value` | VARCHAR | Not null |
 | `updated_at` | TIMESTAMP | Not null |
 
-## Observed Local DB Drift
+## Courier Admin Schema Notes
 
-The checked-in source creates the managed schema above. The local
-`./atelier_marie.db` also contains legacy/experimental courier objects that are
-not created by current `app/database.py` and are not referenced by current source
-search.
+Courier admin objects are active source schema, not local DB drift. Speedy and
+Econt admin operations share the nullable courier metadata columns on `orders`
+and the append-only `order_courier_events` audit table.
 
-Extra local-only tables:
+`order_courier_events`
 
-- `econt_settings`
-- `order_courier_events`
+| Column | Type | Constraints / notes |
+|---|---:|---|
+| `id` | INTEGER | Primary key autoincrement |
+| `order_id` | TEXT | Not null, FK -> `orders(id)` `ON DELETE CASCADE` |
+| `courier` | TEXT | Not null, one of `speedy`, `econt` |
+| `action` | TEXT | Not null operation name |
+| `status` | TEXT | Not null operation outcome |
+| `request_json` | TEXT | Nullable redacted JSON request snapshot |
+| `response_json` | TEXT | Nullable redacted JSON response snapshot |
+| `error_json` | TEXT | Nullable redacted JSON error snapshot |
+| `actor_user_id` | TEXT | Nullable admin actor id |
+| `created_at` | TEXT | Not null, default `datetime('now')` |
 
-Extra local-only `orders` columns:
+Indexes:
 
-- `shipping_address`
-- `courier_provider`
-- `courier_order_id`
-- `courier_shipment_number`
-- `courier_label_url`
-- `courier_label_created_at`
-- `courier_sync_status`
-- `courier_last_error`
-- `courier_last_synced_at`
+- `idx_order_courier_events_order_created` on `(order_id, created_at)`.
+- `idx_order_courier_events_courier_action` on `(courier, action, status)`.
 
-`order_courier_events` local indexes:
+Speedy admin writes events for health-adjacent actions where a local order is
+involved: waybill creation/reuse, label print, tracking refresh, shipment search,
+shipment info, cancellation, pickup terms, and pickup request. Stored request,
+response, and error snapshots must be passed through the shared redaction helper
+before insert.
 
-- `idx_order_courier_events_order_created` on `(order_id, created_at)`
-- `idx_order_courier_events_courier_action` on `(courier, action, status)`
-
-Treat these as drift unless the courier-admin feature is intentionally restored
-to `app/database.py` and service code.
+Cancellation policy is intentionally conservative: Speedy cancellation success
+marks shipment metadata as cancelled, but the customer order remains in its
+existing lifecycle state. Speedy cancellation rejection records a failed event
+without mutating the tracking number, courier status, or sync status.

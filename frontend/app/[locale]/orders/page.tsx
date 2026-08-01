@@ -17,7 +17,13 @@ const PAYMENT_STATUS_COLORS: Record<PaymentStatus, string> = {
   paid: "bg-green-100 text-green-800",
   cod_pending: "bg-gray-100 text-gray-700",
   failed: "bg-red-100 text-red-800",
+  review_required: "bg-amber-100 text-amber-800",
+  refund_pending: "bg-blue-100 text-blue-800",
+  partially_refunded: "bg-blue-100 text-blue-800",
   refunded: "bg-blue-100 text-blue-800",
+  dispute_open: "bg-red-100 text-red-800",
+  dispute_won: "bg-green-100 text-green-800",
+  dispute_lost: "bg-red-100 text-red-800",
 };
 
 export default function OrdersPage() {

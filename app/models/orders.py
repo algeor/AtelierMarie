@@ -2,13 +2,33 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field, computed_field, field_validator
+from pydantic import BaseModel, EmailStr, Field, computed_field, field_validator, model_validator
 
 from app.models.delivery import DeliveryInfo
 
-OrderStatus = Literal["pending", "confirmed", "shipped", "delivered", "cancelled"]
+OrderStatus = Literal[
+    "pending",
+    "confirmed",
+    "shipped",
+    "delivered",
+    "return_in_transit",
+    "returned",
+    "cancelled",
+]
 PaymentMethod = Literal["cod", "card", "bank_transfer"]
-PaymentStatus = Literal["pending", "paid", "cod_pending", "failed", "refunded"]
+PaymentStatus = Literal[
+    "pending",
+    "paid",
+    "cod_pending",
+    "failed",
+    "review_required",
+    "refund_pending",
+    "partially_refunded",
+    "refunded",
+    "dispute_open",
+    "dispute_won",
+    "dispute_lost",
+]
 
 PAYMENT_METHOD_LABELS: dict[str, str] = {
     "cod": "Pay on delivery",
@@ -21,7 +41,13 @@ PAYMENT_STATUS_LABELS: dict[str, str] = {
     "paid": "Paid",
     "cod_pending": "Pay on delivery",
     "failed": "Payment failed",
+    "review_required": "Review required",
+    "refund_pending": "Refund pending",
+    "partially_refunded": "Partially refunded",
     "refunded": "Refunded",
+    "dispute_open": "Dispute open",
+    "dispute_won": "Dispute won",
+    "dispute_lost": "Dispute lost",
 }
 
 
@@ -109,6 +135,12 @@ class AdminOrderDetailResponse(OrderResponse):
     """Admin order detail with payment timeline."""
 
     payment_events: list[dict] = Field(default_factory=list)
+    return_cases: list[dict] = Field(default_factory=list)
+    return_events: list[dict] = Field(default_factory=list)
+    refund_records: list[dict] = Field(default_factory=list)
+    cod_settlement: dict | None = None
+    cod_settlement_required: bool = False
+    econt_cod_evidence: dict | None = None
 
 
 class CreateOrderRequest(BaseModel):
@@ -164,8 +196,11 @@ ManualPaymentAction = Literal[
     "mark_refunded",
     "mark_failed",
     "mark_review",
+    "record_callback",
+    "convert_to_cod",
     "cancel",
 ]
+CallbackOutcome = Literal["confirmed", "declined", "unreachable", "needs_follow_up"]
 
 
 class ManualPaymentActionRequest(BaseModel):
@@ -173,6 +208,7 @@ class ManualPaymentActionRequest(BaseModel):
 
     action: ManualPaymentAction
     note: str = Field(..., min_length=1, max_length=2000)
+    callback_outcome: CallbackOutcome | None = None
 
     @field_validator("note", mode="before")
     @classmethod
@@ -184,6 +220,16 @@ class ManualPaymentActionRequest(BaseModel):
             msg = "note must not be blank"
             raise ValueError(msg)
         return stripped
+
+    @model_validator(mode="after")
+    def _validate_callback_fields(self) -> "ManualPaymentActionRequest":
+        if self.action == "record_callback" and self.callback_outcome is None:
+            msg = "callback_outcome is required for record_callback"
+            raise ValueError(msg)
+        if self.action == "convert_to_cod" and self.callback_outcome not in (None, "confirmed"):
+            msg = "convert_to_cod requires callback_outcome to be confirmed"
+            raise ValueError(msg)
+        return self
 
 
 class UpdateOrderStatusRequest(BaseModel):

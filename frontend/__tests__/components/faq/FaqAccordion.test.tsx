@@ -58,6 +58,26 @@ describe("FaqAccordion", () => {
     expect(screen.getByText("Second").tagName).toBe("LI");
   });
 
+  it("renders relative markdown links in answers", () => {
+    render(
+      <FaqAccordion
+        items={[
+          {
+            id: 1,
+            question: "Returns",
+            answer:
+              "Read the [Terms returns section](/en/terms#returns) before sending a parcel back.",
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByRole("link", { name: "Terms returns section" })).toHaveAttribute(
+      "href",
+      "/en/terms#returns"
+    );
+  });
+
   it("parses paragraphs and bullet groups", () => {
     expect(parseFaqAnswer("A line\ncontinued\n\n* One\n* Two")).toEqual([
       { type: "paragraph", text: "A line continued" },

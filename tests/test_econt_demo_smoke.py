@@ -91,7 +91,7 @@ def test_demo_smoke_uses_safe_connection_check_on_demo_url(monkeypatch, capsys):
             calls["private_key"] = private_key
             calls["shop_id"] = shop_id
 
-        def test_connection(self):
+        async def test_connection(self):
             calls["tested"] = True
             return True
 

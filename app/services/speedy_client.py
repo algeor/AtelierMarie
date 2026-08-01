@@ -7,12 +7,17 @@ shape) it does NOT raise — it returns a flat fallback quote tagged
 because a courier is down (design Decision 3).
 """
 
+from collections.abc import Callable
+from typing import Any, Literal
+
 import httpx
 import structlog
 
 from app.config import get_settings
 from app.constants import COURIER_TIMEOUT_SECONDS, FALLBACK_SHIPPING_CENTS
 from app.models.shipping import ShippingAddress, ShippingQuote, parse_price_cents
+from app.services.econt_redaction import redact_mapping
+from app.utils.circuit_breaker import CircuitBreaker
 
 logger = structlog.get_logger(__name__)
 
@@ -24,6 +29,22 @@ _DEFAULT_SERVICE_ID = 505
 # Timeout for shipment/track/print — these are real operations (not the
 # best-effort pricing path), so they get a longer budget than a price quote.
 _OPERATION_TIMEOUT_SECONDS = 15
+
+_SPEEDY_OPERATIONAL_BREAKER = CircuitBreaker(
+    name="speedy_operational",
+    failure_threshold=3,
+    failure_window=30.0,
+    recovery_timeout=60.0,
+)
+
+SpeedyErrorCategory = Literal[
+    "config",
+    "auth",
+    "validation",
+    "transient",
+    "circuit_open",
+    "unexpected_response",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -39,9 +60,32 @@ class SpeedyError(Exception):
     sees WHY Speedy rejected the operation, not just that it failed.
     """
 
-    def __init__(self, message: str, *, context: str | None = None) -> None:
+    category: SpeedyErrorCategory = "unexpected_response"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        context: str | None = None,
+        endpoint: str | None = None,
+        status_code: int | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
         self.context = context
+        self.endpoint = endpoint
+        self.status_code = status_code
+        self.details = redact_mapping(details or {})
         super().__init__(message)
+
+    def to_safe_dict(self) -> dict[str, Any]:
+        return {
+            "category": self.category,
+            "message": str(self),
+            "context": self.context,
+            "endpoint": self.endpoint,
+            "status_code": self.status_code,
+            "details": self.details,
+        }
 
 
 class ShipmentCreationError(SpeedyError):
@@ -54,6 +98,35 @@ class TrackingError(SpeedyError):
 
 class LabelPrintError(SpeedyError):
     """Label printing via POST /print failed."""
+
+
+class SpeedyConfigError(SpeedyError):
+    category: SpeedyErrorCategory = "config"
+
+
+class SpeedyAuthError(SpeedyError):
+    category: SpeedyErrorCategory = "auth"
+
+
+class SpeedyValidationError(SpeedyError):
+    category: SpeedyErrorCategory = "validation"
+
+
+class SpeedyTransientError(SpeedyError):
+    category: SpeedyErrorCategory = "transient"
+
+
+class SpeedyCircuitOpenError(SpeedyError):
+    category: SpeedyErrorCategory = "circuit_open"
+
+
+class SpeedyUnexpectedResponseError(SpeedyError):
+    category: SpeedyErrorCategory = "unexpected_response"
+
+
+def get_speedy_circuit_breaker() -> CircuitBreaker:
+    """Expose the Speedy operational circuit breaker for admin diagnostics."""
+    return _SPEEDY_OPERATIONAL_BREAKER
 
 
 def _speedy_error_fields(data: object) -> tuple[str | None, str | None]:
@@ -90,6 +163,151 @@ def _sender_client_id(client_id: str) -> int | None:
     return None
 
 
+def _auth_payload(username: str, password: str) -> dict[str, str]:
+    """Build Speedy's credential-bearing body fragment after config validation."""
+    if not username:
+        raise SpeedyConfigError("Speedy API username is missing")
+    if not password:
+        raise SpeedyConfigError("Speedy API password is missing")
+    return {"userName": username, "password": password}
+
+
+def _operation_url(endpoint: str) -> str:
+    return f"{get_settings().speedy_base_url.rstrip('/')}/{endpoint.lstrip('/')}"
+
+
+def _looks_like_auth_error(context: str | None, message: str | None) -> bool:
+    text = " ".join(part for part in (context, message) if part).casefold()
+    return any(
+        marker in text
+        for marker in (
+            "auth",
+            "authentication",
+            "authorization",
+            "unauthorized",
+            "access denied",
+            "invalid username",
+            "invalid password",
+            "password",
+            "credentials",
+            "login",
+        )
+    )
+
+
+def _operational_error(
+    error_cls: type[SpeedyError],
+    message: str,
+    *,
+    endpoint: str,
+    context: str | None = None,
+    status_code: int | None = None,
+    details: dict[str, Any] | None = None,
+) -> SpeedyError:
+    return error_cls(
+        message,
+        context=context,
+        endpoint=endpoint,
+        status_code=status_code,
+        details=details,
+    )
+
+
+async def _post_operational_json(
+    endpoint: str,
+    payload: dict[str, Any],
+    *,
+    breaker: CircuitBreaker | None = None,
+    client_factory: Callable[..., httpx.AsyncClient] = httpx.AsyncClient,
+) -> dict[str, Any]:
+    """POST an admin Speedy operation with shared classification/redaction.
+
+    This helper is intentionally separate from `calculate`: pricing keeps its
+    flat fallback behavior, while admin operations need typed failures and a
+    circuit breaker. Auth/validation errors do not trip the outage circuit.
+    """
+    breaker = breaker or _SPEEDY_OPERATIONAL_BREAKER
+    if not breaker.allow_request():
+        raise _operational_error(
+            SpeedyCircuitOpenError,
+            "Speedy operational circuit breaker is open",
+            endpoint=endpoint,
+        )
+
+    url = _operation_url(endpoint)
+    try:
+        async with client_factory(timeout=httpx.Timeout(_OPERATION_TIMEOUT_SECONDS)) as client:
+            response = await client.post(url, json=payload)
+    except httpx.TimeoutException as exc:
+        breaker.record_failure()
+        raise _operational_error(
+            SpeedyTransientError,
+            "Speedy request timed out",
+            endpoint=endpoint,
+            details={"payload": payload},
+        ) from exc
+    except httpx.TransportError as exc:
+        breaker.record_failure()
+        raise _operational_error(
+            SpeedyTransientError,
+            "Speedy transport error",
+            endpoint=endpoint,
+            details={"payload": payload},
+        ) from exc
+
+    body = _safe_json(response)
+    context, message = _speedy_error_fields(body)
+
+    if response.status_code >= 500:
+        breaker.record_failure()
+        raise _operational_error(
+            SpeedyTransientError,
+            message or "Speedy service is unavailable",
+            endpoint=endpoint,
+            context=context,
+            status_code=response.status_code,
+            details={"body": body if body is not None else response.text[:500]},
+        )
+
+    if body is None or not isinstance(body, dict):
+        breaker.record_failure()
+        raise _operational_error(
+            SpeedyUnexpectedResponseError,
+            "Speedy returned malformed JSON",
+            endpoint=endpoint,
+            status_code=response.status_code,
+            details={"body": response.text[:500]},
+        )
+
+    if response.status_code in {401, 403} or _looks_like_auth_error(context, message):
+        raise _operational_error(
+            SpeedyAuthError,
+            message or "Speedy authentication failed",
+            endpoint=endpoint,
+            context=context,
+            status_code=response.status_code,
+            details={"body": body},
+        )
+
+    if response.status_code >= 400 or context or message:
+        raise _operational_error(
+            SpeedyValidationError,
+            message or f"Speedy rejected the request (HTTP {response.status_code})",
+            endpoint=endpoint,
+            context=context,
+            status_code=response.status_code,
+            details={"body": body},
+        )
+
+    breaker.record_success()
+    return body
+
+
+def _record_unexpected_shape(endpoint: str, message: str, body: Any) -> SpeedyUnexpectedResponseError:
+    _SPEEDY_OPERATIONAL_BREAKER.record_failure()
+    return SpeedyUnexpectedResponseError(message, endpoint=endpoint, details={"body": body})
+
+
 def _fallback_quote(quoted_at: str | None = None) -> ShippingQuote:
     """Flat last-resort quote when live pricing is unavailable."""
     return ShippingQuote(
@@ -100,6 +318,238 @@ def _fallback_quote(quoted_at: str | None = None) -> ShippingQuote:
         price_source="flat",
         quoted_at=quoted_at,
     )
+
+
+async def get_own_client_id(
+    *,
+    username: str,
+    password: str,
+    breaker: CircuitBreaker | None = None,
+    client_factory: Callable[..., httpx.AsyncClient] = httpx.AsyncClient,
+) -> str:
+    """Call official `POST /client` and return the authenticated client id."""
+    endpoint = "client"
+    body = await _post_operational_json(
+        endpoint,
+        _auth_payload(username, password),
+        breaker=breaker,
+        client_factory=client_factory,
+    )
+    client_id = body.get("clientId")
+    if client_id is None:
+        raise _record_unexpected_shape(endpoint, "Speedy client response missing clientId", body)
+    return str(client_id)
+
+
+async def get_client(
+    client_id: str,
+    *,
+    username: str,
+    password: str,
+    breaker: CircuitBreaker | None = None,
+    client_factory: Callable[..., httpx.AsyncClient] = httpx.AsyncClient,
+) -> dict[str, Any]:
+    """Call official `POST /client/{id}` for admin diagnostics."""
+    if not client_id or not str(client_id).isdigit():
+        raise SpeedyConfigError("Speedy client id must be numeric")
+    endpoint = f"client/{client_id}"
+    body = await _post_operational_json(
+        endpoint,
+        _auth_payload(username, password),
+        breaker=breaker,
+        client_factory=client_factory,
+    )
+    client = body.get("client")
+    if not isinstance(client, dict):
+        raise _record_unexpected_shape(endpoint, "Speedy client detail response missing client", body)
+    return redact_mapping(client)
+
+
+async def find_parcels_by_reference(
+    reference: str,
+    *,
+    username: str,
+    password: str,
+    search_in_ref: int = 1,
+    shipments_only: bool = True,
+    include_returns: bool = False,
+    from_date_time: int | None = None,
+    to_date_time: int | None = None,
+    breaker: CircuitBreaker | None = None,
+    client_factory: Callable[..., httpx.AsyncClient] = httpx.AsyncClient,
+) -> list[str]:
+    """Find Speedy parcel/shipment barcodes using official `POST /shipment/search`."""
+    reference = reference.strip()
+    if not reference:
+        raise SpeedyValidationError("reference is required", endpoint="shipment/search")
+    payload: dict[str, Any] = {
+        **_auth_payload(username, password),
+        "ref": reference,
+        "searchInRef": search_in_ref,
+        "shipmentsOnly": shipments_only,
+        "includeReturns": include_returns,
+    }
+    if from_date_time is not None:
+        payload["fromDateTime"] = from_date_time
+    if to_date_time is not None:
+        payload["toDateTime"] = to_date_time
+
+    endpoint = "shipment/search"
+    body = await _post_operational_json(
+        endpoint,
+        payload,
+        breaker=breaker,
+        client_factory=client_factory,
+    )
+    barcodes = body.get("barcodes")
+    if barcodes is None:
+        return []
+    if not isinstance(barcodes, list) or not all(isinstance(item, str) for item in barcodes):
+        raise _record_unexpected_shape(endpoint, "Speedy search response had invalid barcodes", body)
+    return barcodes
+
+
+async def get_shipment_info(
+    shipment_ids: list[str],
+    *,
+    username: str,
+    password: str,
+    breaker: CircuitBreaker | None = None,
+    client_factory: Callable[..., httpx.AsyncClient] = httpx.AsyncClient,
+) -> list[dict[str, Any]]:
+    """Fetch shipment details using official `POST /shipment/info`."""
+    normalized_ids = [str(item).strip() for item in shipment_ids if str(item).strip()]
+    if not normalized_ids:
+        raise SpeedyValidationError("shipment_ids are required", endpoint="shipment/info")
+    endpoint = "shipment/info"
+    body = await _post_operational_json(
+        endpoint,
+        {**_auth_payload(username, password), "shipmentIds": normalized_ids},
+        breaker=breaker,
+        client_factory=client_factory,
+    )
+    shipments = body.get("shipments")
+    if shipments is None:
+        return []
+    if not isinstance(shipments, list) or not all(isinstance(item, dict) for item in shipments):
+        raise _record_unexpected_shape(endpoint, "Speedy shipment info response was invalid", body)
+    return [redact_mapping(item) for item in shipments]
+
+
+async def cancel_shipment(
+    shipment_id: str,
+    *,
+    username: str,
+    password: str,
+    comment: str | None = None,
+    breaker: CircuitBreaker | None = None,
+    client_factory: Callable[..., httpx.AsyncClient] = httpx.AsyncClient,
+) -> dict[str, Any]:
+    """Cancel a Speedy shipment using official `POST /shipment/cancel`."""
+    shipment_id = shipment_id.strip()
+    if not shipment_id:
+        raise SpeedyValidationError("shipment_id is required", endpoint="shipment/cancel")
+    payload = {**_auth_payload(username, password), "shipmentId": shipment_id}
+    if comment:
+        payload["comment"] = comment.strip()
+    await _post_operational_json(
+        "shipment/cancel",
+        payload,
+        breaker=breaker,
+        client_factory=client_factory,
+    )
+    return {"cancelled": True, "shipment_id": shipment_id}
+
+
+async def pickup_terms(
+    *,
+    client_id: str,
+    username: str,
+    password: str,
+    starting_date_utc_ms: int | None = None,
+    service_id: int = _DEFAULT_SERVICE_ID,
+    sender_has_payment: bool = True,
+    breaker: CircuitBreaker | None = None,
+    client_factory: Callable[..., httpx.AsyncClient] = httpx.AsyncClient,
+) -> list[str]:
+    """Fetch available Speedy pickup cutoff timestamps via `POST /pickup/terms`."""
+    sender_id = _sender_client_id(client_id)
+    if sender_id is None:
+        raise SpeedyConfigError("Speedy client id must be numeric", endpoint="pickup/terms")
+    payload: dict[str, Any] = {
+        **_auth_payload(username, password),
+        "serviceId": service_id,
+        "sender": {"clientId": sender_id},
+        "senderHasPayment": sender_has_payment,
+    }
+    if starting_date_utc_ms is not None:
+        payload["startingDate"] = starting_date_utc_ms
+    endpoint = "pickup/terms"
+    body = await _post_operational_json(
+        endpoint,
+        payload,
+        breaker=breaker,
+        client_factory=client_factory,
+    )
+    cutoffs = body.get("cutoffs")
+    if cutoffs is None:
+        return []
+    if not isinstance(cutoffs, list) or not all(isinstance(item, str) for item in cutoffs):
+        raise _record_unexpected_shape(endpoint, "Speedy pickup terms response was invalid", body)
+    return cutoffs
+
+
+async def request_pickup(
+    *,
+    shipment_ids: list[str],
+    pickup_datetime: str,
+    visit_end_time: str,
+    contact_name: str,
+    phone: str,
+    username: str,
+    password: str,
+    pickup_scope: str = "EXPLICIT_SHIPMENT_ID_LIST",
+    auto_adjust_pickup_date: bool = True,
+    breaker: CircuitBreaker | None = None,
+    client_factory: Callable[..., httpx.AsyncClient] = httpx.AsyncClient,
+) -> list[dict[str, Any]]:
+    """Create an explicit Speedy pickup request via official `POST /pickup`."""
+    normalized_ids = [str(item).strip() for item in shipment_ids if str(item).strip()]
+    if pickup_scope == "EXPLICIT_SHIPMENT_ID_LIST" and not normalized_ids:
+        raise SpeedyValidationError("shipment_ids are required", endpoint="pickup")
+    if not pickup_datetime.strip():
+        raise SpeedyValidationError("pickup_datetime is required", endpoint="pickup")
+    if not visit_end_time.strip():
+        raise SpeedyValidationError("visit_end_time is required", endpoint="pickup")
+    if not contact_name.strip():
+        raise SpeedyValidationError("contact_name is required", endpoint="pickup")
+    if not phone.strip():
+        raise SpeedyValidationError("phone is required", endpoint="pickup")
+
+    payload: dict[str, Any] = {
+        **_auth_payload(username, password),
+        "pickupDateTime": pickup_datetime.strip(),
+        "pickupScope": pickup_scope,
+        "visitEndTime": visit_end_time.strip(),
+        "contactName": contact_name.strip(),
+        "phoneNumber": {"number": phone.strip()},
+        "autoAdjustPickupDate": auto_adjust_pickup_date,
+    }
+    if normalized_ids:
+        payload["explicitShipmentIdList"] = normalized_ids
+    endpoint = "pickup"
+    body = await _post_operational_json(
+        endpoint,
+        payload,
+        breaker=breaker,
+        client_factory=client_factory,
+    )
+    orders = body.get("orders")
+    if orders is None:
+        return []
+    if not isinstance(orders, list) or not all(isinstance(item, dict) for item in orders):
+        raise _record_unexpected_shape(endpoint, "Speedy pickup response was invalid", body)
+    return [redact_mapping(item) for item in orders]
 
 
 def build_calculate_payload(
@@ -454,13 +904,12 @@ def create_shipment_sync(
     recipient_building: str | None = None,
     cod_amount_cents: int | None = None,
 ) -> str:
-    """Synchronous waybill creation, for the sync order-service ship path.
+    """Synchronous waybill creation for legacy sync callers.
 
-    `order_service.update_status` runs inside a sync sqlite3 transaction; calling
-    this before the `UPDATE orders` means a `ShipmentCreationError` aborts the
-    transaction and the order never lands in `shipped` without a waybill
-    (design Decision 3). Shares payload assembly and error mapping with the async
-    `create_shipment`.
+    The order-service ship path uses the async `create_shipment` coroutine so
+    admin requests do not block the event loop during Speedy HTTP. This wrapper
+    stays available for scripts/tests that run outside an async context and
+    shares payload assembly and error mapping with the async path.
     """
     payload = build_shipment_payload(
         client_id=client_id,
@@ -540,6 +989,21 @@ async def track_shipment(
     `order_service.update_status` — the order state machine stays admin-driven.
     Raises `TrackingError` on failure.
     """
+    result = await track_shipment_with_details(
+        tracking_number=tracking_number,
+        username=username,
+        password=password,
+    )
+    return result["courier_status"]
+
+
+async def track_shipment_with_details(
+    *,
+    tracking_number: str,
+    username: str,
+    password: str,
+) -> dict[str, Any]:
+    """Return normalized tracking status plus provider details for audit storage."""
     payload = {
         "userName": username,
         "password": password,
@@ -583,10 +1047,13 @@ async def track_shipment(
     operations = parcels[0].get("operations") or []
     if not operations:
         # No scan yet — the waybill exists but hasn't moved.
-        return "in_transit"
+        return {"courier_status": "in_transit", "tracking_details": data}
     last = operations[-1]
     description = last.get("description") if isinstance(last, dict) else None
-    return normalize_track_status(description)
+    return {
+        "courier_status": normalize_track_status(description),
+        "tracking_details": data,
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -219,7 +219,10 @@ CREATE TABLE IF NOT EXISTS orders (
     session_id  TEXT NOT NULL,
     user_id     TEXT REFERENCES users(id),
     status      TEXT NOT NULL DEFAULT 'pending'
-                CHECK (status IN ('pending', 'confirmed', 'shipped', 'delivered', 'cancelled')),
+                CHECK (status IN (
+                    'pending', 'confirmed', 'shipped', 'delivered',
+                    'return_in_transit', 'returned', 'cancelled'
+                )),
     total_cents INTEGER NOT NULL CHECK (total_cents >= 0),
     customer_email TEXT NOT NULL,
     customer_name  TEXT,
@@ -254,6 +257,11 @@ CREATE TABLE IF NOT EXISTS orders (
     courier_sync_status       TEXT,
     courier_last_error        TEXT,
     courier_last_synced_at    TEXT,
+    courier_last_polled_at    TEXT,
+    courier_next_poll_at      TEXT,
+    courier_poll_attempts     INTEGER NOT NULL DEFAULT 0 CHECK (courier_poll_attempts >= 0),
+    courier_poll_lease_token  TEXT,
+    courier_poll_lease_expires_at TEXT,
     -- Customer locale snapshotted at checkout (email language is a fact of the
     -- order, not a session lookup — see email-notifications design Decision 8).
     locale      TEXT NOT NULL DEFAULT 'en',
@@ -263,7 +271,9 @@ CREATE TABLE IF NOT EXISTS orders (
                     CHECK (payment_method IN ('cod', 'card', 'bank_transfer')),
     payment_status  TEXT NOT NULL DEFAULT 'cod_pending'
                     CHECK (payment_status IN (
-                        'pending', 'paid', 'cod_pending', 'failed', 'refunded'
+                        'pending', 'paid', 'cod_pending', 'failed',
+                        'review_required', 'refund_pending', 'partially_refunded',
+                        'refunded', 'dispute_open', 'dispute_won', 'dispute_lost'
                     )),
     reserved_until TEXT,
     paid_at TEXT,
@@ -307,6 +317,109 @@ CREATE TABLE IF NOT EXISTS payment_events (
     admin_note  TEXT,
     request_id  TEXT,
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS order_returns (
+    id          TEXT PRIMARY KEY,
+    order_id    TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    reason      TEXT NOT NULL CHECK (reason IN (
+                    'not_picked_up', 'refused_delivery', 'customer_return',
+                    'wrong_address', 'unreachable_customer', 'damaged_by_courier',
+                    'lost_by_courier', 'merchant_error', 'other'
+                )),
+    source      TEXT NOT NULL DEFAULT 'admin' CHECK (source IN (
+                    'admin', 'speedy', 'econt', 'customer', 'stripe', 'system'
+                )),
+    status      TEXT NOT NULL DEFAULT 'requested' CHECK (status IN (
+                    'requested', 'return_in_transit', 'received',
+                    'inspected', 'rejected', 'closed'
+                )),
+    refund_amount_cents INTEGER CHECK (
+                    refund_amount_cents IS NULL OR refund_amount_cents >= 0
+                ),
+    courier_return_fee_cents INTEGER NOT NULL DEFAULT 0
+                    CHECK (courier_return_fee_cents >= 0),
+    courier_claim_id TEXT,
+    courier_claim_status TEXT NOT NULL DEFAULT 'none' CHECK (courier_claim_status IN (
+                    'none', 'filed', 'approved', 'rejected', 'paid'
+                )),
+    courier_claim_amount_cents INTEGER CHECK (
+                    courier_claim_amount_cents IS NULL OR courier_claim_amount_cents >= 0
+                ),
+    restock_decision TEXT NOT NULL DEFAULT 'pending' CHECK (restock_decision IN (
+                    'pending', 'restock', 'do_not_restock', 'partial'
+                )),
+    returned_at TEXT,
+    received_at TEXT,
+    inspected_at TEXT,
+    closed_at TEXT,
+    notes TEXT,
+    created_by_admin_id TEXT,
+    updated_by_admin_id TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS order_return_events (
+    id              TEXT PRIMARY KEY,
+    order_return_id TEXT REFERENCES order_returns(id) ON DELETE CASCADE,
+    order_id        TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    event_type      TEXT NOT NULL,
+    source          TEXT NOT NULL DEFAULT 'admin' CHECK (source IN (
+                        'admin', 'speedy', 'econt', 'customer', 'stripe', 'system'
+                    )),
+    payload_json    TEXT,
+    admin_user_id   TEXT,
+    admin_email     TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS payment_refunds (
+    id          TEXT PRIMARY KEY,
+    order_id    TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    payment_id  TEXT REFERENCES payments(id) ON DELETE SET NULL,
+    provider    TEXT NOT NULL CHECK (provider IN (
+                    'stripe', 'manual', 'bank_transfer', 'cod_adjustment'
+                )),
+    provider_refund_id TEXT,
+    amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+    status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
+                    'pending', 'succeeded', 'failed', 'cancelled'
+                )),
+    reason      TEXT,
+    idempotency_key TEXT,
+    failure_reason TEXT,
+    created_by_admin_id TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    confirmed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS cod_settlements (
+    id          TEXT PRIMARY KEY,
+    order_id    TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    amount_cents INTEGER NOT NULL CHECK (amount_cents >= 0),
+    settlement_date TEXT NOT NULL,
+    courier_reference TEXT,
+    notes       TEXT,
+    mismatch_review INTEGER NOT NULL DEFAULT 0 CHECK (mismatch_review IN (0, 1)),
+    created_by_admin_id TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS inventory_adjustments (
+    id              TEXT PRIMARY KEY,
+    order_id        TEXT REFERENCES orders(id) ON DELETE SET NULL,
+    order_return_id TEXT REFERENCES order_returns(id) ON DELETE SET NULL,
+    product_id      TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    quantity        INTEGER NOT NULL CHECK (quantity > 0),
+    reason          TEXT NOT NULL CHECK (reason IN (
+                        'return_restock', 'return_partial_restock', 'manual_correction'
+                    )),
+    source          TEXT NOT NULL DEFAULT 'admin' CHECK (source IN ('admin', 'system')),
+    notes           TEXT,
+    created_by_admin_id TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS site_settings (
@@ -365,6 +478,8 @@ CREATE INDEX IF NOT EXISTS idx_orders_courier_shipment_number
     ON orders(courier_shipment_number);
 CREATE INDEX IF NOT EXISTS idx_orders_courier_sync_status
     ON orders(courier_sync_status);
+CREATE INDEX IF NOT EXISTS idx_orders_courier_poll_due
+    ON orders(courier_provider, status, courier_next_poll_at, courier_poll_lease_expires_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_internal_sequence ON orders(internal_sequence);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_order_number ON orders(order_number);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_payment_return_token
@@ -385,6 +500,39 @@ CREATE INDEX IF NOT EXISTS idx_payments_stripe_payment_intent_id
 CREATE INDEX IF NOT EXISTS idx_payment_events_order_id ON payment_events(order_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_payment_events_stripe_event_id
     ON payment_events(stripe_event_id);
+CREATE INDEX IF NOT EXISTS idx_order_returns_order_id
+    ON order_returns(order_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_order_returns_status
+    ON order_returns(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_order_returns_reason
+    ON order_returns(reason, created_at);
+CREATE INDEX IF NOT EXISTS idx_order_returns_claim_status
+    ON order_returns(courier_claim_status, created_at);
+CREATE INDEX IF NOT EXISTS idx_order_returns_restock_decision
+    ON order_returns(restock_decision, created_at);
+CREATE INDEX IF NOT EXISTS idx_order_return_events_order_created
+    ON order_return_events(order_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_order_return_events_return_created
+    ON order_return_events(order_return_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_payment_refunds_order_id
+    ON payment_refunds(order_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_payment_refunds_payment_id
+    ON payment_refunds(payment_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_payment_refunds_status
+    ON payment_refunds(status, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_refunds_provider_idempotency
+    ON payment_refunds(provider, idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cod_settlements_order_id
+    ON cod_settlements(order_id);
+CREATE INDEX IF NOT EXISTS idx_cod_settlements_mismatch
+    ON cod_settlements(mismatch_review, created_at);
+CREATE INDEX IF NOT EXISTS idx_inventory_adjustments_product_created
+    ON inventory_adjustments(product_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_inventory_adjustments_return_created
+    ON inventory_adjustments(order_return_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_inventory_adjustments_reason_created
+    ON inventory_adjustments(reason, created_at);
 CREATE INDEX IF NOT EXISTS idx_payment_rate_limit_lookup
     ON payment_rate_limit_events(action, scope, key, created_at);
 CREATE INDEX IF NOT EXISTS idx_admin_alerts_unread_created
@@ -631,6 +779,15 @@ CREATE TABLE IF NOT EXISTS econt_settings (
     declared_value_enabled     INTEGER NOT NULL DEFAULT 0 CHECK (declared_value_enabled IN (0, 1)),
     default_payment_side       TEXT NOT NULL DEFAULT 'receiver'
                                CHECK (default_payment_side IN ('sender', 'receiver')),
+    return_parcel_destination  TEXT NOT NULL DEFAULT 'sender',
+    days_until_return          INTEGER NOT NULL DEFAULT 7 CHECK (days_until_return BETWEEN 0 AND 30),
+    return_parcel_payment_side TEXT NOT NULL DEFAULT 'sender'
+                               CHECK (return_parcel_payment_side IN ('sender', 'receiver')),
+    reject_action              TEXT NOT NULL DEFAULT 'return_to_sender',
+    reject_payment_side        TEXT NOT NULL DEFAULT 'sender'
+                               CHECK (reject_payment_side IN ('sender', 'receiver')),
+    reject_return_payment_side TEXT NOT NULL DEFAULT 'sender'
+                               CHECK (reject_return_payment_side IN ('sender', 'receiver')),
     courier_currency           TEXT NOT NULL DEFAULT 'EUR'
                                CHECK (courier_currency IN ('EUR', 'BGN')),
     currency_conversion_rate   REAL CHECK (currency_conversion_rate IS NULL OR currency_conversion_rate > 0),
@@ -701,6 +858,16 @@ END;
 CREATE TRIGGER IF NOT EXISTS payments_updated_at AFTER UPDATE ON payments
 BEGIN
     UPDATE payments SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS order_returns_updated_at AFTER UPDATE ON order_returns
+BEGIN
+    UPDATE order_returns SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS cod_settlements_updated_at AFTER UPDATE ON cod_settlements
+BEGIN
+    UPDATE cod_settlements SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
 END;
 
 CREATE TRIGGER IF NOT EXISTS site_settings_updated_at AFTER UPDATE ON site_settings
@@ -839,6 +1006,163 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_product_images_one_primary
     ON product_images(product_id) WHERE is_primary = 1;
 """
 
+_ORDERS_TABLE_REBUILD_SQL = """\
+CREATE TABLE orders_new (
+    id          TEXT PRIMARY KEY,
+    internal_sequence INTEGER UNIQUE,
+    order_number TEXT UNIQUE,
+    session_id  TEXT NOT NULL,
+    user_id     TEXT REFERENCES users(id),
+    status      TEXT NOT NULL DEFAULT 'pending'
+                CHECK (status IN (
+                    'pending', 'confirmed', 'shipped', 'delivered',
+                    'return_in_transit', 'returned', 'cancelled'
+                )),
+    total_cents INTEGER NOT NULL CHECK (total_cents >= 0),
+    customer_email TEXT NOT NULL,
+    customer_name  TEXT,
+    shipping_cents INTEGER NOT NULL DEFAULT 0 CHECK (shipping_cents >= 0),
+    shipping_price_source TEXT NOT NULL DEFAULT 'live',
+    shipping_is_fallback INTEGER NOT NULL DEFAULT 0,
+    shipping_quoted_at TEXT,
+    delivery_method TEXT CHECK (delivery_method IN ('office', 'door')),
+    delivery_courier TEXT CHECK (delivery_courier IN ('speedy', 'econt')),
+    delivery_details TEXT,
+    tracking_number  TEXT,
+    tracking_carrier TEXT,
+    tracking_url     TEXT,
+    courier_status   TEXT,
+    label_url        TEXT,
+    courier_provider          TEXT CHECK (courier_provider IN ('speedy', 'econt')),
+    courier_order_id          TEXT,
+    courier_shipment_number   TEXT,
+    courier_label_url         TEXT,
+    courier_label_created_at  TEXT,
+    courier_sync_status       TEXT,
+    courier_last_error        TEXT,
+    courier_last_synced_at    TEXT,
+    courier_last_polled_at    TEXT,
+    courier_next_poll_at      TEXT,
+    courier_poll_attempts     INTEGER NOT NULL DEFAULT 0 CHECK (courier_poll_attempts >= 0),
+    courier_poll_lease_token  TEXT,
+    courier_poll_lease_expires_at TEXT,
+    locale      TEXT NOT NULL DEFAULT 'en',
+    notes       TEXT,
+    payment_method  TEXT NOT NULL DEFAULT 'cod'
+                    CHECK (payment_method IN ('cod', 'card', 'bank_transfer')),
+    payment_status  TEXT NOT NULL DEFAULT 'cod_pending'
+                    CHECK (payment_status IN (
+                        'pending', 'paid', 'cod_pending', 'failed',
+                        'review_required', 'refund_pending', 'partially_refunded',
+                        'refunded', 'dispute_open', 'dispute_won', 'dispute_lost'
+                    )),
+    reserved_until TEXT,
+    paid_at TEXT,
+    collected_at TEXT,
+    payment_return_token TEXT UNIQUE,
+    stripe_checkout_session_id TEXT,
+    stripe_payment_intent_id   TEXT,
+    analytics_consent INTEGER NOT NULL DEFAULT 0 CHECK (analytics_consent IN (0, 1)),
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"""
+
+_ORDER_COLUMNS = (
+    "id",
+    "internal_sequence",
+    "order_number",
+    "session_id",
+    "user_id",
+    "status",
+    "total_cents",
+    "customer_email",
+    "customer_name",
+    "shipping_cents",
+    "shipping_price_source",
+    "shipping_is_fallback",
+    "shipping_quoted_at",
+    "delivery_method",
+    "delivery_courier",
+    "delivery_details",
+    "tracking_number",
+    "tracking_carrier",
+    "tracking_url",
+    "courier_status",
+    "label_url",
+    "courier_provider",
+    "courier_order_id",
+    "courier_shipment_number",
+    "courier_label_url",
+    "courier_label_created_at",
+    "courier_sync_status",
+    "courier_last_error",
+    "courier_last_synced_at",
+    "courier_last_polled_at",
+    "courier_next_poll_at",
+    "courier_poll_attempts",
+    "courier_poll_lease_token",
+    "courier_poll_lease_expires_at",
+    "locale",
+    "notes",
+    "payment_method",
+    "payment_status",
+    "reserved_until",
+    "paid_at",
+    "collected_at",
+    "payment_return_token",
+    "stripe_checkout_session_id",
+    "stripe_payment_intent_id",
+    "analytics_consent",
+    "created_at",
+    "updated_at",
+)
+
+_ORDER_COLUMN_DEFAULTS = {
+    "internal_sequence": "NULL",
+    "order_number": "NULL",
+    "user_id": "NULL",
+    "customer_name": "NULL",
+    "shipping_cents": "0",
+    "shipping_price_source": "'live'",
+    "shipping_is_fallback": "0",
+    "shipping_quoted_at": "NULL",
+    "delivery_method": "NULL",
+    "delivery_courier": "NULL",
+    "delivery_details": "NULL",
+    "tracking_number": "NULL",
+    "tracking_carrier": "NULL",
+    "tracking_url": "NULL",
+    "courier_status": "NULL",
+    "label_url": "NULL",
+    "courier_provider": "NULL",
+    "courier_order_id": "NULL",
+    "courier_shipment_number": "NULL",
+    "courier_label_url": "NULL",
+    "courier_label_created_at": "NULL",
+    "courier_sync_status": "NULL",
+    "courier_last_error": "NULL",
+    "courier_last_synced_at": "NULL",
+    "courier_last_polled_at": "NULL",
+    "courier_next_poll_at": "NULL",
+    "courier_poll_attempts": "0",
+    "courier_poll_lease_token": "NULL",
+    "courier_poll_lease_expires_at": "NULL",
+    "locale": "'en'",
+    "notes": "NULL",
+    "payment_method": "'cod'",
+    "payment_status": "'cod_pending'",
+    "reserved_until": "NULL",
+    "paid_at": "NULL",
+    "collected_at": "NULL",
+    "payment_return_token": "NULL",
+    "stripe_checkout_session_id": "NULL",
+    "stripe_payment_intent_id": "NULL",
+    "analytics_consent": "0",
+    "created_at": "datetime('now')",
+    "updated_at": "datetime('now')",
+}
+
 _PRODUCT_COLUMNS = (
     "id",
     "name_en",
@@ -899,6 +1223,9 @@ def init_db(path: str) -> None:
     conn.row_factory = sqlite3.Row
     try:
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=OFF")
+        _migrate_orders_table_constraints(conn)
+        conn.commit()
         conn.execute("PRAGMA foreign_keys=ON")
         _migrate_existing_schema(conn)
         conn.executescript(_SCHEMA_SQL)
@@ -912,6 +1239,7 @@ def init_db(path: str) -> None:
         _seed_about_content(conn)
         _migrate_faq(conn)
         _migrate_faq_returns_policy_reference(conn)
+        _migrate_faq_uncollected_refused_reference(conn)
         _rebuild_product_fts(conn)
         conn.commit()
     finally:
@@ -1438,6 +1766,37 @@ def _add_column_if_missing(
         columns.add(column)
 
 
+def _migrate_orders_table_constraints(conn: sqlite3.Connection) -> None:
+    """Rebuild old orders tables whose CHECK constraints lack return/refund states."""
+    if not _table_exists(conn, "orders"):
+        return
+
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'orders'"
+    ).fetchone()
+    create_sql = str(row[0] if row and row[0] else "")
+    required_tokens = ("return_in_transit", "review_required", "dispute_lost")
+    if all(token in create_sql for token in required_tokens):
+        return
+
+    columns = _table_columns(conn, "orders")
+    select_exprs = [
+        _column_expr(columns, column, _ORDER_COLUMN_DEFAULTS.get(column, "NULL"))
+        for column in _ORDER_COLUMNS
+    ]
+    column_list = ", ".join(f'"{column}"' for column in _ORDER_COLUMNS)
+    select_list = ", ".join(select_exprs)
+
+    conn.execute("DROP TRIGGER IF EXISTS orders_updated_at")
+    conn.execute("DROP TABLE IF EXISTS orders_new")
+    conn.execute(_ORDERS_TABLE_REBUILD_SQL)
+    conn.execute(
+        f"INSERT INTO orders_new ({column_list}) SELECT {select_list} FROM orders"  # noqa: S608
+    )
+    conn.execute("DROP TABLE orders")
+    conn.execute("ALTER TABLE orders_new RENAME TO orders")
+
+
 _ORDER_NUMBER_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 
@@ -1657,6 +2016,41 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
             "courier_last_synced_at TEXT",
         )
         _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "courier_last_polled_at",
+            "courier_last_polled_at TEXT",
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "courier_next_poll_at",
+            "courier_next_poll_at TEXT",
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "courier_poll_attempts",
+            "courier_poll_attempts INTEGER NOT NULL DEFAULT 0",
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "courier_poll_lease_token",
+            "courier_poll_lease_token TEXT",
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "courier_poll_lease_expires_at",
+            "courier_poll_lease_expires_at TEXT",
+        )
+        _add_column_if_missing(
             conn, "orders", order_columns, "locale", "locale TEXT NOT NULL DEFAULT 'en'"
         )
         # Payment axis columns (payment-integration).
@@ -1761,6 +2155,51 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
             order_columns,
             "analytics_consent",
             "analytics_consent INTEGER NOT NULL DEFAULT 0",
+        )
+
+    if _table_exists(conn, "econt_settings"):
+        econt_columns = _table_columns(conn, "econt_settings")
+        _add_column_if_missing(
+            conn,
+            "econt_settings",
+            econt_columns,
+            "return_parcel_destination",
+            "return_parcel_destination TEXT NOT NULL DEFAULT 'sender'",
+        )
+        _add_column_if_missing(
+            conn,
+            "econt_settings",
+            econt_columns,
+            "days_until_return",
+            "days_until_return INTEGER NOT NULL DEFAULT 7",
+        )
+        _add_column_if_missing(
+            conn,
+            "econt_settings",
+            econt_columns,
+            "return_parcel_payment_side",
+            "return_parcel_payment_side TEXT NOT NULL DEFAULT 'sender'",
+        )
+        _add_column_if_missing(
+            conn,
+            "econt_settings",
+            econt_columns,
+            "reject_action",
+            "reject_action TEXT NOT NULL DEFAULT 'return_to_sender'",
+        )
+        _add_column_if_missing(
+            conn,
+            "econt_settings",
+            econt_columns,
+            "reject_payment_side",
+            "reject_payment_side TEXT NOT NULL DEFAULT 'sender'",
+        )
+        _add_column_if_missing(
+            conn,
+            "econt_settings",
+            econt_columns,
+            "reject_return_payment_side",
+            "reject_return_payment_side TEXT NOT NULL DEFAULT 'sender'",
         )
 
     if _table_exists(conn, "promotion_campaigns"):
@@ -2303,10 +2742,12 @@ _SEED_FAQ_ITEMS = [
         "shipping",
         "Do you accept returns?",
         "Приемате ли връщания?",
-        "Please refer to our Terms & Conditions for full details regarding "
-        "withdrawal rights, returns, exchanges, and personalised items.",
-        "Моля, вижте нашите Общи условия за пълна информация относно правото "
-        "на отказ, връщанията, замените и персонализираните изделия.",
+        "Uncollected or refused courier parcels are reviewed before refund timing, "
+        "refund amount, or next steps are confirmed. See the "
+        "[Terms & Conditions returns section](/en/terms#returns) for the full policy.",
+        "Непотърсените или отказани куриерски пратки се преглеждат, преди да "
+        "потвърдим срок, сума за възстановяване или следваща стъпка. Вижте "
+        "[раздела за връщания в Общите условия](/bg/terms#returns) за пълната политика.",
     ),
     (
         "shipping",
@@ -2322,6 +2763,7 @@ _SEED_FAQ_ITEMS = [
 
 _FAQ_SEED_MARKER = "faq_content_v1"
 _FAQ_RETURNS_POLICY_MARKER = "faq_returns_terms_v1"
+_FAQ_UNCOLLECTED_RETURNS_MARKER = "faq_uncollected_refused_returns_v1"
 
 _OLD_FAQ_RETURNS_ANSWER_EN = (
     "Please refer to our Returns & Refunds Policy for full details regarding "
@@ -2332,10 +2774,21 @@ _OLD_FAQ_RETURNS_ANSWER_BG = (
     "информация относно връщания, замени и персонализирани изделия."
 )
 _NEW_FAQ_RETURNS_ANSWER_EN = (
+    "Uncollected or refused courier parcels are reviewed before refund timing, "
+    "refund amount, or next steps are confirmed. See the "
+    "[Terms & Conditions returns section](/en/terms#returns) for the full policy."
+)
+_NEW_FAQ_RETURNS_ANSWER_BG = (
+    "Непотърсените или отказани куриерски пратки се преглеждат, преди да "
+    "потвърдим срок, сума за възстановяване или следваща стъпка. Вижте "
+    "[раздела за връщания в Общите условия](/bg/terms#returns) за пълната политика."
+)
+
+_PREVIOUS_FAQ_TERMS_ANSWER_EN = (
     "Please refer to our Terms & Conditions for full details regarding "
     "withdrawal rights, returns, exchanges, and personalised items."
 )
-_NEW_FAQ_RETURNS_ANSWER_BG = (
+_PREVIOUS_FAQ_TERMS_ANSWER_BG = (
     "Моля, вижте нашите Общи условия за пълна информация относно правото "
     "на отказ, връщанията, замените и персонализираните изделия."
 )
@@ -2423,6 +2876,46 @@ def _migrate_faq_returns_policy_reference(conn: sqlite3.Connection) -> None:
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)",
             (_FAQ_RETURNS_POLICY_MARKER,),
+        )
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+
+def _migrate_faq_uncollected_refused_reference(conn: sqlite3.Connection) -> None:
+    """Add uncollected/refused parcel language to the seeded returns FAQ answer."""
+    if _migration_applied(conn, _FAQ_UNCOLLECTED_RETURNS_MARKER):
+        return
+
+    if conn.in_transaction:
+        conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if _migration_applied(conn, _FAQ_UNCOLLECTED_RETURNS_MARKER):
+            conn.execute("ROLLBACK")
+            return
+
+        conn.execute(
+            """
+            UPDATE faq_items
+            SET answer_en = ?, answer_bg = ?
+            WHERE section = 'shipping'
+              AND question_en = 'Do you accept returns?'
+              AND question_bg = 'Приемате ли връщания?'
+              AND answer_en = ?
+              AND answer_bg = ?
+            """,
+            (
+                _NEW_FAQ_RETURNS_ANSWER_EN,
+                _NEW_FAQ_RETURNS_ANSWER_BG,
+                _PREVIOUS_FAQ_TERMS_ANSWER_EN,
+                _PREVIOUS_FAQ_TERMS_ANSWER_BG,
+            ),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)",
+            (_FAQ_UNCOLLECTED_RETURNS_MARKER,),
         )
         conn.execute("COMMIT")
     except Exception:

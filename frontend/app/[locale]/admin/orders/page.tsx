@@ -3,7 +3,11 @@
 import { useEffect, useState, useRef } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
-import { getAdminOrders, updateOrderStatus } from "@/lib/api";
+import {
+  createAndShipEcontOrder,
+  getAdminOrders,
+  updateOrderStatus,
+} from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
 import { cn, formatPrice } from "@/lib/utils";
@@ -20,6 +24,8 @@ const STATUS_FILTERS: (OrderStatus | "")[] = [
   "confirmed",
   "shipped",
   "delivered",
+  "return_in_transit",
+  "returned",
   "cancelled",
 ];
 
@@ -44,14 +50,18 @@ const STATUS_COLORS: Record<OrderStatus, string> = {
   confirmed: "bg-blue-100 text-blue-800",
   shipped: "bg-purple-100 text-purple-800",
   delivered: "bg-green-100 text-green-800",
+  return_in_transit: "bg-orange-100 text-orange-800",
+  returned: "bg-slate-100 text-slate-700",
   cancelled: "bg-red-100 text-red-800",
 };
 
 const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   pending: ["confirmed", "cancelled"],
   confirmed: ["shipped", "cancelled"],
-  shipped: ["delivered"],
-  delivered: [],
+  shipped: ["delivered", "return_in_transit"],
+  delivered: ["return_in_transit"],
+  return_in_transit: ["returned"],
+  returned: [],
   cancelled: [],
 };
 
@@ -60,7 +70,13 @@ const PAYMENT_STATUS_COLORS: Record<PaymentStatus, string> = {
   paid: "bg-green-100 text-green-800",
   cod_pending: "bg-gray-100 text-gray-700",
   failed: "bg-red-100 text-red-800",
+  review_required: "bg-amber-100 text-amber-800",
+  refund_pending: "bg-blue-100 text-blue-800",
+  partially_refunded: "bg-blue-100 text-blue-800",
   refunded: "bg-blue-100 text-blue-800",
+  dispute_open: "bg-red-100 text-red-800",
+  dispute_won: "bg-green-100 text-green-800",
+  dispute_lost: "bg-red-100 text-red-800",
 };
 
 function formatDate(iso: string, locale: string): string {
@@ -166,10 +182,62 @@ export default function AdminOrdersPage() {
     }
   }
 
-  // "shipped" needs tracking data first — open the shipping form instead of
-  // transitioning immediately. Every other transition applies directly.
+  async function handleEcontCreateAndShip(order: OrderResponse) {
+    const previousStatus = order.status;
+    setUpdatingId(order.id);
+    setError(null);
+
+    try {
+      const result = await createAndShipEcontOrder(order.id);
+      setShippingOrder(null);
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === order.id
+            ? {
+                ...o,
+                status: "shipped",
+                tracking_number: result.shipment_number ?? o.tracking_number,
+                tracking_carrier: "econt",
+                tracking_url: result.tracking_url ?? o.tracking_url,
+                courier_provider: "econt",
+                courier_shipment_number: result.shipment_number ?? o.courier_shipment_number,
+                courier_label_url: result.label_url ?? o.courier_label_url,
+                courier_sync_status: "label_created",
+              }
+            : o,
+        ),
+      );
+      if (statusFilter && statusFilter !== "shipped") {
+        setOrders((prev) => prev.filter((o) => o.id !== order.id));
+      }
+    } catch (err) {
+      setOrders((prev) =>
+        prev.map((o) => (o.id === order.id ? { ...o, status: previousStatus } : o)),
+      );
+      setError(
+        err instanceof ApiError ? getLocalizedError(err.code) : t("errors.updateOrderStatus"),
+      );
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+  // Known courier integrations can create/reuse shipment numbers themselves;
+  // manual carriers still need tracking data before the shipped transition.
   function handleTransitionSelected(order: OrderResponse, newStatus: OrderStatus) {
     if (newStatus === "shipped") {
+      if (order.delivery_courier === "speedy") {
+        handleStatusChange(order, newStatus);
+        return;
+      }
+      if (order.delivery_courier === "econt") {
+        if (order.tracking_number || order.courier_shipment_number) {
+          handleStatusChange(order, newStatus);
+          return;
+        }
+        handleEcontCreateAndShip(order);
+        return;
+      }
       setShippingOrder(order);
       return;
     }
@@ -343,6 +411,14 @@ export default function AdminOrdersPage() {
                           <span className="truncate max-w-[16rem]" title={`${order.delivery_details.street}, ${order.delivery_details.city}`}>
                             {order.delivery_details.street}, {order.delivery_details.city}
                           </span>
+                        )}
+                        {(order.delivery_courier === "speedy" || order.tracking_carrier === "speedy") && (
+                          <Link
+                            href={`/admin/speedy?order_id=${order.id}`}
+                            className="text-xs font-medium text-charcoal underline-offset-2 hover:underline"
+                          >
+                            {t("speedyDiagnostics")}
+                          </Link>
                         )}
                       </div>
                     ) : (

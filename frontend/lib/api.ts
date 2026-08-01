@@ -24,6 +24,7 @@ import type {
   BulkDiscountResponse,
   CalculateShippingRequest,
   CalculateShippingResponse,
+  CallbackOutcome,
   CampaignCreateRequest,
   CampaignListResponse,
   CampaignResponse,
@@ -38,15 +39,29 @@ import type {
   ContactResponse,
   CheckoutAnalyticsResponse,
   Courier,
+  CodSettlementResponse,
+  CreateStripeRefundRequest,
   DeliveryConfigResponse,
   DeliverySettingsResponse,
   DeliverySettingsUpdate,
   EcontConnectionTestResponse,
   EcontFulfillmentActionResponse,
+  EcontManualStatusRequest,
   EcontOrderFulfillmentResponse,
   EcontOrderRepairRequest,
   EcontSettingsResponse,
   EcontSettingsUpdate,
+  SpeedyActionResponse,
+  SpeedyAdminOverviewResponse,
+  SpeedyCancelShipmentRequest,
+  SpeedyPickupRequest,
+  SpeedyPickupResponse,
+  SpeedyPickupTermsRequest,
+  SpeedyPickupTermsResponse,
+  SpeedyShipmentInfoRequest,
+  SpeedyShipmentInfoResponse,
+  SpeedyShipmentSearchRequest,
+  SpeedyShipmentSearchResponse,
   CreateOrderRequest,
   CreateAboutItemRequest,
   CreateProductRequest,
@@ -58,11 +73,13 @@ import type {
   FaqResponse,
   FaqSectionAdminResponse,
   ImageUploadResponse,
+  InspectReturnCaseRequest,
   OfficeResponse,
   OfficeType,
   OrderListResponse,
   OrderResponse,
   OrderStatus,
+  PaymentRefundResponse,
   PaymentMethod,
   PaymentSettingsResponse,
   PaymentSettingsUpdate,
@@ -73,8 +90,11 @@ import type {
   PublicPaymentSettingsResponse,
   ProductResponse,
   ReactionCountsResponse,
+  RecordCodSettlementRequest,
   ReactionToggleRequest,
   ReactionToggleResponse,
+  ReturnCaseResponse,
+  CreateReturnCaseRequest,
   ProductImage,
   PatchAboutItemRequest,
   PatchAboutSectionRequest,
@@ -85,6 +105,7 @@ import type {
   UpdateFaqItemRequest,
   UpdateFaqSectionRequest,
   UpdateProductRequest,
+  UpdateReturnAccountingRequest,
   UpdateTaxonomyTermRequest,
   UserResponse,
   VideoUploadResponse,
@@ -555,6 +576,15 @@ export async function createEcontLabel(orderId: string): Promise<EcontFulfillmen
   );
 }
 
+export async function createAndShipEcontOrder(
+  orderId: string
+): Promise<EcontFulfillmentActionResponse> {
+  if (USE_MOCK) return (await getMock()).createAndShipEcontOrder(orderId);
+  return apiClient.post<EcontFulfillmentActionResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/ship`
+  );
+}
+
 export async function deleteEcontLabel(orderId: string): Promise<EcontFulfillmentActionResponse> {
   if (USE_MOCK) return (await getMock()).deleteEcontLabel(orderId);
   return apiClient.del<EcontFulfillmentActionResponse>(
@@ -567,6 +597,80 @@ export async function refreshEcontTrace(orderId: string): Promise<EcontFulfillme
   return apiClient.post<EcontFulfillmentActionResponse>(
     `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/trace`
   );
+}
+
+export async function recordEcontManualStatus(
+  orderId: string,
+  data: EcontManualStatusRequest
+): Promise<EcontFulfillmentActionResponse> {
+  if (USE_MOCK) return (await getMock()).recordEcontManualStatus(orderId, data);
+  return apiClient.post<EcontFulfillmentActionResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/manual-status`,
+    data
+  );
+}
+
+export async function getSpeedyAdminOverview(
+  orderId?: string | null
+): Promise<SpeedyAdminOverviewResponse> {
+  if (USE_MOCK) return (await getMock()).getSpeedyAdminOverview(orderId);
+  const params = new URLSearchParams();
+  if (orderId) params.set("order_id", orderId);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<SpeedyAdminOverviewResponse>(`/v1/admin/speedy${query}`);
+}
+
+export async function createSpeedyWaybill(orderId: string): Promise<SpeedyActionResponse> {
+  if (USE_MOCK) return (await getMock()).createSpeedyWaybill(orderId);
+  return apiClient.post<SpeedyActionResponse>(
+    `/v1/admin/speedy/orders/${encodeURIComponent(orderId)}/ship`
+  );
+}
+
+export async function refreshSpeedyTracking(orderId: string): Promise<SpeedyActionResponse> {
+  if (USE_MOCK) return (await getMock()).refreshSpeedyTracking(orderId);
+  return apiClient.post<SpeedyActionResponse>(
+    `/v1/admin/speedy/orders/${encodeURIComponent(orderId)}/track`
+  );
+}
+
+export async function searchSpeedyShipments(
+  data: SpeedyShipmentSearchRequest
+): Promise<SpeedyShipmentSearchResponse> {
+  if (USE_MOCK) return (await getMock()).searchSpeedyShipments(data);
+  return apiClient.post<SpeedyShipmentSearchResponse>("/v1/admin/speedy/shipments/search", data);
+}
+
+export async function getSpeedyShipmentInfo(
+  data: SpeedyShipmentInfoRequest
+): Promise<SpeedyShipmentInfoResponse> {
+  if (USE_MOCK) return (await getMock()).getSpeedyShipmentInfo(data);
+  return apiClient.post<SpeedyShipmentInfoResponse>("/v1/admin/speedy/shipments/info", data);
+}
+
+export async function cancelSpeedyShipment(
+  orderId: string,
+  data: SpeedyCancelShipmentRequest = {}
+): Promise<SpeedyActionResponse> {
+  if (USE_MOCK) return (await getMock()).cancelSpeedyShipment(orderId, data);
+  return apiClient.post<SpeedyActionResponse>(
+    `/v1/admin/speedy/orders/${encodeURIComponent(orderId)}/cancel-shipment`,
+    data
+  );
+}
+
+export async function getSpeedyPickupTerms(
+  data: SpeedyPickupTermsRequest
+): Promise<SpeedyPickupTermsResponse> {
+  if (USE_MOCK) return (await getMock()).getSpeedyPickupTerms(data);
+  return apiClient.post<SpeedyPickupTermsResponse>("/v1/admin/speedy/pickup/terms", data);
+}
+
+export async function requestSpeedyPickup(
+  data: SpeedyPickupRequest
+): Promise<SpeedyPickupResponse> {
+  if (USE_MOCK) return (await getMock()).requestSpeedyPickup(data);
+  return apiClient.post<SpeedyPickupResponse>("/v1/admin/speedy/pickup", data);
 }
 
 export async function getOrders(
@@ -867,12 +971,92 @@ export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailRe
 export async function applyManualPaymentAction(
   orderId: string,
   action: ManualPaymentAction,
-  note: string
+  note: string,
+  callbackOutcome?: CallbackOutcome | null
 ): Promise<OrderResponse> {
-  if (USE_MOCK) return (await getMock()).applyManualPaymentAction(orderId, action, note);
+  if (USE_MOCK) {
+    return (await getMock()).applyManualPaymentAction(orderId, action, note, callbackOutcome);
+  }
   return apiClient.post<OrderResponse>(
     `/v1/admin/orders/${encodeURIComponent(orderId)}/payment-actions`,
-    { action, note }
+    { action, note, callback_outcome: callbackOutcome ?? undefined }
+  );
+}
+
+export async function createReturnCase(
+  orderId: string,
+  data: CreateReturnCaseRequest
+): Promise<ReturnCaseResponse> {
+  if (USE_MOCK) return (await getMock()).createReturnCase(orderId, data);
+  return apiClient.post<ReturnCaseResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/returns`,
+    data
+  );
+}
+
+export async function receiveReturnCase(
+  orderId: string,
+  returnId: string
+): Promise<ReturnCaseResponse> {
+  if (USE_MOCK) return (await getMock()).receiveReturnCase(orderId, returnId);
+  return apiClient.post<ReturnCaseResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/returns/${encodeURIComponent(returnId)}/receive`
+  );
+}
+
+export async function inspectReturnCase(
+  orderId: string,
+  returnId: string,
+  data: InspectReturnCaseRequest
+): Promise<ReturnCaseResponse> {
+  if (USE_MOCK) return (await getMock()).inspectReturnCase(orderId, returnId, data);
+  return apiClient.patch<ReturnCaseResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/returns/${encodeURIComponent(returnId)}/inspect`,
+    data
+  );
+}
+
+export async function closeReturnCase(
+  orderId: string,
+  returnId: string
+): Promise<ReturnCaseResponse> {
+  if (USE_MOCK) return (await getMock()).closeReturnCase(orderId, returnId);
+  return apiClient.post<ReturnCaseResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/returns/${encodeURIComponent(returnId)}/close`
+  );
+}
+
+export async function updateReturnAccounting(
+  orderId: string,
+  returnId: string,
+  data: UpdateReturnAccountingRequest
+): Promise<ReturnCaseResponse> {
+  if (USE_MOCK) return (await getMock()).updateReturnAccounting(orderId, returnId, data);
+  return apiClient.patch<ReturnCaseResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/returns/${encodeURIComponent(returnId)}/accounting`,
+    data
+  );
+}
+
+export async function createStripeRefund(
+  orderId: string,
+  data: CreateStripeRefundRequest
+): Promise<PaymentRefundResponse> {
+  if (USE_MOCK) return (await getMock()).createStripeRefund(orderId, data);
+  return apiClient.post<PaymentRefundResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/refunds`,
+    data
+  );
+}
+
+export async function recordCodSettlement(
+  orderId: string,
+  data: RecordCodSettlementRequest
+): Promise<CodSettlementResponse> {
+  if (USE_MOCK) return (await getMock()).recordCodSettlement(orderId, data);
+  return apiClient.post<CodSettlementResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/cod-settlement`,
+    data
   );
 }
 

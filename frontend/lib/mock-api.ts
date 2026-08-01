@@ -20,6 +20,7 @@ import type {
   BulkResultItem,
   CalculateShippingRequest,
   CalculateShippingResponse,
+  CallbackOutcome,
   CampaignCreateRequest,
   CampaignListResponse,
   CampaignResponse,
@@ -32,19 +33,36 @@ import type {
   CommentSort,
   ContactRequest,
   ContactResponse,
+  CodSettlementResponse,
   Courier,
+  CourierClaimStatus,
+  CreateStripeRefundRequest,
   DeliveryConfigResponse,
   DeliverySettingsResponse,
   DeliverySettingsUpdate,
   EcontConnectionTestResponse,
   EcontFulfillmentActionResponse,
+  EcontManualStatusRequest,
   EcontOrderFulfillmentResponse,
   EcontOrderRepairRequest,
   EcontSettingsResponse,
   EcontSettingsUpdate,
+  SpeedyActionResponse,
+  SpeedyAdminOverviewResponse,
+  SpeedyCancelShipmentRequest,
+  SpeedyEventResponse,
+  SpeedyPickupRequest,
+  SpeedyPickupResponse,
+  SpeedyPickupTermsRequest,
+  SpeedyPickupTermsResponse,
+  SpeedyShipmentInfoRequest,
+  SpeedyShipmentInfoResponse,
+  SpeedyShipmentSearchRequest,
+  SpeedyShipmentSearchResponse,
   AdminOrderDetailResponse,
   CityPlace,
   CreateOrderRequest,
+  CreateReturnCaseRequest,
   CreateAboutItemRequest,
   CreateFaqItemRequest,
   CreateProductRequest,
@@ -54,11 +72,13 @@ import type {
   FaqResponse,
   FaqSectionAdminResponse,
   ImageUploadResponse,
+  InspectReturnCaseRequest,
   OfficeResponse,
   OfficeType,
   OrderListResponse,
   OrderResponse,
   OrderStatus,
+  PaymentRefundResponse,
   PaymentMethod,
   PaymentSettingsResponse,
   PaymentSettingsUpdate,
@@ -69,6 +89,8 @@ import type {
   ProductListResponse,
   ProductImage,
   PublicPaymentSettingsResponse,
+  RecordCodSettlementRequest,
+  ReturnCaseResponse,
   ShippingQuote,
   ProductResponse,
   ProductVideo,
@@ -82,6 +104,7 @@ import type {
   UpdateFaqItemRequest,
   UpdateFaqSectionRequest,
   UpdateProductRequest,
+  UpdateReturnAccountingRequest,
   UpdateTaxonomyTermRequest,
   UserResponse,
   VideoUploadResponse,
@@ -536,7 +559,7 @@ const MOCK_USER: UserResponse = {
 
 const mockFaqTimestamp = "2024-06-01T10:00:00Z";
 
-let mockFaqNextId = 7;
+let mockFaqNextId = 8;
 
 const mockFaqSections: FaqSectionAdminResponse[] = [
   {
@@ -631,6 +654,20 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
         created_at: mockFaqTimestamp,
         updated_at: mockFaqTimestamp,
       },
+      {
+        id: 7,
+        section: "shipping",
+        question_en: "Do you accept returns?",
+        question_bg: "Приемате ли връщания?",
+        answer_en:
+          "Uncollected or refused courier parcels are reviewed before refund timing, refund amount, or next steps are confirmed. See the [Terms & Conditions returns section](/en/terms#returns) for the full policy.",
+        answer_bg:
+          "Непотърсените или отказани куриерски пратки се преглеждат, преди да потвърдим срок, сума за възстановяване или следваща стъпка. Вижте [раздела за връщания в Общите условия](/bg/terms#returns) за пълната политика.",
+        sort_order: 1,
+        is_published: true,
+        created_at: mockFaqTimestamp,
+        updated_at: mockFaqTimestamp,
+      },
     ],
   },
 ];
@@ -664,6 +701,17 @@ let mockIsAuthenticated = true;
 // --- In-Memory Order Store ---
 
 const mockOrders: OrderResponse[] = [];
+const mockReturnCases: ReturnCaseResponse[] = [];
+const mockRefundRecords: PaymentRefundResponse[] = [];
+const mockCodSettlements: CodSettlementResponse[] = [];
+
+function mockNow(): string {
+  return new Date().toISOString();
+}
+
+function mockUuid(prefix: string): string {
+  return `${prefix}-${Math.random().toString(16).slice(2)}-${Date.now()}`;
+}
 
 // --- Cart Helpers ---
 
@@ -967,6 +1015,12 @@ let mockEcontSettings: EcontSettingsResponse = {
   shipment_description: "Atelier Marie order",
   declared_value_enabled: false,
   default_payment_side: "receiver",
+  return_parcel_destination: "sender",
+  days_until_return: 7,
+  return_parcel_payment_side: "sender",
+  reject_action: "return_to_sender",
+  reject_payment_side: "sender",
+  reject_return_payment_side: "sender",
   courier_currency: "EUR",
   currency_conversion_rate: null,
   office_locator_enabled: false,
@@ -1242,6 +1296,8 @@ export async function getEcontSettings(): Promise<EcontSettingsResponse> {
   await delay();
   return {
     ...mockEcontSettings,
+    auto_confirm_on_label: false,
+    auto_delivered_on_trace: false,
     office_locator_origins: [...mockEcontSettings.office_locator_origins],
     secret_state: { ...mockEcontSettings.secret_state },
   };
@@ -1251,9 +1307,14 @@ export async function updateEcontSettings(
   data: EcontSettingsUpdate
 ): Promise<EcontSettingsResponse> {
   await delay();
+  const safeData = { ...data };
+  delete safeData.auto_confirm_on_label;
+  delete safeData.auto_delivered_on_trace;
   mockEcontSettings = {
     ...mockEcontSettings,
-    ...data,
+    ...safeData,
+    auto_confirm_on_label: false,
+    auto_delivered_on_trace: false,
     updated_at: new Date().toISOString(),
   };
   return getEcontSettings();
@@ -1290,7 +1351,7 @@ function econtReadiness(order: OrderResponse): EcontOrderFulfillmentResponse {
   const blockers: string[] = [];
   if (!mockEcontSettings.enabled) blockers.push("settings_disabled");
   if (order.delivery_courier !== "econt") blockers.push("order_not_econt");
-  if (order.status !== "confirmed" && !mockEcontSettings.auto_confirm_on_label) {
+  if (order.status !== "confirmed") {
     blockers.push("order_status_not_supported");
   }
   if (order.delivery_method === "office" && !details.office_code) {
@@ -1356,12 +1417,17 @@ export async function syncEcontOrder(orderId: string): Promise<EcontFulfillmentA
     shipment_number: order.courier_shipment_number ?? null,
     label_url: order.courier_label_url ?? null,
     tracking_url: order.tracking_url,
+    courier_status: order.courier_status ?? null,
   };
 }
 
 export async function createEcontLabel(orderId: string): Promise<EcontFulfillmentActionResponse> {
   await delay();
   const order = findMockOrder(orderId);
+  const readiness = econtReadiness(order);
+  if (!readiness.ready) {
+    mockError("ECONT_NOT_READY", `Econt order is not ready: ${readiness.blockers.join(", ")}`);
+  }
   const shipment = order.courier_shipment_number ?? `EC${Date.now()}`;
   order.courier_provider = "econt";
   order.courier_shipment_number = shipment;
@@ -1380,6 +1446,25 @@ export async function createEcontLabel(orderId: string): Promise<EcontFulfillmen
     shipment_number: shipment,
     label_url: order.courier_label_url,
     tracking_url: order.tracking_url,
+    courier_status: order.courier_status ?? null,
+  };
+}
+
+export async function createAndShipEcontOrder(
+  orderId: string
+): Promise<EcontFulfillmentActionResponse> {
+  const order = findMockOrder(orderId);
+  if (order.status !== "confirmed") {
+    mockError("ECONT_NOT_READY", "Econt order must be confirmed before shipping");
+  }
+  const result = await createEcontLabel(orderId);
+  order.status = "shipped";
+  order.updated_at = new Date().toISOString();
+  return {
+    ...result,
+    action: "create_label_and_ship",
+    status: "shipped",
+    status_updated_to: "shipped",
   };
 }
 
@@ -1402,6 +1487,7 @@ export async function deleteEcontLabel(orderId: string): Promise<EcontFulfillmen
     shipment_number: null,
     label_url: null,
     tracking_url: null,
+    courier_status: order.courier_status ?? null,
   };
 }
 
@@ -1418,6 +1504,293 @@ export async function refreshEcontTrace(orderId: string): Promise<EcontFulfillme
     shipment_number: order.courier_shipment_number ?? order.tracking_number,
     label_url: order.courier_label_url ?? null,
     tracking_url: order.tracking_url,
+    courier_status: order.courier_status ?? null,
+  };
+}
+
+const mockSpeedyEvents: SpeedyEventResponse[] = [
+  {
+    id: 1,
+    order_id: "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f",
+    action: "refresh_tracking",
+    status: "success",
+    request: { shipmentNumber: "1234567890" },
+    response: { courier_status: "in_transit" },
+    error: null,
+    actor_user_id: null,
+    created_at: new Date(Date.now() - 3600000).toISOString(),
+  },
+];
+
+function addSpeedyEvent(
+  orderId: string,
+  action: string,
+  status: string,
+  response: Record<string, unknown> | null,
+  error: Record<string, unknown> | null = null,
+): void {
+  mockSpeedyEvents.unshift({
+    id: mockSpeedyEvents.length + 1,
+    order_id: orderId,
+    action,
+    status,
+    request: { order_id: orderId },
+    response,
+    error,
+    actor_user_id: "mock-admin",
+    created_at: new Date().toISOString(),
+  });
+}
+
+function speedyDeliveryLabel(order: OrderResponse): string | null {
+  const details = order.delivery_details;
+  if (!details) return null;
+  if ("office_name" in details) return details.office_name;
+  if ("street" in details) return `${details.street}, ${details.city}`;
+  return null;
+}
+
+function speedySummary(order: OrderResponse) {
+  return {
+    order_id: order.id,
+    order_number: order.order_number ?? null,
+    status: order.status,
+    customer_email: order.customer_email,
+    customer_name: order.customer_name,
+    delivery_method: order.delivery_method,
+    delivery_label: speedyDeliveryLabel(order),
+    total_cents: order.total_cents,
+    tracking_number: order.tracking_number,
+    tracking_url: order.tracking_url,
+    courier_status: order.courier_status,
+    courier_sync_status: order.courier_sync_status ?? null,
+    courier_last_error: order.courier_last_error ?? null,
+    courier_last_synced_at: order.courier_last_synced_at ?? null,
+    created_at: order.created_at,
+    updated_at: order.updated_at,
+  };
+}
+
+export async function recordEcontManualStatus(
+  orderId: string,
+  data: EcontManualStatusRequest
+): Promise<EcontFulfillmentActionResponse> {
+  await delay();
+  const order = findMockOrder(orderId);
+  order.courier_provider = "econt";
+  order.courier_status = data.courier_status;
+  order.courier_sync_status = "manual_status";
+  order.courier_last_synced_at = new Date().toISOString();
+  if (data.tracking_number) {
+    order.courier_shipment_number = data.tracking_number;
+    order.tracking_number = data.tracking_number;
+    order.tracking_carrier = "econt";
+    order.tracking_url = data.tracking_url ?? buildTrackingUrl("econt", data.tracking_number);
+  }
+  return {
+    order_id: order.id,
+    action: "manual_status",
+    status: "manual_status_recorded",
+    courier_order_id: order.courier_order_id ?? null,
+    shipment_number: order.courier_shipment_number ?? null,
+    label_url: order.courier_label_url ?? null,
+    tracking_url: order.tracking_url,
+    courier_status: order.courier_status ?? null,
+  };
+}
+
+export async function getSpeedyAdminOverview(
+  orderId?: string | null
+): Promise<SpeedyAdminOverviewResponse> {
+  await delay();
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders];
+  const scoped = orderId ? allOrders.filter((order) => order.id === orderId) : allOrders;
+  const ready = scoped.filter(
+    (order) =>
+      order.delivery_courier === "speedy" &&
+      order.status === "confirmed" &&
+      !order.tracking_number &&
+      !order.courier_shipment_number,
+  );
+  const shipped = scoped.filter(
+    (order) =>
+      order.status === "shipped" &&
+      (order.tracking_carrier === "speedy" || order.courier_provider === "speedy") &&
+      Boolean(order.tracking_number || order.courier_shipment_number),
+  );
+  const failuresByCategory = mockSpeedyEvents.reduce<Record<string, number>>((acc, event) => {
+    const category = event.error?.category;
+    if (event.status === "failed" && typeof category === "string") {
+      acc[category] = (acc[category] ?? 0) + 1;
+    }
+    return acc;
+  }, {});
+  return {
+    health: {
+      status: "healthy",
+      ok: true,
+      message: "Speedy configuration is healthy.",
+      username_configured: true,
+      password_configured: true,
+      client_id_configured: true,
+      client_id_numeric: true,
+      configured_client_id: "123456789",
+      verified_client_id: "123456789",
+      client_id_matches: true,
+      blockers: [],
+      circuit: { name: "speedy_operational", state: "closed", failure_count: 0, failure_threshold: 3 },
+      last_failure_category: null,
+      last_successful_check_at: new Date(Date.now() - 600000).toISOString(),
+      checked_at: new Date().toISOString(),
+    },
+    queues: {
+      ready_to_ship: ready.map(speedySummary),
+      shipped: shipped.map(speedySummary),
+    },
+    events: mockSpeedyEvents.slice(0, 25),
+    metrics: {
+      recent_successes: mockSpeedyEvents.filter((event) => event.status === "success").length,
+      recent_failures: mockSpeedyEvents.filter((event) => event.status === "failed").length,
+      failures_by_category: failuresByCategory,
+      cancellation_count: mockSpeedyEvents.filter((event) => event.action === "cancel_shipment" && event.status === "success").length,
+      pickup_request_count: mockSpeedyEvents.filter((event) => event.action === "request_pickup" && event.status === "success").length,
+      last_successful_health_check_at: new Date(Date.now() - 600000).toISOString(),
+    },
+    office_refresh: {
+      status: "success",
+      refreshed_at: new Date(Date.now() - 86400000).toISOString(),
+      records: 1284,
+      error: null,
+    },
+  };
+}
+
+export async function createSpeedyWaybill(orderId: string): Promise<SpeedyActionResponse> {
+  await delay();
+  const order = findMockOrder(orderId);
+  if (order.delivery_courier !== "speedy") mockError("SPEEDY_NOT_READY", "Order is not assigned to Speedy");
+  if (order.status !== "confirmed" && !order.tracking_number) {
+    mockError("SPEEDY_NOT_READY", "Speedy waybill can only be created for confirmed orders");
+  }
+  const shipment = order.tracking_number ?? `63689${Date.now().toString().slice(-6)}`;
+  order.status = "shipped";
+  order.tracking_number = shipment;
+  order.tracking_carrier = "speedy";
+  order.tracking_url = buildTrackingUrl("speedy", shipment);
+  order.courier_provider = "speedy";
+  order.courier_shipment_number = shipment;
+  order.courier_sync_status = "waybill_created";
+  order.courier_last_synced_at = new Date().toISOString();
+  order.updated_at = order.courier_last_synced_at;
+  addSpeedyEvent(order.id, "create_waybill", "success", { shipment_number: shipment });
+  return {
+    order_id: order.id,
+    action: "create_waybill",
+    status: "created",
+    shipment_number: shipment,
+    tracking_url: order.tracking_url,
+    courier_status: order.courier_status,
+    status_updated_to: "shipped",
+    details: null,
+  };
+}
+
+export async function refreshSpeedyTracking(orderId: string): Promise<SpeedyActionResponse> {
+  await delay();
+  const order = findMockOrder(orderId);
+  const shipment = order.tracking_number ?? order.courier_shipment_number;
+  if (!shipment || order.tracking_carrier !== "speedy") mockError("SPEEDY_NOT_READY", "Order has no Speedy waybill");
+  order.courier_status = order.courier_status === "in_transit" ? "out_for_delivery" : "in_transit";
+  order.courier_sync_status = "track_synced";
+  order.courier_last_synced_at = new Date().toISOString();
+  addSpeedyEvent(order.id, "refresh_tracking", "success", { courier_status: order.courier_status });
+  return {
+    order_id: order.id,
+    action: "refresh_tracking",
+    status: "success",
+    shipment_number: shipment,
+    tracking_url: order.tracking_url,
+    courier_status: order.courier_status,
+    status_updated_to: null,
+    details: null,
+  };
+}
+
+export async function searchSpeedyShipments(
+  data: SpeedyShipmentSearchRequest
+): Promise<SpeedyShipmentSearchResponse> {
+  await delay();
+  const ref = data.reference.trim();
+  if (!ref) mockError("SPEEDY_VALIDATION", "reference is required");
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders];
+  const matches = allOrders
+    .filter((order) => order.id === ref || order.order_number === ref)
+    .map((order) => order.tracking_number ?? order.courier_shipment_number)
+    .filter((value): value is string => Boolean(value));
+  return { reference: ref, barcodes: matches.length ? matches : ["1234567890"] };
+}
+
+export async function getSpeedyShipmentInfo(
+  data: SpeedyShipmentInfoRequest
+): Promise<SpeedyShipmentInfoResponse> {
+  await delay();
+  return {
+    shipments: data.shipment_ids.map((id) => ({ id, serviceId: 505, status: "accepted" })),
+  };
+}
+
+export async function cancelSpeedyShipment(
+  orderId: string,
+  _data: SpeedyCancelShipmentRequest = {},
+): Promise<SpeedyActionResponse> {
+  await delay();
+  const order = findMockOrder(orderId);
+  const shipment = order.tracking_number ?? order.courier_shipment_number;
+  if (!shipment || order.status === "delivered") mockError("SPEEDY_NOT_READY", "Speedy shipment cannot be cancelled");
+  order.courier_provider = "speedy";
+  order.courier_status = "cancelled";
+  order.courier_sync_status = "shipment_cancelled";
+  order.courier_last_synced_at = new Date().toISOString();
+  addSpeedyEvent(order.id, "cancel_shipment", "success", { shipment_id: shipment });
+  return {
+    order_id: order.id,
+    action: "cancel_shipment",
+    status: "cancelled",
+    shipment_number: shipment,
+    tracking_url: order.tracking_url,
+    courier_status: "cancelled",
+    status_updated_to: null,
+    details: { cancelled: true },
+  };
+}
+
+export async function getSpeedyPickupTerms(
+  data: SpeedyPickupTermsRequest
+): Promise<SpeedyPickupTermsResponse> {
+  await delay();
+  if (data.shipment_ids.length === 0) mockError("SPEEDY_NOT_READY", "Select at least one shipment");
+  return { cutoffs: [new Date(Date.now() + 7200000).toISOString(), new Date(Date.now() + 10800000).toISOString()] };
+}
+
+export async function requestSpeedyPickup(
+  data: SpeedyPickupRequest
+): Promise<SpeedyPickupResponse> {
+  await delay();
+  for (const shipmentId of data.shipment_ids) {
+    const order = [...MOCK_ORDERS_SEEDED, ...mockOrders].find(
+      (item) => item.tracking_number === shipmentId || item.courier_shipment_number === shipmentId,
+    );
+    if (order) addSpeedyEvent(order.id, "request_pickup", "success", { shipment_ids: data.shipment_ids });
+  }
+  return {
+    orders: [
+      {
+        id: Date.now(),
+        shipmentIds: data.shipment_ids,
+        pickupPeriodFrom: data.pickup_datetime,
+        pickupPeriodTo: data.visit_end_time,
+      },
+    ],
   };
 }
 
@@ -1994,13 +2367,24 @@ export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailRe
         created_at: order.updated_at,
       },
     ],
+    return_cases: mockReturnCases.filter((returnCase) => returnCase.order_id === order.id),
+    return_events: [],
+    refund_records: mockRefundRecords.filter((refund) => refund.order_id === order.id),
+    cod_settlement:
+      mockCodSettlements.find((settlement) => settlement.order_id === order.id) ?? null,
+    cod_settlement_required:
+      order.payment_method === "cod" &&
+      order.status === "delivered" &&
+      !mockCodSettlements.some((settlement) => settlement.order_id === order.id),
+    econt_cod_evidence: null,
   };
 }
 
 export async function applyManualPaymentAction(
   orderId: string,
   action: ManualPaymentAction,
-  note: string
+  note: string,
+  callbackOutcome?: CallbackOutcome | null
 ): Promise<OrderResponse> {
   await delay();
   if (!note.trim()) mockError("NOTE_REQUIRED", "A note is required");
@@ -2012,8 +2396,16 @@ export async function applyManualPaymentAction(
     order.payment_status = "paid";
   } else if (action === "mark_refunded") {
     order.payment_status = "refunded";
-  } else if (action === "mark_failed" || action === "mark_review") {
+  } else if (action === "mark_failed") {
     order.payment_status = "failed";
+  } else if (action === "mark_review") {
+    order.payment_status = "review_required";
+  } else if (action === "record_callback") {
+    if (!callbackOutcome) mockError("CALLBACK_OUTCOME_REQUIRED", "Callback outcome is required");
+    order.payment_status = "review_required";
+  } else if (action === "convert_to_cod") {
+    order.payment_method = "cod";
+    order.payment_status = "cod_pending";
   } else if (action === "cancel") {
     order.status = "cancelled";
     if (order.payment_status !== "paid" && order.payment_status !== "refunded") {
@@ -2022,6 +2414,177 @@ export async function applyManualPaymentAction(
   }
   order.updated_at = new Date().toISOString();
   return { ...order };
+}
+
+export async function createReturnCase(
+  orderId: string,
+  data: CreateReturnCaseRequest
+): Promise<ReturnCaseResponse> {
+  await delay();
+  const order = findMockOrder(orderId);
+  const now = mockNow();
+  const returnCase: ReturnCaseResponse = {
+    id: mockUuid("return"),
+    order_id: orderId,
+    reason: data.reason,
+    source: data.source ?? "admin",
+    status: data.status ?? "requested",
+    refund_amount_cents: data.refund_amount_cents ?? null,
+    courier_return_fee_cents: data.courier_return_fee_cents ?? 0,
+    courier_claim_id: data.courier_claim_id ?? null,
+    courier_claim_status: data.courier_claim_status ?? "none",
+    courier_claim_amount_cents: data.courier_claim_amount_cents ?? null,
+    restock_decision: "pending",
+    returned_at: data.status === "return_in_transit" ? now : null,
+    received_at: null,
+    inspected_at: null,
+    closed_at: null,
+    notes: data.notes ?? null,
+    created_by_admin_id: null,
+    updated_by_admin_id: null,
+    created_at: now,
+    updated_at: now,
+  };
+  if (data.status === "return_in_transit" && ["shipped", "delivered"].includes(order.status)) {
+    order.status = "return_in_transit";
+  }
+  order.updated_at = now;
+  mockReturnCases.push(returnCase);
+  return returnCase;
+}
+
+export async function receiveReturnCase(
+  orderId: string,
+  returnId: string
+): Promise<ReturnCaseResponse> {
+  await delay();
+  const order = findMockOrder(orderId);
+  const returnCase = mockReturnCases.find((item) => item.id === returnId && item.order_id === orderId);
+  if (!returnCase) mockError("RETURN_CASE_NOT_FOUND", `Return ${returnId} not found`);
+  const now = mockNow();
+  returnCase.status = "received";
+  returnCase.received_at = returnCase.received_at ?? now;
+  returnCase.updated_at = now;
+  if (order.status === "return_in_transit") order.status = "returned";
+  order.updated_at = now;
+  return { ...returnCase };
+}
+
+export async function inspectReturnCase(
+  orderId: string,
+  returnId: string,
+  data: InspectReturnCaseRequest
+): Promise<ReturnCaseResponse> {
+  await delay();
+  findMockOrder(orderId);
+  const returnCase = mockReturnCases.find((item) => item.id === returnId && item.order_id === orderId);
+  if (!returnCase) mockError("RETURN_CASE_NOT_FOUND", `Return ${returnId} not found`);
+  const now = mockNow();
+  returnCase.status = "inspected";
+  returnCase.restock_decision = data.restock_decision;
+  returnCase.inspected_at = returnCase.inspected_at ?? now;
+  returnCase.notes = data.notes ?? returnCase.notes;
+  returnCase.updated_at = now;
+  return { ...returnCase };
+}
+
+export async function closeReturnCase(
+  orderId: string,
+  returnId: string
+): Promise<ReturnCaseResponse> {
+  await delay();
+  findMockOrder(orderId);
+  const returnCase = mockReturnCases.find((item) => item.id === returnId && item.order_id === orderId);
+  if (!returnCase) mockError("RETURN_CASE_NOT_FOUND", `Return ${returnId} not found`);
+  const now = mockNow();
+  returnCase.status = "closed";
+  returnCase.closed_at = returnCase.closed_at ?? now;
+  returnCase.updated_at = now;
+  return { ...returnCase };
+}
+
+export async function updateReturnAccounting(
+  orderId: string,
+  returnId: string,
+  data: UpdateReturnAccountingRequest
+): Promise<ReturnCaseResponse> {
+  await delay();
+  findMockOrder(orderId);
+  const returnCase = mockReturnCases.find((item) => item.id === returnId && item.order_id === orderId);
+  if (!returnCase) mockError("RETURN_CASE_NOT_FOUND", `Return ${returnId} not found`);
+  const now = mockNow();
+  if (data.courier_return_fee_cents != null) {
+    returnCase.courier_return_fee_cents = data.courier_return_fee_cents;
+  }
+  if (data.courier_claim_id !== undefined) returnCase.courier_claim_id = data.courier_claim_id;
+  if (data.courier_claim_status) returnCase.courier_claim_status = data.courier_claim_status;
+  if (data.courier_claim_amount_cents !== undefined) {
+    returnCase.courier_claim_amount_cents = data.courier_claim_amount_cents;
+  }
+  if (data.notes !== undefined) returnCase.notes = data.notes;
+  returnCase.updated_at = now;
+  return { ...returnCase };
+}
+
+export async function createStripeRefund(
+  orderId: string,
+  data: CreateStripeRefundRequest
+): Promise<PaymentRefundResponse> {
+  await delay();
+  const order = findMockOrder(orderId);
+  const existing = mockRefundRecords.find(
+    (refund) => refund.provider === "stripe" && refund.idempotency_key === data.idempotency_key
+  );
+  if (existing) return { ...existing };
+  const alreadyPending = mockRefundRecords
+    .filter((refund) => refund.order_id === orderId && ["pending", "succeeded"].includes(refund.status))
+    .reduce((total, refund) => total + refund.amount_cents, 0);
+  const amount = data.amount_cents ?? Math.max(0, order.total_cents - alreadyPending);
+  const now = mockNow();
+  const refund: PaymentRefundResponse = {
+    id: mockUuid("refund"),
+    order_id: orderId,
+    payment_id: null,
+    provider: "stripe",
+    provider_refund_id: null,
+    amount_cents: amount,
+    status: "pending",
+    reason: data.reason ?? null,
+    idempotency_key: data.idempotency_key,
+    failure_reason: null,
+    created_by_admin_id: null,
+    created_at: now,
+    confirmed_at: null,
+  };
+  mockRefundRecords.push(refund);
+  order.payment_status = "refund_pending";
+  order.updated_at = now;
+  return { ...refund };
+}
+
+export async function recordCodSettlement(
+  orderId: string,
+  data: RecordCodSettlementRequest
+): Promise<CodSettlementResponse> {
+  await delay();
+  const order = findMockOrder(orderId);
+  const now = mockNow();
+  const existingIndex = mockCodSettlements.findIndex((settlement) => settlement.order_id === orderId);
+  const settlement: CodSettlementResponse = {
+    id: existingIndex >= 0 ? mockCodSettlements[existingIndex]!.id : mockUuid("cod"),
+    order_id: orderId,
+    amount_cents: data.amount_cents,
+    settlement_date: data.settlement_date,
+    courier_reference: data.courier_reference ?? null,
+    notes: data.notes ?? null,
+    mismatch_review: data.amount_cents !== order.total_cents,
+    created_by_admin_id: null,
+    created_at: existingIndex >= 0 ? mockCodSettlements[existingIndex]!.created_at : now,
+    updated_at: now,
+  };
+  if (existingIndex >= 0) mockCodSettlements[existingIndex] = settlement;
+  else mockCodSettlements.push(settlement);
+  return { ...settlement };
 }
 
 export async function updateOrderStatus(
@@ -2041,8 +2604,10 @@ export async function updateOrderStatus(
   const validTransitions: Record<OrderStatus, OrderStatus[]> = {
     pending: ["confirmed", "cancelled"],
     confirmed: ["shipped", "cancelled"],
-    shipped: ["delivered"],
-    delivered: [],
+    shipped: ["delivered", "return_in_transit"],
+    delivered: ["return_in_transit"],
+    return_in_transit: ["returned"],
+    returned: [],
     cancelled: [],
   };
 
@@ -2055,6 +2620,11 @@ export async function updateOrderStatus(
       order.tracking_number = "63689182611";
       order.tracking_carrier = "speedy";
       order.tracking_url = buildTrackingUrl("speedy", "63689182611");
+      order.courier_provider = "speedy";
+      order.courier_shipment_number = "63689182611";
+      order.courier_sync_status = "waybill_created";
+      order.courier_last_synced_at = new Date().toISOString();
+      addSpeedyEvent(order.id, "create_waybill", "success", { shipment_number: "63689182611" });
     } else if (!tracking?.tracking_number || !tracking?.tracking_carrier) {
       mockError(
         "TRACKING_REQUIRED",

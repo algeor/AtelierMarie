@@ -20,16 +20,22 @@ from app.services.order_service import checkout
 
 
 class FakeEcontClient:
-    def __init__(self, *, fail_create: bool = False):
+    def __init__(
+        self,
+        *,
+        fail_create: bool = False,
+        trace_status: EcontShipmentStatus | None = None,
+    ):
         self.fail_create = fail_create
+        self.trace_status = trace_status
         self.created = 0
         self.deleted: list[str] = []
         self.traced: list[str] = []
 
-    def update_order(self, order):
+    async def update_order(self, order):
         return {"orderID": "remote-order-1"}
 
-    def create_awb(self, order):
+    async def create_awb(self, order):
         self.created += 1
         if self.fail_create:
             raise EcontTransientError(
@@ -41,13 +47,16 @@ class FakeEcontClient:
             pdf_url="https://label.test/123.pdf",
         )
 
-    def delete_label(self, shipment_number):
+    async def delete_label(self, shipment_number):
         self.deleted.append(shipment_number)
         return {"deleted": True}
 
-    def get_trace(self, shipment_number):
+    async def get_trace(self, shipment_number):
         self.traced.append(shipment_number)
-        return EcontShipmentStatus(shipment_number=shipment_number, status="in_transit")
+        return self.trace_status or EcontShipmentStatus(
+            shipment_number=shipment_number,
+            status="in_transit",
+        )
 
 
 @pytest.fixture(autouse=True)
@@ -155,6 +164,39 @@ class TestAdminEcontRoutes:
         assert body["ready"] is False
         assert "settings_disabled" in body["blockers"]
         assert "settings_private_key_missing" in body["blockers"]
+
+    @pytest.mark.asyncio
+    async def test_manual_status_available_without_config_or_shipment_number(
+        self, admin_client, db, app
+    ):
+        order_id = _make_order(db, app)
+
+        resp = await admin_client.post(
+            f"/v1/admin/orders/{order_id}/econt/manual-status",
+            json={"courier_status": "failed", "notes": "Customer refused delivery."},
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "manual_status_recorded"
+        assert body["courier_status"] == "failed"
+        row = db.execute(
+            """
+            SELECT courier_provider, courier_status, courier_sync_status,
+                   courier_shipment_number
+            FROM orders WHERE id = ?
+            """,
+            (order_id,),
+        ).fetchone()
+        assert row["courier_provider"] == "econt"
+        assert row["courier_status"] == "failed"
+        assert row["courier_sync_status"] == "manual_status"
+        assert row["courier_shipment_number"] is None
+        case = db.execute(
+            "SELECT reason, source, status FROM order_returns WHERE order_id = ?",
+            (order_id,),
+        ).fetchone()
+        assert dict(case) == {"reason": "other", "source": "econt", "status": "requested"}
 
     @pytest.mark.asyncio
     async def test_create_label_success_updates_order_response(
@@ -309,6 +351,45 @@ class TestAdminEcontRoutes:
         assert row["tracking_number"] is None
 
     @pytest.mark.asyncio
+    async def test_econt_cod_evidence_shows_without_settlement_record(
+        self, admin_client, db, app, econt_secret, monkeypatch
+    ):
+        _configure_econt(db)
+        order_id = _make_order(db, app)
+        fake = FakeEcontClient(
+            trace_status=EcontShipmentStatus(
+                shipment_number="1234567890",
+                status="delivered",
+                cd_collected_amount=25.0,
+                cd_collected_time="2026-08-01 10:00:00",
+                cd_paid_amount=24.0,
+                cd_paid_time="2026-08-02 10:00:00",
+            )
+        )
+        monkeypatch.setattr("app.services.econt_fulfillment_service.make_client", lambda conn: fake)
+        create = await admin_client.post(f"/v1/admin/orders/{order_id}/econt/label")
+        assert create.status_code == 200
+        db.execute("UPDATE orders SET status = 'delivered' WHERE id = ?", (order_id,))
+        db.commit()
+
+        trace = await admin_client.post(f"/v1/admin/orders/{order_id}/econt/trace")
+        detail = await admin_client.get(f"/v1/admin/orders/{order_id}")
+
+        assert trace.status_code == 200
+        body = detail.json()
+        assert body["econt_cod_evidence"] == {
+            "collected_amount": 25.0,
+            "collected_time": "2026-08-01 10:00:00",
+            "paid_amount": 24.0,
+            "paid_time": "2026-08-02 10:00:00",
+            "source_event_id": body["econt_cod_evidence"]["source_event_id"],
+            "source_action": "refresh_trace",
+            "recorded_at": body["econt_cod_evidence"]["recorded_at"],
+        }
+        assert body["cod_settlement"] is None
+        assert body["cod_settlement_required"] is True
+
+    @pytest.mark.asyncio
     async def test_shipped_transition_uses_existing_econt_tracking(
         self, admin_client, db, app, econt_secret, monkeypatch
     ):
@@ -330,3 +411,58 @@ class TestAdminEcontRoutes:
         assert body["status"] == "shipped"
         assert body["tracking_number"] == "1234567890"
         assert body["tracking_carrier"] == "econt"
+
+    @pytest.mark.asyncio
+    async def test_create_and_ship_econt_label_updates_status_and_queues_email(
+        self, admin_client, db, app, econt_secret, monkeypatch
+    ):
+        _configure_econt(db)
+        order_id = _make_order(db, app)
+        fake = FakeEcontClient()
+        monkeypatch.setattr("app.services.econt_fulfillment_service.make_client", lambda conn: fake)
+
+        resp = await admin_client.post(f"/v1/admin/orders/{order_id}/econt/ship")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["action"] == "create_label_and_ship"
+        assert body["status"] == "shipped"
+        assert body["status_updated_to"] == "shipped"
+        assert body["shipment_number"] == "1234567890"
+        assert fake.created == 1
+
+        order = (await admin_client.get(f"/v1/admin/orders/{order_id}")).json()
+        assert order["status"] == "shipped"
+        assert order["tracking_number"] == "1234567890"
+        shipped_email = db.execute(
+            "SELECT status FROM order_emails WHERE order_id = ? AND event = 'shipped'",
+            (order_id,),
+        ).fetchone()
+        assert shipped_email["status"] == "queued"
+
+    @pytest.mark.asyncio
+    async def test_create_and_ship_econt_label_failure_keeps_order_confirmed(
+        self, admin_client, db, app, econt_secret, monkeypatch
+    ):
+        _configure_econt(db)
+        order_id = _make_order(db, app)
+        monkeypatch.setattr(
+            "app.services.econt_fulfillment_service.make_client",
+            lambda conn: FakeEcontClient(fail_create=True),
+        )
+
+        resp = await admin_client.post(f"/v1/admin/orders/{order_id}/econt/ship")
+
+        assert resp.status_code == 503
+        row = db.execute(
+            "SELECT status, tracking_number, courier_sync_status FROM orders WHERE id = ?",
+            (order_id,),
+        ).fetchone()
+        assert row["status"] == "confirmed"
+        assert row["tracking_number"] is None
+        assert row["courier_sync_status"] == "failed"
+        shipped_email = db.execute(
+            "SELECT 1 FROM order_emails WHERE order_id = ? AND event = 'shipped'",
+            (order_id,),
+        ).fetchone()
+        assert shipped_email is None

@@ -91,6 +91,7 @@ class Settings(BaseSettings):
     stripe_publishable_key: str = ""
     stripe_success_url: str = ""
     stripe_cancel_url: str = ""
+    abandoned_card_review_hours: int = Field(default=24, ge=1, le=168)
 
     # Bank transfer (payment-integration)
     bank_iban: str = ""
@@ -146,6 +147,16 @@ class Settings(BaseSettings):
     econt_office_locator_url: str = ""
     econt_office_locator_origins: list[str] = []
     econt_secret_encryption_key: SecretStr = SecretStr("")
+
+    # Courier status polling. The poller is async-only and uses provider clients
+    # directly; no worker-thread offload is used for courier HTTP calls.
+    courier_polling_enabled: bool = True
+    courier_polling_speedy_enabled: bool = True
+    courier_polling_econt_enabled: bool = True
+    courier_polling_interval_seconds: int = Field(default=300, ge=30, le=86_400)
+    courier_polling_batch_size: int = Field(default=25, ge=1, le=100)
+    courier_polling_lease_seconds: int = Field(default=120, ge=10, le=3_600)
+    courier_polling_max_backoff_seconds: int = Field(default=3_600, ge=60, le=86_400)
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 

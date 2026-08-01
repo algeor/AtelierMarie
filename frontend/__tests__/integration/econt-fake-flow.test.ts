@@ -8,6 +8,7 @@ import {
   getEcontOrderReadiness,
   getOrder,
   refreshEcontTrace,
+  updateOrderStatus,
   updateEcontSettings,
 } from "@/lib/mock-api";
 
@@ -21,7 +22,6 @@ describe("Econt fake-client flow", () => {
       sender_office_code: "1127",
       default_pack_count: 1,
       shipment_description: "Atelier Marie order",
-      auto_confirm_on_label: true,
     });
 
     await addToCart("lavender-dreams-300ml", 1);
@@ -47,6 +47,8 @@ describe("Econt fake-client flow", () => {
 
     expect(order.delivery_courier).toBe("econt");
     expect(order.delivery_details).toMatchObject({ office_code: "1127" });
+
+    await updateOrderStatus(order.id, "confirmed");
 
     const readiness = await getEcontOrderReadiness(order.id);
     expect(readiness.ready).toBe(true);

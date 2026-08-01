@@ -15,6 +15,7 @@ from app.models.econt import (
     EcontOrderItem,
     EcontOrderPayload,
     EcontSenderInfo,
+    EcontShipmentStatus,
 )
 from app.services import delivery_service, pricing
 from app.services.econt_delivery_client import EcontDeliveryClient, EcontDeliveryError
@@ -26,7 +27,6 @@ _DEMO_BASE_URL = "https://delivery-demo.econt.com/services/"
 _PRODUCTION_BASE_URL = "https://delivery.econt.com/services/"
 _DEFAULT_WEIGHT_GRAMS = 300
 _LABEL_STATUSES = {"confirmed"}
-_DELIVERED_STATUS_HINTS = {"delivered", "доставена", "доставено", "получена", "получено"}
 
 
 class EcontFulfillmentError(Exception):
@@ -102,6 +102,38 @@ def get_fulfillment_state(conn: sqlite3.Connection, order_id: str) -> dict[str, 
     }
 
 
+def get_latest_cod_evidence(conn: sqlite3.Connection, order_id: str) -> dict[str, Any] | None:
+    """Return latest Econt COD collected/paid evidence from courier events."""
+    rows = conn.execute(
+        """
+        SELECT id, action, response_json, created_at
+        FROM order_courier_events
+        WHERE order_id = ? AND courier = 'econt' AND response_json IS NOT NULL
+        ORDER BY created_at DESC, id DESC
+        """,
+        (order_id,),
+    ).fetchall()
+    for row in rows:
+        try:
+            payload = json.loads(row["response_json"])
+        except json.JSONDecodeError:
+            continue
+        evidence = {
+            "collected_amount": payload.get("cdCollectedAmount"),
+            "collected_time": payload.get("cdCollectedTime"),
+            "paid_amount": payload.get("cdPaidAmount"),
+            "paid_time": payload.get("cdPaidTime"),
+        }
+        if any(value is not None for value in evidence.values()):
+            return {
+                **evidence,
+                "source_event_id": row["id"],
+                "source_action": row["action"],
+                "recorded_at": row["created_at"],
+            }
+    return None
+
+
 def repair_order_fields(
     conn: sqlite3.Connection,
     order_id: str,
@@ -172,6 +204,80 @@ def repair_order_fields(
     return get_fulfillment_state(conn, order_id)
 
 
+def record_manual_status(
+    conn: sqlite3.Connection,
+    order_id: str,
+    *,
+    courier_status: str,
+    tracking_number: str | None = None,
+    tracking_url: str | None = None,
+    notes: str | None = None,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    """Record admin-entered Econt courier evidence without calling Econt APIs."""
+    order = get_order_admin(conn, order_id)
+    if order["delivery_courier"] != "econt" and order["courier_provider"] != "econt":
+        raise EcontFulfillmentValidationError(
+            "Manual Econt status is only available for Econt orders",
+            blockers=["order_not_econt"],
+        )
+
+    tracking_url = tracking_url or (
+        tracking_url_for("econt", tracking_number) if tracking_number else None
+    )
+    now = pricing.now_utc()
+    conn.execute(
+        """
+        UPDATE orders
+        SET courier_provider = 'econt', courier_status = ?, courier_sync_status = 'manual_status',
+            courier_last_error = NULL, courier_last_synced_at = ?,
+            courier_shipment_number = COALESCE(?, courier_shipment_number),
+            tracking_number = COALESCE(?, tracking_number),
+            tracking_carrier = CASE WHEN ? IS NOT NULL THEN 'econt' ELSE tracking_carrier END,
+            tracking_url = COALESCE(?, tracking_url)
+        WHERE id = ?
+        """,
+        (
+            courier_status,
+            now,
+            tracking_number,
+            tracking_number,
+            tracking_number,
+            tracking_url,
+            order_id,
+        ),
+    )
+    payload = {
+        "courier_status": courier_status,
+        "tracking_number": tracking_number,
+        "tracking_url": tracking_url,
+        "notes": notes,
+    }
+    _record_event(
+        conn,
+        order_id,
+        "manual_status",
+        "success",
+        payload,
+        {"courier_status": courier_status},
+        None,
+        actor_user_id,
+    )
+    if courier_status in {"return_in_transit", "returned", "failed"}:
+        _record_return_review_signal(
+            conn,
+            order_id,
+            courier_status,
+            "not_picked_up" if courier_status in {"return_in_transit", "returned"} else "other",
+        )
+    return {
+        "status": "manual_status_recorded",
+        "courier_status": courier_status,
+        "shipment_number": tracking_number or order["courier_shipment_number"],
+        "tracking_url": tracking_url or order["tracking_url"],
+    }
+
+
 def build_order_payload(conn: sqlite3.Connection, order_id: str) -> EcontOrderPayload:
     """Build an Econt Order payload from local order data and settings."""
     blockers = _readiness_blockers(conn, order_id, require_status=False, require_enabled=False)
@@ -203,10 +309,21 @@ def build_order_payload(conn: sqlite3.Connection, order_id: str) -> EcontOrderPa
         items=_order_items(conn, order_id),
         pack_count=overrides.get("pack_count") or row["default_pack_count"],
         payment_side=overrides.get("payment_side") or row["default_payment_side"],
+        return_parcel_destination=(
+            row["return_parcel_destination"] if order["delivery_method"] == "office" else None
+        ),
+        days_until_return=row["days_until_return"] if order["delivery_method"] == "office" else None,
+        return_parcel_payment_side=(
+            row["return_parcel_payment_side"] if order["delivery_method"] == "office" else None
+        ),
+        execute_if_not_taken="return_to_sender" if order["delivery_method"] == "office" else None,
+        reject_action=row["reject_action"],
+        reject_payment_side=row["reject_payment_side"],
+        reject_return_payment_side=row["reject_return_payment_side"],
     )
 
 
-def sync_order(
+async def sync_order(
     conn: sqlite3.Connection,
     order_id: str,
     *,
@@ -218,7 +335,7 @@ def sync_order(
     payload = build_order_payload(conn, order_id)
     client = client or make_client(conn)
     try:
-        response = client.update_order(payload)
+        response = await client.update_order(payload)
     except EcontDeliveryError as exc:
         _persist_failure(conn, order_id, "sync_order", payload, exc, actor_user_id)
         raise
@@ -238,7 +355,7 @@ def sync_order(
     return {"status": "synced", "courier_order_id": courier_order_id}
 
 
-def create_label(
+async def create_label(
     conn: sqlite3.Connection,
     order_id: str,
     *,
@@ -247,7 +364,7 @@ def create_label(
 ) -> dict[str, Any]:
     """Create an Econt AWB label unless one already exists."""
     existing = conn.execute(
-        "SELECT courier_shipment_number, courier_label_url FROM orders WHERE id = ?",
+        "SELECT courier_shipment_number, courier_label_url, tracking_url FROM orders WHERE id = ?",
         (order_id,),
     ).fetchone()
     if existing is None:
@@ -270,14 +387,15 @@ def create_label(
             "status": "existing",
             "shipment_number": existing["courier_shipment_number"],
             "label_url": existing["courier_label_url"],
+            "tracking_url": existing["tracking_url"]
+            or tracking_url_for("econt", existing["courier_shipment_number"]),
         }
 
     _raise_if_not_ready(conn, order_id, require_status=True)
-    order_before_label = get_order_admin(conn, order_id)
     payload = build_order_payload(conn, order_id)
     client = client or make_client(conn)
     try:
-        shipment = client.create_awb(payload)
+        shipment = await client.create_awb(payload)
     except EcontDeliveryError as exc:
         _persist_failure(conn, order_id, "create_label", payload, exc, actor_user_id)
         raise
@@ -307,30 +425,60 @@ def create_label(
         ),
     )
     _record_event(conn, order_id, "create_label", "success", payload, shipment, None, actor_user_id)
-    status_updated_to = None
-    if _settings_row(conn)["auto_confirm_on_label"] and order_before_label["status"] == "pending":
-        update_status(conn, order_id, "confirmed")
-        status_updated_to = "confirmed"
-        _record_event(
-            conn,
-            order_id,
-            "auto_confirm_on_label",
-            "success",
-            None,
-            {"status": "confirmed"},
-            None,
-            actor_user_id,
-        )
     return {
         "status": "created",
         "shipment_number": shipment.shipment_number,
         "label_url": shipment.pdf_url,
         "tracking_url": tracking_url,
-        "status_updated_to": status_updated_to,
     }
 
 
-def delete_label(
+async def create_label_and_mark_shipped(
+    conn: sqlite3.Connection,
+    order_id: str,
+    *,
+    client: EcontDeliveryClient | None = None,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    """Create/reuse an Econt AWB and transition the confirmed order to shipped."""
+    order = get_order_admin(conn, order_id)
+    if order["status"] != "confirmed":
+        raise EcontFulfillmentValidationError(
+            "Econt order cannot be marked shipped from its current status",
+            blockers=["order_status_not_supported"],
+        )
+
+    result = await create_label(conn, order_id, client=client, actor_user_id=actor_user_id)
+    shipment_number = result.get("shipment_number")
+    if not shipment_number:
+        raise EcontFulfillmentValidationError("Econt did not return a shipment number")
+
+    shipped = update_status(
+        conn,
+        order_id,
+        "shipped",
+        tracking_number=shipment_number,
+        tracking_carrier="econt",
+        tracking_url=result.get("tracking_url"),
+    )
+    _record_event(
+        conn,
+        order_id,
+        "mark_shipped",
+        "success",
+        {"shipmentNumber": shipment_number},
+        {"status": shipped["status"]},
+        None,
+        actor_user_id,
+    )
+    return {
+        **result,
+        "status": "shipped",
+        "status_updated_to": shipped["status"],
+    }
+
+
+async def delete_label(
     conn: sqlite3.Connection,
     order_id: str,
     *,
@@ -345,7 +493,7 @@ def delete_label(
         raise EcontFulfillmentValidationError("Order has no Econt shipment number")
     client = client or make_client(conn)
     try:
-        response = client.delete_label(shipment_number)
+        response = await client.delete_label(shipment_number)
     except EcontDeliveryError as exc:
         _persist_failure(
             conn,
@@ -382,7 +530,7 @@ def delete_label(
     return {"status": "deleted"}
 
 
-def refresh_trace(
+async def refresh_trace(
     conn: sqlite3.Connection,
     order_id: str,
     *,
@@ -395,7 +543,7 @@ def refresh_trace(
         raise EcontFulfillmentValidationError("Order has no Econt shipment number")
     client = client or make_client(conn)
     try:
-        shipment = client.get_trace(shipment_number)
+        shipment = await client.get_trace(shipment_number)
     except EcontDeliveryError as exc:
         _persist_failure(
             conn,
@@ -408,14 +556,16 @@ def refresh_trace(
         raise
 
     now = pricing.now_utc()
+    normalized_courier_status, return_reason = _normalize_return_signal(shipment)
     conn.execute(
         """
         UPDATE orders
-        SET courier_provider = 'econt', courier_sync_status = 'trace_synced',
+        SET courier_provider = 'econt', courier_status = COALESCE(?, courier_status),
+            courier_sync_status = 'trace_synced',
             courier_last_error = NULL, courier_last_synced_at = ?
         WHERE id = ?
         """,
-        (now, order_id),
+        (normalized_courier_status, now, order_id),
     )
     _record_event(
         conn,
@@ -427,25 +577,17 @@ def refresh_trace(
         None,
         actor_user_id,
     )
-    status_updated_to = None
-    if _settings_row(conn)["auto_delivered_on_trace"] and order["status"] == "shipped":
-        if _shipment_indicates_delivered(shipment):
-            update_status(conn, order_id, "delivered")
-            status_updated_to = "delivered"
-            _record_event(
-                conn,
-                order_id,
-                "auto_delivered_on_trace",
-                "success",
-                {"shipmentNumber": shipment_number},
-                {"status": "delivered"},
-                None,
-                actor_user_id,
-            )
+    if normalized_courier_status in {"return_in_transit", "returned", "failed"}:
+        _record_return_review_signal(
+            conn,
+            order_id,
+            normalized_courier_status,
+            return_reason or "other",
+        )
     return {
         "status": "trace_synced",
+        "courier_status": normalized_courier_status,
         "shipment": shipment.model_dump(by_alias=True),
-        "status_updated_to": status_updated_to,
     }
 
 
@@ -491,24 +633,8 @@ def _readiness_blockers(
     return blockers
 
 
-def _label_status_supported(status: str, row: sqlite3.Row) -> bool:
-    if status in _LABEL_STATUSES:
-        return True
-    return bool(row["auto_confirm_on_label"] and status == "pending")
-
-
-def _shipment_indicates_delivered(shipment: Any) -> bool:
-    values: list[str] = []
-    if getattr(shipment, "status", None):
-        values.append(str(shipment.status))
-    for event in getattr(shipment, "events", []) or []:
-        if getattr(event, "status", None):
-            values.append(str(event.status))
-        if getattr(event, "details", None):
-            values.append(str(event.details))
-    return any(
-        any(hint in value.casefold() for hint in _DELIVERED_STATUS_HINTS) for value in values
-    )
+def _label_status_supported(status: str, _row: sqlite3.Row) -> bool:
+    return status in _LABEL_STATUSES
 
 
 def _raise_if_not_ready(conn: sqlite3.Connection, order_id: str, *, require_status: bool) -> None:
@@ -598,6 +724,50 @@ def _door_other(details: dict[str, Any]) -> str | None:
     if details.get("apartment"):
         pieces.append(f"apartment {details['apartment']}")
     return ", ".join(pieces) or None
+
+
+def _normalize_return_signal(shipment: EcontShipmentStatus) -> tuple[str | None, str | None]:
+    values: list[str] = []
+    for value in (shipment.short_delivery_status_en, shipment.status):
+        if value:
+            values.append(value.lower())
+    for event in shipment.events:
+        for value in (event.type, event.status, event.details):
+            if value:
+                values.append(value.lower())
+
+    joined = " ".join(values)
+    if "returned_to_sender" in joined or "returned to sender" in joined:
+        return "returned", "not_picked_up"
+    if "is_returning_to_sender" in joined or "is returning to sender" in joined:
+        return "return_in_transit", "not_picked_up"
+    if "failed_delivery" in joined or "failed delivery" in joined:
+        return "failed", "other"
+    return None, None
+
+
+def _record_return_review_signal(
+    conn: sqlite3.Connection,
+    order_id: str,
+    courier_status: str,
+    reason: str,
+) -> None:
+    existing = conn.execute(
+        "SELECT id FROM order_returns WHERE order_id = ? LIMIT 1",
+        (order_id,),
+    ).fetchone()
+    if existing is not None:
+        return
+    from app.services import return_service
+
+    return_service.create_return_case(
+        conn,
+        order_id=order_id,
+        reason=reason,
+        source="econt",
+        status="requested",
+        notes=f"Econt trace reported {courier_status}.",
+    )
 
 
 def _record_event(

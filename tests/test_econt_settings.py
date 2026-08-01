@@ -57,6 +57,12 @@ class TestEcontSettingsRoutes:
                 "sender_office_code": "1127",
                 "default_pack_count": 2,
                 "shipment_description": "Atelier Marie candles",
+                "return_parcel_destination": "sender",
+                "days_until_return": 5,
+                "return_parcel_payment_side": "sender",
+                "reject_action": "return_to_sender",
+                "reject_payment_side": "receiver",
+                "reject_return_payment_side": "sender",
                 "office_locator_enabled": True,
                 "auto_confirm_on_label": True,
             },
@@ -71,8 +77,15 @@ class TestEcontSettingsRoutes:
         assert body["sender_office_code"] == "1127"
         assert body["default_pack_count"] == 2
         assert body["shipment_description"] == "Atelier Marie candles"
+        assert body["return_parcel_destination"] == "sender"
+        assert body["days_until_return"] == 5
+        assert body["return_parcel_payment_side"] == "sender"
+        assert body["reject_action"] == "return_to_sender"
+        assert body["reject_payment_side"] == "receiver"
+        assert body["reject_return_payment_side"] == "sender"
         assert body["office_locator_enabled"] is True
-        assert body["auto_confirm_on_label"] is True
+        assert body["auto_confirm_on_label"] is False
+        assert body["auto_delivered_on_trace"] is False
 
         get_resp = await admin_client.get("/v1/admin/econt/settings")
         assert get_resp.json()["shop_id"] == "shop-db-9"
@@ -121,7 +134,7 @@ class TestEcontSettingsRoutes:
                 calls["private_key"] = private_key
                 calls["shop_id"] = shop_id
 
-            def test_connection(self):
+            async def test_connection(self):
                 calls["tested"] = True
                 return True
 
@@ -163,7 +176,7 @@ class TestEcontSettingsRoutes:
             def __init__(self, *, base_url, private_key, shop_id):
                 pass
 
-            def test_connection(self):
+            async def test_connection(self):
                 raise EcontAuthError(
                     "invalid private key",
                     status_code=403,

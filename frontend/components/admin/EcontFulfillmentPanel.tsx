@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import {
+  createAndShipEcontOrder,
   createEcontLabel,
   deleteEcontLabel,
   getEcontOrderReadiness,
@@ -21,7 +22,15 @@ interface EcontFulfillmentPanelProps {
   onRefreshOrder: () => Promise<void>;
 }
 
-type ActionKey = "validate" | "repair" | "sync" | "create" | "delete" | "trace" | "ship";
+type ActionKey =
+  | "validate"
+  | "repair"
+  | "sync"
+  | "create"
+  | "createShip"
+  | "delete"
+  | "trace"
+  | "ship";
 
 const BLOCKER_KEYS: Record<string, string> = {
   settings_disabled: "settingsDisabled",
@@ -112,9 +121,10 @@ export function EcontFulfillmentPanel({ order, onRefreshOrder }: EcontFulfillmen
   const shipmentNumber = state?.courier_shipment_number ?? order.courier_shipment_number ?? null;
   const labelUrl = state?.courier_label_url ?? null;
   const trackingUrl = state?.tracking_url ?? order.tracking_url ?? null;
+  const ready = Boolean(state?.ready);
   const canDelete = Boolean(shipmentNumber) && !["shipped", "delivered"].includes(order.status);
   const canMarkShipped = order.status === "confirmed" && Boolean(shipmentNumber);
-  const ready = Boolean(state?.ready);
+  const canCreateAndShip = order.status === "confirmed" && ready && !shipmentNumber;
   const canRepair = !shipmentNumber && !action;
 
   async function applyRepair() {
@@ -188,6 +198,8 @@ export function EcontFulfillmentPanel({ order, onRefreshOrder }: EcontFulfillmen
           <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2 text-sm">
             <dt className="text-soft-brown">{t("fields.syncStatus")}</dt>
             <dd className="text-charcoal">{state?.courier_sync_status ?? t("empty")}</dd>
+            <dt className="text-soft-brown">{t("fields.courierStatus")}</dt>
+            <dd className="text-charcoal">{order.courier_status ?? t("empty")}</dd>
             <dt className="text-soft-brown">{t("fields.shipmentNumber")}</dt>
             <dd className="font-mono text-charcoal">{shipmentNumber ?? t("empty")}</dd>
             <dt className="text-soft-brown">{t("fields.lastSync")}</dt>
@@ -285,11 +297,51 @@ export function EcontFulfillmentPanel({ order, onRefreshOrder }: EcontFulfillmen
       </div>
 
       <div className="mt-4 flex flex-wrap gap-3">
-        <ActionButton label={t("actions.sync")} busy={action === "sync"} disabled={!ready || Boolean(action)} onClick={() => runAction("sync", () => syncEcontOrder(order.id))} />
-        <ActionButton label={t("actions.createLabel")} busy={action === "create"} disabled={!ready || Boolean(action) || Boolean(shipmentNumber)} onClick={() => runAction("create", () => createEcontLabel(order.id))} />
-        <ActionButton label={t("actions.refreshTrace")} busy={action === "trace"} disabled={!shipmentNumber || Boolean(action)} onClick={() => runAction("trace", () => refreshEcontTrace(order.id))} />
-        <ActionButton label={t("actions.markShipped")} busy={action === "ship"} disabled={!canMarkShipped || Boolean(action)} onClick={() => runAction("ship", () => updateOrderStatus(order.id, "shipped", { tracking_number: shipmentNumber!, tracking_carrier: "econt", tracking_url: trackingUrl ?? undefined }))} />
-        <ActionButton label={t("actions.deleteLabel")} busy={action === "delete"} disabled={!canDelete || Boolean(action)} danger onClick={() => runAction("delete", () => deleteEcontLabel(order.id))} />
+        <ActionButton
+          label={t("actions.sync")}
+          busy={action === "sync"}
+          disabled={!ready || Boolean(action)}
+          onClick={() => runAction("sync", () => syncEcontOrder(order.id))}
+        />
+        <ActionButton
+          label={t("actions.createAndShip")}
+          busy={action === "createShip"}
+          disabled={!canCreateAndShip || Boolean(action)}
+          onClick={() => runAction("createShip", () => createAndShipEcontOrder(order.id))}
+        />
+        <ActionButton
+          label={t("actions.createLabel")}
+          busy={action === "create"}
+          disabled={!ready || Boolean(action) || Boolean(shipmentNumber)}
+          onClick={() => runAction("create", () => createEcontLabel(order.id))}
+        />
+        <ActionButton
+          label={t("actions.refreshTrace")}
+          busy={action === "trace"}
+          disabled={!shipmentNumber || Boolean(action)}
+          onClick={() => runAction("trace", () => refreshEcontTrace(order.id))}
+        />
+        <ActionButton
+          label={t("actions.markShipped")}
+          busy={action === "ship"}
+          disabled={!canMarkShipped || Boolean(action)}
+          onClick={() =>
+            runAction("ship", () =>
+              updateOrderStatus(order.id, "shipped", {
+                tracking_number: shipmentNumber!,
+                tracking_carrier: "econt",
+                tracking_url: trackingUrl ?? undefined,
+              }),
+            )
+          }
+        />
+        <ActionButton
+          label={t("actions.deleteLabel")}
+          busy={action === "delete"}
+          disabled={!canDelete || Boolean(action)}
+          danger
+          onClick={() => runAction("delete", () => deleteEcontLabel(order.id))}
+        />
       </div>
     </section>
   );

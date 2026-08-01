@@ -434,6 +434,11 @@ The extra payment/order tables help, but they are not a full accounting system y
 
 ## Admin Actions Needed
 
+Parallel work note: `speedy-admin-parity` is being implemented at the same time.
+Keep admin changes additive where possible, avoid broad admin page/sidebar refactors in
+this change, and reconcile shared admin UI surfaces before marking the larger admin UI
+tasks complete.
+
 - Mark return in transit.
 - Mark uncollected.
 - Mark refused delivery.
@@ -453,6 +458,13 @@ The extra payment/order tables help, but they are not a full accounting system y
 - Close return case.
 
 Every admin action should write an audit event.
+
+## Customer-Facing Policy Copy
+
+- Terms should be the detailed public policy source for uncollected/refused parcels, return shipping, refund timing, card refunds, payment-on-delivery orders, courier damaged/lost parcels, and inspection/restock timing.
+- FAQ should get only a short delivery/returns answer for uncollected or refused parcels, with a link to `/[locale]/terms#returns`.
+- Public copy should not promise automatic refunds, automatic restocks, or courier-status-driven outcomes. It should explain admin review/contact where needed.
+- Content and tests should cover English and Bulgarian.
 
 ## Courier Integration
 
@@ -482,6 +494,9 @@ Every admin action should write an audit event.
   4. Admin Econt endpoints/panel adjusted for current order/payment states.
   5. Async trace polling and Econt return/COD evidence normalization.
   6. Return/refund workflows on top of the evidence layer.
+- Current branch note: Econt fulfillment actions should stay awaitable end-to-end.
+  Use `httpx.AsyncClient` for Econt Delivery calls and do not add sync wrappers or
+  threadpool bridges around courier trace/polling/label calls.
 
 ### Courier status polling
 
@@ -564,6 +579,12 @@ OpenSpec proposal created: `openspec/changes/manage-order-returns-refunds`.
 - Courier fee report.
 - Return reason report.
 - Inventory adjustment report.
+
+### Phase 6: Customer policy content
+
+- Update Terms & Conditions returns/refunds language.
+- Add the small FAQ entry that links to the full Terms returns section.
+- Verify EN/BG frontend content and links.
 
 ## Open Decisions
 

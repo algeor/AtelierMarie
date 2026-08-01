@@ -1,6 +1,6 @@
 # Speedy Integration Live Verification Plan
 
-OpenSpec change: `speedy-integration`.
+OpenSpec changes: `speedy-integration`, `speedy-admin-parity`.
 Manual gate moved from the change tasks before archive.
 
 ## Preconditions
@@ -39,6 +39,24 @@ Manual gate moved from the change tasks before archive.
 6. Print the label.
    - Expected: admin-only label endpoint returns valid PDF bytes.
 
+7. Open `/admin/delivery/speedy` from `Admin -> Delivery -> Speedy`.
+   - Expected: health/configuration summary uses `POST /client` and shows the verified client id.
+   - Expected: password/credential payloads are not visible in the page or API response.
+   - Expected: confirmed Speedy orders without tracking appear in the ready-to-ship queue.
+   - Expected: shipped Speedy orders with tracking appear in the shipped queue.
+   - Expected: legacy direct route `/admin/speedy` still renders the same operations page for existing links.
+
+8. Exercise Speedy admin diagnostics with the demo order.
+   - Expected: shipment search by local order id/reference returns the demo shipment id.
+   - Expected: shipment info returns safe shipment details.
+   - Expected: refresh tracking updates `courier_status` only.
+   - Expected: recent history shows redacted operation events.
+
+9. Exercise pickup terms with the demo shipment if the demo account supports pickup.
+   - Expected: selected eligible shipment ids are sent to the pickup terms/request flow.
+   - Expected: pickup failures return admin-safe validation/configuration errors.
+   - Expected: no pickup request runs automatically during checkout or order confirmation.
+
 ## Error Checks
 
 1. Use a bad office id for calculate.
@@ -52,6 +70,14 @@ Manual gate moved from the change tasks before archive.
    - Expected: order stays `confirmed`.
    - Expected: no `shipped` state is committed without a waybill.
 
+4. Try cancelling a Speedy shipment that Speedy rejects.
+   - Expected: a redacted failed courier event is recorded.
+   - Expected: local `tracking_number`, `courier_status`, and `courier_sync_status` remain unchanged.
+
+5. Force returned/failed tracking in a fake/local test.
+   - Expected: the order/payment/stock state is not mutated.
+   - Expected: a returns/refunds review signal is created only when no return case exists yet.
+
 ## Evidence To Record
 
 - Date, environment, and Speedy account type.
@@ -61,3 +87,6 @@ Manual gate moved from the change tasks before archive.
 - Demo tracking number.
 - Confirmation that retry did not create a duplicate waybill.
 - Label PDF opened successfully.
+- `/admin/delivery/speedy` health state and verified client id, without secrets.
+- Recent Speedy event ids/actions, without request credentials.
+- Cancellation rejection result proving local shipment metadata was preserved.

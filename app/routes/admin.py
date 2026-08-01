@@ -35,6 +35,7 @@ from app.models.delivery import DeliverySettingsResponse, DeliverySettingsUpdate
 from app.models.econt import (
     EcontConnectionTestResponse,
     EcontFulfillmentActionResponse,
+    EcontManualStatusRequest,
     EcontOrderFulfillmentResponse,
     EcontOrderRepairRequest,
     EcontSettingsResponse,
@@ -52,6 +53,16 @@ from app.models.orders import (
     PaymentMethod,
     PaymentStatus,
     UpdateOrderStatusRequest,
+)
+from app.models.returns import (
+    CodSettlementResponse,
+    CreateReturnCaseRequest,
+    CreateStripeRefundRequest,
+    InspectReturnCaseRequest,
+    PaymentRefundResponse,
+    RecordCodSettlementRequest,
+    ReturnCaseResponse,
+    UpdateReturnAccountingRequest,
 )
 from app.models.products import (
     MAX_CATEGORY_LENGTH,
@@ -74,18 +85,39 @@ from app.models.products import (
     UpdateProductVideoRequest,
 )
 from app.models.promotions import BulkDiscountRequest, BulkDiscountResponse
+from app.models.speedy import (
+    SpeedyActionResponse,
+    SpeedyAdminOverviewResponse,
+    SpeedyCancelShipmentRequest,
+    SpeedyEventResponse,
+    SpeedyHealthResponse,
+    SpeedyMetricsResponse,
+    SpeedyOfficeRefreshStatusResponse,
+    SpeedyPickupRequest,
+    SpeedyPickupResponse,
+    SpeedyPickupTermsRequest,
+    SpeedyPickupTermsResponse,
+    SpeedyQueuesResponse,
+    SpeedyShipmentInfoRequest,
+    SpeedyShipmentInfoResponse,
+    SpeedyShipmentSearchRequest,
+    SpeedyShipmentSearchResponse,
+)
 from app.models.users import UserResponse
 from app.responses import error_response
 from app.services import (
+    accounting_report_service,
     admin_alert_service,
     admin_service,
     analytics_service,
+    courier_polling_service,
     delivery_settings_service,
     econt_fulfillment_service,
     econt_settings_service,
     product_image_service,
     product_service,
     product_video_service,
+    speedy_admin_service,
     video_service,
 )
 from app.services.auth_service import get_oauth_circuit_breaker
@@ -105,8 +137,10 @@ from app.services.image_service import (
     FileTooLargeError as ImageFileTooLargeError,
 )
 from app.services.order_service import (
+    ADMIN_REVIEW_FILTERS,
     InvalidStateTransitionError,
     ManualPaymentActionError,
+    OrderNotFoundError,
     PaymentAlreadyPaidError,
     WrongPaymentMethodError,
     apply_manual_payment_action,
@@ -115,19 +149,41 @@ from app.services.order_service import (
     list_payment_events,
     mark_bank_transfer_paid,
     update_status,
+    update_status_async,
 )
+from app.services.payment_service import StripeRefundActionError, create_stripe_refund_async
 from app.services.product_service import (
     BulkTargetLimitError,
     DiscountValidationError,
     DuplicateError,
     NotFoundError,
 )
+from app.services.return_service import (
+    InvalidRestockQuantityError,
+    InvalidReturnTransitionError,
+    InvalidReturnValueError,
+    ReturnCaseNotFoundError,
+    close_return_case,
+    cod_settlement_required_for_order,
+    create_return_case,
+    get_cod_settlement_for_order,
+    get_return_case,
+    inspect_return_case,
+    list_refunds_for_order,
+    list_return_cases_for_order,
+    list_return_events_for_order,
+    record_cod_settlement,
+    receive_return_case,
+    update_return_accounting,
+)
 from app.services.speedy_client import (
     LabelPrintError,
     SpeedyError,
+    get_speedy_circuit_breaker,
     print_label,
-    track_shipment,
+    track_shipment_with_details as track_shipment,
 )
+from app.services.speedy_admin_service import SpeedyAdminValidationError
 from app.services.taxonomy_service import TaxonomyValidationError
 from app.services.video_service import (
     FfmpegUnavailableError,
@@ -143,6 +199,26 @@ from app.services.video_service import (
 )
 
 router = APIRouter(dependencies=[Depends(require_admin)])
+
+
+def _csv_cell(value: object) -> object:
+    return "" if value is None else value
+
+
+def _csv_response(filename: str, headers: list[str], rows: list[dict]) -> Response:
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(headers)
+    for row in rows:
+        writer.writerow([_csv_cell(row.get(header)) for header in headers])
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv",
+        headers={
+            "Cache-Control": "no-store, no-cache",
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
 
 
 @router.get(
@@ -199,9 +275,9 @@ def admin_update_econt_settings(body: EcontSettingsUpdate) -> EcontSettingsRespo
     description="Validate current Econt settings without creating a shipment and store the "
     "admin-safe health result.",
 )
-def admin_test_econt_connection() -> EcontConnectionTestResponse:
+async def admin_test_econt_connection() -> EcontConnectionTestResponse:
     """Run a safe Econt configuration readiness check."""
-    return econt_settings_service.test_econt_configuration()
+    return await econt_settings_service.test_econt_configuration()
 
 
 def _econt_error_response(exc: EcontDeliveryError) -> JSONResponse:
@@ -221,6 +297,316 @@ def _econt_error_response(exc: EcontDeliveryError) -> JSONResponse:
 
 def _admin_actor_id(current_admin: UserResponse | None) -> str | None:
     return current_admin.id if current_admin else None
+
+
+def _speedy_error_response(exc: SpeedyError) -> JSONResponse:
+    if isinstance(exc, LabelPrintError):
+        return error_response(502, "LABEL_PRINT_FAILED", str(exc), exc.to_safe_dict())
+    if exc.category in {"config", "auth", "validation"}:
+        status_code = 422
+    elif exc.category == "unexpected_response":
+        status_code = 502
+    else:
+        status_code = 503
+    return error_response(
+        status_code,
+        f"SPEEDY_{exc.category.upper()}",
+        str(exc),
+        exc.to_safe_dict(),
+    )
+
+
+def _speedy_validation_response(exc: SpeedyAdminValidationError) -> JSONResponse:
+    if "no_speedy_waybill" in exc.blockers:
+        return error_response(404, "NO_SPEEDY_WAYBILL", str(exc), {"blockers": exc.blockers})
+    return error_response(422, "SPEEDY_NOT_READY", str(exc), {"blockers": exc.blockers})
+
+
+@router.get(
+    "/speedy",
+    response_model=SpeedyAdminOverviewResponse,
+    summary="Speedy admin overview",
+)
+async def admin_get_speedy_overview(
+    order_id: str | None = Query(default=None, description="Optional local order focus"),
+) -> SpeedyAdminOverviewResponse:
+    with get_db() as conn:
+        overview = await speedy_admin_service.get_overview(conn, order_id=order_id)
+    return SpeedyAdminOverviewResponse(**overview)
+
+
+@router.get(
+    "/speedy/health",
+    response_model=SpeedyHealthResponse,
+    summary="Speedy integration health",
+)
+async def admin_get_speedy_health() -> SpeedyHealthResponse:
+    with get_db() as conn:
+        health = await speedy_admin_service.get_health(conn)
+    return SpeedyHealthResponse(**health)
+
+
+@router.get(
+    "/speedy/orders",
+    response_model=SpeedyQueuesResponse,
+    summary="Speedy operational order queues",
+)
+def admin_get_speedy_orders(
+    order_id: str | None = Query(default=None, description="Optional local order focus"),
+) -> SpeedyQueuesResponse:
+    with get_db() as conn:
+        queues = speedy_admin_service.get_queues(conn, order_id=order_id)
+    return SpeedyQueuesResponse(**queues)
+
+
+@router.get(
+    "/speedy/events",
+    response_model=list[SpeedyEventResponse],
+    summary="Recent Speedy operation events",
+)
+def admin_get_speedy_events(
+    limit: int = Query(default=25, ge=1, le=100),
+) -> list[SpeedyEventResponse]:
+    with get_db() as conn:
+        events = speedy_admin_service.list_events(conn, limit=limit)
+    return [SpeedyEventResponse(**event) for event in events]
+
+
+@router.get(
+    "/speedy/metrics",
+    response_model=SpeedyMetricsResponse,
+    summary="Speedy operational metrics",
+)
+def admin_get_speedy_metrics() -> SpeedyMetricsResponse:
+    with get_db() as conn:
+        metrics = speedy_admin_service.get_metrics(conn)
+    return SpeedyMetricsResponse(**metrics)
+
+
+@router.get(
+    "/speedy/offices/refresh-status",
+    response_model=SpeedyOfficeRefreshStatusResponse,
+    summary="Speedy office refresh status",
+)
+def admin_get_speedy_office_refresh_status() -> SpeedyOfficeRefreshStatusResponse:
+    with get_db() as conn:
+        status = speedy_admin_service.get_office_refresh_status(conn)
+    return SpeedyOfficeRefreshStatusResponse(**status)
+
+
+@router.post(
+    "/speedy/orders/{order_id}/ship",
+    response_model=SpeedyActionResponse,
+    summary="Create/reuse Speedy waybill and mark order shipped",
+)
+async def admin_speedy_create_waybill(
+    order_id: str,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> SpeedyActionResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = await speedy_admin_service.create_or_reuse_waybill(
+                conn,
+                order_id,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except SpeedyAdminValidationError as exc:
+            return _speedy_validation_response(exc)
+        except SpeedyError as exc:
+            return _speedy_error_response(exc)
+
+        event = event_for_status("shipped")
+        if event is not None and result.get("status_updated_to") == "shipped":
+            order_data = get_order_admin(conn, order_id)
+            queue_order_email(conn, order_id, event, order_data["customer_email"])
+    return SpeedyActionResponse(**result)
+
+
+@router.get(
+    "/speedy/orders/{order_id}/label",
+    response_model=None,
+    summary="Print Speedy label from Speedy admin API",
+)
+async def admin_speedy_print_label(
+    order_id: str,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> Response | JSONResponse:
+    with get_db() as conn:
+        try:
+            shipment_number, pdf = await speedy_admin_service.print_order_label(
+                conn,
+                order_id,
+                actor_user_id=_admin_actor_id(current_admin),
+                print_label_func=print_label,
+            )
+        except SpeedyAdminValidationError as exc:
+            return _speedy_validation_response(exc)
+        except SpeedyError as exc:
+            return _speedy_error_response(exc)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="label-{shipment_number}.pdf"'},
+    )
+
+
+@router.post(
+    "/speedy/orders/{order_id}/track",
+    response_model=SpeedyActionResponse,
+    summary="Refresh Speedy tracking from Speedy admin API",
+)
+async def admin_speedy_refresh_tracking(
+    order_id: str,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> SpeedyActionResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = await courier_polling_service.refresh_order_now(
+                conn,
+                order_id,
+                provider="speedy",
+                actor_user_id=_admin_actor_id(current_admin),
+                speedy_track_func=track_shipment,
+            )
+        except courier_polling_service.CourierPollingValidationError as exc:
+            if "courier_provider_mismatch" in exc.blockers:
+                return _speedy_validation_response(
+                    SpeedyAdminValidationError(
+                        "Order has no Speedy waybill",
+                        blockers=["no_speedy_waybill"],
+                    )
+                )
+            return error_response(
+                422,
+                "COURIER_REFRESH_BLOCKED",
+                str(exc),
+                {"blockers": exc.blockers},
+            )
+        except SpeedyAdminValidationError as exc:
+            return _speedy_validation_response(exc)
+        except SpeedyError as exc:
+            return _speedy_error_response(exc)
+    return SpeedyActionResponse(**result)
+
+
+@router.post(
+    "/speedy/shipments/search",
+    response_model=SpeedyShipmentSearchResponse,
+    summary="Search Speedy shipments by local reference",
+)
+async def admin_speedy_search_shipments(
+    body: SpeedyShipmentSearchRequest,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> SpeedyShipmentSearchResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = await speedy_admin_service.search_shipments(
+                conn,
+                body.reference,
+                include_returns=body.include_returns,
+                shipments_only=body.shipments_only,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except SpeedyError as exc:
+            return _speedy_error_response(exc)
+    return SpeedyShipmentSearchResponse(**result)
+
+
+@router.post(
+    "/speedy/shipments/info",
+    response_model=SpeedyShipmentInfoResponse,
+    summary="Fetch Speedy shipment information",
+)
+async def admin_speedy_shipment_info(
+    body: SpeedyShipmentInfoRequest,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> SpeedyShipmentInfoResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = await speedy_admin_service.shipment_info(
+                conn,
+                body.shipment_ids,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except SpeedyError as exc:
+            return _speedy_error_response(exc)
+    return SpeedyShipmentInfoResponse(**result)
+
+
+@router.post(
+    "/speedy/orders/{order_id}/cancel-shipment",
+    response_model=SpeedyActionResponse,
+    summary="Cancel Speedy shipment where safe",
+)
+async def admin_speedy_cancel_shipment(
+    order_id: str,
+    body: SpeedyCancelShipmentRequest,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> SpeedyActionResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = await speedy_admin_service.cancel_order_shipment(
+                conn,
+                order_id,
+                comment=body.comment,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except SpeedyAdminValidationError as exc:
+            return _speedy_validation_response(exc)
+        except SpeedyError as exc:
+            return _speedy_error_response(exc)
+    return SpeedyActionResponse(**result)
+
+
+@router.post(
+    "/speedy/pickup/terms",
+    response_model=SpeedyPickupTermsResponse,
+    summary="Get Speedy pickup terms",
+)
+async def admin_speedy_pickup_terms(
+    body: SpeedyPickupTermsRequest,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> SpeedyPickupTermsResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = await speedy_admin_service.pickup_terms_for_shipments(
+                conn,
+                body.shipment_ids,
+                starting_date_utc_ms=body.starting_date_utc_ms,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except SpeedyAdminValidationError as exc:
+            return _speedy_validation_response(exc)
+        except SpeedyError as exc:
+            return _speedy_error_response(exc)
+    return SpeedyPickupTermsResponse(**result)
+
+
+@router.post(
+    "/speedy/pickup",
+    response_model=SpeedyPickupResponse,
+    summary="Request Speedy pickup",
+)
+async def admin_speedy_request_pickup(
+    body: SpeedyPickupRequest,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> SpeedyPickupResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = await speedy_admin_service.request_pickup(
+                conn,
+                shipment_ids=body.shipment_ids,
+                pickup_datetime=body.pickup_datetime,
+                visit_end_time=body.visit_end_time,
+                contact_name=body.contact_name,
+                phone=body.phone,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except SpeedyAdminValidationError as exc:
+            return _speedy_validation_response(exc)
+        except SpeedyError as exc:
+            return _speedy_error_response(exc)
+    return SpeedyPickupResponse(**result)
 
 
 @router.get(
@@ -267,13 +653,13 @@ def admin_repair_econt_order(
     response_model=EcontFulfillmentActionResponse,
     summary="Sync local order to Econt",
 )
-def admin_sync_econt_order(
+async def admin_sync_econt_order(
     order_id: str,
     current_admin: Annotated[UserResponse | None, Depends(require_admin)],
 ) -> EcontFulfillmentActionResponse | JSONResponse:
     with get_db() as conn:
         try:
-            result = econt_fulfillment_service.sync_order(
+            result = await econt_fulfillment_service.sync_order(
                 conn,
                 order_id,
                 actor_user_id=_admin_actor_id(current_admin),
@@ -290,13 +676,13 @@ def admin_sync_econt_order(
     response_model=EcontFulfillmentActionResponse,
     summary="Create Econt AWB label",
 )
-def admin_create_econt_label(
+async def admin_create_econt_label(
     order_id: str,
     current_admin: Annotated[UserResponse | None, Depends(require_admin)],
 ) -> EcontFulfillmentActionResponse | JSONResponse:
     with get_db() as conn:
         try:
-            result = econt_fulfillment_service.create_label(
+            result = await econt_fulfillment_service.create_label(
                 conn,
                 order_id,
                 actor_user_id=_admin_actor_id(current_admin),
@@ -308,18 +694,51 @@ def admin_create_econt_label(
     return EcontFulfillmentActionResponse(order_id=order_id, action="create_label", **result)
 
 
-@router.delete(
-    "/orders/{order_id}/econt/label",
+@router.post(
+    "/orders/{order_id}/econt/ship",
     response_model=EcontFulfillmentActionResponse,
-    summary="Delete Econt AWB label where safe",
+    summary="Create Econt AWB label and mark order shipped",
 )
-def admin_delete_econt_label(
+async def admin_create_and_ship_econt_order(
     order_id: str,
     current_admin: Annotated[UserResponse | None, Depends(require_admin)],
 ) -> EcontFulfillmentActionResponse | JSONResponse:
     with get_db() as conn:
         try:
-            result = econt_fulfillment_service.delete_label(
+            result = await econt_fulfillment_service.create_label_and_mark_shipped(
+                conn,
+                order_id,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except EcontFulfillmentValidationError as exc:
+            return error_response(422, "ECONT_NOT_READY", str(exc), {"blockers": exc.blockers})
+        except EcontDeliveryError as exc:
+            return _econt_error_response(exc)
+
+        event = event_for_status("shipped")
+        if event is not None:
+            order_data = get_order_admin(conn, order_id)
+            queue_order_email(conn, order_id, event, order_data["customer_email"])
+
+    return EcontFulfillmentActionResponse(
+        order_id=order_id,
+        action="create_label_and_ship",
+        **result,
+    )
+
+
+@router.delete(
+    "/orders/{order_id}/econt/label",
+    response_model=EcontFulfillmentActionResponse,
+    summary="Delete Econt AWB label where safe",
+)
+async def admin_delete_econt_label(
+    order_id: str,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> EcontFulfillmentActionResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = await econt_fulfillment_service.delete_label(
                 conn,
                 order_id,
                 actor_user_id=_admin_actor_id(current_admin),
@@ -336,22 +755,61 @@ def admin_delete_econt_label(
     response_model=EcontFulfillmentActionResponse,
     summary="Refresh Econt shipment trace",
 )
-def admin_refresh_econt_trace(
+async def admin_refresh_econt_trace(
     order_id: str,
     current_admin: Annotated[UserResponse | None, Depends(require_admin)],
 ) -> EcontFulfillmentActionResponse | JSONResponse:
     with get_db() as conn:
         try:
-            result = econt_fulfillment_service.refresh_trace(
+            result = await courier_polling_service.refresh_order_now(
                 conn,
                 order_id,
+                provider="econt",
                 actor_user_id=_admin_actor_id(current_admin),
+            )
+        except courier_polling_service.CourierPollingValidationError as exc:
+            return error_response(
+                422,
+                "COURIER_REFRESH_BLOCKED",
+                str(exc),
+                {"blockers": exc.blockers},
             )
         except EcontFulfillmentValidationError as exc:
             return error_response(422, "ECONT_NOT_READY", str(exc), {"blockers": exc.blockers})
         except EcontDeliveryError as exc:
             return _econt_error_response(exc)
     return EcontFulfillmentActionResponse(order_id=order_id, action="refresh_trace", **result)
+
+
+@router.post(
+    "/orders/{order_id}/econt/manual-status",
+    response_model=EcontFulfillmentActionResponse,
+    summary="Record manual Econt courier status",
+)
+def admin_record_econt_manual_status(
+    order_id: str,
+    body: EcontManualStatusRequest,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> EcontFulfillmentActionResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = econt_fulfillment_service.record_manual_status(
+                conn,
+                order_id,
+                courier_status=body.courier_status,
+                tracking_number=body.tracking_number,
+                tracking_url=body.tracking_url,
+                notes=body.notes,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except EcontFulfillmentValidationError as exc:
+            return error_response(
+                422,
+                "ECONT_MANUAL_STATUS_BLOCKED",
+                str(exc),
+                {"blockers": exc.blockers},
+            )
+    return EcontFulfillmentActionResponse(order_id=order_id, action="manual_status", **result)
 
 
 @router.post(
@@ -892,6 +1350,7 @@ def admin_list_orders(
     status: str | None = Query(default=None, description="Filter by order status"),
     payment_status: str | None = Query(default=None, description="Filter by payment status"),
     payment_method: str | None = Query(default=None, description="Filter by payment method"),
+    review_filter: str | None = Query(default=None, description="Filter operational review queues"),
     page: int = Query(default=1, ge=1, description="Page number"),
     limit: int = Query(default=20, ge=1, le=100, description="Items per page"),
 ) -> OrderListResponse | JSONResponse:
@@ -922,6 +1381,13 @@ def admin_list_orders(
                 "Invalid payment_method "
                 f"'{payment_method}'. Must be one of: {', '.join(valid_payment_methods)}",
             )
+    if review_filter is not None and review_filter not in ADMIN_REVIEW_FILTERS:
+        return error_response(
+            422,
+            "INVALID_REVIEW_FILTER",
+            "Invalid review_filter "
+            f"'{review_filter}'. Must be one of: {', '.join(sorted(ADMIN_REVIEW_FILTERS))}",
+        )
 
     with get_db() as conn:
         result = list_orders_admin(
@@ -929,6 +1395,7 @@ def admin_list_orders(
             status=status,
             payment_status=payment_status,
             payment_method=payment_method,
+            review_filter=review_filter,
             page=page,
             limit=limit,
         )
@@ -953,9 +1420,21 @@ def admin_get_order_detail(order_id: str) -> AdminOrderDetailResponse:
     with get_db() as conn:
         order_data = get_order_admin(conn=conn, order_id=order_id)
         payment_events = list_payment_events(conn, order_id)
+        return_cases = list_return_cases_for_order(conn, order_id)
+        return_events = list_return_events_for_order(conn, order_id)
+        refund_records = list_refunds_for_order(conn, order_id)
+        cod_settlement = get_cod_settlement_for_order(conn, order_id)
+        cod_settlement_required = cod_settlement_required_for_order(conn, order_id)
+        econt_cod_evidence = econt_fulfillment_service.get_latest_cod_evidence(conn, order_id)
 
     payload = dict(order_data)
     payload["payment_events"] = payment_events
+    payload["return_cases"] = return_cases
+    payload["return_events"] = return_events
+    payload["refund_records"] = refund_records
+    payload["cod_settlement"] = cod_settlement
+    payload["cod_settlement_required"] = cod_settlement_required
+    payload["econt_cod_evidence"] = econt_cod_evidence
     return AdminOrderDetailResponse.model_validate(payload)
 
 
@@ -1009,6 +1488,7 @@ def admin_apply_manual_payment_action(
                 order_id=order_id,
                 action=body.action,
                 note=body.note,
+                callback_outcome=body.callback_outcome,
                 admin_id=admin_user.id if admin_user else None,
                 admin_email=admin_user.email if admin_user else None,
                 request_id=request_id,
@@ -1023,6 +1503,298 @@ def admin_apply_manual_payment_action(
             return error_response(e.status_code, e.code, str(e))
 
     return OrderResponse.model_validate(order_data)
+
+
+@router.post(
+    "/orders/{order_id}/refunds",
+    response_model=PaymentRefundResponse,
+    summary="Create Stripe refund (admin)",
+    description="Create a full or partial Stripe refund with idempotency and local audit.",
+)
+async def admin_create_stripe_refund(
+    order_id: str,
+    body: CreateStripeRefundRequest,
+    admin_user: Annotated[UserResponse | None, Depends(require_admin)],
+) -> PaymentRefundResponse | JSONResponse:
+    settings = get_settings()
+    with get_db() as conn:
+        try:
+            refund = await create_stripe_refund_async(
+                conn,
+                order_id=order_id,
+                amount_cents=body.amount_cents,
+                reason=body.reason,
+                idempotency_key=body.idempotency_key,
+                admin_id=admin_user.id if admin_user else None,
+                stripe_secret_key=settings.stripe_secret_key,
+            )
+        except OrderNotFoundError:
+            return error_response(404, "ORDER_NOT_FOUND", "Order not found")
+        except StripeRefundActionError as e:
+            return error_response(e.status_code, e.code, str(e))
+
+    return PaymentRefundResponse.model_validate(refund)
+
+
+@router.post(
+    "/orders/{order_id}/cod-settlement",
+    response_model=CodSettlementResponse,
+    summary="Record COD settlement (admin)",
+    description="Record courier COD payout details and flag amount mismatches for accounting.",
+)
+def admin_record_cod_settlement(
+    order_id: str,
+    body: RecordCodSettlementRequest,
+    admin_user: Annotated[UserResponse | None, Depends(require_admin)],
+) -> CodSettlementResponse | JSONResponse:
+    try:
+        with get_db() as conn:
+            settlement = record_cod_settlement(
+                conn,
+                order_id=order_id,
+                amount_cents=body.amount_cents,
+                settlement_date=body.settlement_date,
+                courier_reference=body.courier_reference,
+                notes=body.notes,
+                admin_id=admin_user.id if admin_user else None,
+            )
+    except InvalidReturnValueError as exc:
+        return _return_service_error_response(exc)
+
+    return CodSettlementResponse.model_validate(settlement)
+
+
+def _return_service_error_response(exc: Exception) -> JSONResponse:
+    if isinstance(exc, ReturnCaseNotFoundError):
+        return error_response(404, "RETURN_CASE_NOT_FOUND", str(exc))
+    if isinstance(exc, InvalidReturnTransitionError):
+        return error_response(
+            422,
+            "INVALID_RETURN_TRANSITION",
+            str(exc),
+            details={
+                "return_id": exc.return_id,
+                "current_status": exc.current_status,
+                "requested_status": exc.requested_status,
+            },
+        )
+    if isinstance(exc, InvalidRestockQuantityError):
+        return error_response(
+            422,
+            "INVALID_RESTOCK_QUANTITY",
+            str(exc),
+            details={
+                "product_id": exc.product_id,
+                "quantity": exc.quantity,
+                "max_quantity": exc.max_quantity,
+            },
+        )
+    if isinstance(exc, InvalidReturnValueError):
+        return error_response(
+            422,
+            "INVALID_RETURN_VALUE",
+            str(exc),
+            details={"field": exc.field, "value": exc.value},
+        )
+    if isinstance(exc, InvalidStateTransitionError):
+        return error_response(
+            422,
+            "INVALID_TRANSITION",
+            str(exc),
+            details={
+                "order_id": exc.order_id,
+                "current_status": exc.current_status,
+                "requested_status": exc.requested_status,
+            },
+        )
+    raise exc
+
+
+def _ensure_return_case_belongs_to_order(
+    conn: sqlite3.Connection, *, order_id: str, return_id: str
+) -> None:
+    case = get_return_case(conn, return_id)
+    if case["order_id"] != order_id:
+        raise ReturnCaseNotFoundError(return_id)
+
+
+@router.post(
+    "/orders/{order_id}/returns",
+    response_model=ReturnCaseResponse,
+    summary="Create return case (admin)",
+    description="Create an admin-controlled return/uncollected/refused case for an order.",
+)
+def admin_create_return_case(
+    order_id: str,
+    body: CreateReturnCaseRequest,
+    admin_user: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ReturnCaseResponse | JSONResponse:
+    try:
+        with get_db() as conn:
+            get_order_admin(conn=conn, order_id=order_id)
+            if body.status == "return_in_transit":
+                update_status(conn=conn, order_id=order_id, new_status="return_in_transit")
+            case = create_return_case(
+                conn,
+                order_id=order_id,
+                reason=body.reason,
+                source=body.source,
+                status=body.status,
+                notes=body.notes,
+                refund_amount_cents=body.refund_amount_cents,
+                courier_return_fee_cents=body.courier_return_fee_cents,
+                courier_claim_id=body.courier_claim_id,
+                courier_claim_status=body.courier_claim_status,
+                courier_claim_amount_cents=body.courier_claim_amount_cents,
+                admin_id=admin_user.id if admin_user else None,
+                admin_email=admin_user.email if admin_user else None,
+            )
+    except (
+        InvalidStateTransitionError,
+        InvalidReturnValueError,
+        InvalidReturnTransitionError,
+        InvalidRestockQuantityError,
+        ReturnCaseNotFoundError,
+    ) as exc:
+        return _return_service_error_response(exc)
+
+    return ReturnCaseResponse.model_validate(case)
+
+
+@router.post(
+    "/orders/{order_id}/returns/{return_id}/receive",
+    response_model=ReturnCaseResponse,
+    summary="Receive return case (admin)",
+)
+def admin_receive_return_case(
+    order_id: str,
+    return_id: str,
+    admin_user: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ReturnCaseResponse | JSONResponse:
+    try:
+        with get_db() as conn:
+            _ensure_return_case_belongs_to_order(conn, order_id=order_id, return_id=return_id)
+            order = get_order_admin(conn=conn, order_id=order_id)
+            if order["status"] == "return_in_transit":
+                update_status(conn=conn, order_id=order_id, new_status="returned")
+            case = receive_return_case(
+                conn,
+                return_id,
+                admin_id=admin_user.id if admin_user else None,
+                admin_email=admin_user.email if admin_user else None,
+            )
+    except (
+        InvalidStateTransitionError,
+        InvalidReturnValueError,
+        InvalidReturnTransitionError,
+        InvalidRestockQuantityError,
+        ReturnCaseNotFoundError,
+    ) as exc:
+        return _return_service_error_response(exc)
+
+    return ReturnCaseResponse.model_validate(case)
+
+
+@router.patch(
+    "/orders/{order_id}/returns/{return_id}/accounting",
+    response_model=ReturnCaseResponse,
+    summary="Update return accounting fields (admin)",
+)
+def admin_update_return_accounting(
+    order_id: str,
+    return_id: str,
+    body: UpdateReturnAccountingRequest,
+    admin_user: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ReturnCaseResponse | JSONResponse:
+    try:
+        with get_db() as conn:
+            _ensure_return_case_belongs_to_order(conn, order_id=order_id, return_id=return_id)
+            case = update_return_accounting(
+                conn,
+                return_id,
+                courier_return_fee_cents=body.courier_return_fee_cents,
+                courier_claim_id=body.courier_claim_id,
+                courier_claim_status=body.courier_claim_status,
+                courier_claim_amount_cents=body.courier_claim_amount_cents,
+                notes=body.notes,
+                admin_id=admin_user.id if admin_user else None,
+                admin_email=admin_user.email if admin_user else None,
+            )
+    except (
+        InvalidReturnValueError,
+        InvalidReturnTransitionError,
+        InvalidRestockQuantityError,
+        ReturnCaseNotFoundError,
+    ) as exc:
+        return _return_service_error_response(exc)
+
+    return ReturnCaseResponse.model_validate(case)
+
+
+@router.patch(
+    "/orders/{order_id}/returns/{return_id}/inspect",
+    response_model=ReturnCaseResponse,
+    summary="Inspect return case (admin)",
+)
+def admin_inspect_return_case(
+    order_id: str,
+    return_id: str,
+    body: InspectReturnCaseRequest,
+    admin_user: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ReturnCaseResponse | JSONResponse:
+    try:
+        with get_db() as conn:
+            _ensure_return_case_belongs_to_order(conn, order_id=order_id, return_id=return_id)
+            case = inspect_return_case(
+                conn,
+                return_id,
+                restock_decision=body.restock_decision,
+                restock_quantities=body.restock_quantities,
+                notes=body.notes,
+                admin_id=admin_user.id if admin_user else None,
+                admin_email=admin_user.email if admin_user else None,
+            )
+    except (
+        InvalidStateTransitionError,
+        InvalidReturnValueError,
+        InvalidReturnTransitionError,
+        InvalidRestockQuantityError,
+        ReturnCaseNotFoundError,
+    ) as exc:
+        return _return_service_error_response(exc)
+
+    return ReturnCaseResponse.model_validate(case)
+
+
+@router.post(
+    "/orders/{order_id}/returns/{return_id}/close",
+    response_model=ReturnCaseResponse,
+    summary="Close return case (admin)",
+)
+def admin_close_return_case(
+    order_id: str,
+    return_id: str,
+    admin_user: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ReturnCaseResponse | JSONResponse:
+    try:
+        with get_db() as conn:
+            _ensure_return_case_belongs_to_order(conn, order_id=order_id, return_id=return_id)
+            case = close_return_case(
+                conn,
+                return_id,
+                admin_id=admin_user.id if admin_user else None,
+                admin_email=admin_user.email if admin_user else None,
+            )
+    except (
+        InvalidStateTransitionError,
+        InvalidReturnValueError,
+        InvalidReturnTransitionError,
+        InvalidRestockQuantityError,
+        ReturnCaseNotFoundError,
+    ) as exc:
+        return _return_service_error_response(exc)
+
+    return ReturnCaseResponse.model_validate(case)
 
 
 @router.get(
@@ -1070,7 +1842,7 @@ def admin_get_order_emails(order_id: str) -> OrderEmailAuditResponse:
         422: {"description": "Invalid state transition or validation error"},
     },
 )
-def admin_update_order_status(
+async def admin_update_order_status(
     order_id: str,
     body: UpdateOrderStatusRequest,
 ) -> OrderResponse | JSONResponse:
@@ -1082,7 +1854,7 @@ def admin_update_order_status(
     """
     with get_db() as conn:
         try:
-            order_data = update_status(
+            order_data = await update_status_async(
                 conn=conn,
                 order_id=order_id,
                 new_status=body.status,
@@ -1113,6 +1885,7 @@ def admin_update_order_status(
 
 @router.get(
     "/orders/{order_id}/label",
+    response_model=None,
     summary="Print Speedy shipment label (admin)",
     description="Streams the Speedy PDF label for an order's waybill.",
     responses={
@@ -1120,39 +1893,23 @@ def admin_update_order_status(
         502: {"description": "Speedy label print failed"},
     },
 )
-async def admin_print_order_label(order_id: str) -> Response:
+async def admin_print_order_label(
+    order_id: str,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> Response | JSONResponse:
     """Fetch and stream the Speedy PDF label for an order (admin-only)."""
     with get_db() as conn:
-        order = get_order_admin(conn, order_id)
-    tracking_number = order["tracking_number"]
-    if not tracking_number or order["tracking_carrier"] != "speedy":
-        return JSONResponse(
-            status_code=404,
-            content={
-                "error": {
-                    "code": "NO_SPEEDY_WAYBILL",
-                    "message": "Order has no Speedy tracking number",
-                }
-            },
-        )
-    settings = get_settings()
-    try:
-        pdf = await print_label(
-            tracking_number=tracking_number,
-            username=settings.speedy_api_username,
-            password=settings.speedy_api_password.get_secret_value(),
-        )
-    except LabelPrintError as exc:
-        return JSONResponse(
-            status_code=502,
-            content={
-                "error": {
-                    "code": "LABEL_PRINT_FAILED",
-                    "message": str(exc),
-                    "details": {"context": exc.context},
-                }
-            },
-        )
+        try:
+            tracking_number, pdf = await speedy_admin_service.print_order_label(
+                conn,
+                order_id,
+                actor_user_id=_admin_actor_id(current_admin),
+                print_label_func=print_label,
+            )
+        except SpeedyAdminValidationError as exc:
+            return _speedy_validation_response(exc)
+        except SpeedyError as exc:
+            return _speedy_error_response(exc)
     return Response(
         content=pdf,
         media_type="application/pdf",
@@ -1171,45 +1928,38 @@ async def admin_print_order_label(order_id: str) -> Response:
         502: {"description": "Speedy track failed"},
     },
 )
-async def admin_track_order(order_id: str) -> OrderResponse | JSONResponse:
+async def admin_track_order(
+    order_id: str,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> OrderResponse | JSONResponse:
     """Refresh the order's courier_status from Speedy (admin-only, display-only)."""
     with get_db() as conn:
-        order = get_order_admin(conn, order_id)
-    tracking_number = order["tracking_number"]
-    if not tracking_number or order["tracking_carrier"] != "speedy":
-        return JSONResponse(
-            status_code=404,
-            content={
-                "error": {
-                    "code": "NO_SPEEDY_WAYBILL",
-                    "message": "Order has no Speedy tracking number",
-                }
-            },
-        )
-    settings = get_settings()
-    try:
-        courier_status = await track_shipment(
-            tracking_number=tracking_number,
-            username=settings.speedy_api_username,
-            password=settings.speedy_api_password.get_secret_value(),
-        )
-    except SpeedyError as exc:
-        return JSONResponse(
-            status_code=502,
-            content={
-                "error": {
-                    "code": "TRACK_FAILED",
-                    "message": str(exc),
-                    "details": {"context": exc.context},
-                }
-            },
-        )
-    # Persist the display status ONLY — the order's own status is untouched.
-    with get_db() as conn:
-        conn.execute(
-            "UPDATE orders SET courier_status = ? WHERE id = ?",
-            (courier_status, order_id),
-        )
+        try:
+            await courier_polling_service.refresh_order_now(
+                conn,
+                order_id,
+                provider="speedy",
+                actor_user_id=_admin_actor_id(current_admin),
+                speedy_track_func=track_shipment,
+            )
+        except courier_polling_service.CourierPollingValidationError as exc:
+            if "courier_provider_mismatch" in exc.blockers:
+                return _speedy_validation_response(
+                    SpeedyAdminValidationError(
+                        "Order has no Speedy waybill",
+                        blockers=["no_speedy_waybill"],
+                    )
+                )
+            return error_response(
+                422,
+                "COURIER_REFRESH_BLOCKED",
+                str(exc),
+                {"blockers": exc.blockers},
+            )
+        except SpeedyAdminValidationError as exc:
+            return _speedy_validation_response(exc)
+        except SpeedyError as exc:
+            return _speedy_error_response(exc)
         order = get_order_admin(conn, order_id)
     return OrderResponse.model_validate(order)
 
@@ -1273,7 +2023,8 @@ async def admin_analytics_summary(
 ) -> AnalyticsSummaryResponse:
     """Admin-only first-party analytics summary."""
     response.headers["Cache-Control"] = "no-store, no-cache"
-    return AnalyticsSummaryResponse(**analytics_service.get_summary(start_date, end_date))
+    summary = await run_in_threadpool(analytics_service.get_summary, start_date, end_date)
+    return AnalyticsSummaryResponse(**summary)
 
 
 @router.get(
@@ -1288,7 +2039,8 @@ async def admin_analytics_funnel(
 ) -> AnalyticsFunnelResponse:
     """Return funnel counts and conversion percentages."""
     response.headers["Cache-Control"] = "no-store, no-cache"
-    return AnalyticsFunnelResponse(steps=analytics_service.get_funnel(start_date, end_date))
+    steps = await run_in_threadpool(analytics_service.get_funnel, start_date, end_date)
+    return AnalyticsFunnelResponse(steps=steps)
 
 
 @router.get(
@@ -1303,7 +2055,7 @@ async def admin_analytics_products(
 ) -> ProductAnalyticsResponse:
     """Return product-level aggregate analytics without customer PII."""
     response.headers["Cache-Control"] = "no-store, no-cache"
-    products = analytics_service.get_product_metrics(start_date, end_date)
+    products = await run_in_threadpool(analytics_service.get_product_metrics, start_date, end_date)
     return ProductAnalyticsResponse(products=products)
 
 
@@ -1319,7 +2071,8 @@ async def admin_analytics_checkout(
 ) -> CheckoutAnalyticsResponse:
     """Return checkout, delivery, and payment aggregates without customer PII."""
     response.headers["Cache-Control"] = "no-store, no-cache"
-    return CheckoutAnalyticsResponse(**analytics_service.get_checkout_metrics(start_date, end_date))
+    metrics = await run_in_threadpool(analytics_service.get_checkout_metrics, start_date, end_date)
+    return CheckoutAnalyticsResponse(**metrics)
 
 
 @router.get(
@@ -1330,7 +2083,7 @@ async def admin_analytics_checkout(
 async def admin_analytics_health(response: Response) -> AnalyticsHealthResponse:
     """Return accepted, rejected, duplicate, and load health metrics."""
     response.headers["Cache-Control"] = "no-store, no-cache"
-    return analytics_service.get_health()
+    return await run_in_threadpool(analytics_service.get_health)
 
 
 @router.get(
@@ -1343,10 +2096,11 @@ async def admin_analytics_export_csv(
     end_date: str | None = Query(default=None),
 ) -> Response:
     """Export aggregate funnel metrics as CSV."""
+    steps = await run_in_threadpool(analytics_service.get_funnel, start_date, end_date)
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow(["report", "event_type", "count", "conversion_from_previous"])
-    for step in analytics_service.get_funnel(start_date, end_date):
+    for step in steps:
         writer.writerow(
             [
                 "funnel",
@@ -1363,6 +2117,166 @@ async def admin_analytics_export_csv(
             "Content-Disposition": 'attachment; filename="atelier-analytics-funnel.csv"',
         },
     )
+
+
+@router.get(
+    "/reports/refunds.csv",
+    summary="Export Stripe refund reconciliation CSV",
+    description=(
+        "Exports Stripe refund IDs, amounts, statuses, idempotency keys, and order references."
+    ),
+)
+def admin_refund_reconciliation_report_csv() -> Response:
+    """Export Stripe refund reconciliation rows for accounting."""
+    headers = [
+        "refund_id",
+        "order_id",
+        "order_number",
+        "customer_email",
+        "order_payment_status",
+        "order_total_cents",
+        "payment_id",
+        "provider",
+        "provider_refund_id",
+        "amount_cents",
+        "refund_status",
+        "reason",
+        "idempotency_key",
+        "failure_reason",
+        "created_by_admin_id",
+        "created_at",
+        "confirmed_at",
+    ]
+    with get_db() as conn:
+        rows = accounting_report_service.stripe_refund_reconciliation_rows(conn)
+    return _csv_response("atelier-stripe-refunds.csv", headers, rows)
+
+
+@router.get(
+    "/reports/cod-settlements.csv",
+    summary="Export COD settlement reconciliation CSV",
+    description=(
+        "Exports unsettled, settled, and mismatch COD orders with Econt COD evidence where present."
+    ),
+)
+def admin_cod_settlement_report_csv() -> Response:
+    """Export COD settlement reconciliation rows for accounting."""
+    headers = [
+        "order_id",
+        "order_number",
+        "customer_email",
+        "order_status",
+        "delivery_courier",
+        "order_total_cents",
+        "courier_status",
+        "courier_last_synced_at",
+        "settlement_id",
+        "settlement_amount_cents",
+        "settlement_date",
+        "courier_reference",
+        "mismatch_review",
+        "settlement_notes",
+        "created_by_admin_id",
+        "settlement_created_at",
+        "settlement_updated_at",
+        "settlement_state",
+        "econt_cd_collected_amount",
+        "econt_cd_collected_time",
+        "econt_cd_paid_amount",
+        "econt_cd_paid_time",
+        "econt_evidence_event_id",
+        "econt_evidence_action",
+        "econt_evidence_recorded_at",
+    ]
+    with get_db() as conn:
+        rows = accounting_report_service.cod_settlement_rows(conn)
+    return _csv_response("atelier-cod-settlements.csv", headers, rows)
+
+
+@router.get(
+    "/reports/courier-claims.csv",
+    summary="Export courier fees and manual claim CSV",
+    description="Exports return courier fees and manually recorded courier claim fields.",
+)
+def admin_courier_claim_report_csv() -> Response:
+    """Export courier fee and manual claim rows for accounting follow-up."""
+    headers = [
+        "return_id",
+        "order_id",
+        "order_number",
+        "customer_email",
+        "delivery_courier",
+        "reason",
+        "source",
+        "return_status",
+        "courier_return_fee_cents",
+        "courier_claim_id",
+        "courier_claim_status",
+        "courier_claim_amount_cents",
+        "notes",
+        "created_at",
+        "updated_at",
+    ]
+    with get_db() as conn:
+        rows = accounting_report_service.courier_fee_claim_rows(conn)
+    return _csv_response("atelier-courier-claims.csv", headers, rows)
+
+
+@router.get(
+    "/reports/return-reasons.csv",
+    summary="Export return reason summary CSV",
+    description=(
+        "Exports return reason counts for uncollected, refused, damaged, lost, merchant error, "
+        "and other cases."
+    ),
+)
+def admin_return_reason_report_csv() -> Response:
+    """Export aggregate return reason rows."""
+    headers = [
+        "reason",
+        "source",
+        "return_status",
+        "return_count",
+        "refund_amount_cents",
+        "courier_return_fee_cents",
+        "claim_count",
+        "first_created_at",
+        "last_created_at",
+    ]
+    with get_db() as conn:
+        rows = accounting_report_service.return_reason_rows(conn)
+    return _csv_response("atelier-return-reasons.csv", headers, rows)
+
+
+@router.get(
+    "/reports/inventory-adjustments.csv",
+    summary="Export return inventory adjustment CSV",
+    description=(
+        "Exports inventory adjustments created by returned/restocked/not-restocked "
+        "return decisions."
+    ),
+)
+def admin_inventory_adjustment_report_csv() -> Response:
+    """Export return inventory adjustment rows."""
+    headers = [
+        "adjustment_id",
+        "order_id",
+        "order_number",
+        "return_id",
+        "return_reason",
+        "restock_decision",
+        "product_id",
+        "product_name",
+        "quantity",
+        "adjustment_reason",
+        "source",
+        "notes",
+        "created_by_admin_id",
+        "created_at",
+    ]
+    with get_db() as conn:
+        rows = accounting_report_service.inventory_adjustment_rows(conn)
+    return _csv_response("atelier-inventory-adjustments.csv", headers, rows)
 
 
 @router.get(
@@ -1386,6 +2300,17 @@ async def admin_health_oauth() -> JSONResponse:
 async def admin_health_econt() -> JSONResponse:
     """Expose Econt Delivery circuit breaker state for admin diagnostics."""
     breaker = get_econt_circuit_breaker()
+    return JSONResponse(content=breaker.get_health())
+
+
+@router.get(
+    "/health/speedy",
+    summary="Speedy circuit breaker health",
+    description="Returns the current state of the Speedy operational circuit breaker. Admin-only.",
+)
+async def admin_health_speedy() -> JSONResponse:
+    """Expose Speedy operational circuit breaker state for admin diagnostics."""
+    breaker = get_speedy_circuit_breaker()
     return JSONResponse(content=breaker.get_health())
 
 

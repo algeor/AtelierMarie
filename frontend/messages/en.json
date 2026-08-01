@@ -160,9 +160,11 @@
           "Any clear statement that you wish to withdraw from the order is sufficient. You may use the model withdrawal form below, but it is not required.",
           "After you tell us that you withdraw, you generally have another 14 days to send the goods back. We will provide return instructions and the return address after receiving your message.",
           "For ordinary withdrawal, photos are not required and you do not need to give a reason.",
+          "If a courier-office parcel is not collected, or a delivery is refused, we review the courier status, the order record, and any return costs before confirming refund timing, refund amount, or next steps. Courier status alone does not automatically finalize a refund, restock, or accounting decision.",
+          "For card-paid orders, any approved refund is returned through the original card payment where possible. For payment-on-delivery orders where no card payment was collected, there may be no card refund to issue; any amounts already paid or due are reviewed separately.",
           "Please return items with their original packaging where possible. You may inspect the item as you would in a shop.",
           "You may be responsible for any loss in value caused by handling beyond what is necessary to inspect the product, including lighting, using, damaging, or over-handling a candle.",
-          "Unless we agree otherwise or the item is faulty, damaged, or incorrect, you are responsible for the direct cost of returning goods under the right of withdrawal."
+          "Unless we agree otherwise or the item is faulty, damaged, or incorrect, you are responsible for the direct cost of returning goods under the right of withdrawal. Return shipping, courier return fees, or legally permitted diminished-value deductions may affect the final refund amount where applicable."
         ],
         "modelFormTitle": "Model withdrawal form",
         "modelFormIntro": "You may copy this text into an email or contact-form message:",
@@ -193,6 +195,7 @@
         "body": [
           "The 14-day withdrawal right is separate from your statutory rights for faulty, damaged, incorrect, or non-conforming goods. Those rights remain unaffected.",
           "If your item arrives damaged, faulty, or incorrect, contact us as soon as possible. Please include your order number and clear photos of the item, packaging, and courier label where relevant so we can resolve the issue quickly.",
+          "If a parcel is damaged or lost by the courier, Atelier Marie may record courier claim details and follow up with the courier. You do not need to manage the courier claim yourself, and your statutory rights remain unaffected.",
           "For faulty, damaged, or incorrect items, we will handle the appropriate remedy in accordance with applicable consumer law."
         ]
       },
@@ -203,6 +206,7 @@
         "body": [
           "For valid withdrawal, we will reimburse payments due to you within the required legal deadline. For goods, we may wait until we receive the goods back or you provide evidence that you sent them back, whichever happens first.",
           "Where required, the refund includes the product price and the least expensive standard delivery option offered for the original order. Extra delivery upgrades, such as express delivery chosen by you, may not be refundable beyond the standard delivery cost.",
+          "For uncollected, refused, or returned parcels, refund timing and amount may depend on review of the returned parcel, courier return costs, payment method, and any legally permitted deductions. We do not treat a courier return status as an automatic full refund.",
           "Refunds are made using the original payment method where possible. For cash-on-delivery or bank-transfer orders, refunds may be made by bank transfer."
         ]
       },
@@ -483,6 +487,8 @@
       "confirmed": "Confirmed",
       "shipped": "Shipped",
       "delivered": "Delivered",
+      "return_in_transit": "Return in transit",
+      "returned": "Returned",
       "cancelled": "Cancelled"
     },
     "carrier": "Carrier",
@@ -500,7 +506,13 @@
         "paid": "Paid",
         "cod_pending": "Pay on delivery",
         "failed": "Payment failed",
-        "refunded": "Refunded"
+        "review_required": "Review required",
+        "refund_pending": "Refund pending",
+        "partially_refunded": "Partially refunded",
+        "refunded": "Refunded",
+        "dispute_open": "Dispute open",
+        "dispute_won": "Dispute won",
+        "dispute_lost": "Dispute lost"
       },
       "retryPayment": "Retry payment",
       "retryRedirecting": "Redirecting to payment…",
@@ -640,6 +652,25 @@
     "shipping": "Shipping",
     "notes": "Notes",
     "notProvided": "Not provided",
+    "speedyDiagnostics": "Speedy diagnostics",
+    "speedyFulfillment": {
+      "title": "Speedy fulfillment",
+      "subtitle": "Shipment metadata and operational diagnostics for this Speedy order.",
+      "shipmentNumber": "Shipment number",
+      "courierStatus": "Courier status",
+      "syncStatus": "Sync status",
+      "lastSync": "Last sync",
+      "openTracking": "Open tracking",
+      "printLabel": "Print label"
+    },
+    "econtCodEvidence": {
+      "title": "Econt COD evidence",
+      "subtitle": "Courier evidence for reconciliation. It does not replace the explicit settlement record.",
+      "collectedAmount": "Collected amount",
+      "collectedTime": "Collected time",
+      "paidAmount": "Paid amount",
+      "paidTime": "Paid time"
+    },
     "total": "Total",
     "status": "Status",
     "date": "Date",
@@ -684,6 +715,111 @@
         "mark_failed": "Mark failed",
         "mark_review": "Mark for review",
         "cancel": "Cancel order"
+      }
+    },
+    "returnWorkflow": {
+      "title": "Returns, refunds, and settlement",
+      "subtitle": "Use admin actions for return evidence, refund decisions, courier claims, and COD settlement.",
+      "actionError": "Return or refund action failed",
+      "reason": "Return reason",
+      "initialStatus": "Initial status",
+      "notesPlaceholder": "Internal return note",
+      "noReturnCases": "No return cases recorded yet.",
+      "source": "Source",
+      "restockDecision": "Restock decision",
+      "courierFee": "Courier fee",
+      "courierFeeCents": "Courier fee, cents",
+      "claimId": "Claim ID",
+      "claimStatus": "Claim status",
+      "claimAmountCents": "Claim amount, cents",
+      "partialQuantities": "Partial quantities",
+      "actions": {
+        "markUncollected": "Mark uncollected",
+        "markRefused": "Mark refused",
+        "markReturnInTransit": "Mark return in transit",
+        "createReturn": "Create return",
+        "receive": "Receive return",
+        "inspect": "Inspect return",
+        "close": "Close return",
+        "saveAccounting": "Save accounting"
+      },
+      "callback": {
+        "title": "Abandoned card payment callback",
+        "outcome": "Callback outcome",
+        "notePlaceholder": "Who was called and what was confirmed",
+        "record": "Record callback",
+        "convert": "Convert to delivery payment",
+        "outcomes": {
+          "confirmed": "Confirmed",
+          "declined": "Declined",
+          "unreachable": "Unreachable",
+          "needs_follow_up": "Needs follow-up"
+        }
+      },
+      "validation": {
+        "cents": "Enter a non-negative whole number of cents.",
+        "quantities": "Use product-id:quantity pairs separated by commas.",
+        "refundAmount": "Refund amount must be between 1 cent and the remaining refundable amount."
+      },
+      "saved": {
+        "returnCreated": "Return case recorded.",
+        "returnReceived": "Return received.",
+        "returnInspected": "Return inspection saved.",
+        "returnClosed": "Return case closed.",
+        "accountingUpdated": "Return accounting saved.",
+        "refundCreated": "Stripe refund requested.",
+        "callbackRecorded": "Callback outcome recorded.",
+        "convertedToCod": "Order converted to payment on delivery.",
+        "codSettlementRecorded": "COD settlement recorded."
+      },
+      "reasons": {
+        "not_picked_up": "Not picked up",
+        "refused_delivery": "Refused delivery",
+        "customer_return": "Customer return",
+        "wrong_address": "Wrong address",
+        "unreachable_customer": "Unreachable customer",
+        "damaged_by_courier": "Damaged by courier",
+        "lost_by_courier": "Lost by courier",
+        "merchant_error": "Merchant error",
+        "other": "Other"
+      },
+      "status": {
+        "requested": "Requested",
+        "return_in_transit": "Return in transit",
+        "received": "Received",
+        "inspected": "Inspected",
+        "rejected": "Rejected",
+        "closed": "Closed"
+      },
+      "restock": {
+        "pending": "Pending",
+        "restock": "Restock",
+        "do_not_restock": "Do not restock",
+        "partial": "Partial restock"
+      },
+      "claimStatusValue": {
+        "none": "None",
+        "filed": "Filed",
+        "approved": "Approved",
+        "rejected": "Rejected",
+        "paid": "Paid"
+      },
+      "refund": {
+        "title": "Stripe refund",
+        "remaining": "Remaining refundable amount: {amount}",
+        "personalizedWarning": "Check custom or personalized item policy before approving this refund.",
+        "amountCents": "Amount, cents",
+        "reason": "Refund reason",
+        "create": "Create refund"
+      },
+      "cod": {
+        "title": "COD settlement",
+        "current": "Recorded: {amount} on {date}",
+        "required": "Settlement is still pending for this delivered COD order.",
+        "amountCents": "Amount, cents",
+        "date": "Settlement date",
+        "reference": "Courier reference",
+        "record": "Record settlement"
       }
     },
     "csvReference": "CSV Import Format Reference",
@@ -1024,6 +1160,91 @@
     "careInstructionsEnPlaceholder": "e.g., Burn on a heat-resistant surface and trim wick as needed.",
     "careInstructionsBgPlaceholder": "Add Bulgarian care instructions...",
     "econtNav": "Econt",
+    "speedyNav": "Speedy",
+    "speedy": {
+      "title": "Speedy Operations",
+      "subtitle": "Health, shipments, pickup, and audit state for Speedy fulfillment.",
+      "refresh": "Refresh",
+      "refreshing": "Refreshing...",
+      "loadError": "Could not load Speedy operations",
+      "actionError": "Speedy action failed",
+      "yes": "Yes",
+      "no": "No",
+      "health": {
+        "title": "Connection health",
+        "username": "Username",
+        "password": "Password",
+        "configuredClient": "Configured client",
+        "verifiedClient": "Verified client",
+        "circuit": "Circuit",
+        "lastCheck": "Last check",
+        "status": {
+          "healthy": "Healthy",
+          "blocked": "Blocked",
+          "warning": "Warning",
+          "unavailable": "Unavailable"
+        }
+      },
+      "metrics": {
+        "successes": "Successes",
+        "failures": "Failures",
+        "cancellations": "Cancellations",
+        "pickups": "Pickups"
+      },
+      "queues": {
+        "ready": "Ready to ship",
+        "shipped": "Shipped",
+        "emptyReady": "No confirmed Speedy orders waiting for waybills.",
+        "emptyShipped": "No shipped Speedy orders with tracking."
+      },
+      "actions": {
+        "createWaybill": "Create waybill",
+        "print": "Print label",
+        "track": "Refresh tracking",
+        "cancel": "Cancel shipment",
+        "search": "Search",
+        "info": "Info"
+      },
+      "success": {
+        "generic": "Speedy action completed",
+        "createWaybill": "Speedy waybill created",
+        "track": "Speedy tracking refreshed",
+        "cancel": "Speedy shipment cancelled",
+        "search": "Speedy search completed",
+        "info": "Shipment info loaded",
+        "pickupTerms": "Pickup terms loaded",
+        "pickup": "Pickup requested"
+      },
+      "lookup": {
+        "title": "Shipment lookup",
+        "reference": "Order id or reference",
+        "shipmentId": "Shipment id",
+        "matches": "Matches"
+      },
+      "pickup": {
+        "title": "Pickup",
+        "selected": "{count} selected",
+        "selectAll": "Select shipped",
+        "getTerms": "Get terms",
+        "cutoffs": "Cutoffs",
+        "pickupDateTime": "Pickup date/time",
+        "visitEndTime": "Visit end time",
+        "contactName": "Contact name",
+        "phone": "Phone",
+        "request": "Request pickup"
+      },
+      "offices": {
+        "title": "Office data",
+        "status": "Status",
+        "records": "Records",
+        "refreshedAt": "Refreshed",
+        "error": "Error"
+      },
+      "events": {
+        "title": "Recent history",
+        "empty": "No Speedy operation events yet."
+      }
+    },
     "econt": {
       "title": "Econt Settings",
       "subtitle": "Configure Econt fulfillment, sender origin, defaults, and health checks.",
@@ -1108,6 +1329,7 @@
       "working": "Working...",
       "fields": {
         "syncStatus": "Sync status",
+        "courierStatus": "Courier status",
         "shipmentNumber": "Shipment number",
         "lastSync": "Last sync",
         "lastError": "Last error"
@@ -1115,6 +1337,7 @@
       "actions": {
         "validate": "Validate",
         "sync": "Sync order",
+        "createAndShip": "Create label & ship",
         "createLabel": "Create label",
         "refreshTrace": "Refresh trace",
         "markShipped": "Mark shipped",
@@ -1126,6 +1349,7 @@
         "validate": "Readiness refreshed",
         "repair": "Econt repair fields saved",
         "sync": "Econt order synced",
+        "createShip": "Econt label created and order marked shipped",
         "create": "Econt label created",
         "delete": "Econt label deleted",
         "trace": "Econt trace refreshed",

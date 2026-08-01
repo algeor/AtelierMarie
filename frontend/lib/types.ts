@@ -343,10 +343,23 @@ export type OrderStatus =
   | "confirmed"
   | "shipped"
   | "delivered"
+  | "return_in_transit"
+  | "returned"
   | "cancelled";
 
 export type PaymentMethod = "cod" | "card" | "bank_transfer";
-export type PaymentStatus = "pending" | "paid" | "cod_pending" | "failed" | "refunded";
+export type PaymentStatus =
+  | "pending"
+  | "paid"
+  | "cod_pending"
+  | "failed"
+  | "review_required"
+  | "refund_pending"
+  | "partially_refunded"
+  | "refunded"
+  | "dispute_open"
+  | "dispute_won"
+  | "dispute_lost";
 
 export interface OrderItemResponse {
   product_id: string;
@@ -445,6 +458,12 @@ export interface EcontSettingsResponse {
   shipment_description: string;
   declared_value_enabled: boolean;
   default_payment_side: EcontPaymentSide;
+  return_parcel_destination: string;
+  days_until_return: number;
+  return_parcel_payment_side: EcontPaymentSide;
+  reject_action: string;
+  reject_payment_side: EcontPaymentSide;
+  reject_return_payment_side: EcontPaymentSide;
   courier_currency: EcontCurrency;
   currency_conversion_rate: number | null;
   office_locator_enabled: boolean;
@@ -480,6 +499,12 @@ export type EcontSettingsUpdate = Partial<
     | "shipment_description"
     | "declared_value_enabled"
     | "default_payment_side"
+    | "return_parcel_destination"
+    | "days_until_return"
+    | "return_parcel_payment_side"
+    | "reject_action"
+    | "reject_payment_side"
+    | "reject_return_payment_side"
     | "courier_currency"
     | "currency_conversion_rate"
     | "office_locator_enabled"
@@ -519,9 +544,155 @@ export interface EcontFulfillmentActionResponse {
   shipment_number: string | null;
   label_url: string | null;
   tracking_url: string | null;
+  courier_status: string | null;
   status_updated_to?: OrderStatus | null;
   ready?: boolean | null;
   blockers?: string[] | null;
+}
+
+// --- Speedy admin operations ---
+
+export type SpeedyHealthStatus = "healthy" | "blocked" | "warning" | "unavailable";
+
+export interface SpeedyCircuitState {
+  name: string;
+  state: string;
+  failure_count: number;
+  failure_threshold: number;
+  recovery_remaining_seconds?: number | null;
+}
+
+export interface SpeedyHealthResponse {
+  status: SpeedyHealthStatus;
+  ok: boolean;
+  message: string;
+  username_configured: boolean;
+  password_configured: boolean;
+  client_id_configured: boolean;
+  client_id_numeric: boolean;
+  configured_client_id: string | null;
+  verified_client_id: string | null;
+  client_id_matches: boolean | null;
+  blockers: string[];
+  circuit: SpeedyCircuitState;
+  last_failure_category: string | null;
+  last_successful_check_at: string | null;
+  checked_at: string;
+}
+
+export interface SpeedyOrderSummary {
+  order_id: string;
+  order_number: string | null;
+  status: string;
+  customer_email: string;
+  customer_name: string | null;
+  delivery_method: string | null;
+  delivery_label: string | null;
+  total_cents: number;
+  tracking_number: string | null;
+  tracking_url: string | null;
+  courier_status: string | null;
+  courier_sync_status: string | null;
+  courier_last_error: string | null;
+  courier_last_synced_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SpeedyQueuesResponse {
+  ready_to_ship: SpeedyOrderSummary[];
+  shipped: SpeedyOrderSummary[];
+}
+
+export interface SpeedyEventResponse {
+  id: number;
+  order_id: string;
+  action: string;
+  status: string;
+  request: Record<string, unknown> | null;
+  response: Record<string, unknown> | null;
+  error: Record<string, unknown> | null;
+  actor_user_id: string | null;
+  created_at: string;
+}
+
+export interface SpeedyMetricsResponse {
+  recent_successes: number;
+  recent_failures: number;
+  failures_by_category: Record<string, number>;
+  cancellation_count: number;
+  pickup_request_count: number;
+  last_successful_health_check_at: string | null;
+}
+
+export interface SpeedyOfficeRefreshStatusResponse {
+  status: string | null;
+  refreshed_at: string | null;
+  records: number | null;
+  error: string | null;
+}
+
+export interface SpeedyAdminOverviewResponse {
+  health: SpeedyHealthResponse;
+  queues: SpeedyQueuesResponse;
+  events: SpeedyEventResponse[];
+  metrics: SpeedyMetricsResponse;
+  office_refresh: SpeedyOfficeRefreshStatusResponse;
+}
+
+export interface SpeedyActionResponse {
+  order_id: string;
+  action: string;
+  status: string;
+  shipment_number: string | null;
+  tracking_url: string | null;
+  courier_status: string | null;
+  status_updated_to: string | null;
+  details: Record<string, unknown> | null;
+}
+
+export interface SpeedyShipmentSearchRequest {
+  reference: string;
+  include_returns?: boolean;
+  shipments_only?: boolean;
+}
+
+export interface SpeedyShipmentSearchResponse {
+  reference: string;
+  barcodes: string[];
+}
+
+export interface SpeedyShipmentInfoRequest {
+  shipment_ids: string[];
+}
+
+export interface SpeedyShipmentInfoResponse {
+  shipments: Record<string, unknown>[];
+}
+
+export interface SpeedyCancelShipmentRequest {
+  comment?: string | null;
+}
+
+export interface SpeedyPickupTermsRequest {
+  shipment_ids: string[];
+  starting_date_utc_ms?: number | null;
+}
+
+export interface SpeedyPickupTermsResponse {
+  cutoffs: string[];
+}
+
+export interface SpeedyPickupRequest {
+  shipment_ids: string[];
+  pickup_datetime: string;
+  visit_end_time: string;
+  contact_name: string;
+  phone: string;
+}
+
+export interface SpeedyPickupResponse {
+  orders: Record<string, unknown>[];
 }
 
 export interface EcontOrderRepairRequest {
@@ -530,6 +701,13 @@ export interface EcontOrderRepairRequest {
   pack_count?: number | null;
   shipment_description?: string | null;
   payment_side?: EcontPaymentSide | null;
+}
+
+export interface EcontManualStatusRequest {
+  courier_status: string;
+  tracking_number?: string | null;
+  tracking_url?: string | null;
+  notes?: string | null;
 }
 
 // --- Delivery ---
@@ -640,8 +818,151 @@ export interface PaymentEventResponse {
   created_at: string;
 }
 
+export type ReturnSource = "admin" | "speedy" | "econt" | "customer" | "stripe" | "system";
+export type ReturnStatus =
+  | "requested"
+  | "return_in_transit"
+  | "received"
+  | "inspected"
+  | "rejected"
+  | "closed";
+export type ReturnReason =
+  | "not_picked_up"
+  | "refused_delivery"
+  | "customer_return"
+  | "wrong_address"
+  | "unreachable_customer"
+  | "damaged_by_courier"
+  | "lost_by_courier"
+  | "merchant_error"
+  | "other";
+export type ReturnCreateStatus = "requested" | "return_in_transit";
+export type RestockDecision = "restock" | "do_not_restock" | "partial";
+export type ReturnRestockDecision = "pending" | RestockDecision;
+export type CourierClaimStatus = "none" | "filed" | "approved" | "rejected" | "paid";
+export type RefundStatus = "pending" | "succeeded" | "failed" | "cancelled";
+
+export interface ReturnCaseResponse {
+  id: string;
+  order_id: string;
+  reason: ReturnReason;
+  source: ReturnSource;
+  status: ReturnStatus;
+  refund_amount_cents: number | null;
+  courier_return_fee_cents: number;
+  courier_claim_id: string | null;
+  courier_claim_status: CourierClaimStatus;
+  courier_claim_amount_cents: number | null;
+  restock_decision: ReturnRestockDecision;
+  returned_at: string | null;
+  received_at: string | null;
+  inspected_at: string | null;
+  closed_at: string | null;
+  notes: string | null;
+  created_by_admin_id: string | null;
+  updated_by_admin_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReturnEventResponse {
+  id: string;
+  order_return_id: string | null;
+  order_id: string;
+  event_type: string;
+  source: ReturnSource;
+  payload_json: string | null;
+  admin_user_id: string | null;
+  admin_email: string | null;
+  created_at: string;
+}
+
+export interface PaymentRefundResponse {
+  id: string;
+  order_id: string;
+  payment_id: string | null;
+  provider: "stripe" | "manual" | "bank_transfer" | "cod_adjustment";
+  provider_refund_id: string | null;
+  amount_cents: number;
+  status: RefundStatus;
+  reason: string | null;
+  idempotency_key: string | null;
+  failure_reason: string | null;
+  created_by_admin_id: string | null;
+  created_at: string;
+  confirmed_at: string | null;
+}
+
+export interface CodSettlementResponse {
+  id: string;
+  order_id: string;
+  amount_cents: number;
+  settlement_date: string;
+  courier_reference: string | null;
+  notes: string | null;
+  mismatch_review: boolean;
+  created_by_admin_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateReturnCaseRequest {
+  reason: ReturnReason;
+  source?: "admin";
+  status?: ReturnCreateStatus;
+  notes?: string | null;
+  refund_amount_cents?: number | null;
+  courier_return_fee_cents?: number;
+  courier_claim_id?: string | null;
+  courier_claim_status?: CourierClaimStatus;
+  courier_claim_amount_cents?: number | null;
+}
+
+export interface InspectReturnCaseRequest {
+  restock_decision: RestockDecision;
+  restock_quantities?: Record<string, number> | null;
+  notes?: string | null;
+}
+
+export interface UpdateReturnAccountingRequest {
+  courier_return_fee_cents?: number | null;
+  courier_claim_id?: string | null;
+  courier_claim_status?: CourierClaimStatus | null;
+  courier_claim_amount_cents?: number | null;
+  notes?: string | null;
+}
+
+export interface CreateStripeRefundRequest {
+  amount_cents?: number | null;
+  reason?: string | null;
+  idempotency_key: string;
+}
+
+export interface RecordCodSettlementRequest {
+  amount_cents: number;
+  settlement_date: string;
+  courier_reference?: string | null;
+  notes?: string | null;
+}
+
+export interface EcontCodEvidence {
+  collected_amount: number | null;
+  collected_time: string | null;
+  paid_amount: number | null;
+  paid_time: string | null;
+  source_event_id: number;
+  source_action: string;
+  recorded_at: string;
+}
+
 export interface AdminOrderDetailResponse extends OrderResponse {
   payment_events: PaymentEventResponse[];
+  return_cases: ReturnCaseResponse[];
+  return_events: ReturnEventResponse[];
+  refund_records: PaymentRefundResponse[];
+  cod_settlement: CodSettlementResponse | null;
+  cod_settlement_required: boolean;
+  econt_cod_evidence: EcontCodEvidence | null;
 }
 
 export type ManualPaymentAction =
@@ -650,7 +971,11 @@ export type ManualPaymentAction =
   | "mark_refunded"
   | "mark_failed"
   | "mark_review"
+  | "record_callback"
+  | "convert_to_cod"
   | "cancel";
+
+export type CallbackOutcome = "confirmed" | "declined" | "unreachable" | "needs_follow_up";
 
 export interface OfficeResponse {
   id: string;

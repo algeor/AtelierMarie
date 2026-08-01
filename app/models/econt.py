@@ -1,6 +1,6 @@
 """Pydantic models for Econt integration settings and health state."""
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -57,6 +57,12 @@ class EcontSettingsResponse(BaseModel):
     shipment_description: str
     declared_value_enabled: bool
     default_payment_side: EcontPaymentSide
+    return_parcel_destination: str
+    days_until_return: int
+    return_parcel_payment_side: EcontPaymentSide
+    reject_action: str
+    reject_payment_side: EcontPaymentSide
+    reject_return_payment_side: EcontPaymentSide
     courier_currency: EcontCurrency
     currency_conversion_rate: float | None = None
     office_locator_enabled: bool
@@ -94,6 +100,12 @@ class EcontSettingsUpdate(BaseModel):
     shipment_description: str | None = Field(default=None, min_length=1, max_length=255)
     declared_value_enabled: bool | None = None
     default_payment_side: EcontPaymentSide | None = None
+    return_parcel_destination: str | None = Field(default=None, min_length=1, max_length=64)
+    days_until_return: int | None = Field(default=None, ge=0, le=30)
+    return_parcel_payment_side: EcontPaymentSide | None = None
+    reject_action: str | None = Field(default=None, min_length=1, max_length=64)
+    reject_payment_side: EcontPaymentSide | None = None
+    reject_return_payment_side: EcontPaymentSide | None = None
     courier_currency: EcontCurrency | None = None
     currency_conversion_rate: float | None = Field(default=None, gt=0)
     office_locator_enabled: bool | None = None
@@ -119,6 +131,8 @@ class EcontSettingsUpdate(BaseModel):
         "sender_street",
         "sender_num",
         "sender_other",
+        "return_parcel_destination",
+        "reject_action",
         mode="before",
     )
     @classmethod
@@ -173,9 +187,36 @@ class EcontFulfillmentActionResponse(BaseModel):
     shipment_number: str | None = None
     label_url: str | None = None
     tracking_url: str | None = None
+    courier_status: str | None = None
     status_updated_to: str | None = None
     ready: bool | None = None
     blockers: list[str] | None = None
+
+
+class EcontManualStatusRequest(BaseModel):
+    """Admin-entered Econt courier evidence when API trace is unavailable."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    courier_status: Literal[
+        "in_transit",
+        "out_for_delivery",
+        "delivered",
+        "return_in_transit",
+        "returned",
+        "failed",
+    ]
+    tracking_number: str | None = Field(default=None, max_length=120)
+    tracking_url: str | None = Field(default=None, max_length=500)
+    notes: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("tracking_number", "tracking_url", "notes", mode="before")
+    @classmethod
+    def _strip_optional_text(cls, value: str | None) -> str | None:
+        if value is None or not isinstance(value, str):
+            return value
+        stripped = value.strip()
+        return stripped or None
 
 
 class EcontOrderRepairRequest(BaseModel):
@@ -274,9 +315,23 @@ class EcontOrderPayload(_EcontApiModel):
     items: list[EcontOrderItem] = Field(default_factory=list)
     pack_count: int = Field(default=1, ge=1, alias="packCount")
     payment_side: EcontPaymentSide | None = Field(default=None, alias="paymentSide")
+    return_parcel_destination: str | None = Field(default=None, alias="returnParcelDestination")
+    days_until_return: int | None = Field(default=None, ge=0, alias="daysUntilReturn")
+    return_parcel_payment_side: EcontPaymentSide | None = Field(
+        default=None,
+        alias="returnParcelPaymentSide",
+    )
+    execute_if_not_taken: str | None = Field(default=None, alias="executeIfNotTaken")
+    reject_action: str | None = Field(default=None, alias="rejectAction")
+    reject_payment_side: EcontPaymentSide | None = Field(default=None, alias="rejectPaymentSide")
+    reject_return_payment_side: EcontPaymentSide | None = Field(
+        default=None,
+        alias="rejectReturnPaymentSide",
+    )
 
 
 class EcontTraceEvent(_EcontApiModel):
+    type: str | None = None
     time: str | None = None
     status: str | None = None
     location: str | None = None
@@ -287,6 +342,30 @@ class EcontShipmentStatus(_EcontApiModel):
     shipment_number: str | None = Field(default=None, alias="shipmentNumber")
     pdf_url: str | None = Field(default=None, alias="pdfURL")
     tracking_url: str | None = Field(default=None, alias="trackingURL")
+    short_delivery_status_en: str | None = Field(default=None, alias="shortDeliveryStatusEn")
+    return_shipment_url: str | None = Field(default=None, alias="returnShipmentURL")
+    previous_shipment_number: str | None = Field(default=None, alias="previousShipmentNumber")
+    next_shipments: list[Any] | None = Field(default=None, alias="nextShipments")
+    last_processed_instruction: str | None = Field(default=None, alias="lastProcessedInstruction")
+    cd_collected_amount: float | None = Field(default=None, alias="cdCollectedAmount")
+    cd_collected_time: str | None = Field(default=None, alias="cdCollectedTime")
+    cd_paid_amount: float | None = Field(default=None, alias="cdPaidAmount")
+    cd_paid_time: str | None = Field(default=None, alias="cdPaidTime")
     status: str | None = None
     price: float | None = None
     events: list[EcontTraceEvent] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_label_service_status(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        if "events" not in data and "trackingEvents" in data:
+            data["events"] = data["trackingEvents"]
+        if "shipmentNumber" not in data:
+            for key in ("shipmentNum", "shipmentNo", "shipment_number"):
+                if data.get(key):
+                    data["shipmentNumber"] = data[key]
+                    break
+        return data

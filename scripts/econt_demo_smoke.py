@@ -7,6 +7,7 @@ fake shipment number. It never creates or deletes shipments.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -65,7 +66,7 @@ def main() -> int:
     )
 
     try:
-        client.test_connection()
+        asyncio.run(client.test_connection())
     except EcontDeliveryError as exc:
         safe = exc.to_safe_dict()
         print(f"Econt demo smoke failed: {safe['category']} - {safe['message']}")

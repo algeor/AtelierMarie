@@ -40,8 +40,6 @@ type FormState = Required<
     | "courier_currency"
     | "currency_conversion_rate"
     | "office_locator_enabled"
-    | "auto_confirm_on_label"
-    | "auto_delivered_on_trace"
   >
 >;
 
@@ -80,8 +78,6 @@ function toForm(settings: EcontSettingsResponse): FormState {
     courier_currency: settings.courier_currency,
     currency_conversion_rate: settings.currency_conversion_rate,
     office_locator_enabled: settings.office_locator_enabled,
-    auto_confirm_on_label: settings.auto_confirm_on_label,
-    auto_delivered_on_trace: settings.auto_delivered_on_trace,
   };
 }
 
@@ -359,10 +355,8 @@ export default function AdminEcontSettingsPage() {
           <h2 className="mb-4 text-sm font-semibold uppercase text-soft-brown">
             {t("sections.toggles")}
           </h2>
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2">
             <Toggle label={t("fields.officeLocator")} checked={form.office_locator_enabled} onChange={(value) => setField("office_locator_enabled", value)} />
-            <Toggle label={t("fields.autoConfirm")} checked={form.auto_confirm_on_label} onChange={(value) => setField("auto_confirm_on_label", value)} />
-            <Toggle label={t("fields.autoDelivered")} checked={form.auto_delivered_on_trace} onChange={(value) => setField("auto_delivered_on_trace", value)} />
           </div>
         </section>
 

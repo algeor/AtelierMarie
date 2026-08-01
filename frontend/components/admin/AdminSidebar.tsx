@@ -11,6 +11,12 @@ interface NavItem {
   labelKey: string;
   href: string;
   icon: React.ReactNode;
+  children?: Array<{
+    labelKey: string;
+    href: string;
+    activeHrefs?: string[];
+  }>;
+  activeHrefs?: string[];
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -59,17 +65,11 @@ const NAV_ITEMS: NavItem[] = [
         <path strokeLinecap="round" strokeLinejoin="round" d="M3 6.75h11.25v8.25H3V6.75zm11.25 3h3.57c.4 0 .78.19 1.02.51l2.16 2.88v1.86h-6.75V9.75zM5.25 18.75H3.75a.75.75 0 01-.75-.75v-3h18v3a.75.75 0 01-.75.75h-1.5m-10.5 0h7.5" />
       </svg>
     ),
-  },
-  {
-    labelKey: "econtNav",
-    href: "/admin/econt",
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm10.5 0a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 7.5h10.5v8.25H2.25V7.5zm10.5 2.25h3.25c.38 0 .74.18.97.49l2.78 3.76v1.75h-7V9.75zM4.5 18.75H3a.75.75 0 01-.75-.75v-2.25h19.5V18a.75.75 0 01-.75.75h-2.25m-10.5 0h7.5" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 10.5h4.5M5.25 12.75H9" />
-      </svg>
-    ),
+    activeHrefs: ["/admin/econt", "/admin/speedy"],
+    children: [
+      { labelKey: "econtNav", href: "/admin/delivery/econt", activeHrefs: ["/admin/econt"] },
+      { labelKey: "speedyNav", href: "/admin/delivery/speedy", activeHrefs: ["/admin/speedy"] },
+    ],
   },
   {
     labelKey: "paymentSettingsNav",
@@ -126,9 +126,12 @@ export function AdminSidebar() {
   const { user } = useAdmin();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  function isActive(href: string): boolean {
-    if (href === "/admin") return pathname === "/admin";
-    return pathname.startsWith(href);
+  function isActive(href: string, activeHrefs: string[] = []): boolean {
+    const candidates = [href, ...activeHrefs];
+    return candidates.some((candidate) => {
+      if (candidate === "/admin") return pathname === "/admin";
+      return pathname === candidate || pathname.startsWith(`${candidate}/`);
+    });
   }
 
   return (
@@ -186,23 +189,50 @@ export function AdminSidebar() {
 
         {/* Navigation */}
         <nav className="flex-1 space-y-1 px-3 py-4">
-          {NAV_ITEMS.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={() => setMobileOpen(false)}
-              className={cn(
-                "flex items-center gap-3 rounded-brand px-3 py-2.5 text-sm font-medium transition-colors duration-fast",
-                isActive(item.href)
-                  ? "bg-muted-gold/10 text-charcoal"
-                  : "text-soft-brown hover:bg-champagne-beige/50 hover:text-charcoal"
-              )}
-              aria-current={isActive(item.href) ? "page" : undefined}
-            >
-              {item.icon}
-              <span>{t(item.labelKey)}</span>
-            </Link>
-          ))}
+          {NAV_ITEMS.map((item) => {
+            const itemActive = isActive(item.href, item.activeHrefs);
+            return (
+              <div key={item.href}>
+                <Link
+                  href={item.href}
+                  onClick={() => setMobileOpen(false)}
+                  className={cn(
+                    "flex items-center gap-3 rounded-brand px-3 py-2.5 text-sm font-medium transition-colors duration-fast",
+                    itemActive
+                      ? "bg-muted-gold/10 text-charcoal"
+                      : "text-soft-brown hover:bg-champagne-beige/50 hover:text-charcoal"
+                  )}
+                  aria-current={pathname === item.href ? "page" : undefined}
+                >
+                  {item.icon}
+                  <span>{t(item.labelKey)}</span>
+                </Link>
+                {item.children && (
+                  <div className="ml-8 mt-1 space-y-1 border-l border-champagne-beige pl-3">
+                    {item.children.map((child) => {
+                      const childActive = isActive(child.href, child.activeHrefs);
+                      return (
+                        <Link
+                          key={child.href}
+                          href={child.href}
+                          onClick={() => setMobileOpen(false)}
+                          className={cn(
+                            "flex rounded-brand px-3 py-2 text-sm font-medium transition-colors duration-fast",
+                            childActive
+                              ? "bg-muted-gold/10 text-charcoal"
+                              : "text-soft-brown hover:bg-champagne-beige/50 hover:text-charcoal"
+                          )}
+                          aria-current={childActive ? "page" : undefined}
+                        >
+                          {t(child.labelKey)}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
 
         {/* User info */}

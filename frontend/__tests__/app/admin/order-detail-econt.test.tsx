@@ -20,9 +20,17 @@ vi.mock("@/i18n/navigation", () => ({
 vi.mock("@/lib/api", () => ({
   getAdminOrder: vi.fn(),
   applyManualPaymentAction: vi.fn(),
+  createReturnCase: vi.fn(),
+  receiveReturnCase: vi.fn(),
+  inspectReturnCase: vi.fn(),
+  closeReturnCase: vi.fn(),
+  updateReturnAccounting: vi.fn(),
+  createStripeRefund: vi.fn(),
+  recordCodSettlement: vi.fn(),
   getEcontOrderReadiness: vi.fn(),
   repairEcontOrder: vi.fn(),
   syncEcontOrder: vi.fn(),
+  createAndShipEcontOrder: vi.fn(),
   createEcontLabel: vi.fn(),
   deleteEcontLabel: vi.fn(),
   refreshEcontTrace: vi.fn(),
@@ -30,16 +38,20 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import {
+  createAndShipEcontOrder,
   createEcontLabel,
   getAdminOrder,
   getEcontOrderReadiness,
   repairEcontOrder,
+  refreshEcontTrace,
 } from "@/lib/api";
 
 const mockedGetAdminOrder = vi.mocked(getAdminOrder);
 const mockedGetEcontOrderReadiness = vi.mocked(getEcontOrderReadiness);
 const mockedRepairEcontOrder = vi.mocked(repairEcontOrder);
 const mockedCreateEcontLabel = vi.mocked(createEcontLabel);
+const mockedCreateAndShipEcontOrder = vi.mocked(createAndShipEcontOrder);
+const mockedRefreshEcontTrace = vi.mocked(refreshEcontTrace);
 
 const econtOrder: AdminOrderDetailResponse = {
   id: "order-econt-1",
@@ -88,6 +100,12 @@ const econtOrder: AdminOrderDetailResponse = {
   created_at: "2026-07-01T00:00:00Z",
   updated_at: "2026-07-01T00:00:00Z",
   payment_events: [],
+  return_cases: [],
+  return_events: [],
+  refund_records: [],
+  cod_settlement: null,
+  cod_settlement_required: false,
+  econt_cod_evidence: null,
 };
 
 function readiness(overrides: Partial<EcontOrderFulfillmentResponse> = {}): EcontOrderFulfillmentResponse {
@@ -123,6 +141,7 @@ describe("Admin order Econt fulfillment", () => {
     renderWithIntl(<AdminOrderDetailPage />);
 
     expect(await screen.findByText("Recipient office code is missing.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create label & ship" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Create label" })).toBeDisabled();
   });
 
@@ -175,6 +194,7 @@ describe("Admin order Econt fulfillment", () => {
       shipment_number: "1234567890",
       label_url: "https://label.test/123.pdf",
       tracking_url: "https://www.econt.com/services/track-shipment/1234567890",
+      courier_status: null,
     });
     const user = userEvent.setup();
 
@@ -184,5 +204,108 @@ describe("Admin order Econt fulfillment", () => {
 
     await waitFor(() => expect(mockedCreateEcontLabel).toHaveBeenCalledWith("order-econt-1"));
     expect(await screen.findByText("Econt label created")).toBeInTheDocument();
+  });
+
+  it("creates an Econt label and marks the order shipped", async () => {
+    mockedCreateAndShipEcontOrder.mockResolvedValue({
+      order_id: "order-econt-1",
+      action: "create_label_and_ship",
+      status: "shipped",
+      courier_order_id: "remote-1",
+      shipment_number: "1234567890",
+      label_url: "https://label.test/123.pdf",
+      tracking_url: "https://www.econt.com/services/track-shipment/1234567890",
+      courier_status: null,
+      status_updated_to: "shipped",
+    });
+    const user = userEvent.setup();
+
+    renderWithIntl(<AdminOrderDetailPage />);
+
+    await user.click(await screen.findByRole("button", { name: "Create label & ship" }));
+
+    await waitFor(() =>
+      expect(mockedCreateAndShipEcontOrder).toHaveBeenCalledWith("order-econt-1"),
+    );
+    expect(
+      await screen.findByText("Econt label created and order marked shipped"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows Econt COD evidence separately from settlement records", async () => {
+    mockedGetAdminOrder.mockResolvedValue({
+      ...econtOrder,
+      econt_cod_evidence: {
+        collected_amount: 25,
+        collected_time: "2026-08-01T10:00:00Z",
+        paid_amount: 24,
+        paid_time: "2026-08-02T10:00:00Z",
+        source_event_id: 12,
+        source_action: "refresh_trace",
+        recorded_at: "2026-08-02T10:05:00Z",
+      },
+    });
+
+    renderWithIntl(<AdminOrderDetailPage />);
+
+    expect(await screen.findByText("Econt COD evidence")).toBeInTheDocument();
+    expect(screen.getByText("25.00")).toBeInTheDocument();
+    expect(screen.getByText("24.00")).toBeInTheDocument();
+    expect(
+      screen.getByText(/does not replace the explicit settlement record/i),
+    ).toBeInTheDocument();
+  });
+
+  it("shows normalized Econt return status evidence", async () => {
+    mockedGetAdminOrder.mockResolvedValue({
+      ...econtOrder,
+      status: "shipped",
+      courier_provider: "econt",
+      courier_status: "returned",
+      courier_sync_status: "trace_synced",
+      courier_shipment_number: "1234567890",
+      tracking_number: "1234567890",
+      tracking_carrier: "econt",
+    });
+    mockedGetEcontOrderReadiness.mockResolvedValue(
+      readiness({ courier_shipment_number: "1234567890", courier_sync_status: "trace_synced" }),
+    );
+
+    renderWithIntl(<AdminOrderDetailPage />);
+
+    expect(await screen.findByText("Courier status")).toBeInTheDocument();
+    expect(screen.getByText("returned")).toBeInTheDocument();
+  });
+
+  it("refreshes Econt trace from the fulfillment panel", async () => {
+    mockedGetAdminOrder.mockResolvedValue({
+      ...econtOrder,
+      courier_provider: "econt",
+      courier_shipment_number: "1234567890",
+      tracking_number: "1234567890",
+      tracking_carrier: "econt",
+      tracking_url: "https://www.econt.com/services/track-shipment/1234567890",
+    });
+    mockedGetEcontOrderReadiness.mockResolvedValue(
+      readiness({ courier_shipment_number: "1234567890" }),
+    );
+    mockedRefreshEcontTrace.mockResolvedValue({
+      order_id: "order-econt-1",
+      action: "refresh_trace",
+      status: "trace_synced",
+      courier_order_id: "remote-1",
+      shipment_number: "1234567890",
+      label_url: null,
+      tracking_url: "https://www.econt.com/services/track-shipment/1234567890",
+      courier_status: "returned",
+    });
+    const user = userEvent.setup();
+
+    renderWithIntl(<AdminOrderDetailPage />);
+
+    await user.click(await screen.findByRole("button", { name: "Refresh trace" }));
+
+    await waitFor(() => expect(mockedRefreshEcontTrace).toHaveBeenCalledWith("order-econt-1"));
+    expect(await screen.findByText("Econt trace refreshed")).toBeInTheDocument();
   });
 });

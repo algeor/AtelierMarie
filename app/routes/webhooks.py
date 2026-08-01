@@ -16,8 +16,10 @@ from app.services.payment_service import (
     StripeWebhookVerificationError,
     _now_str,
     construct_stripe_webhook_event,
+    handle_dispute_event,
     handle_charge_refunded,
     handle_payment_failed,
+    handle_refund_updated,
     handle_payment_succeeded,
     handle_session_expired,
 )
@@ -184,6 +186,40 @@ async def stripe_webhook(request: Request) -> JSONResponse:
                 _stripe_str(event_obj, "payment_intent"),
                 now,
                 amount_refunded=_stripe_int(event_obj, "amount_refunded"),
+                event_created=event_created,
+                livemode=livemode,
+            )
+        elif event_type in {"refund.updated", "charge.refund.updated"}:
+            handle_refund_updated(
+                conn,
+                event_id,
+                event_type,
+                _stripe_str(event_obj, "id"),
+                _stripe_str(event_obj, "payment_intent"),
+                now,
+                amount_cents=_stripe_int(event_obj, "amount"),
+                status=_stripe_str(event_obj, "status"),
+                failure_reason=_stripe_str(event_obj, "failure_reason"),
+                event_created=event_created,
+                livemode=livemode,
+            )
+        elif event_type in {
+            "charge.dispute.created",
+            "charge.dispute.updated",
+            "charge.dispute.closed",
+        }:
+            evidence_details = _stripe_value(event_obj, "evidence_details")
+            handle_dispute_event(
+                conn,
+                event_id,
+                event_type,
+                _stripe_metadata_str(event_obj, "order_id"),
+                _stripe_str(event_obj, "payment_intent"),
+                _stripe_str(event_obj, "id"),
+                _stripe_str(event_obj, "status"),
+                now,
+                amount_cents=_stripe_int(event_obj, "amount"),
+                evidence_due_by=_stripe_int(evidence_details, "due_by"),
                 event_created=event_created,
                 livemode=livemode,
             )

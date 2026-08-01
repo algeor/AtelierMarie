@@ -14,6 +14,9 @@ The current order lifecycle stops at shipped, delivered, or cancelled, but real 
 - Add courier signal handling so Speedy/Econt returned or failed statuses create admin review signals but do not automatically mutate order/payment/stock state.
 - Add scheduled courier status polling so the app does not depend on courier push notifications/webhooks.
 - Add Econt-specific handling for official trace/status data, return/reject instructions, unclaimed-parcel signals, COD collection/paid evidence, and native office codes.
+- Keep admin UI changes additive and localized where possible because `speedy-admin-parity` is being implemented in parallel.
+- Update public Terms/Returns policy copy for uncollected or refused parcels, card and payment-on-delivery refund timing, return shipping, inspection/restock timing, and courier damaged/lost cases.
+- Add a small FAQ update that points customers to the Terms/Returns policy for uncollected or refused parcels and refund next steps.
 - Explicitly exclude exchange workflows for now; returns and new purchases remain separate processes.
 
 ## Capabilities
@@ -31,13 +34,17 @@ The current order lifecycle stops at shipped, delivered, or cancelled, but real 
 - `checkout-flow`: Change abandoned card payment behavior so unpaid card orders require admin review/callback before any shipment and can be converted to payment on delivery only after customer confirmation.
 - `courier-offices-data`: Preserve Econt native office codes in office data and checkout/order delivery snapshots so Econt fulfillment and return handling can address the correct office.
 - `speedy-integration`: Treat returned/failed tracking statuses as admin review signals while preserving the rule that tracking remains read-only and does not drive order/payment/stock state automatically.
+- `terms-policy-page`: Keep public returns/refunds policy content aligned with the new uncollected order, refund, courier damage/loss, and inspection rules.
+- `faq-page`: Add a brief localized customer FAQ entry for uncollected/refused parcels that links to the detailed Terms/Returns policy.
 
 ## Impact
 
 - Backend models and database schema for orders, payments, return cases, refund records, audit events, courier claim fields, and COD settlement fields.
 - Async background polling service/loop for active courier shipments, with no thread offloading in the courier poller.
 - Admin order APIs and frontend views for return/refund/callback/claim/settlement actions.
+- Admin order/detail integration should avoid broad admin navigation/sidebar refactors and reconcile shared Speedy admin surfaces with the parallel `speedy-admin-parity` change.
 - Stripe integration for refund creation, refund webhooks, idempotency, and double-refund protection.
 - Speedy tracking handling plus Econt trace/status handling from Econt Delivery `OrdersService.getTrace` and/or EE `LabelService` shipment status responses.
 - Stock adjustment logic for cancellation versus physical return inspection.
 - Reports/exports used for accounting reconciliation of Stripe refunds, COD settlements, courier fees, return reasons, and inventory adjustments.
+- Customer-facing Terms and FAQ content so public policy matches admin operations without promising automatic refunds or restocks.

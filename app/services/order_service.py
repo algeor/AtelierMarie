@@ -35,6 +35,7 @@ _ORDER_NUMBER_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 # Runtime whitelist for the shipping price-source provenance column, derived from
 # the Literal so it can never drift from the type (same pattern as OrderStatus).
 _VALID_PRICE_SOURCES: frozenset[str] = frozenset(get_args(ShippingPriceSource))
+_DEFAULT_SHIPMENT_WEIGHT_GRAMS = 300
 
 
 def _generate_order_number(conn: sqlite3.Connection) -> str:
@@ -61,14 +62,28 @@ def _generate_payment_return_token(conn: sqlite3.Connection) -> str:
     msg = "Could not generate a unique payment return token"
     raise OrderServiceError(msg)
 
+
 # Valid state transitions for orders
 VALID_TRANSITIONS: dict[str, set[str]] = {
     "pending": {"confirmed", "cancelled"},
     "confirmed": {"shipped", "cancelled"},
-    "shipped": {"delivered"},
-    "delivered": set(),
+    "shipped": {"delivered", "return_in_transit"},
+    "delivered": {"return_in_transit"},
+    "return_in_transit": {"returned"},
+    "returned": set(),
     "cancelled": set(),
 }
+
+ADMIN_REVIEW_FILTERS = frozenset(
+    {
+        "abandoned_payment",
+        "uncollected_refused",
+        "refund_pending",
+        "inspection_pending",
+        "courier_claim_follow_up",
+        "cod_settlement_pending",
+    }
+)
 
 Locale = Literal["en", "bg"]
 
@@ -292,6 +307,16 @@ class InvalidStateTransitionError(OrderServiceError):
         )
 
 
+class PaymentReviewRequiredError(OrderServiceError):
+    """Raised when fulfillment is blocked by an unresolved payment review."""
+
+    def __init__(self, order_id: str) -> None:
+        self.order_id = order_id
+        super().__init__(
+            "Order requires admin payment review and customer confirmation before shipping"
+        )
+
+
 class OrderNotFoundError(OrderServiceError):
     """Raised when an order cannot be found (or access denied)."""
 
@@ -314,16 +339,24 @@ class TrackingRequiredError(OrderServiceError):
         super().__init__(f"Tracking information required when shipping: {', '.join(missing)}")
 
 
-def _create_speedy_waybill(row: sqlite3.Row) -> tuple[str, str | None]:
-    """Create a Speedy waybill from an order row; return (tracking_number, label_url).
+def _order_weight_grams(conn: sqlite3.Connection, order_id: str) -> int:
+    row = conn.execute(
+        """
+        SELECT COALESCE(
+            SUM(COALESCE(NULLIF(p.weight_grams, 0), ?) * oi.quantity), ?
+        ) AS weight_grams
+        FROM order_items oi
+        LEFT JOIN products p ON p.id = oi.product_id
+        WHERE oi.order_id = ?
+        """,
+        (_DEFAULT_SHIPMENT_WEIGHT_GRAMS, _DEFAULT_SHIPMENT_WEIGHT_GRAMS, order_id),
+    ).fetchone()
+    return max(1, int(row["weight_grams"] if row else _DEFAULT_SHIPMENT_WEIGHT_GRAMS))
 
-    Raises speedy_client.ShipmentCreationError on failure (surfaced to admin as a
-    502 by the route). Called inside the ship transaction BEFORE the UPDATE, so a
-    failure aborts the transaction (design Decision 3). Imported lazily to keep
-    Layer-1 order state free of a hard courier-module dependency at import time.
-    """
+
+def _speedy_waybill_kwargs(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
+    """Build Speedy shipment kwargs from an order row."""
     from app.config import get_settings
-    from app.services import speedy_client
 
     settings = get_settings()
     details_raw = row["delivery_details"] if "delivery_details" in row.keys() else None
@@ -341,35 +374,41 @@ def _create_speedy_waybill(row: sqlite3.Row) -> tuple[str, str | None]:
     payment_method = row["payment_method"] if "payment_method" in row.keys() else "cod"
     payment_status = row["payment_status"] if "payment_status" in row.keys() else ""
     cod_cents = row["total_cents"] if payment_method == "cod" and payment_status != "paid" else None
+    weight_grams = _order_weight_grams(conn, row["id"])
+
+    kwargs = {
+        "client_id": settings.speedy_client_id,
+        "recipient_name": recipient_name,
+        "recipient_phone": phone,
+        "weight_grams": weight_grams,
+        "username": settings.speedy_api_username,
+        "password": settings.speedy_api_password.get_secret_value(),
+        "order_ref": row["id"],
+        "recipient_city": details.get("city"),
+        "cod_amount_cents": cod_cents,
+    }
 
     if method == "office":
-        tracking = speedy_client.create_shipment_sync(
-            client_id=settings.speedy_client_id,
-            recipient_name=recipient_name,
-            recipient_phone=phone,
-            weight_grams=0,
-            username=settings.speedy_api_username,
-            password=settings.speedy_api_password.get_secret_value(),
-            order_ref=row["id"],
-            recipient_office_id=details.get("office_id"),
-            recipient_city=details.get("city"),
-            cod_amount_cents=cod_cents,
-        )
-    else:
-        tracking = speedy_client.create_shipment_sync(
-            client_id=settings.speedy_client_id,
-            recipient_name=recipient_name,
-            recipient_phone=phone,
-            weight_grams=0,
-            username=settings.speedy_api_username,
-            password=settings.speedy_api_password.get_secret_value(),
-            order_ref=row["id"],
-            recipient_city=details.get("city"),
-            recipient_postcode=details.get("postal_code"),
-            recipient_street=details.get("street"),
-            recipient_building=details.get("building"),
-            cod_amount_cents=cod_cents,
-        )
+        kwargs["recipient_office_id"] = details.get("office_id")
+        return kwargs
+
+    kwargs.update(
+        {
+            "recipient_postcode": details.get("postal_code"),
+            "recipient_street": details.get("street"),
+            "recipient_building": details.get("building"),
+        }
+    )
+    return kwargs
+
+
+async def _create_speedy_waybill(
+    conn: sqlite3.Connection, row: sqlite3.Row
+) -> tuple[str, str | None]:
+    """Create a Speedy waybill from an order row."""
+    from app.services import speedy_client
+
+    tracking = await speedy_client.create_shipment(**_speedy_waybill_kwargs(conn, row))
     return tracking, None
 
 
@@ -501,7 +540,7 @@ def checkout(
         delivery_details["office_name"] = catalogue_office["name"]
         delivery_details["office_type"] = catalogue_office["type"]
         if delivery_sub.courier == "econt":
-            office_code = delivery_sub.office_code or catalogue_office.get("code")
+            office_code = catalogue_office.get("code")
             if not office_code:
                 raise InvalidDeliveryOfficeError(
                     delivery_sub.office_id,
@@ -573,9 +612,7 @@ def checkout(
         now_dt = datetime.now(UTC)
         now = now_dt.strftime(_DT_FMT)
         reserved_until = (
-            (now_dt + timedelta(minutes=15)).strftime(_DT_FMT)
-            if payment_method == "card"
-            else None
+            (now_dt + timedelta(minutes=15)).strftime(_DT_FMT) if payment_method == "card" else None
         )
         internal_sequence = conn.execute(
             "SELECT COALESCE(MAX(internal_sequence), 0) + 1 FROM orders"
@@ -1028,6 +1065,7 @@ def list_orders_admin(
     status: OrderStatus | None = None,
     payment_status: str | None = None,
     payment_method: str | None = None,
+    review_filter: str | None = None,
     page: int = 1,
     limit: int = 20,
 ) -> OrderListData:
@@ -1055,6 +1093,74 @@ def list_orders_admin(
     if payment_method is not None:
         conditions.append("payment_method = ?")
         params.append(payment_method)
+    if review_filter == "abandoned_payment":
+        conditions.append("payment_method = 'card'")
+        conditions.append("payment_status = 'review_required'")
+        conditions.append(
+            "status NOT IN ('cancelled', 'shipped', 'delivered', 'return_in_transit', 'returned')"
+        )
+    elif review_filter == "uncollected_refused":
+        conditions.append(
+            """
+            EXISTS (
+                SELECT 1
+                FROM order_returns review_return
+                WHERE review_return.order_id = orders.id
+                  AND review_return.reason IN ('not_picked_up', 'refused_delivery')
+                  AND review_return.status NOT IN ('closed', 'rejected')
+            )
+            """
+        )
+    elif review_filter == "refund_pending":
+        conditions.append(
+            """
+            (
+                payment_status = 'refund_pending'
+                OR EXISTS (
+                    SELECT 1
+                    FROM payment_refunds review_refund
+                    WHERE review_refund.order_id = orders.id
+                      AND review_refund.status = 'pending'
+                )
+            )
+            """
+        )
+    elif review_filter == "inspection_pending":
+        conditions.append("status = 'returned'")
+        conditions.append(
+            """
+            EXISTS (
+                SELECT 1
+                FROM order_returns review_return
+                WHERE review_return.order_id = orders.id
+                  AND review_return.restock_decision = 'pending'
+                  AND review_return.status NOT IN ('closed', 'rejected')
+            )
+            """
+        )
+    elif review_filter == "courier_claim_follow_up":
+        conditions.append(
+            """
+            EXISTS (
+                SELECT 1
+                FROM order_returns review_return
+                WHERE review_return.order_id = orders.id
+                  AND (
+                    review_return.courier_claim_status IN ('filed', 'approved')
+                    OR (
+                        review_return.courier_claim_id IS NOT NULL
+                        AND review_return.courier_claim_status NOT IN ('rejected', 'paid')
+                    )
+                  )
+            )
+            """
+        )
+    elif review_filter == "cod_settlement_pending":
+        conditions.append("payment_method = 'cod'")
+        conditions.append("status = 'delivered'")
+        conditions.append(
+            "NOT EXISTS (SELECT 1 FROM cod_settlements cs WHERE cs.order_id = orders.id)"
+        )
 
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
@@ -1090,6 +1196,52 @@ def list_payment_events(conn: sqlite3.Connection, order_id: str) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+async def update_status_async(
+    conn: sqlite3.Connection,
+    order_id: str,
+    new_status: OrderStatus,
+    tracking_number: str | None = None,
+    tracking_carrier: str | None = None,
+    tracking_url: str | None = None,
+) -> OrderData:
+    """Async status update path for transitions that may call courier APIs.
+
+    Speedy waybill creation is network I/O, so the admin route awaits it here
+    before calling the synchronous local state transition. The local update still
+    re-validates the state transition after the external call.
+    """
+    if new_status == "shipped" and not tracking_number:
+        row = conn.execute(
+            "SELECT id, status, payment_method, delivery_method, delivery_courier,"
+            " delivery_details, customer_name, total_cents, shipping_cents, payment_status"
+            ", tracking_number, tracking_carrier, tracking_url, courier_shipment_number"
+            " FROM orders WHERE id = ?",
+            (order_id,),
+        ).fetchone()
+        if not row:
+            raise OrderNotFoundError(order_id)
+
+        current_status = row["status"]
+        if new_status not in VALID_TRANSITIONS.get(current_status, set()):
+            raise InvalidStateTransitionError(order_id, current_status, new_status)
+        if row["payment_status"] == "review_required":
+            raise PaymentReviewRequiredError(order_id)
+
+        delivery_courier = row["delivery_courier"] if "delivery_courier" in row.keys() else None
+        if delivery_courier == "speedy":
+            tracking_number, _label_url = await _create_speedy_waybill(conn, row)
+            tracking_carrier = tracking_carrier or "speedy"
+
+    return update_status(
+        conn=conn,
+        order_id=order_id,
+        new_status=new_status,
+        tracking_number=tracking_number,
+        tracking_carrier=tracking_carrier,
+        tracking_url=tracking_url,
+    )
+
+
 def update_status(
     conn: sqlite3.Connection,
     order_id: str,
@@ -1105,14 +1257,9 @@ def update_status(
     is auto-generated from a known carrier when not supplied, and persisted
     alongside the status. Restores stock on cancellation (from pending/confirmed).
 
-    Speedy waybill automation (speedy-integration Decision 3): on the
-    confirmed→shipped transition, when the order's courier is Speedy AND no
-    tracking number was supplied, a waybill is created via the Speedy API and its
-    returned id becomes the tracking number. Creation runs BEFORE the UPDATE, so a
-    failure raises ShipmentCreationError and the transaction never commits — the
-    order stays `confirmed`, never `shipped` without a waybill. A manually supplied
-    tracking number skips the courier call (idempotent re-ship, and manual/offline
-    fallback both preserved).
+    Speedy waybill creation is intentionally not performed here because this
+    function is synchronous. Async callers should use update_status_async(),
+    which creates the waybill before calling this local state transition.
     """
     row = conn.execute(
         "SELECT id, status, payment_method, delivery_method, delivery_courier,"
@@ -1127,23 +1274,20 @@ def update_status(
 
     current_status = row["status"]
     payment_method = row["payment_method"] if "payment_method" in row.keys() else "cod"
+    payment_status = row["payment_status"] if "payment_status" in row.keys() else "cod_pending"
 
     # Validate transition
     if new_status not in VALID_TRANSITIONS.get(current_status, set()):
         raise InvalidStateTransitionError(order_id, current_status, new_status)
 
+    if new_status == "shipped" and payment_status == "review_required":
+        raise PaymentReviewRequiredError(order_id)
+
     label_url: str | None = None
 
     if new_status == "shipped":
-        # Speedy waybill automation: create the waybill and birth the tracking
-        # number ourselves when this is a Speedy order with no number supplied.
-        # Runs before the tracking-required guard so a Speedy ship needs no manual
-        # number, but a non-Speedy / manual ship still must supply one.
         delivery_courier = row["delivery_courier"] if "delivery_courier" in row.keys() else None
-        if not tracking_number and delivery_courier == "speedy":
-            tracking_number, label_url = _create_speedy_waybill(row)
-            tracking_carrier = tracking_carrier or "speedy"
-        elif not tracking_number and delivery_courier == "econt":
+        if not tracking_number and delivery_courier == "econt":
             existing_tracking = row["tracking_number"] or row["courier_shipment_number"]
             if existing_tracking:
                 tracking_number = existing_tracking
@@ -1163,14 +1307,45 @@ def update_status(
         if not tracking_url:
             tracking_url = tracking_url_for(tracking_carrier, tracking_number)
 
+        courier_provider = tracking_carrier if tracking_carrier in {"speedy", "econt"} else None
+        synced_at = datetime.now(UTC).strftime(_DT_FMT)
+
         conn.execute(
             """
             UPDATE orders
             SET status = ?, tracking_number = ?, tracking_carrier = ?, tracking_url = ?,
-                label_url = COALESCE(?, label_url)
+                label_url = COALESCE(?, label_url),
+                courier_provider = COALESCE(?, courier_provider),
+                courier_shipment_number = CASE
+                    WHEN ? IS NOT NULL THEN ? ELSE courier_shipment_number END,
+                courier_sync_status = CASE
+                    WHEN ? = 'speedy' THEN 'waybill_created' ELSE courier_sync_status END,
+                courier_last_error = CASE
+                    WHEN ? = 'speedy' THEN NULL ELSE courier_last_error END,
+                courier_last_synced_at = CASE
+                    WHEN ? = 'speedy' THEN ? ELSE courier_last_synced_at END,
+                courier_label_created_at = CASE
+                    WHEN ? = 'speedy' THEN COALESCE(courier_label_created_at, ?)
+                    ELSE courier_label_created_at END
             WHERE id = ?
             """,
-            (new_status, tracking_number, tracking_carrier, tracking_url, label_url, order_id),
+            (
+                new_status,
+                tracking_number,
+                tracking_carrier,
+                tracking_url,
+                label_url,
+                courier_provider,
+                courier_provider,
+                tracking_number,
+                tracking_carrier,
+                tracking_carrier,
+                tracking_carrier,
+                synced_at,
+                tracking_carrier,
+                synced_at,
+                order_id,
+            ),
         )
     else:
         conn.execute(
@@ -1273,6 +1448,7 @@ def apply_manual_payment_action(
     action: str,
     note: str,
     *,
+    callback_outcome: str | None = None,
     admin_id: str | None = None,
     admin_email: str | None = None,
     request_id: str | None = None,
@@ -1284,7 +1460,8 @@ def apply_manual_payment_action(
 
     row = conn.execute(
         """
-        SELECT id, status, payment_method, payment_status, total_cents, customer_email
+        SELECT id, status, payment_method, payment_status, total_cents, customer_email,
+               stripe_checkout_session_id, stripe_payment_intent_id
         FROM orders
         WHERE id = ?
         """,
@@ -1299,7 +1476,9 @@ def apply_manual_payment_action(
     provider = _payment_provider_for_method(payment_method)
     now = datetime.now(UTC).strftime(_DT_FMT)
     new_payment_status = old_payment_status
+    new_payment_method = payment_method
     event_type = f"manual_{action}"
+    event_details_extra: dict[str, object] = {}
     queue_placed_email = False
 
     if action == "mark_paid":
@@ -1351,7 +1530,7 @@ def apply_manual_payment_action(
             )
         new_payment_status = "refunded"
         conn.execute("UPDATE orders SET payment_status = 'refunded' WHERE id = ?", (order_id,))
-    elif action in {"mark_failed", "mark_review"}:
+    elif action == "mark_failed":
         if old_payment_status in {"paid", "refunded"}:
             raise ManualPaymentActionError(
                 "INVALID_PAYMENT_STATE",
@@ -1360,6 +1539,109 @@ def apply_manual_payment_action(
             )
         new_payment_status = "failed"
         conn.execute("UPDATE orders SET payment_status = 'failed' WHERE id = ?", (order_id,))
+    elif action == "mark_review":
+        if old_payment_status in {"paid", "refunded"}:
+            raise ManualPaymentActionError(
+                "INVALID_PAYMENT_STATE",
+                f"Cannot move payment from {old_payment_status} to review_required",
+                409,
+            )
+        new_payment_status = "review_required"
+        conn.execute(
+            "UPDATE orders SET payment_status = 'review_required' WHERE id = ?",
+            (order_id,),
+        )
+    elif action == "record_callback":
+        if payment_method != "card":
+            raise ManualPaymentActionError(
+                "WRONG_PAYMENT_METHOD",
+                "Only abandoned card payments can have callback outcomes recorded",
+                422,
+            )
+        if old_payment_status != "review_required":
+            raise ManualPaymentActionError(
+                "INVALID_PAYMENT_STATE",
+                "Only payments in review_required can have callback outcomes recorded",
+                409,
+            )
+        if callback_outcome not in {"confirmed", "declined", "unreachable", "needs_follow_up"}:
+            raise ManualPaymentActionError(
+                "CALLBACK_OUTCOME_REQUIRED",
+                "A valid callback_outcome is required",
+                422,
+            )
+        new_payment_status = "review_required"
+        event_details_extra["callback_outcome"] = callback_outcome
+        conn.execute("UPDATE orders SET updated_at = ? WHERE id = ?", (now, order_id))
+    elif action == "convert_to_cod":
+        if payment_method != "card":
+            raise ManualPaymentActionError(
+                "WRONG_PAYMENT_METHOD",
+                "Only abandoned card payments can be converted to payment on delivery",
+                422,
+            )
+        if old_payment_status != "review_required":
+            raise ManualPaymentActionError(
+                "INVALID_PAYMENT_STATE",
+                "Only payments in review_required can be converted to payment on delivery",
+                409,
+            )
+        if old_order_status not in {"pending", "confirmed"}:
+            raise ManualPaymentActionError(
+                "INVALID_ORDER_STATE",
+                "Only unshipped abandoned card orders can be converted to payment on delivery",
+                409,
+            )
+        if callback_outcome not in (None, "confirmed"):
+            raise ManualPaymentActionError(
+                "CUSTOMER_CONFIRMATION_REQUIRED",
+                "Conversion to payment on delivery requires customer confirmation",
+                422,
+            )
+        original_card_payment = conn.execute(
+            """
+            SELECT id, stripe_checkout_session_id, stripe_payment_intent_id, provider_status
+            FROM payments
+            WHERE order_id = ? AND provider = 'stripe'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (order_id,),
+        ).fetchone()
+        new_payment_method = "cod"
+        provider = "cod"
+        new_payment_status = "cod_pending"
+        event_details_extra.update(
+            {
+                "callback_outcome": "confirmed",
+                "converted_to_payment_method": "cod",
+                "original_card_payment_id": (
+                    original_card_payment["id"] if original_card_payment else None
+                ),
+                "original_card_provider_status": (
+                    original_card_payment["provider_status"] if original_card_payment else None
+                ),
+                "original_stripe_checkout_session_id": (
+                    original_card_payment["stripe_checkout_session_id"]
+                    if original_card_payment
+                    else row["stripe_checkout_session_id"]
+                ),
+                "original_stripe_payment_intent_id": (
+                    original_card_payment["stripe_payment_intent_id"]
+                    if original_card_payment
+                    else row["stripe_payment_intent_id"]
+                ),
+            }
+        )
+        conn.execute(
+            """
+            UPDATE orders
+            SET payment_method = 'cod', payment_status = 'cod_pending',
+                reserved_until = NULL, updated_at = ?
+            WHERE id = ?
+            """,
+            (now, order_id),
+        )
     elif action == "cancel":
         if old_order_status == "cancelled":
             raise ManualPaymentActionError("ALREADY_CANCELLED", "Order is already cancelled", 409)
@@ -1398,9 +1680,12 @@ def apply_manual_payment_action(
             "action": action,
             "old_order_status": old_order_status,
             "new_order_status": "cancelled" if action == "cancel" else old_order_status,
+            "old_payment_method": payment_method,
+            "new_payment_method": new_payment_method,
             "old_payment_status": old_payment_status,
             "new_payment_status": new_payment_status,
             "current_vocabulary": True,
+            **event_details_extra,
         },
         admin_id=admin_id,
         admin_email=admin_email,

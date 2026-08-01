@@ -103,7 +103,7 @@ class EcontDeliveryClient:
         shop_id: str,
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
         breaker: CircuitBreaker | None = None,
-        client_factory: Callable[..., httpx.Client] = httpx.Client,
+        client_factory: Callable[..., httpx.AsyncClient] = httpx.AsyncClient,
     ) -> None:
         if not base_url:
             raise EcontConfigError("Econt base URL is missing")
@@ -118,34 +118,34 @@ class EcontDeliveryClient:
         self.breaker = breaker or _ECONT_BREAKER
         self.client_factory = client_factory
 
-    def update_order(self, order: EcontOrderPayload) -> dict[str, Any]:
-        return self._post(
+    async def update_order(self, order: EcontOrderPayload) -> dict[str, Any]:
+        return await self._post(
             "OrdersService.updateOrder.json",
             {"order": order.model_dump(by_alias=True, exclude_none=True)},
         )
 
-    def create_awb(self, order: EcontOrderPayload) -> EcontShipmentStatus:
-        body = self._post(
+    async def create_awb(self, order: EcontOrderPayload) -> EcontShipmentStatus:
+        body = await self._post(
             "OrdersService.createAWB.json",
             {"order": order.model_dump(by_alias=True, exclude_none=True)},
         )
         return _shipment_status_from_body(body)
 
-    def get_trace(self, shipment_number: str) -> EcontShipmentStatus:
+    async def get_trace(self, shipment_number: str) -> EcontShipmentStatus:
         if not shipment_number:
             raise EcontValidationError("shipment_number is required")
-        body = self._post(
+        body = await self._post(
             "OrdersService.getTrace.json",
             {"shipmentNumber": shipment_number},
         )
         return _shipment_status_from_body(body)
 
-    def delete_label(self, shipment_number: str) -> dict[str, Any]:
+    async def delete_label(self, shipment_number: str) -> dict[str, Any]:
         if not shipment_number:
             raise EcontValidationError("shipment_number is required")
-        return self._post("OrdersService.deleteLabel.json", {"shipmentNumber": shipment_number})
+        return await self._post("OrdersService.deleteLabel.json", {"shipmentNumber": shipment_number})
 
-    def test_connection(self) -> bool:
+    async def test_connection(self) -> bool:
         """Safe credential smoke test that does not create a shipment.
 
         A validation error for the deliberately fake shipment number still proves
@@ -153,12 +153,12 @@ class EcontDeliveryClient:
         reach Econt's business validation layer.
         """
         try:
-            self.get_trace("__atelier_marie_connection_test__")
+            await self.get_trace("__atelier_marie_connection_test__")
         except EcontValidationError:
             return True
         return True
 
-    def _post(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
+    async def _post(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
         if not self.breaker.allow_request():
             raise EcontCircuitOpenError(
                 "Econt Delivery circuit breaker is open",
@@ -174,8 +174,8 @@ class EcontDeliveryClient:
         url = self.base_url + endpoint
 
         try:
-            with self.client_factory(timeout=self.timeout) as client:
-                response = client.post(url, json=request_payload, headers=headers)
+            async with self.client_factory(timeout=self.timeout) as client:
+                response = await client.post(url, json=request_payload, headers=headers)
         except httpx.TimeoutException as exc:
             self.breaker.record_failure()
             raise EcontTransientError(
@@ -256,7 +256,20 @@ def _connection_code(private_key: str, shop_id: str) -> str:
 
 
 def _shipment_status_from_body(body: dict[str, Any]) -> EcontShipmentStatus:
-    data = body.get("shipment") or body.get("shipmentStatus") or body.get("result") or body
+    data = None
+    for key in ("shipment", "shipmentStatus", "label", "result"):
+        candidate = body.get(key)
+        if candidate:
+            data = candidate
+            break
+    if data is None:
+        for key in ("shipments", "shipmentStatuses", "labels", "results"):
+            candidate = body.get(key)
+            if isinstance(candidate, list) and candidate:
+                data = candidate[0]
+                break
+    if data is None:
+        data = body
     if not isinstance(data, dict):
         raise EcontUnexpectedResponseError("Econt shipment response has unexpected shape")
     return EcontShipmentStatus.model_validate(data)

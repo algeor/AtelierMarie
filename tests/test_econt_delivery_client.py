@@ -22,13 +22,13 @@ class FakeHttpClient:
         self.exc = exc
         self.calls: list[dict] = []
 
-    def __enter__(self):
+    async def __aenter__(self):
         return self
 
-    def __exit__(self, exc_type, exc, tb):
+    async def __aexit__(self, exc_type, exc, tb):
         return False
 
-    def post(self, url, json, headers):
+    async def post(self, url, json, headers):
         self.calls.append({"url": url, "json": json, "headers": headers})
         if self.exc:
             raise self.exc
@@ -82,7 +82,8 @@ def _order() -> EcontOrderPayload:
 
 
 class TestEcontDeliveryClient:
-    def test_create_awb_success_posts_expected_payload_and_headers(self):
+    @pytest.mark.asyncio
+    async def test_create_awb_success_posts_expected_payload_and_headers(self):
         fake = FakeHttpClient(
             response=httpx.Response(
                 200,
@@ -91,7 +92,7 @@ class TestEcontDeliveryClient:
         )
         client = _client(fake)
 
-        status = client.create_awb(_order())
+        status = await client.create_awb(_order())
 
         assert status.shipment_number == "1234567890"
         assert status.pdf_url == "https://label.test/a.pdf"
@@ -107,7 +108,32 @@ class TestEcontDeliveryClient:
         assert call["json"]["order"]["customerInfo"]["officeCode"] == "1127"
         assert call["json"]["order"]["items"][0]["totalWeight"] == 0.3
 
-    def test_authorization_strips_legacy_shop_prefixed_connection_code(self):
+    @pytest.mark.asyncio
+    async def test_label_service_status_shape_maps_tracking_events(self):
+        fake = FakeHttpClient(
+            response=httpx.Response(
+                200,
+                json={
+                    "label": {
+                        "shipmentNum": "1234567890",
+                        "shortDeliveryStatusEn": "Returned to sender",
+                        "trackingEvents": [
+                            {"type": "returned_to_sender", "status": "Returned"}
+                        ],
+                    }
+                },
+            )
+        )
+        client = _client(fake)
+
+        status = await client.get_trace("1234567890")
+
+        assert status.shipment_number == "1234567890"
+        assert status.short_delivery_status_en == "Returned to sender"
+        assert status.events[0].type == "returned_to_sender"
+
+    @pytest.mark.asyncio
+    async def test_authorization_strips_legacy_shop_prefixed_connection_code(self):
         fake = FakeHttpClient(response=httpx.Response(200, json={"ok": True}))
         client = EcontDeliveryClient(
             base_url="https://delivery-demo.econt.com/services/",
@@ -117,7 +143,7 @@ class TestEcontDeliveryClient:
             client_factory=_factory(fake),
         )
 
-        client.update_order(_order())
+        await client.update_order(_order())
 
         assert fake.calls[0]["headers"]["Authorization"] == "connection-code"
 
@@ -129,7 +155,8 @@ class TestEcontDeliveryClient:
         with pytest.raises(EcontConfigError):
             EcontDeliveryClient(base_url="https://example.test", private_key="private", shop_id="")
 
-    def test_auth_error_is_classified_without_tripping_circuit(self):
+    @pytest.mark.asyncio
+    async def test_auth_error_is_classified_without_tripping_circuit(self):
         breaker = _breaker(threshold=1)
         fake = FakeHttpClient(
             response=httpx.Response(200, json={"message": "Invalid username or password"})
@@ -137,12 +164,13 @@ class TestEcontDeliveryClient:
         client = _client(fake, breaker)
 
         with pytest.raises(EcontAuthError) as exc_info:
-            client.update_order(_order())
+            await client.update_order(_order())
 
         assert exc_info.value.category == "auth"
         assert breaker.get_health()["state"] == "closed"
 
-    def test_econt_517_auth_body_is_classified_as_auth(self):
+    @pytest.mark.asyncio
+    async def test_econt_517_auth_body_is_classified_as_auth(self):
         breaker = _breaker(threshold=1)
         fake = FakeHttpClient(
             response=httpx.Response(
@@ -153,12 +181,13 @@ class TestEcontDeliveryClient:
         client = _client(fake, breaker)
 
         with pytest.raises(EcontAuthError) as exc_info:
-            client.update_order(_order())
+            await client.update_order(_order())
 
         assert exc_info.value.category == "auth"
         assert breaker.get_health()["state"] == "closed"
 
-    def test_econt_517_business_body_is_classified_as_validation(self):
+    @pytest.mark.asyncio
+    async def test_econt_517_business_body_is_classified_as_validation(self):
         breaker = _breaker(threshold=1)
         fake = FakeHttpClient(
             response=httpx.Response(
@@ -169,82 +198,89 @@ class TestEcontDeliveryClient:
         client = _client(fake, breaker)
 
         with pytest.raises(EcontValidationError) as exc_info:
-            client.get_trace("__atelier_marie_connection_test__")
+            await client.get_trace("__atelier_marie_connection_test__")
 
         assert exc_info.value.category == "validation"
         assert breaker.get_health()["state"] == "closed"
 
-    def test_validation_error_does_not_trip_circuit(self):
+    @pytest.mark.asyncio
+    async def test_validation_error_does_not_trip_circuit(self):
         breaker = _breaker(threshold=1)
         fake = FakeHttpClient(response=httpx.Response(422, json={"message": "officeCode required"}))
         client = _client(fake, breaker)
 
         with pytest.raises(EcontValidationError) as exc_info:
-            client.create_awb(_order())
+            await client.create_awb(_order())
 
         assert exc_info.value.category == "validation"
         assert breaker.get_health()["state"] == "closed"
 
-    def test_timeout_is_transient_and_opens_circuit(self):
+    @pytest.mark.asyncio
+    async def test_timeout_is_transient_and_opens_circuit(self):
         breaker = _breaker(threshold=1)
         fake = FakeHttpClient(exc=httpx.TimeoutException("timed out"))
         client = _client(fake, breaker)
 
         with pytest.raises(EcontTransientError):
-            client.update_order(_order())
+            await client.update_order(_order())
 
         assert breaker.get_health()["state"] == "open"
 
         with pytest.raises(EcontCircuitOpenError):
-            client.update_order(_order())
+            await client.update_order(_order())
         assert len(fake.calls) == 1
 
-    def test_5xx_is_transient_and_redacts_error_context(self):
+    @pytest.mark.asyncio
+    async def test_5xx_is_transient_and_redacts_error_context(self):
         breaker = _breaker(threshold=1)
         fake = FakeHttpClient(response=httpx.Response(503, text="unavailable"))
         client = _client(fake, breaker)
 
         with pytest.raises(EcontTransientError) as exc_info:
-            client.update_order(_order())
+            await client.update_order(_order())
 
         assert exc_info.value.category == "transient"
         assert breaker.get_health()["state"] == "open"
         assert "private-key" not in str(exc_info.value.to_safe_dict())
 
-    def test_malformed_json_is_unexpected_response_and_trips_circuit(self):
+    @pytest.mark.asyncio
+    async def test_malformed_json_is_unexpected_response_and_trips_circuit(self):
         breaker = _breaker(threshold=1)
         fake = FakeHttpClient(response=httpx.Response(200, content=b"not-json"))
         client = _client(fake, breaker)
 
         with pytest.raises(EcontUnexpectedResponseError):
-            client.get_trace("1234567890")
+            await client.get_trace("1234567890")
 
         assert breaker.get_health()["state"] == "open"
 
-    def test_business_error_body_is_validation_error(self):
+    @pytest.mark.asyncio
+    async def test_business_error_body_is_validation_error(self):
         fake = FakeHttpClient(
             response=httpx.Response(200, json={"type": "error", "message": "bad data"})
         )
         client = _client(fake)
 
         with pytest.raises(EcontValidationError) as exc_info:
-            client.delete_label("123")
+            await client.delete_label("123")
 
         assert str(exc_info.value) == "bad data"
 
-    def test_test_connection_treats_business_validation_as_successful_connectivity(self):
+    @pytest.mark.asyncio
+    async def test_test_connection_treats_business_validation_as_successful_connectivity(self):
         fake = FakeHttpClient(response=httpx.Response(422, json={"message": "shipment not found"}))
         client = _client(fake)
 
-        assert client.test_connection() is True
+        assert await client.test_connection() is True
 
-    def test_circuit_open_fails_fast_without_http_call(self):
+    @pytest.mark.asyncio
+    async def test_circuit_open_fails_fast_without_http_call(self):
         breaker = _breaker(threshold=1)
         breaker.record_failure()
         fake = FakeHttpClient(response=httpx.Response(200, json={"ok": True}))
         client = _client(fake, breaker)
 
         with pytest.raises(EcontCircuitOpenError):
-            client.update_order(_order())
+            await client.update_order(_order())
 
         assert fake.calls == []

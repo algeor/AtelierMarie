@@ -25,6 +25,7 @@ Econt office fulfillment also requires Econt's native office `code`. The current
 - Preserve Econt office codes so Econt office orders can be fulfilled and returned correctly.
 - Support manual courier claim recordkeeping for lost/damaged shipments.
 - Prevent automatic courier scans from refunding, restocking, or closing orders.
+- Keep public Terms and FAQ content consistent with the operational return/refund rules.
 
 **Non-Goals:**
 
@@ -110,6 +111,14 @@ Rationale: uncollected office orders are central to this change. Econt has first
 
 Alternative considered: record only after the courier returns the parcel. Rejected because label-time instructions affect what the courier will do when a parcel is refused or unclaimed.
 
+### Customer policy copy follows operational truth
+
+Update Terms as the detailed public policy source for returns, refunds, uncollected/refused courier parcels, return shipping, inspection/restock timing, card refunds, payment-on-delivery cases, and courier damaged/lost parcels. FAQ should stay short: answer the common uncollected/refused parcel question and link to the Terms returns section for the full policy.
+
+Rationale: admins need operational flexibility for review, refund amount, return fees, stock inspection, and courier claim handling. Public copy must not promise automatic refunds, automatic restocks, or courier-status-driven outcomes.
+
+Alternative considered: put the full policy in FAQ. Rejected because FAQ should remain practical and brief while Terms carries the detailed legal and policy language.
+
 ### Port the econt branch selectively
 
 The `econt` branch is a strong base for Econt fulfillment, but it should be ported selectively rather than merged wholesale. Its useful pieces are Econt settings, office-code preservation, redaction helpers, courier metadata columns, `order_courier_events`, admin fulfillment endpoints, label/AWB actions, trace refresh, and the admin Econt fulfillment panel.
@@ -132,6 +141,14 @@ Porting order:
 4. Admin Econt panel/endpoints, adjusted for current payment/order states.
 5. Async trace polling and return/COD evidence normalization.
 6. Return/refund/admin workflows on top of the Econt evidence layer.
+
+### Coordinate with parallel Speedy admin parity work
+
+`speedy-admin-parity` is being implemented in parallel, so this change should keep shared admin surfaces conservative. Return/refund controls should live on the existing order detail and report endpoints unless a broader admin layout change is already owned by the Speedy parity change.
+
+Rationale: both changes touch admin courier operations. Avoiding broad sidebar/navigation rewrites and treating Speedy tracking integration as evidence-only reduces merge risk while preserving the return/refund workflow.
+
+Alternative considered: fold Speedy admin parity UI work into this change. Rejected because it would mix two active scopes and make it harder to review courier parity separately from return/refund accounting behavior.
 
 ### Stock returns only after physical inspection
 
@@ -172,7 +189,8 @@ Alternative considered: automatically cancel abandoned card orders. Rejected bec
 6. Add courier status polling service with leases, backoff, batch limits, and manual refresh support.
 7. Add courier review-signal creation for Speedy and Econt, with Econt trace refresh guarded by credentials and shipment number availability.
 8. Preserve Econt office codes in office data and checkout/order snapshots; provide repair path for older Econt orders without code.
-9. Add reconciliation exports/reports after operational data is captured.
+9. Update Terms and FAQ copy, localized in English and Bulgarian, after operational policy wording is finalized.
+10. Add reconciliation exports/reports after operational data is captured.
 
 Rollback: keep migrations additive where possible. If UI/API rollout is paused, existing orders continue using current statuses and new tables remain unused.
 

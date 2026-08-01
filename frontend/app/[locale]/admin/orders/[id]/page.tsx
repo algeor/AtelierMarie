@@ -4,7 +4,17 @@ import { type FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
-import { applyManualPaymentAction, getAdminOrder } from "@/lib/api";
+import {
+  applyManualPaymentAction,
+  closeReturnCase,
+  createReturnCase,
+  createStripeRefund,
+  getAdminOrder,
+  inspectReturnCase,
+  receiveReturnCase,
+  recordCodSettlement,
+  updateReturnAccounting,
+} from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
 import { cn, formatPrice } from "@/lib/utils";
@@ -17,9 +27,14 @@ import { Button } from "@/components/ui/Button";
 import { SaveConfirmation } from "@/components/admin/SaveConfirmation";
 import type {
   AdminOrderDetailResponse,
+  CallbackOutcome,
+  CourierClaimStatus,
+  CreateReturnCaseRequest,
   ManualPaymentAction,
   PaymentEventResponse,
   PaymentStatus,
+  RestockDecision,
+  ReturnReason,
 } from "@/lib/types";
 
 type PageState = "loading" | "success" | "not_found" | "error";
@@ -29,7 +44,13 @@ const PAYMENT_STATUS_COLORS: Record<PaymentStatus, string> = {
   paid: "bg-green-100 text-green-800",
   cod_pending: "bg-gray-100 text-gray-700",
   failed: "bg-red-100 text-red-800",
+  review_required: "bg-amber-100 text-amber-800",
+  refund_pending: "bg-blue-100 text-blue-800",
+  partially_refunded: "bg-blue-100 text-blue-800",
   refunded: "bg-blue-100 text-blue-800",
+  dispute_open: "bg-red-100 text-red-800",
+  dispute_won: "bg-green-100 text-green-800",
+  dispute_lost: "bg-red-100 text-red-800",
 };
 
 const PAYMENT_ACTIONS: ManualPaymentAction[] = [
@@ -41,6 +62,35 @@ const PAYMENT_ACTIONS: ManualPaymentAction[] = [
   "cancel",
 ];
 
+const RETURN_REASONS: ReturnReason[] = [
+  "not_picked_up",
+  "refused_delivery",
+  "customer_return",
+  "wrong_address",
+  "unreachable_customer",
+  "damaged_by_courier",
+  "lost_by_courier",
+  "merchant_error",
+  "other",
+];
+
+const RESTOCK_DECISIONS: RestockDecision[] = ["restock", "do_not_restock", "partial"];
+const COURIER_CLAIM_STATUSES: CourierClaimStatus[] = [
+  "none",
+  "filed",
+  "approved",
+  "rejected",
+  "paid",
+];
+const CALLBACK_OUTCOMES: CallbackOutcome[] = [
+  "confirmed",
+  "declined",
+  "unreachable",
+  "needs_follow_up",
+];
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 function formatDateTime(iso: string, locale: string): string {
   return new Date(iso).toLocaleString(locale === "bg" ? "bg-BG" : "en-US", {
     dateStyle: "medium",
@@ -48,9 +98,79 @@ function formatDateTime(iso: string, locale: string): string {
   });
 }
 
+function formatOptionalDateTime(iso: string | null | undefined, locale: string): string | null {
+  return iso ? formatDateTime(iso, locale) : null;
+}
+
+function formatEvidenceAmount(value: number | null | undefined): string | null {
+  return typeof value === "number" ? value.toFixed(2) : null;
+}
+
 function formatEventName(event: PaymentEventResponse): string {
   const base = event.event_type || event.stripe_event_type || event.source;
   return base.replaceAll("_", " ").replaceAll(".", " ");
+}
+
+function formText(formData: FormData, key: string): string {
+  const value = formData.get(key);
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function optionalFormText(formData: FormData, key: string): string | null {
+  const value = formText(formData, key);
+  return value || null;
+}
+
+function parseOptionalCents(value: string, errorMessage: string): number | null {
+  if (!value.trim()) return null;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) throw new Error(errorMessage);
+  return parsed;
+}
+
+function parseRequiredCents(value: string, errorMessage: string): number {
+  const parsed = parseOptionalCents(value, errorMessage);
+  if (parsed === null) throw new Error(errorMessage);
+  return parsed;
+}
+
+function parseRefundAmountCents(
+  value: string,
+  refundableCents: number,
+  errorMessage: string,
+): number | null {
+  const parsed = parseOptionalCents(value, errorMessage);
+  if (parsed === null) return null;
+  if (parsed < 1 || parsed > refundableCents) throw new Error(errorMessage);
+  return parsed;
+}
+
+function parseRestockQuantities(value: string, errorMessage: string): Record<string, number> | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const quantities: Record<string, number> = {};
+  for (const part of trimmed.split(",")) {
+    const [productId, rawQuantity] = part.split(":").map((item) => item.trim());
+    const quantity = Number(rawQuantity);
+    if (!productId || !Number.isInteger(quantity) || quantity < 1) {
+      throw new Error(errorMessage);
+    }
+    quantities[productId] = quantity;
+  }
+  return quantities;
+}
+
+function refundIdempotencyKey(orderId: string): string {
+  return `admin-refund-${orderId}-${Date.now()}`;
+}
+
+function hasPersonalizedItem(order: AdminOrderDetailResponse): boolean {
+  return order.items.some((item) => {
+    const searchable = `${item.product_id} ${item.product_name}`.toLowerCase();
+    return ["custom", "personal", "bespoke", "made-to-order", "персон", "индивидуал"].some(
+      (needle) => searchable.includes(needle),
+    );
+  });
 }
 
 function availablePaymentActions(order: AdminOrderDetailResponse): ManualPaymentAction[] {
@@ -86,7 +206,9 @@ export default function AdminOrderDetailPage() {
   const [manualNote, setManualNote] = useState("");
   const [manualError, setManualError] = useState<string | null>(null);
   const [isManualSaving, setIsManualSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [workflowError, setWorkflowError] = useState<string | null>(null);
+  const [isWorkflowSaving, setIsWorkflowSaving] = useState(false);
+  const [savedMessage, setSavedMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -136,14 +258,14 @@ export default function AdminOrderDetailPage() {
 
     setIsManualSaving(true);
     setManualError(null);
-    setSaved(false);
+    setSavedMessage(null);
     try {
       await applyManualPaymentAction(order.id, manualAction, note);
       const refreshed = await getAdminOrder(order.id);
       setOrder(refreshed);
       setManualAction(null);
       setManualNote("");
-      setSaved(true);
+      setSavedMessage(tAdmin("manualPayment.saved"));
     } catch (err) {
       setManualError(
         err instanceof ApiError ? err.message : tAdmin("manualPayment.actionError")
@@ -156,6 +278,190 @@ export default function AdminOrderDetailPage() {
   async function refreshOrder() {
     const refreshed = await getAdminOrder(orderId);
     setOrder(refreshed);
+  }
+
+  async function runWorkflowAction(
+    action: () => Promise<void>,
+    successMessage: string,
+    form?: HTMLFormElement,
+  ) {
+    setWorkflowError(null);
+    setSavedMessage(null);
+    setIsWorkflowSaving(true);
+    try {
+      await action();
+      await refreshOrder();
+      form?.reset();
+      setSavedMessage(successMessage);
+    } catch (err) {
+      setWorkflowError(
+        err instanceof ApiError || err instanceof Error
+          ? err.message
+          : tAdmin("returnWorkflow.actionError"),
+      );
+    } finally {
+      setIsWorkflowSaving(false);
+    }
+  }
+
+  async function handleCreateReturnCase(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!order) return;
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const reason = formText(formData, "reason") as ReturnReason;
+    const status = formText(formData, "status") as CreateReturnCaseRequest["status"];
+    await runWorkflowAction(
+      () =>
+        createReturnCase(order.id, {
+          reason,
+          status,
+          source: "admin",
+          notes: optionalFormText(formData, "notes"),
+        }).then(() => undefined),
+      tAdmin("returnWorkflow.saved.returnCreated"),
+      form,
+    );
+  }
+
+  async function handleQuickReturn(reason: ReturnReason) {
+    if (!order) return;
+    await runWorkflowAction(
+      () =>
+        createReturnCase(order.id, {
+          reason,
+          status: "return_in_transit",
+          source: "admin",
+        }).then(() => undefined),
+      tAdmin("returnWorkflow.saved.returnCreated"),
+    );
+  }
+
+  async function handleReceiveReturn(returnId: string) {
+    if (!order) return;
+    await runWorkflowAction(
+      () => receiveReturnCase(order.id, returnId).then(() => undefined),
+      tAdmin("returnWorkflow.saved.returnReceived"),
+    );
+  }
+
+  async function handleInspectReturn(event: FormEvent<HTMLFormElement>, returnId: string) {
+    event.preventDefault();
+    if (!order) return;
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    await runWorkflowAction(
+      () => {
+        const decision = formText(formData, "restock_decision") as RestockDecision;
+        const restockQuantities =
+          decision === "partial"
+            ? parseRestockQuantities(
+                formText(formData, "restock_quantities"),
+                tAdmin("returnWorkflow.validation.quantities"),
+              )
+            : null;
+        return inspectReturnCase(order.id, returnId, {
+          restock_decision: decision,
+          restock_quantities: restockQuantities,
+          notes: optionalFormText(formData, "notes"),
+        }).then(() => undefined);
+      },
+      tAdmin("returnWorkflow.saved.returnInspected"),
+      form,
+    );
+  }
+
+  async function handleCloseReturn(returnId: string) {
+    if (!order) return;
+    await runWorkflowAction(
+      () => closeReturnCase(order.id, returnId).then(() => undefined),
+      tAdmin("returnWorkflow.saved.returnClosed"),
+    );
+  }
+
+  async function handleReturnAccounting(event: FormEvent<HTMLFormElement>, returnId: string) {
+    event.preventDefault();
+    if (!order) return;
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    await runWorkflowAction(
+      () =>
+        updateReturnAccounting(order.id, returnId, {
+          courier_return_fee_cents: parseOptionalCents(
+            formText(formData, "courier_return_fee_cents"),
+            tAdmin("returnWorkflow.validation.cents"),
+          ),
+          courier_claim_id: optionalFormText(formData, "courier_claim_id"),
+          courier_claim_status: formText(formData, "courier_claim_status") as CourierClaimStatus,
+          courier_claim_amount_cents: parseOptionalCents(
+            formText(formData, "courier_claim_amount_cents"),
+            tAdmin("returnWorkflow.validation.cents"),
+          ),
+          notes: optionalFormText(formData, "notes"),
+        }).then(() => undefined),
+      tAdmin("returnWorkflow.saved.accountingUpdated"),
+      form,
+    );
+  }
+
+  async function handleStripeRefund(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!order) return;
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    await runWorkflowAction(
+      () =>
+        createStripeRefund(order.id, {
+          amount_cents: parseRefundAmountCents(
+            formText(formData, "amount_cents"),
+            refundableCents,
+            tAdmin("returnWorkflow.validation.refundAmount"),
+          ),
+          reason: optionalFormText(formData, "reason"),
+          idempotency_key: refundIdempotencyKey(order.id),
+        }).then(() => undefined),
+      tAdmin("returnWorkflow.saved.refundCreated"),
+      form,
+    );
+  }
+
+  async function handleCallbackReview(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!order) return;
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const action = submitter?.value === "convert_to_cod" ? "convert_to_cod" : "record_callback";
+    const outcome =
+      action === "convert_to_cod" ? "confirmed" : (formText(formData, "callback_outcome") as CallbackOutcome);
+    await runWorkflowAction(
+      () => applyManualPaymentAction(order.id, action, formText(formData, "note"), outcome).then(() => undefined),
+      action === "convert_to_cod"
+        ? tAdmin("returnWorkflow.saved.convertedToCod")
+        : tAdmin("returnWorkflow.saved.callbackRecorded"),
+      form,
+    );
+  }
+
+  async function handleCodSettlement(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!order) return;
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    await runWorkflowAction(
+      () =>
+        recordCodSettlement(order.id, {
+          amount_cents: parseRequiredCents(
+            formText(formData, "amount_cents"),
+            tAdmin("returnWorkflow.validation.cents"),
+          ),
+          settlement_date: formText(formData, "settlement_date"),
+          courier_reference: optionalFormText(formData, "courier_reference"),
+          notes: optionalFormText(formData, "notes"),
+        }).then(() => undefined),
+      tAdmin("returnWorkflow.saved.codSettlementRecorded"),
+      form,
+    );
   }
 
   if (state === "loading") {
@@ -207,6 +513,31 @@ export default function AdminOrderDetailPage() {
   }
 
   if (!order) return null;
+
+  const isSpeedyOrder = order.delivery_courier === "speedy" || order.tracking_carrier === "speedy";
+  const canMoveReturnInTransit = ["shipped", "delivered"].includes(order.status);
+  const canCreateReturnCase = ["shipped", "delivered", "return_in_transit", "returned"].includes(
+    order.status,
+  );
+  const refundableCents = Math.max(
+    0,
+    order.total_cents -
+      order.refund_records
+        .filter((refund) => ["pending", "succeeded"].includes(refund.status))
+        .reduce((total, refund) => total + refund.amount_cents, 0),
+  );
+  const canCreateStripeRefund =
+    order.payment_method === "card" &&
+    ["paid", "partially_refunded", "refund_pending"].includes(order.payment_status) &&
+    refundableCents > 0;
+  const showCallbackReview =
+    order.payment_method === "card" &&
+    order.payment_status === "review_required" &&
+    ["pending", "confirmed"].includes(order.status);
+  const showCodSettlement =
+    order.payment_method === "cod" && (order.status === "delivered" || order.cod_settlement !== null);
+  const personalizedRefundWarning = hasPersonalizedItem(order);
+  const today = new Date().toISOString().slice(0, 10);
 
   return (
     <div className="space-y-6">
@@ -480,6 +811,545 @@ export default function AdminOrderDetailPage() {
 
         <EcontFulfillmentPanel order={order} onRefreshOrder={refreshOrder} />
 
+        {order.econt_cod_evidence && (
+          <section className="mt-8 border-t border-champagne-beige pt-6">
+            <div className="mb-4">
+              <h2 className="text-sm font-medium text-charcoal">
+                {tAdmin("econtCodEvidence.title")}
+              </h2>
+              <p className="mt-1 text-sm text-soft-brown">
+                {tAdmin("econtCodEvidence.subtitle")}
+              </p>
+            </div>
+            <dl className="grid gap-3 text-sm md:grid-cols-2">
+              <div className="rounded-brand border border-champagne-beige bg-white p-3">
+                <dt className="text-soft-brown">{tAdmin("econtCodEvidence.collectedAmount")}</dt>
+                <dd className="mt-1 text-charcoal">
+                  {formatEvidenceAmount(order.econt_cod_evidence.collected_amount) ??
+                    tAdmin("notProvided")}
+                </dd>
+              </div>
+              <div className="rounded-brand border border-champagne-beige bg-white p-3">
+                <dt className="text-soft-brown">{tAdmin("econtCodEvidence.collectedTime")}</dt>
+                <dd className="mt-1 text-charcoal">
+                  {formatOptionalDateTime(order.econt_cod_evidence.collected_time, locale) ??
+                    tAdmin("notProvided")}
+                </dd>
+              </div>
+              <div className="rounded-brand border border-champagne-beige bg-white p-3">
+                <dt className="text-soft-brown">{tAdmin("econtCodEvidence.paidAmount")}</dt>
+                <dd className="mt-1 text-charcoal">
+                  {formatEvidenceAmount(order.econt_cod_evidence.paid_amount) ??
+                    tAdmin("notProvided")}
+                </dd>
+              </div>
+              <div className="rounded-brand border border-champagne-beige bg-white p-3">
+                <dt className="text-soft-brown">{tAdmin("econtCodEvidence.paidTime")}</dt>
+                <dd className="mt-1 text-charcoal">
+                  {formatOptionalDateTime(order.econt_cod_evidence.paid_time, locale) ??
+                    tAdmin("notProvided")}
+                </dd>
+              </div>
+            </dl>
+          </section>
+        )}
+
+        {isSpeedyOrder && (
+          <section className="mt-8 border-t border-champagne-beige pt-6">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-sm font-medium text-charcoal">
+                  {tAdmin("speedyFulfillment.title")}
+                </h2>
+                <p className="mt-1 text-sm text-soft-brown">
+                  {tAdmin("speedyFulfillment.subtitle")}
+                </p>
+              </div>
+              <Link
+                href={`/admin/speedy?order_id=${order.id}`}
+                className="inline-flex h-9 items-center justify-center rounded-brand border border-champagne-beige px-3 text-sm font-medium text-charcoal hover:bg-champagne-beige/40"
+              >
+                {tAdmin("speedyDiagnostics")}
+              </Link>
+            </div>
+            <dl className="grid gap-3 text-sm md:grid-cols-2">
+              <div className="rounded-brand border border-champagne-beige bg-white p-3">
+                <dt className="text-soft-brown">{tAdmin("speedyFulfillment.shipmentNumber")}</dt>
+                <dd className="mt-1 font-mono text-charcoal">
+                  {order.tracking_number || order.courier_shipment_number || tAdmin("notProvided")}
+                </dd>
+              </div>
+              <div className="rounded-brand border border-champagne-beige bg-white p-3">
+                <dt className="text-soft-brown">{tAdmin("speedyFulfillment.courierStatus")}</dt>
+                <dd className="mt-1 text-charcoal">{order.courier_status || tAdmin("notProvided")}</dd>
+              </div>
+              <div className="rounded-brand border border-champagne-beige bg-white p-3">
+                <dt className="text-soft-brown">{tAdmin("speedyFulfillment.syncStatus")}</dt>
+                <dd className="mt-1 text-charcoal">{order.courier_sync_status || tAdmin("notProvided")}</dd>
+              </div>
+              <div className="rounded-brand border border-champagne-beige bg-white p-3">
+                <dt className="text-soft-brown">{tAdmin("speedyFulfillment.lastSync")}</dt>
+                <dd className="mt-1 text-charcoal">
+                  {order.courier_last_synced_at ? formatDateTime(order.courier_last_synced_at, locale) : tAdmin("notProvided")}
+                </dd>
+              </div>
+            </dl>
+            {order.courier_last_error && (
+              <p className="mt-3 rounded-brand border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                {order.courier_last_error}
+              </p>
+            )}
+            <div className="mt-4 flex flex-wrap gap-2">
+              {order.tracking_url && (
+                <a
+                  href={order.tracking_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex h-9 items-center justify-center rounded-brand border border-champagne-beige px-3 text-sm font-medium text-charcoal hover:bg-champagne-beige/40"
+                >
+                  {tAdmin("speedyFulfillment.openTracking")}
+                </a>
+              )}
+              {(order.tracking_number || order.courier_shipment_number) && (
+                <a
+                  href={`${API_BASE_URL}/v1/admin/speedy/orders/${order.id}/label`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex h-9 items-center justify-center rounded-brand bg-charcoal px-3 text-sm font-medium text-warm-ivory hover:bg-soft-brown"
+                >
+                  {tAdmin("speedyFulfillment.printLabel")}
+                </a>
+              )}
+            </div>
+          </section>
+        )}
+
+        <section className="mt-8 border-t border-champagne-beige pt-6">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-sm font-medium text-charcoal">
+                {tAdmin("returnWorkflow.title")}
+              </h2>
+              <p className="mt-1 text-sm text-soft-brown">
+                {tAdmin("returnWorkflow.subtitle")}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={!canMoveReturnInTransit || isWorkflowSaving}
+                onClick={() => void handleQuickReturn("not_picked_up")}
+              >
+                {tAdmin("returnWorkflow.actions.markUncollected")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={!canMoveReturnInTransit || isWorkflowSaving}
+                onClick={() => void handleQuickReturn("refused_delivery")}
+              >
+                {tAdmin("returnWorkflow.actions.markRefused")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={!canMoveReturnInTransit || isWorkflowSaving}
+                onClick={() => void handleQuickReturn("customer_return")}
+              >
+                {tAdmin("returnWorkflow.actions.markReturnInTransit")}
+              </Button>
+            </div>
+          </div>
+
+          {workflowError && (
+            <div className="mb-4 rounded-brand border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {workflowError}
+            </div>
+          )}
+
+          {showCallbackReview && (
+            <form
+              onSubmit={handleCallbackReview}
+              className="mb-5 rounded-brand border border-amber-200 bg-amber-50 p-4"
+            >
+              <h3 className="text-sm font-semibold text-charcoal">
+                {tAdmin("returnWorkflow.callback.title")}
+              </h3>
+              <div className="mt-3 grid gap-3 md:grid-cols-[0.6fr_1fr]">
+                <label className="text-sm font-medium text-charcoal" htmlFor="callback-outcome">
+                  {tAdmin("returnWorkflow.callback.outcome")}
+                  <select
+                    id="callback-outcome"
+                    name="callback_outcome"
+                    defaultValue="needs_follow_up"
+                    className="mt-1 block w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm"
+                  >
+                    {CALLBACK_OUTCOMES.map((outcome) => (
+                      <option key={outcome} value={outcome}>
+                        {tAdmin(`returnWorkflow.callback.outcomes.${outcome}` as Parameters<typeof tAdmin>[0])}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-sm font-medium text-charcoal" htmlFor="callback-note">
+                  {tAdmin("manualPayment.noteLabel")}
+                  <input
+                    id="callback-note"
+                    name="note"
+                    required
+                    className="mt-1 block w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm"
+                    placeholder={tAdmin("returnWorkflow.callback.notePlaceholder")}
+                  />
+                </label>
+              </div>
+              <div className="mt-3 flex flex-wrap justify-end gap-2">
+                <Button type="submit" size="sm" variant="secondary" isLoading={isWorkflowSaving} value="record_callback">
+                  {tAdmin("returnWorkflow.callback.record")}
+                </Button>
+                <Button type="submit" size="sm" isLoading={isWorkflowSaving} value="convert_to_cod">
+                  {tAdmin("returnWorkflow.callback.convert")}
+                </Button>
+              </div>
+            </form>
+          )}
+
+          <form
+            onSubmit={handleCreateReturnCase}
+            className="grid gap-3 rounded-brand border border-champagne-beige bg-white p-4 md:grid-cols-[0.7fr_0.7fr_1fr_auto] md:items-end"
+          >
+            <label className="text-sm font-medium text-charcoal" htmlFor="return-reason">
+              {tAdmin("returnWorkflow.reason")}
+              <select
+                id="return-reason"
+                name="reason"
+                defaultValue="customer_return"
+                className="mt-1 block w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm"
+              >
+                {RETURN_REASONS.map((reason) => (
+                  <option key={reason} value={reason}>
+                    {tAdmin(`returnWorkflow.reasons.${reason}` as Parameters<typeof tAdmin>[0])}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm font-medium text-charcoal" htmlFor="return-status">
+              {tAdmin("returnWorkflow.initialStatus")}
+              <select
+                id="return-status"
+                name="status"
+                defaultValue="requested"
+                className="mt-1 block w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm"
+              >
+                <option value="requested">{tAdmin("returnWorkflow.status.requested")}</option>
+                <option value="return_in_transit">
+                  {tAdmin("returnWorkflow.status.return_in_transit")}
+                </option>
+              </select>
+            </label>
+            <label className="text-sm font-medium text-charcoal" htmlFor="return-notes">
+              {tAdmin("notes")}
+              <input
+                id="return-notes"
+                name="notes"
+                className="mt-1 block w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm"
+                placeholder={tAdmin("returnWorkflow.notesPlaceholder")}
+              />
+            </label>
+            <Button type="submit" size="sm" disabled={!canCreateReturnCase} isLoading={isWorkflowSaving}>
+              {tAdmin("returnWorkflow.actions.createReturn")}
+            </Button>
+          </form>
+
+          <div className="mt-5 space-y-4">
+            {order.return_cases.length === 0 ? (
+              <p className="text-sm text-soft-brown">{tAdmin("returnWorkflow.noReturnCases")}</p>
+            ) : (
+              order.return_cases.map((returnCase) => (
+                <div key={returnCase.id} className="rounded-brand border border-champagne-beige bg-white p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-charcoal">
+                        {tAdmin(`returnWorkflow.reasons.${returnCase.reason}` as Parameters<typeof tAdmin>[0])}
+                      </p>
+                      <p className="mt-1 font-mono text-xs text-soft-brown">{returnCase.id}</p>
+                    </div>
+                    <span className="rounded-pill bg-champagne-beige/60 px-2.5 py-0.5 text-xs font-medium text-soft-brown">
+                      {tAdmin(`returnWorkflow.status.${returnCase.status}` as Parameters<typeof tAdmin>[0])}
+                    </span>
+                  </div>
+                  <dl className="mt-3 grid gap-2 text-xs md:grid-cols-3">
+                    <div>
+                      <dt className="text-soft-brown">{tAdmin("returnWorkflow.source")}</dt>
+                      <dd className="text-charcoal">{returnCase.source}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-soft-brown">{tAdmin("returnWorkflow.restockDecision")}</dt>
+                      <dd className="text-charcoal">
+                        {tAdmin(`returnWorkflow.restock.${returnCase.restock_decision}` as Parameters<typeof tAdmin>[0])}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-soft-brown">{tAdmin("returnWorkflow.courierFee")}</dt>
+                      <dd className="text-charcoal">{formatPrice(returnCase.courier_return_fee_cents)}</dd>
+                    </div>
+                    {returnCase.courier_claim_id && (
+                      <div>
+                        <dt className="text-soft-brown">{tAdmin("returnWorkflow.claimId")}</dt>
+                        <dd className="text-charcoal">{returnCase.courier_claim_id}</dd>
+                      </div>
+                    )}
+                    {returnCase.notes && (
+                      <div className="md:col-span-2">
+                        <dt className="text-soft-brown">{tAdmin("notes")}</dt>
+                        <dd className="text-charcoal">{returnCase.notes}</dd>
+                      </div>
+                    )}
+                  </dl>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      disabled={!["requested", "return_in_transit"].includes(returnCase.status) || isWorkflowSaving}
+                      onClick={() => void handleReceiveReturn(returnCase.id)}
+                    >
+                      {tAdmin("returnWorkflow.actions.receive")}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      disabled={!["inspected", "rejected"].includes(returnCase.status) || isWorkflowSaving}
+                      onClick={() => void handleCloseReturn(returnCase.id)}
+                    >
+                      {tAdmin("returnWorkflow.actions.close")}
+                    </Button>
+                  </div>
+
+                  {returnCase.status === "received" && (
+                    <form
+                      onSubmit={(event) => void handleInspectReturn(event, returnCase.id)}
+                      className="mt-4 grid gap-3 rounded-brand bg-cream p-3 md:grid-cols-[0.7fr_1fr_1fr_auto] md:items-end"
+                    >
+                      <label className="text-sm font-medium text-charcoal" htmlFor={`restock-${returnCase.id}`}>
+                        {tAdmin("returnWorkflow.restockDecision")}
+                        <select
+                          id={`restock-${returnCase.id}`}
+                          name="restock_decision"
+                          defaultValue="restock"
+                          className="mt-1 block w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm"
+                        >
+                          {RESTOCK_DECISIONS.map((decision) => (
+                            <option key={decision} value={decision}>
+                              {tAdmin(`returnWorkflow.restock.${decision}` as Parameters<typeof tAdmin>[0])}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="text-sm font-medium text-charcoal" htmlFor={`quantities-${returnCase.id}`}>
+                        {tAdmin("returnWorkflow.partialQuantities")}
+                        <input
+                          id={`quantities-${returnCase.id}`}
+                          name="restock_quantities"
+                          className="mt-1 block w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm"
+                          placeholder="product-id:1"
+                        />
+                      </label>
+                      <label className="text-sm font-medium text-charcoal" htmlFor={`inspect-notes-${returnCase.id}`}>
+                        {tAdmin("notes")}
+                        <input
+                          id={`inspect-notes-${returnCase.id}`}
+                          name="notes"
+                          className="mt-1 block w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm"
+                        />
+                      </label>
+                      <Button type="submit" size="sm" isLoading={isWorkflowSaving}>
+                        {tAdmin("returnWorkflow.actions.inspect")}
+                      </Button>
+                    </form>
+                  )}
+
+                  <form
+                    onSubmit={(event) => void handleReturnAccounting(event, returnCase.id)}
+                    className="mt-4 grid gap-3 rounded-brand bg-cream p-3 md:grid-cols-5 md:items-end"
+                  >
+                    <label className="text-sm font-medium text-charcoal" htmlFor={`fee-${returnCase.id}`}>
+                      {tAdmin("returnWorkflow.courierFeeCents")}
+                      <input
+                        id={`fee-${returnCase.id}`}
+                        name="courier_return_fee_cents"
+                        inputMode="numeric"
+                        defaultValue={returnCase.courier_return_fee_cents || ""}
+                        className="mt-1 block w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm"
+                      />
+                    </label>
+                    <label className="text-sm font-medium text-charcoal" htmlFor={`claim-id-${returnCase.id}`}>
+                      {tAdmin("returnWorkflow.claimId")}
+                      <input
+                        id={`claim-id-${returnCase.id}`}
+                        name="courier_claim_id"
+                        defaultValue={returnCase.courier_claim_id ?? ""}
+                        className="mt-1 block w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm"
+                      />
+                    </label>
+                    <label className="text-sm font-medium text-charcoal" htmlFor={`claim-status-${returnCase.id}`}>
+                      {tAdmin("returnWorkflow.claimStatus")}
+                      <select
+                        id={`claim-status-${returnCase.id}`}
+                        name="courier_claim_status"
+                        defaultValue={returnCase.courier_claim_status}
+                        className="mt-1 block w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm"
+                      >
+                        {COURIER_CLAIM_STATUSES.map((status) => (
+                          <option key={status} value={status}>
+                            {tAdmin(`returnWorkflow.claimStatusValue.${status}` as Parameters<typeof tAdmin>[0])}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="text-sm font-medium text-charcoal" htmlFor={`claim-amount-${returnCase.id}`}>
+                      {tAdmin("returnWorkflow.claimAmountCents")}
+                      <input
+                        id={`claim-amount-${returnCase.id}`}
+                        name="courier_claim_amount_cents"
+                        inputMode="numeric"
+                        defaultValue={returnCase.courier_claim_amount_cents ?? ""}
+                        className="mt-1 block w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm"
+                      />
+                    </label>
+                    <Button type="submit" size="sm" variant="secondary" isLoading={isWorkflowSaving}>
+                      {tAdmin("returnWorkflow.actions.saveAccounting")}
+                    </Button>
+                  </form>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            {order.payment_method === "card" && (
+              <form onSubmit={handleStripeRefund} className="rounded-brand border border-champagne-beige bg-white p-4">
+                <h3 className="text-sm font-semibold text-charcoal">
+                  {tAdmin("returnWorkflow.refund.title")}
+                </h3>
+                <p className="mt-1 text-sm text-soft-brown">
+                  {tAdmin("returnWorkflow.refund.remaining", { amount: formatPrice(refundableCents) })}
+                </p>
+                {personalizedRefundWarning && (
+                  <p className="mt-3 rounded-brand border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                    {tAdmin("returnWorkflow.refund.personalizedWarning")}
+                  </p>
+                )}
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="text-sm font-medium text-charcoal" htmlFor="refund-amount">
+                    {tAdmin("returnWorkflow.refund.amountCents")}
+                    <input
+                      id="refund-amount"
+                      name="amount_cents"
+                      inputMode="numeric"
+                      className="mt-1 block w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm"
+                      placeholder={String(refundableCents)}
+                    />
+                  </label>
+                  <label className="text-sm font-medium text-charcoal" htmlFor="refund-reason">
+                    {tAdmin("returnWorkflow.refund.reason")}
+                    <input
+                      id="refund-reason"
+                      name="reason"
+                      className="mt-1 block w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm"
+                    />
+                  </label>
+                </div>
+                <div className="mt-3 flex justify-end">
+                  <Button type="submit" size="sm" disabled={!canCreateStripeRefund} isLoading={isWorkflowSaving}>
+                    {tAdmin("returnWorkflow.refund.create")}
+                  </Button>
+                </div>
+                {order.refund_records.length > 0 && (
+                  <ul className="mt-3 space-y-2 text-xs text-soft-brown">
+                    {order.refund_records.map((refund) => (
+                      <li key={refund.id} className="rounded-brand bg-cream px-3 py-2">
+                        {formatPrice(refund.amount_cents)} · {refund.status}
+                        {refund.provider_refund_id ? ` · ${refund.provider_refund_id}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </form>
+            )}
+
+            {showCodSettlement && (
+              <form onSubmit={handleCodSettlement} className="rounded-brand border border-champagne-beige bg-white p-4">
+                <h3 className="text-sm font-semibold text-charcoal">
+                  {tAdmin("returnWorkflow.cod.title")}
+                </h3>
+                {order.cod_settlement && (
+                  <p className="mt-1 text-sm text-soft-brown">
+                    {tAdmin("returnWorkflow.cod.current", {
+                      amount: formatPrice(order.cod_settlement.amount_cents),
+                      date: order.cod_settlement.settlement_date,
+                    })}
+                  </p>
+                )}
+                {order.cod_settlement_required && (
+                  <p className="mt-1 text-sm text-amber-800">{tAdmin("returnWorkflow.cod.required")}</p>
+                )}
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="text-sm font-medium text-charcoal" htmlFor="cod-amount">
+                    {tAdmin("returnWorkflow.cod.amountCents")}
+                    <input
+                      id="cod-amount"
+                      name="amount_cents"
+                      inputMode="numeric"
+                      required
+                      defaultValue={order.cod_settlement?.amount_cents ?? order.total_cents}
+                      className="mt-1 block w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="text-sm font-medium text-charcoal" htmlFor="cod-date">
+                    {tAdmin("returnWorkflow.cod.date")}
+                    <input
+                      id="cod-date"
+                      name="settlement_date"
+                      type="date"
+                      required
+                      defaultValue={order.cod_settlement?.settlement_date ?? today}
+                      className="mt-1 block w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="text-sm font-medium text-charcoal" htmlFor="cod-reference">
+                    {tAdmin("returnWorkflow.cod.reference")}
+                    <input
+                      id="cod-reference"
+                      name="courier_reference"
+                      defaultValue={order.cod_settlement?.courier_reference ?? ""}
+                      className="mt-1 block w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="text-sm font-medium text-charcoal" htmlFor="cod-notes">
+                    {tAdmin("notes")}
+                    <input
+                      id="cod-notes"
+                      name="notes"
+                      defaultValue={order.cod_settlement?.notes ?? ""}
+                      className="mt-1 block w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm"
+                    />
+                  </label>
+                </div>
+                <div className="mt-3 flex justify-end">
+                  <Button type="submit" size="sm" isLoading={isWorkflowSaving}>
+                    {tAdmin("returnWorkflow.cod.record")}
+                  </Button>
+                </div>
+              </form>
+            )}
+          </div>
+        </section>
+
         {order.notes && (
           <section className="mt-8 border-t border-champagne-beige pt-6">
             <h2 className="mb-2 text-sm font-medium text-charcoal">
@@ -542,10 +1412,10 @@ export default function AdminOrderDetailPage() {
         </div>
       )}
 
-      {saved && (
+      {savedMessage && (
         <SaveConfirmation
-          message={tAdmin("manualPayment.saved")}
-          onDismiss={() => setSaved(false)}
+          message={savedMessage}
+          onDismiss={() => setSavedMessage(null)}
         />
       )}
     </div>

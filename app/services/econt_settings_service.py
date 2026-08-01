@@ -50,19 +50,21 @@ _UPDATE_FIELDS = {
     "shipment_description",
     "declared_value_enabled",
     "default_payment_side",
+    "return_parcel_destination",
+    "days_until_return",
+    "return_parcel_payment_side",
+    "reject_action",
+    "reject_payment_side",
+    "reject_return_payment_side",
     "courier_currency",
     "currency_conversion_rate",
     "office_locator_enabled",
-    "auto_confirm_on_label",
-    "auto_delivered_on_trace",
 }
 
 _BOOL_FIELDS = {
     "enabled",
     "declared_value_enabled",
     "office_locator_enabled",
-    "auto_confirm_on_label",
-    "auto_delivered_on_trace",
 }
 
 
@@ -158,11 +160,17 @@ def _row_to_response(row: sqlite3.Row, settings: Settings) -> EcontSettingsRespo
         shipment_description=row["shipment_description"],
         declared_value_enabled=bool(row["declared_value_enabled"]),
         default_payment_side=row["default_payment_side"],
+        return_parcel_destination=row["return_parcel_destination"],
+        days_until_return=row["days_until_return"],
+        return_parcel_payment_side=row["return_parcel_payment_side"],
+        reject_action=row["reject_action"],
+        reject_payment_side=row["reject_payment_side"],
+        reject_return_payment_side=row["reject_return_payment_side"],
         courier_currency=row["courier_currency"],
         currency_conversion_rate=row["currency_conversion_rate"],
         office_locator_enabled=bool(row["office_locator_enabled"]),
-        auto_confirm_on_label=bool(row["auto_confirm_on_label"]),
-        auto_delivered_on_trace=bool(row["auto_delivered_on_trace"]),
+        auto_confirm_on_label=False,
+        auto_delivered_on_trace=False,
         base_url=_effective_base_url(settings, row["environment"]),
         office_locator_url=_effective_locator_url(settings, row["environment"]),
         office_locator_origins=_effective_locator_origins(settings, row["environment"]),
@@ -222,7 +230,7 @@ def update_econt_settings(body: EcontSettingsUpdate) -> EcontSettingsResponse:
     return _row_to_response(row, settings)
 
 
-def test_econt_configuration() -> EcontConnectionTestResponse:
+async def test_econt_configuration() -> EcontConnectionTestResponse:
     """Validate current Econt configuration without creating a shipment."""
     settings = get_settings()
     checked_at = pricing.now_utc()
@@ -248,7 +256,7 @@ def test_econt_configuration() -> EcontConnectionTestResponse:
         shop_id = _effective_shop_id(settings, row) or ""
 
     try:
-        EcontDeliveryClient(
+        await EcontDeliveryClient(
             base_url=base_url,
             private_key=private_key,
             shop_id=shop_id,
