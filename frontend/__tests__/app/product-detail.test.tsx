@@ -106,4 +106,42 @@ describe("Product detail safety section", () => {
     expect(screen.getByText("Atelier Marie")).toBeInTheDocument();
     expect(screen.getByText("contacts@theateliermarie.com")).toBeInTheDocument();
   });
+
+  it("renders Product and Offer structured data", async () => {
+    mockedGetProduct.mockResolvedValue({
+      ...PRODUCT,
+      primary_image_url: "/static/products/safety-candle.webp",
+      images: [
+        {
+          id: "img-1",
+          image_url: "/static/products/safety-candle.webp",
+          thumbnail_url: "/static/products/safety-candle-thumb.webp",
+          zoom_url: null,
+          sort_order: 0,
+          is_primary: true,
+        },
+      ],
+    });
+
+    const ui = await ProductDetailPage({
+      params: Promise.resolve({ id: "safety-candle", locale: "en" }),
+    });
+    render(ui);
+
+    const script = document.querySelector('script[type="application/ld+json"]');
+    expect(script).toBeInTheDocument();
+    const data = JSON.parse(script?.textContent ?? "{}");
+    expect(data).toMatchObject({
+      "@type": "Product",
+      name: "Safety Candle",
+      sku: "safety-candle",
+      offers: {
+        "@type": "Offer",
+        price: "24.00",
+        priceCurrency: "EUR",
+        availability: "https://schema.org/InStock",
+      },
+    });
+    expect(data.image).toContain("https://ateliermarie.com/static/products/safety-candle.webp");
+  });
 });

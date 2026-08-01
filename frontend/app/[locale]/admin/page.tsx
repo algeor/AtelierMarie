@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import { getAdminStats } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
@@ -24,6 +25,38 @@ export default function AdminDashboardPage() {
       )
       .finally(() => setIsLoading(false));
   }, [getLocalizedError, t]);
+
+  const workQueue = stats
+    ? [
+        {
+          key: "pendingOrders",
+          count: stats.orders.by_status.pending ?? 0,
+          href: "/admin/orders?status=pending",
+        },
+        {
+          key: "paymentAttention",
+          count:
+            (stats.orders.by_payment_status.pending ?? 0) +
+            (stats.orders.by_payment_status.failed ?? 0),
+          href: "/admin/orders?payment_status=pending",
+        },
+        {
+          key: "readyToShip",
+          count: stats.orders.by_status.confirmed ?? 0,
+          href: "/admin/orders?status=confirmed",
+        },
+        {
+          key: "lowStock",
+          count: stats.low_stock_count,
+          href: "/admin/products",
+        },
+        {
+          key: "contactMessages",
+          count: stats.contact_messages_needing_attention,
+          href: "/admin",
+        },
+      ]
+    : [];
 
   return (
     <div>
@@ -81,6 +114,30 @@ export default function AdminDashboardPage() {
           </>
         ) : null}
       </div>
+
+      {stats && (
+        <section className="mt-8">
+          <h2 className="mb-3 font-heading text-xl text-charcoal">
+            {t("workQueue")}
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            {workQueue.map((item) => (
+              <Link
+                key={item.key}
+                href={item.href}
+                className="rounded-brand border border-champagne-beige bg-cream px-4 py-3 transition-colors hover:border-soft-brown/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown"
+              >
+                <span className="block text-2xl font-semibold text-charcoal">
+                  {item.count}
+                </span>
+                <span className="mt-1 block text-sm text-soft-brown">
+                  {t(`queue.${item.key}` as Parameters<typeof t>[0])}
+                </span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

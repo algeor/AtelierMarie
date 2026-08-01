@@ -265,6 +265,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
 
   function validate(): boolean {
     const newErrors: Record<string, string> = {};
+    const remainingImageCount = images.length + formData.image_files.length;
     if (!formData.name_en.trim()) newErrors.name_en = t("validation.nameEnRequired");
     if (!formData.id.trim() && !product) newErrors.id = t("validation.idRequired");
     if (!product && formData.id.trim() && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(formData.id)) {
@@ -286,8 +287,12 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
         newErrors[field] = t("validation.safetyTextTooLong");
       }
     }
-    if (images.length + formData.image_files.length > 6) {
+    if (remainingImageCount > 6) {
       newErrors.image_files = t("validation.maxImages");
+    }
+    if (formData.is_active && remainingImageCount === 0) {
+      newErrors.image_files = t("validation.activeProductNeedsImage");
+      newErrors.is_active = t("validation.activeProductNeedsImage");
     }
     for (const file of formData.image_files) {
       const validType = ["image/jpeg", "image/png"].includes(file.type);
@@ -969,6 +974,9 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
           {t("featuredProduct")}
         </label>
       </div>
+      {errors.is_active && (
+        <p className="-mt-4 text-sm text-red-700">{errors.is_active}</p>
+      )}
 
       {/* Discount */}
       <div className="space-y-4 rounded-brand border border-champagne-beige p-4">

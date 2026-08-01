@@ -312,6 +312,33 @@ describe("Admin Orders List", () => {
     expect(confirmedValues).toEqual(["shipped", "cancelled"]);
   });
 
+  it("opens the ship modal with the order delivery courier selected", async () => {
+    mockedGetAdminOrders.mockResolvedValue(MOCK_ORDER_LIST);
+
+    const { AdminProvider } = await import("@/contexts/AdminContext");
+    const { AdminGuard } = await import("@/components/admin/AdminGuard");
+    const AdminOrdersPage = (await import("@/app/[locale]/admin/orders/page")).default;
+
+    renderWithIntl(
+      <AdminProvider>
+        <AdminGuard>
+          <AdminOrdersPage />
+        </AdminGuard>
+      </AdminProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("b***@example.com")).toBeInTheDocument();
+    });
+
+    const selects = screen.getAllByRole("combobox");
+    fireEvent.change(selects[1]!, { target: { value: "shipped" } });
+
+    expect(screen.getByRole("dialog", { name: "Ship order" })).toBeInTheDocument();
+    expect(screen.getByText("Customer selected Econt delivery")).toBeInTheDocument();
+    expect(screen.getByLabelText("Carrier")).toHaveValue("econt");
+  });
+
   it("shows loading skeletons on initial load", async () => {
     mockedGetAdminOrders.mockImplementation(() => new Promise(() => {}));
 

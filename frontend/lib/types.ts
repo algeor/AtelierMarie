@@ -330,10 +330,17 @@ export interface CartItemResponse {
   added_at: string;
 }
 
+export interface UnavailableCartItem {
+  product_id: string;
+  product_name: string;
+  reason: string;
+}
+
 export interface CartResponse {
   items: CartItemResponse[];
   total_cents: number;
   item_count: number;
+  unavailable_items: UnavailableCartItem[];
 }
 
 // --- Orders ---
@@ -680,6 +687,18 @@ export interface AdminStats {
   orders_today: number;
   revenue_this_week_cents: number;
   active_product_count: number;
+  low_stock_count: number;
+  contact_messages_needing_attention: number;
+  orders: {
+    total: number;
+    revenue_cents: number;
+    by_status: Partial<Record<OrderStatus, number>>;
+    by_payment_status: Partial<Record<PaymentStatus, number>>;
+  };
+  products: {
+    total: number;
+    active: number;
+  };
 }
 
 export interface AdminProductResponse {

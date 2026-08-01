@@ -661,10 +661,21 @@ const mockOrders: OrderResponse[] = [];
 // --- Cart Helpers ---
 
 function buildCartResponse(): CartResponse {
+  const unavailable_items = mockCartItems
+    .map((ci) => {
+      const product = MOCK_PRODUCTS.find((p) => p.id === ci.product_id);
+      if (product?.is_active) return null;
+      return {
+        product_id: ci.product_id,
+        product_name: product?.name ?? ci.product_id,
+        reason: product ? "inactive" : "removed",
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null);
   const items: CartItemResponse[] = mockCartItems
     .map((ci) => {
       const product = MOCK_PRODUCTS.find((p) => p.id === ci.product_id);
-      if (!product) return null;
+      if (!product?.is_active) return null;
       return {
         product_id: ci.product_id,
         product,
@@ -682,6 +693,7 @@ function buildCartResponse(): CartResponse {
     items,
     total_cents,
     item_count: items.reduce((sum, item) => sum + item.quantity, 0),
+    unavailable_items,
   };
 }
 
@@ -1385,13 +1397,35 @@ export async function getAdminStats(): Promise<AdminStats> {
   ).length;
   const weekAgo = Date.now() - 7 * 86400000;
   const revenueThisWeek = allOrders
-    .filter((o) => new Date(o.created_at).getTime() > weekAgo && o.status !== "cancelled")
+    .filter((o) => new Date(o.created_at).getTime() > weekAgo && o.payment_status === "paid")
     .reduce((sum, o) => sum + o.total_cents, 0);
   const activeProducts = MOCK_PRODUCTS.filter((p) => p.is_active).length;
+  const byStatus = allOrders.reduce<Record<string, number>>((acc, order) => {
+    acc[order.status] = (acc[order.status] ?? 0) + 1;
+    return acc;
+  }, {});
+  const byPaymentStatus = allOrders.reduce<Record<string, number>>((acc, order) => {
+    acc[order.payment_status] = (acc[order.payment_status] ?? 0) + 1;
+    return acc;
+  }, {});
   return {
     orders_today: ordersToday,
     revenue_this_week_cents: revenueThisWeek,
     active_product_count: activeProducts,
+    low_stock_count: MOCK_PRODUCTS.filter((p) => p.is_active && p.stock <= 5).length,
+    contact_messages_needing_attention: 0,
+    orders: {
+      total: allOrders.length,
+      revenue_cents: allOrders
+        .filter((order) => order.payment_status === "paid")
+        .reduce((sum, order) => sum + order.total_cents, 0),
+      by_status: byStatus,
+      by_payment_status: byPaymentStatus,
+    },
+    products: {
+      total: MOCK_PRODUCTS.length,
+      active: activeProducts,
+    },
   };
 }
 

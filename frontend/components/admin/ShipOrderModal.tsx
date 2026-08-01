@@ -5,8 +5,10 @@ import { useTranslations } from "next-intl";
 import {
   TRACKING_CARRIERS,
   buildTrackingUrl,
+  carrierLabel,
   type TrackingCarrier,
 } from "@/lib/tracking";
+import type { Courier } from "@/lib/types";
 
 export interface ShipTrackingInput {
   tracking_number: string;
@@ -16,6 +18,7 @@ export interface ShipTrackingInput {
 
 interface ShipOrderModalProps {
   orderId: string;
+  deliveryCourier?: Courier | null;
   isSubmitting: boolean;
   onCancel: () => void;
   onConfirm: (tracking: ShipTrackingInput) => void;
@@ -29,25 +32,34 @@ interface ShipOrderModalProps {
  */
 export function ShipOrderModal({
   orderId,
+  deliveryCourier = null,
   isSubmitting,
   onCancel,
   onConfirm,
 }: ShipOrderModalProps) {
   const t = useTranslations("admin.ship");
-  const [carrier, setCarrier] = useState<TrackingCarrier>("speedy");
+  const [carrier, setCarrier] = useState<TrackingCarrier>(deliveryCourier ?? "speedy");
   const [trackingNumber, setTrackingNumber] = useState("");
   const [customUrl, setCustomUrl] = useState("");
   const [touched, setTouched] = useState(false);
+  const [mismatchAcknowledged, setMismatchAcknowledged] = useState(false);
 
   const trimmedNumber = trackingNumber.trim();
   const numberMissing = trimmedNumber.length === 0;
   const autoUrl = buildTrackingUrl(carrier, trimmedNumber);
   const isOther = autoUrl === null;
   const previewUrl = isOther ? customUrl.trim() || null : autoUrl;
+  const carrierMismatch = Boolean(deliveryCourier && carrier !== deliveryCourier);
+  const deliveryCourierLabel = carrierLabel(deliveryCourier);
+  const selectedCarrierLabel = carrierLabel(carrier);
 
   function handleSubmit() {
     setTouched(true);
     if (numberMissing) return;
+    if (carrierMismatch && !mismatchAcknowledged) {
+      setMismatchAcknowledged(true);
+      return;
+    }
     const tracking: ShipTrackingInput = {
       tracking_number: trimmedNumber,
       tracking_carrier: carrier,
@@ -70,6 +82,11 @@ export function ShipOrderModal({
         <h2 className="font-heading text-lg font-semibold text-charcoal">
           {t("title")} #{orderId.slice(0, 8)}
         </h2>
+        {deliveryCourierLabel && (
+          <p className="mt-2 text-sm text-soft-brown">
+            {t("deliveryCourier", { courier: deliveryCourierLabel })}
+          </p>
+        )}
 
         <div className="mt-4 space-y-4">
           <div>
@@ -82,7 +99,10 @@ export function ShipOrderModal({
             <select
               id="ship-carrier"
               value={carrier}
-              onChange={(e) => setCarrier(e.target.value as TrackingCarrier)}
+              onChange={(e) => {
+                setCarrier(e.target.value as TrackingCarrier);
+                setMismatchAcknowledged(false);
+              }}
               className="mt-1 h-9 w-full rounded-brand border border-champagne-beige bg-cream px-2 text-sm text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown"
             >
               {TRACKING_CARRIERS.map((c) => (
@@ -91,6 +111,14 @@ export function ShipOrderModal({
                 </option>
               ))}
             </select>
+            {carrierMismatch && (
+              <p className="mt-2 rounded-brand border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800" role="alert">
+                {t("carrierMismatch", {
+                  delivery: deliveryCourierLabel ?? deliveryCourier ?? "delivery",
+                  selected: selectedCarrierLabel ?? carrier,
+                })}
+              </p>
+            )}
           </div>
 
           <div>
@@ -156,7 +184,7 @@ export function ShipOrderModal({
             disabled={isSubmitting || numberMissing}
             className="rounded-brand bg-muted-gold px-4 py-2 text-sm font-medium text-charcoal hover:bg-muted-gold/80 disabled:opacity-50"
           >
-            {t("confirm")}
+            {carrierMismatch && mismatchAcknowledged ? t("confirmMismatch") : t("confirm")}
           </button>
         </div>
       </div>

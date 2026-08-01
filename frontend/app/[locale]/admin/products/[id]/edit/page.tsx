@@ -66,6 +66,8 @@ export default function EditProductPage() {
   }, [productId, product?.video?.status]);
 
   async function handleSubmit(data: ProductFormData) {
+    const publishAfterMedia = data.is_active;
+    const hasNewImages = data.image_files.length > 0;
     await updateProduct(productId, {
       name_en: data.name_en,
       name_bg: data.name_bg || null,
@@ -83,7 +85,7 @@ export default function EditProductPage() {
       labels: data.labels,
       stock: data.stock,
       weight_grams: data.weight_grams,
-      is_active: data.is_active,
+      is_active: hasNewImages ? false : data.is_active,
       is_featured: data.is_featured,
       discount_percent: data.discount_percent,
       discount_starts_at: data.discount_starts_at,
@@ -109,6 +111,9 @@ export default function EditProductPage() {
       await updateProductVideoSortOrder(productId, data.video_sort_order);
     } else if (product?.video && !data.delete_video) {
       await updateProductVideoSortOrder(productId, data.video_sort_order);
+    }
+    if (publishAfterMedia && hasNewImages) {
+      await updateProduct(productId, { is_active: true });
     }
   }
 

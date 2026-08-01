@@ -38,6 +38,16 @@ def _seeded_data(db_path, app):
         ],
     )
 
+    conn.executemany(
+        "INSERT INTO contact_messages (name, email, message, locale, email_status) "
+        "VALUES (?, ?, ?, 'en', ?)",
+        [
+            ("Queued Customer", "queued@test.com", "Please reply", "queued"),
+            ("Failed Customer", "failed@test.com", "Please retry", "failed"),
+            ("Sent Customer", "sent@test.com", "Already handled", "sent"),
+        ],
+    )
+
     conn.commit()
     conn.close()
 
@@ -61,6 +71,7 @@ class TestAdminDashboard:
         assert body["orders_today"] == 0
         assert body["revenue_this_week_cents"] == 0
         assert body["active_product_count"] == 0
+        assert body["contact_messages_needing_attention"] == 0
 
     @pytest.mark.asyncio
     async def test_dashboard_with_data(self, admin_client, _seeded_data):
@@ -91,6 +102,7 @@ class TestAdminDashboard:
         assert body["orders_today"] == 5
         assert body["revenue_this_week_cents"] == 9500
         assert body["active_product_count"] == 3
+        assert body["contact_messages_needing_attention"] == 2
 
     @pytest.mark.asyncio
     async def test_dashboard_requires_auth(self, app):

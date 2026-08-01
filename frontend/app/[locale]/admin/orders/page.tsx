@@ -419,6 +419,7 @@ export default function AdminOrdersPage() {
       {shippingOrder && (
         <ShipOrderModal
           orderId={shippingOrder.id}
+          deliveryCourier={shippingOrder.delivery_courier}
           isSubmitting={updatingId === shippingOrder.id}
           onCancel={() => setShippingOrder(null)}
           onConfirm={(tracking) =>

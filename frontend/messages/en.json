@@ -333,7 +333,12 @@
     "removeFromCart": "Remove {name} from cart",
     "decreaseQuantity": "Decrease quantity",
     "increaseQuantity": "Increase quantity",
-    "dismissError": "Dismiss error"
+    "dismissError": "Dismiss error",
+    "stockLimit": "Only {count} available",
+    "unavailableTitle": "Unavailable items",
+    "unavailableReason": "No longer available: {reason}",
+    "amountToFreeShipping": "Add {amount} more for free shipping",
+    "freeShippingUnlocked": "Free shipping unlocked"
   },
   "checkout": {
     "title": "Checkout",
@@ -592,6 +597,14 @@
     "ordersToday": "Orders Today",
     "revenueThisWeek": "Revenue This Week",
     "activeProducts": "Active Products",
+    "workQueue": "Today's work queue",
+    "queue": {
+      "pendingOrders": "Orders to confirm",
+      "paymentAttention": "Payment attention",
+      "readyToShip": "Ready to ship",
+      "lowStock": "Low stock products",
+      "contactMessages": "Contact messages"
+    },
     "backToStore": "Back to Store",
     "openNavMenu": "Open navigation menu",
     "closeNavMenu": "Close navigation menu",
@@ -611,6 +624,10 @@
     "inactive": "Inactive",
     "activate": "Activate",
     "deactivate": "Deactivate",
+    "media": "Media",
+    "mediaReady": "Ready",
+    "mediaMissing": "Missing image",
+    "mediaRequiredToActivate": "Add at least one product image before activating this product.",
     "all": "All",
     "orderId": "Order ID",
     "orderDetail": "Order #{id}",
@@ -760,6 +777,7 @@
       "videoType": "Upload a video file",
       "videoSize": "Video must be 200MB or smaller",
       "maxImages": "A product can have up to 6 images",
+      "activeProductNeedsImage": "Active products need at least one product image.",
       "productTypeRequired": "Product type is required",
       "discountPercentRange": "Discount must be between 1 and 99",
       "discountWindowOrder": "Discount start must be before the end",
@@ -783,8 +801,11 @@
       "urlAuto": "Auto-generated from carrier + number",
       "urlPreview": "Link preview",
       "customUrlPlaceholder": "https://…",
+      "deliveryCourier": "Customer selected {courier} delivery",
+      "carrierMismatch": "Selected tracking carrier ({selected}) does not match the customer's delivery courier ({delivery}). Click again to confirm this is intentional.",
       "cancel": "Cancel",
       "confirm": "Mark as shipped",
+      "confirmMismatch": "Confirm mismatch",
       "trackingRequired": "Tracking number is required"
     },
     "taxonomy": {

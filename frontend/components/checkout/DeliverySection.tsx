@@ -314,11 +314,12 @@ function OfficePicker({ courier, selectedOffice, onSelect, error, locale }: Offi
   return (
     <div className="mb-6">
       {/* City input with typeahead */}
-      <label className="mb-1.5 block text-sm font-medium text-soft-brown">
+      <label htmlFor="delivery-office-city" className="mb-1.5 block text-sm font-medium text-soft-brown">
         {t("cityLabel")} <span className="text-red-700">*</span>
       </label>
       <div className="relative mb-4">
         <input
+          id="delivery-office-city"
           type="text"
           value={city}
           onChange={(e) => {
@@ -441,13 +442,16 @@ function DoorAddressForm({ value, onChange, errors, locale }: DoorAddressFormPro
     readOnly = false,
   ) => {
     const err = errorKey ? errors[errorKey] : undefined;
+    const inputId = `delivery-door-${String(fieldKey).replaceAll("_", "-")}`;
+    const errorId = `${inputId}-error`;
     return (
       <div className="mb-4">
-        <label className="mb-1.5 block text-sm font-medium text-soft-brown">
+        <label htmlFor={inputId} className="mb-1.5 block text-sm font-medium text-soft-brown">
           {t(`${key}Label`)}
           {required && <span className="text-red-700"> *</span>}
         </label>
         <input
+          id={inputId}
           type="text"
           value={(value[fieldKey] as string | null | undefined) ?? ""}
           onChange={(e) => onChange({ [fieldKey]: e.target.value })}
@@ -463,6 +467,7 @@ function DoorAddressForm({ value, onChange, errors, locale }: DoorAddressFormPro
                   : 100
           }
           aria-invalid={err ? "true" : undefined}
+          aria-describedby={err ? errorId : undefined}
           className={cn(
             "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
             readOnly && "cursor-not-allowed opacity-70",
@@ -470,7 +475,7 @@ function DoorAddressForm({ value, onChange, errors, locale }: DoorAddressFormPro
           )}
         />
         {err && (
-          <p className="mt-1 text-sm text-red-700" role="alert">
+          <p id={errorId} className="mt-1 text-sm text-red-700" role="alert">
             {err}
           </p>
         )}
@@ -490,6 +495,7 @@ function DoorAddressForm({ value, onChange, errors, locale }: DoorAddressFormPro
         }
         onPostalCodeChange={(postal_code) => onChange({ postal_code })}
         error={errors.city}
+        postalCodeError={errors.postalCode}
       />
       {field("street", "street", true, "street")}
       <div className="grid gap-4 sm:grid-cols-2">
@@ -510,6 +516,7 @@ interface DoorPlaceFieldProps {
   onSelect: (place: CityPlace) => void;
   onPostalCodeChange: (postalCode: string) => void;
   error?: string;
+  postalCodeError?: string;
 }
 
 // Debounced place typeahead for courier door delivery — mirrors the OfficePicker
@@ -524,6 +531,7 @@ function DoorPlaceField({
   onSelect,
   onPostalCodeChange,
   error,
+  postalCodeError,
 }: DoorPlaceFieldProps) {
   const t = useTranslations("checkout.delivery.door");
   const [query, setQuery] = useState(city);
@@ -563,11 +571,12 @@ function DoorPlaceField({
   return (
     <>
       <div className="mb-4">
-        <label className="mb-1.5 block text-sm font-medium text-soft-brown">
+        <label htmlFor="delivery-door-city" className="mb-1.5 block text-sm font-medium text-soft-brown">
           {t("cityLabel")} <span className="text-red-700">*</span>
         </label>
         <div className="relative">
           <input
+            id="delivery-door-city"
             type="text"
             value={query}
             onChange={(e) => {
@@ -581,6 +590,7 @@ function DoorPlaceField({
             placeholder={t("cityPlaceholder")}
             maxLength={100}
             aria-invalid={error ? "true" : undefined}
+            aria-describedby={error ? "delivery-door-city-error" : undefined}
             className={cn(
               "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
               error ? "border-red-700" : "border-champagne-beige"
@@ -603,26 +613,35 @@ function DoorPlaceField({
           )}
         </div>
         {error && (
-          <p className="mt-1 text-sm text-red-700" role="alert">
+          <p id="delivery-door-city-error" className="mt-1 text-sm text-red-700" role="alert">
             {error}
           </p>
         )}
       </div>
       <div className="mb-4">
-        <label className="mb-1.5 block text-sm font-medium text-soft-brown">
+        <label htmlFor="delivery-door-postal-code" className="mb-1.5 block text-sm font-medium text-soft-brown">
           {t("postalCodeLabel")} <span className="text-red-700">*</span>
         </label>
         <input
+          id="delivery-door-postal-code"
           type="text"
           value={postalCode}
           readOnly={postalCodeLocked}
           onChange={(e) => onPostalCodeChange(e.target.value)}
           placeholder={t("postalCodePlaceholder")}
+          aria-invalid={postalCodeError ? "true" : undefined}
+          aria-describedby={postalCodeError ? "delivery-door-postal-code-error" : undefined}
           className={cn(
-            "w-full rounded-brand border border-champagne-beige bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
+            "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
+            postalCodeError ? "border-red-700" : "border-champagne-beige",
             postalCodeLocked && "cursor-not-allowed opacity-70 focus:ring-0"
           )}
         />
+        {postalCodeError && (
+          <p id="delivery-door-postal-code-error" className="mt-1 text-sm text-red-700" role="alert">
+            {postalCodeError}
+          </p>
+        )}
       </div>
     </>
   );
@@ -640,22 +659,24 @@ function PhoneField({ value, onChange, error }: PhoneFieldProps) {
   const t = useTranslations("checkout.delivery");
   return (
     <div className="mb-6">
-      <label className="mb-1.5 block text-sm font-medium text-soft-brown">
+      <label htmlFor="delivery-phone" className="mb-1.5 block text-sm font-medium text-soft-brown">
         {t("phoneLabel")} <span className="text-red-700">*</span>
       </label>
       <input
+        id="delivery-phone"
         type="tel"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={t("phonePlaceholder")}
         aria-invalid={error ? "true" : undefined}
+        aria-describedby={error ? "delivery-phone-error" : undefined}
         className={cn(
           "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
           error ? "border-red-700" : "border-champagne-beige"
         )}
       />
       {error && (
-        <p className="mt-1 text-sm text-red-700" role="alert">
+        <p id="delivery-phone-error" className="mt-1 text-sm text-red-700" role="alert">
           {error}
         </p>
       )}

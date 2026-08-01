@@ -36,6 +36,10 @@ class DashboardResponse(BaseModel):
         ..., description="Paid-order revenue from the last 7 days"
     )
     active_product_count: int = Field(..., description="Currently active products")
+    contact_messages_needing_attention: int = Field(
+        default=0,
+        description="Contact messages whose owner notification is not successfully sent",
+    )
 
 
 class AdminAlertResponse(BaseModel):
