@@ -67,6 +67,27 @@
     box-shadow: 0 8px 18px rgba(196, 162, 101, 0.22), 0 0 0 1px rgba(196, 162, 101, 0.28);
     transform: translateY(1px) scale(0.98);
   }
+
+  .delete-icon-button .delete-bin-lid,
+  .delete-icon-button .delete-bin-body {
+    transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), color 180ms ease;
+  }
+
+  .delete-icon-button .delete-bin-lid {
+    transform-box: fill-box;
+    transform-origin: 20% 100%;
+  }
+
+  .delete-icon-button:not(:disabled):is(:hover, :focus-visible) {
+    background-color: rgb(254 242 242);
+    border-color: rgb(254 202 202);
+    box-shadow: 0 12px 24px rgba(185, 28, 28, 0.16), 0 0 0 1px rgba(185, 28, 28, 0.18);
+    color: rgb(185 28 28);
+  }
+
+  .delete-icon-button:not(:disabled):is(:hover, :focus-visible) .delete-bin-lid {
+    transform: translate(-1px, -2px) rotate(-16deg);
+  }
 }
 
 @keyframes button-click-pop {

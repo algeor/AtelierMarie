@@ -234,9 +234,12 @@ export default function AdminPaymentSettingsPage() {
               </div>
 
               <div className="border-t border-champagne-beige px-5 py-4">
-                <label className="block text-sm font-semibold text-charcoal" htmlFor="cod-max">
-                  {t("codMaxLabel")}
-                </label>
+                <div className="flex items-center gap-2">
+                  <label className="block text-sm font-semibold text-charcoal" htmlFor="cod-max">
+                    {t("codMaxLabel")}
+                  </label>
+                  <AdminInfoPopover content={t("codMaxHint")} />
+                </div>
                 <div className="mt-2 flex max-w-xs items-center gap-2">
                   <span className="text-sm text-soft-brown">EUR</span>
                   <input
@@ -259,7 +262,6 @@ export default function AdminPaymentSettingsPage() {
                     className="h-10 w-full rounded-brand border border-champagne-beige bg-cream px-3 text-sm text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown"
                   />
                 </div>
-                <p className="mt-2 text-xs text-soft-brown">{t("codMaxHint")}</p>
               </div>
             </div>
           )}

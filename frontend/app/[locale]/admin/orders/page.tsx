@@ -16,6 +16,7 @@ import {
   ShipOrderModal,
   type ShipTrackingInput,
 } from "@/components/admin/ShipOrderModal";
+import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
 import type {
   AdminOrderAccountingFilter,
   OrderResponse,
@@ -270,20 +271,23 @@ export default function AdminOrdersPage() {
   return (
     <div>
       <div className="mb-8">
-        <h1 className="font-heading text-2xl font-semibold text-charcoal">
-          {t("orders")}
-        </h1>
-        <p className="mt-1 text-sm text-soft-brown">
-          {t("manageOrders")}
-        </p>
+        <div className="flex items-center gap-2">
+          <h1 className="font-heading text-2xl font-semibold text-charcoal">
+            {t("orders")}
+          </h1>
+          <AdminInfoPopover content={t("ordersHelp.page")} />
+        </div>
       </div>
 
       {/* Filter Pills */}
       <div className="mb-6 space-y-3">
         <div>
-          <p className="mb-2 text-xs font-semibold uppercase text-soft-brown">
-            {t("fulfillmentFilter")}
-          </p>
+          <div className="mb-2 flex items-center gap-2">
+            <p className="text-xs font-semibold uppercase text-soft-brown">
+              {t("fulfillmentFilter")}
+            </p>
+            <AdminInfoPopover content={t("ordersHelp.fulfillment")} />
+          </div>
           <div className="flex flex-wrap gap-2">
             {STATUS_FILTERS.map((filter) => (
               <button
@@ -304,9 +308,12 @@ export default function AdminOrdersPage() {
         </div>
 
         <div>
-          <p className="mb-2 text-xs font-semibold uppercase text-soft-brown">
-            {t("paymentStatusFilter")}
-          </p>
+          <div className="mb-2 flex items-center gap-2">
+            <p className="text-xs font-semibold uppercase text-soft-brown">
+              {t("paymentStatusFilter")}
+            </p>
+            <AdminInfoPopover content={t("ordersHelp.paymentStatus")} />
+          </div>
           <div className="flex flex-wrap gap-2">
             {PAYMENT_STATUS_FILTERS.map((filter) => (
               <button
@@ -327,9 +334,12 @@ export default function AdminOrdersPage() {
         </div>
 
         <div>
-          <p className="mb-2 text-xs font-semibold uppercase text-soft-brown">
-            {t("paymentMethodFilter")}
-          </p>
+          <div className="mb-2 flex items-center gap-2">
+            <p className="text-xs font-semibold uppercase text-soft-brown">
+              {t("paymentMethodFilter")}
+            </p>
+            <AdminInfoPopover content={t("ordersHelp.paymentMethod")} />
+          </div>
           <div className="flex flex-wrap gap-2">
             {PAYMENT_METHOD_FILTERS.map((filter) => (
               <button
@@ -350,9 +360,12 @@ export default function AdminOrdersPage() {
         </div>
 
         <div>
-          <p className="mb-2 text-xs font-semibold uppercase text-soft-brown">
-            {t("accountingFilter")}
-          </p>
+          <div className="mb-2 flex items-center gap-2">
+            <p className="text-xs font-semibold uppercase text-soft-brown">
+              {t("accountingFilter")}
+            </p>
+            <AdminInfoPopover content={t("ordersHelp.accounting")} />
+          </div>
           <div className="flex flex-wrap gap-2">
             {ACCOUNTING_FILTERS.map((filter) => (
               <button

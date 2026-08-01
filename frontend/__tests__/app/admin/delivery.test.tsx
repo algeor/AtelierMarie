@@ -42,7 +42,7 @@ describe("Admin delivery settings page", () => {
     expect(
       await screen.findByRole("heading", { name: "Delivery and payment methods", level: 1 }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/Courier prices come from Speedy or Econt/)).toBeInTheDocument();
+    expect(screen.getByText("Shipping price calculation")).toBeInTheDocument();
 
     const speedyDoor = screen.getByLabelText(/Speedy.*Door delivery/) as HTMLInputElement;
     expect(speedyDoor.checked).toBe(true);

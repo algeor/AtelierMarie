@@ -257,9 +257,6 @@ describe("Admin order Econt fulfillment", () => {
     expect(await screen.findByText("Econt payment proof")).toBeInTheDocument();
     expect(screen.getByText("25.00")).toBeInTheDocument();
     expect(screen.getByText("24.00")).toBeInTheDocument();
-    expect(
-      screen.getByText(/Still record the final payment separately/i),
-    ).toBeInTheDocument();
   });
 
   it("shows normalized Econt return status evidence", async () => {

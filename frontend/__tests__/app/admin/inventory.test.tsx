@@ -14,8 +14,12 @@ import type {
   ValuationLayerListResponse,
 } from "@/lib/types";
 
+const navigationMock = vi.hoisted(() => ({
+  searchParams: new URLSearchParams(),
+}));
+
 vi.mock("next/navigation", () => ({
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => navigationMock.searchParams,
 }));
 
 vi.mock("@/i18n/navigation", () => ({
@@ -357,6 +361,7 @@ function mockInventoryApi() {
 describe("Admin inventory workspace", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    navigationMock.searchParams = new URLSearchParams();
     mockInventoryApi();
   });
 
@@ -435,5 +440,29 @@ describe("Admin inventory workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
 
     await waitFor(() => expect(listInventoryMovements).toHaveBeenLastCalledWith(expect.objectContaining({ itemId: "mat-wax" })));
+  });
+
+  it("applies inventory deep-link filters to valuation evidence tables", async () => {
+    navigationMock.searchParams = new URLSearchParams(
+      "item_type=finished_good&item_id=lavender-candle&product_id=lavender-candle&order_id=order-1&target_type=product&target_id=lavender-candle",
+    );
+
+    renderWithIntl(<InventoryWorkspace initialTab="valuation" />);
+
+    await waitFor(() => {
+      expect(listValuationLayers).toHaveBeenCalledWith({
+        itemType: "finished_good",
+        itemId: "lavender-candle",
+      });
+      expect(listCogsRows).toHaveBeenCalledWith({ productId: "lavender-candle", orderId: "order-1" });
+      expect(listInventoryExceptions).toHaveBeenCalledWith({
+        targetType: "product",
+        targetId: "lavender-candle",
+        sourceType: undefined,
+        sourceId: undefined,
+        orderId: "order-1",
+      });
+      expect(getMaterial).not.toHaveBeenCalled();
+    });
   });
 });

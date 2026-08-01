@@ -13,6 +13,7 @@ import {
   updateOrderStatus,
 } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
+import { DeleteIconButton } from "@/components/ui/DeleteIconButton";
 import { useLocalizedError } from "@/lib/useLocalizedError";
 import { cn } from "@/lib/utils";
 import type { EcontOrderFulfillmentResponse, OrderResponse } from "@/lib/types";
@@ -348,6 +349,17 @@ export function EcontFulfillmentPanel({ order, onRefreshOrder }: EcontFulfillmen
 }
 
 function ActionButton({ label, busy, disabled, danger, onClick }: { label: string; busy: boolean; disabled: boolean; danger?: boolean; onClick: () => void }) {
+  if (danger) {
+    return (
+      <DeleteIconButton
+        label={label}
+        isLoading={busy}
+        disabled={disabled}
+        onClick={onClick}
+      />
+    );
+  }
+
   return (
     <button
       type="button"

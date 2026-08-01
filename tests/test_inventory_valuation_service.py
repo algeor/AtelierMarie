@@ -51,6 +51,11 @@ def test_valuation_settings_review_and_fifo_warning(valuation_db):
     assert updated.accountant_reviewed is True
     exceptions = inventory_service.valuation_exceptions()
     assert "fifo_requires_lot_discipline" in {item["exception_type"] for item in exceptions}
+    settings_exceptions = inventory_service.valuation_exceptions(
+        target_type="inventory_settings",
+        target_id="default",
+    )
+    assert {item["target_id"] for item in settings_exceptions} == {"default"}
 
 
 def test_opening_balance_and_weighted_average_layers(valuation_db):
@@ -148,6 +153,9 @@ def test_cogs_generation_and_close_preview(valuation_db):
     assert cogs.rows[0].unit_cost_amount == "2.000000"
     assert cogs.rows[0].total_cost_cents == 400
     assert cogs.rows[0].review_state == "official"
+    assert inventory_service.list_cogs_rows(product_id="prod-value").total == 1
+    assert inventory_service.list_cogs_rows(order_id="order-value").total == 1
+    assert inventory_service.list_cogs_rows(product_id="other-product").total == 0
 
     preview = inventory_service.inventory_close_preview("2000-01-01", "2999-12-31")
     assert preview.opening_value_cents == 2000

@@ -62,6 +62,48 @@ interface InventoryWorkspaceProps {
 const TABS: InventoryTab[] = ["materials", "recipes", "batches", "valuation", "movements"];
 const UOMS: MaterialUom[] = ["g", "kg", "ml", "l", "piece", "pcs", "unit", "m", "cm"];
 const MATERIAL_MOVEMENTS: MaterialMovementType[] = ["adjustment", "spoilage", "write_off", "stock_count_correction"];
+const INVENTORY_LABEL_KEYS = new Set([
+  "accountant_reviewed",
+  "active",
+  "adjustment",
+  "allow_estimate",
+  "archived",
+  "below_threshold",
+  "block_official",
+  "blocking",
+  "cancelled",
+  "delivery_date",
+  "draft",
+  "estimate",
+  "estimate_only",
+  "fifo",
+  "finished_good",
+  "half_up_2dp",
+  "half_up_4dp",
+  "legacy",
+  "ledger_managed",
+  "material",
+  "missing",
+  "official",
+  "ok",
+  "order_date",
+  "payment_date",
+  "period_close",
+  "piece",
+  "pcs",
+  "produced",
+  "ready",
+  "reviewed",
+  "setup",
+  "shipment_date",
+  "spoilage",
+  "stock_count_correction",
+  "unit",
+  "warn",
+  "warning",
+  "weighted_average",
+  "write_off",
+]);
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -157,8 +199,8 @@ function SectionTitle({ title, subtitle, info }: { title: string; subtitle?: str
   );
 }
 
-function StatusBadge({ value }: { value: string | null | undefined }) {
-  return <Badge variant={badgeVariant(value)} className="capitalize">{statusText(value)}</Badge>;
+function StatusBadge({ value, label }: { value: string | null | undefined; label?: string }) {
+  return <Badge variant={badgeVariant(value)}>{label ?? statusText(value)}</Badge>;
 }
 
 function EmptyState({ label }: { label: string }) {
@@ -187,9 +229,19 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
   const tAdmin = useTranslations("admin");
   const locale = useLocale();
   const searchParams = useSearchParams();
+  const urlItemType = searchParams.get("item_type") as "material" | "finished_good" | null;
+  const urlItemId = searchParams.get("item_id") || "";
+  const urlProductId = searchParams.get("product_id") || "";
+  const urlOrderId = searchParams.get("order_id") || "";
+  const urlSourceType = searchParams.get("source_type") || "";
+  const urlSourceId = searchParams.get("source_id") || "";
+  const urlTargetType = searchParams.get("target_type") || "";
+  const urlTargetId = searchParams.get("target_id") || "";
   const [activeTab, setActiveTab] = useState<InventoryTab>(initialTab);
   const [materials, setMaterials] = useState<MaterialResponse[]>([]);
-  const [selectedMaterialId, setSelectedMaterialId] = useState(searchParams.get("material_id") || searchParams.get("item_id") || "");
+  const [selectedMaterialId, setSelectedMaterialId] = useState(
+    searchParams.get("material_id") || (urlItemType === "material" ? urlItemId : ""),
+  );
   const [materialDetail, setMaterialDetail] = useState<MaterialDetailResponse | null>(null);
   const [recipes, setRecipes] = useState<RecipeVersionResponse[]>([]);
   const [recipeStatus, setRecipeStatus] = useState("");
@@ -203,12 +255,14 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
     itemId: string;
     sourceType: string;
     sourceId: string;
+    orderId: string;
     movementType: string;
   }>({
-    itemType: (searchParams.get("item_type") as "material" | "finished_good" | null) || "",
-    itemId: searchParams.get("item_id") || "",
-    sourceType: searchParams.get("source_type") || "",
-    sourceId: searchParams.get("source_id") || "",
+    itemType: urlItemType || "",
+    itemId: urlItemId,
+    sourceType: urlSourceType,
+    sourceId: urlSourceId,
+    orderId: urlOrderId,
     movementType: searchParams.get("movement_type") || "",
   });
   const [valuationLayers, setValuationLayers] = useState<ValuationLayerResponse[]>([]);
@@ -226,6 +280,19 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
     [materials, selectedMaterialId],
   );
 
+  const labelFor = useCallback(
+    (value: string | null | undefined): string => {
+      if (!value) return "-";
+      return INVENTORY_LABEL_KEYS.has(value) ? t(`labels.${value}`) : statusText(value);
+    },
+    [t],
+  );
+
+  const uomOptions = useMemo(
+    () => UOMS.map((uom) => <option key={uom} value={uom}>{labelFor(uom)}</option>),
+    [labelFor],
+  );
+
   const loadWorkspace = useCallback(async (soft = false) => {
     if (soft) setIsRefreshing(true);
     else setIsLoading(true);
@@ -241,12 +308,25 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
           itemId: movementFilters.itemId || undefined,
           sourceType: movementFilters.sourceType || undefined,
           sourceId: movementFilters.sourceId || undefined,
+          orderId: movementFilters.orderId || undefined,
           movementType: movementFilters.movementType || undefined,
           limit: 100,
         }),
-        listValuationLayers(),
-        listCogsRows(),
-        listInventoryExceptions(),
+        listValuationLayers({
+          itemType: urlItemType || undefined,
+          itemId: urlItemId || undefined,
+        }),
+        listCogsRows({
+          productId: urlProductId || undefined,
+          orderId: urlOrderId || undefined,
+        }),
+        listInventoryExceptions({
+          targetType: urlTargetType || undefined,
+          targetId: urlTargetId || undefined,
+          sourceType: urlSourceType || undefined,
+          sourceId: urlSourceId || undefined,
+          orderId: urlOrderId || undefined,
+        }),
       ]);
       setMaterials(materialData.materials);
       setRecipes(recipeData.recipes);
@@ -263,7 +343,7 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [batchStatus, movementFilters, recipeStatus, t]);
+  }, [batchStatus, movementFilters, recipeStatus, t, urlItemId, urlItemType, urlOrderId, urlProductId, urlSourceId, urlSourceType, urlTargetId, urlTargetType]);
 
   useEffect(() => {
     loadWorkspace(false);
@@ -506,6 +586,7 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
       itemId: textValue(formData, "item_id"),
       sourceType: textValue(formData, "source_type"),
       sourceId: textValue(formData, "source_id"),
+      orderId: textValue(formData, "order_id"),
       movementType: textValue(formData, "movement_type"),
     });
     setActiveTab("movements");
@@ -519,13 +600,13 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
           <div className="mt-4 grid gap-3 md:grid-cols-3">
             <input name="name" required className={inputClass()} placeholder={t("materials.name")} />
             <input name="sku" className={inputClass()} placeholder={t("materials.sku")} />
-            <input name="category" className={inputClass()} placeholder={t("materials.category")} defaultValue="material" />
+            <input name="category" className={inputClass()} placeholder={t("materials.category")} defaultValue={labelFor("material")} />
             <select name="stock_uom" className={inputClass()} defaultValue="g">
-              {UOMS.map((uom) => <option key={uom} value={uom}>{uom}</option>)}
+              {uomOptions}
             </select>
             <select name="purchase_uom" className={inputClass()} defaultValue="">
               <option value="">{t("materials.purchaseUom")}</option>
-              {UOMS.map((uom) => <option key={uom} value={uom}>{uom}</option>)}
+              {uomOptions}
             </select>
             <input name="purchase_to_stock_factor" type="number" min="0" step="0.000001" className={inputClass()} placeholder={t("materials.conversion")} />
             <input name="preferred_supplier_name" className={inputClass()} placeholder={t("materials.supplier")} />
@@ -563,7 +644,7 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
                       <p className="mt-1 text-xs text-soft-brown">{material.sku || material.id} · {material.category}</p>
                     </td>
                     <td className="px-4 py-3 text-soft-brown">{material.on_hand_quantity} {material.stock_uom}</td>
-                    <td className="px-4 py-3"><StatusBadge value={material.reorder_status} /></td>
+                    <td className="px-4 py-3"><StatusBadge value={material.reorder_status} label={labelFor(material.reorder_status)} /></td>
                     <td className="px-4 py-3 text-soft-brown">{material.open_exception_count}</td>
                   </tr>
                 ))}
@@ -586,9 +667,9 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
                     <Field label={t("exceptions")} value={materialDetail.exceptions.length} />
                   </dl>
                   <div className="mt-4 flex flex-wrap gap-2">
-                    {materialDetail.lot_tracked && <StatusBadge value="lot tracked" />}
-                    {materialDetail.expiry_tracked && <StatusBadge value="expiry tracked" />}
-                    {materialDetail.evidence_required && <StatusBadge value="evidence required" />}
+                    {materialDetail.lot_tracked && <StatusBadge value="active" label={t("materials.lotTracked")} />}
+                    {materialDetail.expiry_tracked && <StatusBadge value="active" label={t("materials.expiryTracked")} />}
+                    {materialDetail.evidence_required && <StatusBadge value="active" label={t("materials.evidenceRequired")} />}
                   </div>
                 </section>
 
@@ -597,7 +678,7 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
                     <input name="receipt_date" type="date" className={inputClass()} defaultValue={today()} />
                     <input name="quantity" required type="number" min="0" step="0.001" className={inputClass()} placeholder={t("quantity")} />
-                    <select name="uom" className={inputClass()} defaultValue={materialDetail.stock_uom}>{UOMS.map((uom) => <option key={uom} value={uom}>{uom}</option>)}</select>
+                    <select name="uom" className={inputClass()} defaultValue={materialDetail.stock_uom}>{uomOptions}</select>
                     <input name="unit_cost_amount" className={inputClass()} placeholder={t("materials.unitCost")} />
                     <input name="total_cost_cents" type="number" min="0" step="1" className={inputClass()} placeholder={t("materials.totalCostCents")} />
                     <input name="currency" className={inputClass()} defaultValue="EUR" placeholder={t("currency")} />
@@ -613,9 +694,9 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
                 <form onSubmit={handleAdjustment} className="rounded-brand border border-champagne-beige bg-cream p-4">
                   <SectionTitle title={t("materials.adjustmentTitle")} />
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    <select name="movement_type" className={inputClass()}>{MATERIAL_MOVEMENTS.map((type) => <option key={type} value={type}>{statusText(type)}</option>)}</select>
+                    <select name="movement_type" className={inputClass()}>{MATERIAL_MOVEMENTS.map((type) => <option key={type} value={type}>{labelFor(type)}</option>)}</select>
                     <input name="quantity_delta" required type="number" step="0.001" className={inputClass()} placeholder={t("materials.quantityDelta")} />
-                    <select name="uom" className={inputClass()} defaultValue={materialDetail.stock_uom}>{UOMS.map((uom) => <option key={uom} value={uom}>{uom}</option>)}</select>
+                    <select name="uom" className={inputClass()} defaultValue={materialDetail.stock_uom}>{uomOptions}</select>
                     <input name="reason" required className={inputClass()} placeholder={t("reason")} />
                   </div>
                   <textarea name="notes" className={cn(textareaClass(), "mt-3")} placeholder={t("notes")} />
@@ -644,7 +725,7 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
             <input name="version_label" required className={inputClass()} placeholder={t("recipes.versionLabel")} />
             <input name="effective_date" type="date" className={inputClass()} defaultValue={today()} />
             <input name="output_quantity" required type="number" min="0" step="0.001" className={inputClass()} placeholder={t("recipes.outputQuantity")} />
-            <input name="output_uom" className={inputClass()} defaultValue="unit" />
+            <select name="output_uom" className={inputClass()} defaultValue="unit">{uomOptions}</select>
             <input name="notes" className={inputClass()} placeholder={t("notes")} />
           </div>
           <textarea name="components" className={cn(textareaClass(), "mt-3")} placeholder="soy-wax,500,g,per_batch,3" />
@@ -653,7 +734,7 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
 
         <div className="flex flex-wrap gap-2">
           {["", "draft", "active", "archived"].map((status) => (
-            <button key={status || "all"} type="button" onClick={() => setRecipeStatus(status)} className={cn("rounded-pill px-4 py-1.5 text-sm font-medium", recipeStatus === status ? "bg-muted-gold text-charcoal" : "bg-champagne-beige/50 text-soft-brown")}>{status ? statusText(status) : tAdmin("all")}</button>
+            <button key={status || "all"} type="button" onClick={() => setRecipeStatus(status)} className={cn("rounded-pill px-4 py-1.5 text-sm font-medium", recipeStatus === status ? "bg-muted-gold text-charcoal" : "bg-champagne-beige/50 text-soft-brown")}>{status ? labelFor(status) : tAdmin("all")}</button>
           ))}
         </div>
 
@@ -665,7 +746,7 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
                 <tr key={recipe.id} className="border-b border-champagne-beige/50 align-top last:border-0">
                   <td className="px-4 py-3"><span className="font-medium text-charcoal">{recipe.product_id}</span><p className="mt-1 text-xs text-soft-brown">{recipe.components.length} {t("recipes.components")}</p></td>
                   <td className="px-4 py-3 text-soft-brown">{recipe.version_label}<p className="text-xs">{formatDate(recipe.effective_date, locale)}</p></td>
-                  <td className="px-4 py-3"><div className="space-y-1"><StatusBadge value={recipe.status} /><StatusBadge value={recipe.review_state} /></div></td>
+                  <td className="px-4 py-3"><div className="space-y-1"><StatusBadge value={recipe.status} label={labelFor(recipe.status)} /><StatusBadge value={recipe.review_state} label={labelFor(recipe.review_state)} /></div></td>
                   <td className="px-4 py-3 text-soft-brown">{recipe.latest_cost_snapshot ? formatPrice(recipe.latest_cost_snapshot.expected_unit_cost_cents) : "-"}<p className="text-xs">{recipe.diagnostics.length} {t("recipes.diagnostics")}</p></td>
                   <td className="px-4 py-3"><div className="flex flex-wrap gap-2">
                     <Button type="button" size="sm" variant="secondary" isLoading={busyAction === `activate-${recipe.id}`} onClick={() => runAction(`activate-${recipe.id}`, () => activateRecipe(recipe.id).then(() => undefined), t("recipes.activated"))}>{t("recipes.activate")}</Button>
@@ -693,7 +774,7 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
             <input name="product_id" required className={inputClass()} placeholder={t("productId")} />
             <input name="recipe_version_id" className={inputClass()} placeholder={t("recipes.recipeId")} />
             <input name="planned_output_quantity" required type="number" min="0" step="0.001" className={inputClass()} placeholder={t("batches.plannedOutput")} />
-            <input name="output_uom" className={inputClass()} defaultValue="unit" />
+            <select name="output_uom" className={inputClass()} defaultValue="unit">{uomOptions}</select>
             <input name="production_date" type="date" className={inputClass()} defaultValue={today()} />
             <input name="ready_date" type="date" className={inputClass()} aria-label={t("batches.readyDate")} />
             <input name="notes" className={inputClass()} placeholder={t("notes")} />
@@ -703,7 +784,7 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
 
         <div className="flex flex-wrap gap-2">
           {["", "draft", "produced", "cancelled"].map((status) => (
-            <button key={status || "all"} type="button" onClick={() => setBatchStatus(status)} className={cn("rounded-pill px-4 py-1.5 text-sm font-medium", batchStatus === status ? "bg-muted-gold text-charcoal" : "bg-champagne-beige/50 text-soft-brown")}>{status ? statusText(status) : tAdmin("all")}</button>
+            <button key={status || "all"} type="button" onClick={() => setBatchStatus(status)} className={cn("rounded-pill px-4 py-1.5 text-sm font-medium", batchStatus === status ? "bg-muted-gold text-charcoal" : "bg-champagne-beige/50 text-soft-brown")}>{status ? labelFor(status) : tAdmin("all")}</button>
           ))}
         </div>
 
@@ -716,7 +797,7 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
                   <td className="px-4 py-3"><span className="font-medium text-charcoal">{batch.batch_number}</span><p className="mt-1 text-xs text-soft-brown">{formatDate(batch.production_date, locale)}</p></td>
                   <td className="px-4 py-3 text-soft-brown">{batch.product_id}</td>
                   <td className="px-4 py-3 text-soft-brown">{batch.actual_output_quantity ?? batch.planned_output_quantity} / {batch.planned_output_quantity} {batch.output_uom}</td>
-                  <td className="px-4 py-3"><div className="space-y-1"><StatusBadge value={batch.status} /><StatusBadge value={batch.variance_review_state} /></div></td>
+                  <td className="px-4 py-3"><div className="space-y-1"><StatusBadge value={batch.status} label={labelFor(batch.status)} /><StatusBadge value={batch.variance_review_state} label={labelFor(batch.variance_review_state)} /></div></td>
                   <td className="px-4 py-3"><div className="flex flex-wrap gap-2">
                     {batch.status === "draft" && <Button type="button" size="sm" variant="secondary" isLoading={busyAction === `post-${batch.id}`} onClick={() => quickPostBatch(batch)}>{t("batches.post")}</Button>}
                     {batch.status === "draft" && <Button type="button" size="sm" variant="ghost" isLoading={busyAction === `cancel-${batch.id}`} onClick={() => runAction(`cancel-${batch.id}`, () => cancelProductionBatch(batch.id).then(() => undefined), t("batches.cancelled"))}>{t("batches.cancel")}</Button>}
@@ -733,10 +814,10 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
           <SectionTitle title={t("batches.correctionTitle")} />
           <div className="mt-4 grid gap-3 md:grid-cols-3">
             <input name="batch_id" required className={inputClass()} placeholder={t("batches.batchId")} />
-            <select name="item_type" className={inputClass()}><option value="material">material</option><option value="finished_good">finished good</option></select>
+            <select name="item_type" className={inputClass()}><option value="material">{labelFor("material")}</option><option value="finished_good">{labelFor("finished_good")}</option></select>
             <input name="item_id" required className={inputClass()} placeholder={t("batches.itemId")} />
             <input name="quantity_delta" required type="number" step="0.001" className={inputClass()} placeholder={t("materials.quantityDelta")} />
-            <input name="uom" required className={inputClass()} defaultValue="unit" />
+            <select name="uom" required className={inputClass()} defaultValue="unit">{uomOptions}</select>
             <input name="reason" required className={inputClass()} placeholder={t("reason")} />
           </div>
           <textarea name="notes" className={cn(textareaClass(), "mt-3")} placeholder={t("notes")} />
@@ -752,12 +833,12 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
         <form key={settings?.settings_version ?? "settings"} onSubmit={handleSettings} className="rounded-brand border border-champagne-beige bg-cream p-4">
           <SectionTitle title={t("valuation.settingsTitle")} info={t("valuation.settingsSubtitle")} />
           <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <select name="ledger_mode" className={inputClass()} defaultValue={settings?.ledger_mode ?? "setup"}><option value="legacy">legacy</option><option value="setup">setup</option><option value="ledger_managed">ledger managed</option></select>
-            <select name="valuation_method" className={inputClass()} defaultValue={settings?.valuation_method ?? "weighted_average"}><option value="weighted_average">weighted average</option><option value="fifo">FIFO</option></select>
+            <select name="ledger_mode" className={inputClass()} defaultValue={settings?.ledger_mode ?? "setup"}><option value="legacy">{labelFor("legacy")}</option><option value="setup">{labelFor("setup")}</option><option value="ledger_managed">{labelFor("ledger_managed")}</option></select>
+            <select name="valuation_method" className={inputClass()} defaultValue={settings?.valuation_method ?? "weighted_average"}><option value="weighted_average">{labelFor("weighted_average")}</option><option value="fifo">{labelFor("fifo")}</option></select>
             <input name="effective_date" type="date" className={inputClass()} defaultValue={settings?.effective_date ?? today()} />
-            <select name="cogs_date_basis" className={inputClass()} defaultValue={settings?.cogs_date_basis ?? "order_date"}><option value="order_date">order date</option><option value="payment_date">payment date</option><option value="shipment_date">shipment date</option><option value="delivery_date">delivery date</option><option value="period_close">period close</option></select>
-            <select name="rounding_policy" className={inputClass()} defaultValue={settings?.rounding_policy ?? "half_up_2dp"}><option value="half_up_2dp">half up 2dp</option><option value="half_up_4dp">half up 4dp</option></select>
-            <select name="missing_cost_behavior" className={inputClass()} defaultValue={settings?.missing_cost_behavior ?? "block_official"}><option value="allow_estimate">allow estimate</option><option value="warn">warn</option><option value="block_official">block official</option></select>
+            <select name="cogs_date_basis" className={inputClass()} defaultValue={settings?.cogs_date_basis ?? "order_date"}><option value="order_date">{labelFor("order_date")}</option><option value="payment_date">{labelFor("payment_date")}</option><option value="shipment_date">{labelFor("shipment_date")}</option><option value="delivery_date">{labelFor("delivery_date")}</option><option value="period_close">{labelFor("period_close")}</option></select>
+            <select name="rounding_policy" className={inputClass()} defaultValue={settings?.rounding_policy ?? "half_up_2dp"}><option value="half_up_2dp">{labelFor("half_up_2dp")}</option><option value="half_up_4dp">{labelFor("half_up_4dp")}</option></select>
+            <select name="missing_cost_behavior" className={inputClass()} defaultValue={settings?.missing_cost_behavior ?? "block_official"}><option value="allow_estimate">{labelFor("allow_estimate")}</option><option value="warn">{labelFor("warn")}</option><option value="block_official">{labelFor("block_official")}</option></select>
             <input name="currency" className={inputClass()} defaultValue={settings?.currency ?? "EUR"} />
             <input name="reviewed_by_name" className={inputClass()} defaultValue={settings?.reviewed_by_name ?? ""} placeholder={t("valuation.reviewer")} />
           </div>
@@ -773,10 +854,10 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
           <form onSubmit={handleOpeningBalance} className="rounded-brand border border-champagne-beige bg-cream p-4">
             <SectionTitle title={t("valuation.openingTitle")} />
             <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <select name="item_type" className={inputClass()}><option value="material">material</option><option value="finished_good">finished good</option></select>
+              <select name="item_type" className={inputClass()}><option value="material">{labelFor("material")}</option><option value="finished_good">{labelFor("finished_good")}</option></select>
               <input name="item_id" required className={inputClass()} placeholder={t("valuation.itemId")} />
               <input name="quantity" required type="number" min="0" step="0.001" className={inputClass()} placeholder={t("quantity")} />
-              <input name="uom" required className={inputClass()} defaultValue="unit" />
+              <select name="uom" required className={inputClass()} defaultValue="unit">{uomOptions}</select>
               <input name="unit_value_amount" className={inputClass()} placeholder={t("valuation.unitValue")} />
               <input name="total_value_cents" type="number" min="0" step="1" className={inputClass()} placeholder={t("valuation.totalValueCents")} />
             </div>
@@ -814,11 +895,12 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
       <div className="space-y-6">
         <form onSubmit={handleMovementFilter} className="rounded-brand border border-champagne-beige bg-cream p-4">
           <SectionTitle title={t("movements.filters")} />
-          <div className="mt-4 grid gap-3 md:grid-cols-5">
-            <select name="item_type" className={inputClass()} defaultValue={movementFilters.itemType}><option value="">{tAdmin("all")}</option><option value="material">material</option><option value="finished_good">finished good</option></select>
+          <div className="mt-4 grid gap-3 md:grid-cols-6">
+            <select name="item_type" className={inputClass()} defaultValue={movementFilters.itemType}><option value="">{tAdmin("all")}</option><option value="material">{labelFor("material")}</option><option value="finished_good">{labelFor("finished_good")}</option></select>
             <input name="item_id" className={inputClass()} defaultValue={movementFilters.itemId} placeholder={t("movements.itemId")} />
             <input name="source_type" className={inputClass()} defaultValue={movementFilters.sourceType} placeholder={t("movements.sourceType")} />
             <input name="source_id" className={inputClass()} defaultValue={movementFilters.sourceId} placeholder={t("movements.sourceId")} />
+            <input name="order_id" className={inputClass()} defaultValue={movementFilters.orderId} placeholder={t("orderId")} />
             <input name="movement_type" className={inputClass()} defaultValue={movementFilters.movementType} placeholder={t("movements.movementType")} />
           </div>
           <Button className="mt-3" type="submit">{t("movements.apply")}</Button>
@@ -869,12 +951,16 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
 
 function MovementList({ rows, locale }: { rows: InventoryMovementResponse[]; locale: string }) {
   const t = useTranslations("admin.inventory");
+  const labelFor = (value: string | null | undefined): string => {
+    if (!value) return "-";
+    return INVENTORY_LABEL_KEYS.has(value) ? t(`labels.${value}`) : statusText(value);
+  };
   if (rows.length === 0) return <EmptyState label={t("movements.empty")} />;
   return (
     <div className="mt-4 overflow-x-auto">
       <table className="w-full text-left text-sm">
         <thead className="border-b border-champagne-beige"><tr><th className="px-3 py-2">{t("movements.movementType")}</th><th className="px-3 py-2">{t("movements.itemId")}</th><th className="px-3 py-2">{t("quantity")}</th><th className="px-3 py-2">{t("status")}</th><th className="px-3 py-2">{t("date")}</th></tr></thead>
-        <tbody>{rows.map((row) => <tr key={row.id} className="border-b border-champagne-beige/50 last:border-0"><td className="px-3 py-2 text-charcoal">{statusText(row.movement_type)}<p className="text-xs text-soft-brown">{row.source_type || "-"} {row.source_id || ""}</p></td><td className="px-3 py-2 font-mono text-xs text-soft-brown">{row.item_type}:{row.item_id}</td><td className="px-3 py-2 text-soft-brown">{row.quantity_delta} {row.uom}</td><td className="px-3 py-2"><StatusBadge value={row.review_state} /></td><td className="px-3 py-2 text-soft-brown">{formatDate(row.occurred_at, locale)}</td></tr>)}</tbody>
+        <tbody>{rows.map((row) => <tr key={row.id} className="border-b border-champagne-beige/50 last:border-0"><td className="px-3 py-2 text-charcoal">{labelFor(row.movement_type)}<p className="text-xs text-soft-brown">{labelFor(row.source_type)} {row.source_id || ""}</p></td><td className="px-3 py-2 font-mono text-xs text-soft-brown">{labelFor(row.item_type)}: {row.item_id}</td><td className="px-3 py-2 text-soft-brown">{row.quantity_delta} {labelFor(row.uom)}</td><td className="px-3 py-2"><StatusBadge value={row.review_state} label={labelFor(row.review_state)} /></td><td className="px-3 py-2 text-soft-brown">{formatDate(row.occurred_at, locale)}</td></tr>)}</tbody>
       </table>
     </div>
   );
@@ -882,18 +968,30 @@ function MovementList({ rows, locale }: { rows: InventoryMovementResponse[]; loc
 
 function ValuationLayerList({ rows, locale }: { rows: ValuationLayerResponse[]; locale: string }) {
   const t = useTranslations("admin.inventory");
+  const labelFor = (value: string | null | undefined): string => {
+    if (!value) return "-";
+    return INVENTORY_LABEL_KEYS.has(value) ? t(`labels.${value}`) : statusText(value);
+  };
   if (rows.length === 0) return <EmptyState label={t("valuation.noLayers")} />;
-  return <div className="mt-4 overflow-x-auto"><table className="w-full text-left text-sm"><thead className="border-b border-champagne-beige"><tr><th className="px-3 py-2">{t("valuation.itemId")}</th><th className="px-3 py-2">{t("quantity")}</th><th className="px-3 py-2">{t("valuation.value")}</th><th className="px-3 py-2">{t("status")}</th><th className="px-3 py-2">{t("date")}</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id} className="border-b border-champagne-beige/50 last:border-0"><td className="px-3 py-2 font-mono text-xs text-soft-brown">{row.item_type}:{row.item_id}</td><td className="px-3 py-2 text-soft-brown">{row.quantity}</td><td className="px-3 py-2 text-soft-brown">{formatMoneyCents(row.total_value_cents)}</td><td className="px-3 py-2"><StatusBadge value={row.review_state} /></td><td className="px-3 py-2 text-soft-brown">{formatDate(row.valuation_date, locale)}</td></tr>)}</tbody></table></div>;
+  return <div className="mt-4 overflow-x-auto"><table className="w-full text-left text-sm"><thead className="border-b border-champagne-beige"><tr><th className="px-3 py-2">{t("valuation.itemId")}</th><th className="px-3 py-2">{t("quantity")}</th><th className="px-3 py-2">{t("valuation.value")}</th><th className="px-3 py-2">{t("status")}</th><th className="px-3 py-2">{t("date")}</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id} className="border-b border-champagne-beige/50 last:border-0"><td className="px-3 py-2 font-mono text-xs text-soft-brown">{labelFor(row.item_type)}: {row.item_id}</td><td className="px-3 py-2 text-soft-brown">{row.quantity}</td><td className="px-3 py-2 text-soft-brown">{formatMoneyCents(row.total_value_cents)}</td><td className="px-3 py-2"><StatusBadge value={row.review_state} label={labelFor(row.review_state)} /></td><td className="px-3 py-2 text-soft-brown">{formatDate(row.valuation_date, locale)}</td></tr>)}</tbody></table></div>;
 }
 
 function CogsList({ rows, locale }: { rows: CogsLedgerResponse[]; locale: string }) {
   const t = useTranslations("admin.inventory");
+  const labelFor = (value: string | null | undefined): string => {
+    if (!value) return "-";
+    return INVENTORY_LABEL_KEYS.has(value) ? t(`labels.${value}`) : statusText(value);
+  };
   if (rows.length === 0) return <EmptyState label={t("valuation.noCogs")} />;
-  return <div className="mt-4 overflow-x-auto"><table className="w-full text-left text-sm"><thead className="border-b border-champagne-beige"><tr><th className="px-3 py-2">{t("orderId")}</th><th className="px-3 py-2">{t("productId")}</th><th className="px-3 py-2">{t("quantity")}</th><th className="px-3 py-2">{t("valuation.cogs")}</th><th className="px-3 py-2">{t("status")}</th><th className="px-3 py-2">{t("date")}</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id} className="border-b border-champagne-beige/50 last:border-0"><td className="px-3 py-2 font-mono text-xs text-soft-brown">{row.order_number || row.order_id || "-"}</td><td className="px-3 py-2 text-soft-brown">{row.product_id || "-"}</td><td className="px-3 py-2 text-soft-brown">{row.quantity_sold}</td><td className="px-3 py-2 text-soft-brown">{formatMoneyCents(row.total_cost_cents)}</td><td className="px-3 py-2"><StatusBadge value={row.review_state} /></td><td className="px-3 py-2 text-soft-brown">{formatDate(row.cogs_date, locale)}</td></tr>)}</tbody></table></div>;
+  return <div className="mt-4 overflow-x-auto"><table className="w-full text-left text-sm"><thead className="border-b border-champagne-beige"><tr><th className="px-3 py-2">{t("orderId")}</th><th className="px-3 py-2">{t("productId")}</th><th className="px-3 py-2">{t("quantity")}</th><th className="px-3 py-2">{t("valuation.cogs")}</th><th className="px-3 py-2">{t("status")}</th><th className="px-3 py-2">{t("date")}</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id} className="border-b border-champagne-beige/50 last:border-0"><td className="px-3 py-2 font-mono text-xs text-soft-brown">{row.order_number || row.order_id || "-"}</td><td className="px-3 py-2 text-soft-brown">{row.product_id || "-"}</td><td className="px-3 py-2 text-soft-brown">{row.quantity_sold}</td><td className="px-3 py-2 text-soft-brown">{formatMoneyCents(row.total_cost_cents)}</td><td className="px-3 py-2"><StatusBadge value={row.review_state} label={labelFor(row.review_state)} /></td><td className="px-3 py-2 text-soft-brown">{formatDate(row.cogs_date, locale)}</td></tr>)}</tbody></table></div>;
 }
 
 function ExceptionList({ rows, locale }: { rows: InventoryExceptionResponse[]; locale: string }) {
   const t = useTranslations("admin.inventory");
+  const labelFor = (value: string | null | undefined): string => {
+    if (!value) return "-";
+    return INVENTORY_LABEL_KEYS.has(value) ? t(`labels.${value}`) : statusText(value);
+  };
   if (rows.length === 0) return <EmptyState label={t("valuation.noExceptions")} />;
-  return <div className="mt-4 overflow-x-auto"><table className="w-full text-left text-sm"><thead className="border-b border-champagne-beige"><tr><th className="px-3 py-2">{t("type")}</th><th className="px-3 py-2">{t("severity")}</th><th className="px-3 py-2">{t("message")}</th><th className="px-3 py-2">{t("date")}</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id} className="border-b border-champagne-beige/50 last:border-0"><td className="px-3 py-2 text-charcoal">{statusText(row.exception_type)}<p className="text-xs text-soft-brown">{row.target_type || row.source_type || "-"}: {row.target_id || row.source_id || "-"}</p></td><td className="px-3 py-2"><StatusBadge value={row.severity} /></td><td className="px-3 py-2 text-soft-brown">{row.message}</td><td className="px-3 py-2 text-soft-brown">{formatDate(row.created_at, locale)}</td></tr>)}</tbody></table></div>;
+  return <div className="mt-4 overflow-x-auto"><table className="w-full text-left text-sm"><thead className="border-b border-champagne-beige"><tr><th className="px-3 py-2">{t("type")}</th><th className="px-3 py-2">{t("severity")}</th><th className="px-3 py-2">{t("message")}</th><th className="px-3 py-2">{t("date")}</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id} className="border-b border-champagne-beige/50 last:border-0"><td className="px-3 py-2 text-charcoal">{labelFor(row.exception_type)}<p className="text-xs text-soft-brown">{labelFor(row.target_type || row.source_type)}: {row.target_id || row.source_id || "-"}</p></td><td className="px-3 py-2"><StatusBadge value={row.severity} label={labelFor(row.severity)} /></td><td className="px-3 py-2 text-soft-brown">{row.message}</td><td className="px-3 py-2 text-soft-brown">{formatDate(row.created_at, locale)}</td></tr>)}</tbody></table></div>;
 }

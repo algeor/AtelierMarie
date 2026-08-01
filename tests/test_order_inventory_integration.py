@@ -131,6 +131,9 @@ def test_checkout_records_sale_issue_only_for_ledger_managed_products(ledger_con
     ]
     assert movements[0]["order_id"] == order["id"]
     assert movements[0]["order_item_key"] == f"{order['id']}:ledger-candle"
+    order_movements, order_movement_total = inventory_service.list_inventory_movements(order_id=order["id"])
+    assert order_movement_total == 1
+    assert order_movements[0].id == movements[0]["id"]
     assert _movement_rows(ledger_conn, "legacy-candle") == []
 
 
@@ -255,6 +258,9 @@ def test_cogs_rows_use_payment_date_source_movement_and_return_reversal(ledger_c
     assert cogs.rows[0].source_movement_id == sale_movement["id"]
     assert cogs.rows[0].source_valuation_layer_id is not None
     assert cogs.rows[0].review_state == "official"
+    assert inventory_service.list_cogs_rows(product_id="ledger-candle").total == 1
+    assert inventory_service.list_cogs_rows(order_id=order["id"]).total == 1
+    assert inventory_service.list_cogs_rows(product_id="other-product").total == 0
 
     case = create_return_case(ledger_conn, order_id=order["id"], reason="customer_return")
     receive_return_case(ledger_conn, case["id"])

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 
 interface QuantitySelectorProps {
@@ -13,16 +14,17 @@ export function QuantitySelector({
   onQuantityChange,
   maxQuantity,
 }: QuantitySelectorProps) {
+  const t = useTranslations("products");
   const max = Math.min(10, maxQuantity);
   const canDecrement = quantity > 1;
   const canIncrement = quantity < max;
 
   return (
-    <div className="flex items-center gap-3" aria-label={`Quantity: ${quantity}`}>
+    <div className="flex items-center gap-3" aria-label={t("quantityLabel", { quantity })}>
       <button
         onClick={() => canDecrement && onQuantityChange(quantity - 1)}
         disabled={!canDecrement}
-        aria-label="Decrease quantity"
+        aria-label={t("decreaseQuantity")}
         className={cn(
           "min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-brand border border-champagne-beige text-lg font-medium",
           "transition-colors duration-fast",
@@ -44,7 +46,7 @@ export function QuantitySelector({
       <button
         onClick={() => canIncrement && onQuantityChange(quantity + 1)}
         disabled={!canIncrement}
-        aria-label="Increase quantity"
+        aria-label={t("increaseQuantity")}
         className={cn(
           "min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-brand border border-champagne-beige text-lg font-medium",
           "transition-colors duration-fast",
