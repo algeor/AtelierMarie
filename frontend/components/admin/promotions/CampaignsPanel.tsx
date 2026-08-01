@@ -13,6 +13,7 @@ import { useLocalizedError } from "@/lib/useLocalizedError";
 import { SaveConfirmation } from "@/components/admin/SaveConfirmation";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { DeleteIconButton } from "@/components/ui/DeleteIconButton";
 import { CampaignForm } from "./CampaignForm";
 import { BulkResultSummary } from "./BulkResultSummary";
 import type { BulkDiscountResponse, CampaignResponse, CampaignStatus } from "@/lib/types";
@@ -249,12 +250,10 @@ export function CampaignsPanel() {
                       >
                         {t("promotions.removeDiscount")}
                       </Button>
-                      <button
+                      <DeleteIconButton
+                        label={tCommon("delete")}
                         onClick={() => setPending({ type: "delete", campaign: c })}
-                        className="inline-flex h-8 items-center rounded-brand px-3 text-xs font-medium text-red-600 hover:bg-red-50"
-                      >
-                        {tCommon("delete")}
-                      </button>
+                      />
                     </div>
                   </td>
                 </tr>
@@ -307,13 +306,19 @@ export function CampaignsPanel() {
               >
                 {tCommon("cancel")}
               </Button>
-              <Button onClick={confirmAction} isLoading={actioning}>
-                {pending.type === "apply"
-                  ? t("promotions.apply")
-                  : pending.type === "remove"
-                    ? t("promotions.removeDiscount")
-                    : tCommon("delete")}
-              </Button>
+              {pending.type === "delete" ? (
+                <DeleteIconButton
+                  label={tCommon("delete")}
+                  onClick={confirmAction}
+                  isLoading={actioning}
+                />
+              ) : (
+                <Button onClick={confirmAction} isLoading={actioning}>
+                  {pending.type === "apply"
+                    ? t("promotions.apply")
+                    : t("promotions.removeDiscount")}
+                </Button>
+              )}
             </div>
           </div>
         </div>

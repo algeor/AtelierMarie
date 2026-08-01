@@ -1,6 +1,6 @@
 """Order endpoints — checkout, list, detail."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -41,8 +41,8 @@ from app.services.payment_service import (
     InvalidRetryTokenError,
     PaymentAlreadyPaidError,
     StripeSessionError,
-    create_checkout_session,
-    create_retry_checkout_session,
+    create_checkout_session_async,
+    create_retry_checkout_session_async,
     prepare_retry_session,
 )
 from app.services.payment_settings_service import get_payment_settings, payment_method_available
@@ -54,6 +54,17 @@ def _client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
 
 
+def _public_order_response(order_data: object) -> OrderResponse:
+    """Build customer-safe order responses without operational courier internals."""
+    return OrderResponse.model_validate(order_data).model_copy(
+        update={
+            "courier_order_id": None,
+            "courier_label_url": None,
+            "courier_last_error": None,
+        }
+    )
+
+
 @router.post(
     "",
     response_model=OrderResponse,
@@ -63,7 +74,7 @@ def _client_ip(request: Request) -> str | None:
     "Validates stock, snapshots prices, decrements stock, and clears cart atomically. "
     "For card payments, returns stripe_checkout_url to redirect the customer.",
 )
-def create_order(
+async def create_order(
     request: Request,
     body: CreateOrderRequest,
     session_id: Annotated[str, Depends(require_session)],
@@ -158,9 +169,8 @@ def create_order(
                 (session_id,),
             ).fetchone()
             user_id = row["user_id"] if row else None
-            locale = (
-                row["preferred_locale"] if row and row["preferred_locale"] in {"en", "bg"} else "en"
-            )
+            preferred_locale = row["preferred_locale"] if row else None
+            locale: Literal["en", "bg"] = "bg" if preferred_locale == "bg" else "en"
             analytics_consent = analytics_service.has_current_analytics_consent(session_id)
 
             # Resolve the order's contact email. A logged-in user may omit it and
@@ -208,6 +218,7 @@ def create_order(
                 shipping_price_source=body.shipping_price_source,
                 shipping_is_fallback=body.shipping_is_fallback,
                 shipping_quoted_at=body.shipping_quoted_at,
+                invoice_profile=body.invoice_profile,
                 pay_on_delivery_max_cents=pay_on_delivery_max_cents,
             )
 
@@ -231,7 +242,7 @@ def create_order(
                         order_id=order_data["id"],
                         session_id=session_id,
                     )
-                    stripe_checkout_url = create_checkout_session(
+                    stripe_checkout_url = await create_checkout_session_async(
                         conn=conn,
                         order=order_data,
                         success_url=settings.stripe_success_url,
@@ -316,7 +327,7 @@ def create_order(
             },
         )
 
-    response = OrderResponse.model_validate(order_data)
+    response = _public_order_response(order_data)
     if stripe_checkout_url:
         response = response.model_copy(update={"stripe_checkout_url": stripe_checkout_url})
     return response
@@ -375,7 +386,7 @@ async def create_stripe_retry_session(
                 url = existing_url
             else:
                 consume_stripe_session_rate_limit(conn, order_id=order_id, session_id=session_id)
-                url = create_retry_checkout_session(
+                url = await create_retry_checkout_session_async(
                     conn=conn,
                     order=order,
                     success_url=settings.stripe_success_url,
@@ -429,7 +440,7 @@ def list_my_orders(
         )
 
     return OrderListResponse(
-        items=[OrderResponse.model_validate(o) for o in result["items"]],
+        items=[_public_order_response(o) for o in result["items"]],
         total=result["total"],
         page=result["page"],
         limit=result["limit"],
@@ -479,4 +490,4 @@ def get_order_detail(
             user_id=user_id,
         )
 
-    return OrderResponse.model_validate(order_data)
+    return _public_order_response(order_data)

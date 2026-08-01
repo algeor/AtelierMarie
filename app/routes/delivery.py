@@ -11,14 +11,20 @@ from fastapi.responses import JSONResponse
 
 from app.database import get_db
 from app.dependencies.session import require_session
-from app.models.delivery import Courier, DeliverySettingsResponse, OfficeResponse, OfficeType
+from app.models.delivery import (
+    Courier,
+    DeliveryConfigResponse,
+    DeliverySettingsResponse,
+    OfficeResponse,
+    OfficeType,
+)
 from app.models.shipping import (
     CalculateShippingRequest,
     CalculateShippingResponse,
     CityPlace,
 )
 from app.responses import error_response
-from app.services import delivery_service, delivery_settings_service, shipping_service
+from app.services import delivery_service, delivery_settings_service, econt_settings_service, shipping_service
 
 router = APIRouter()
 
@@ -35,6 +41,17 @@ Locale = Literal["en", "bg"]
 async def get_delivery_settings() -> DeliverySettingsResponse:
     """Return current delivery availability switches for the storefront."""
     return DeliverySettingsResponse(**delivery_settings_service.get_delivery_settings())
+
+
+@router.get(
+    "/config",
+    response_model=DeliveryConfigResponse,
+    summary="Get public delivery configuration",
+    description="Return checkout-safe delivery settings such as Econt Office Locator behavior.",
+)
+async def get_delivery_config() -> DeliveryConfigResponse:
+    """Return public-safe delivery configuration for checkout."""
+    return econt_settings_service.get_public_delivery_config()
 
 
 @router.get(

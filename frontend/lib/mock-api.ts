@@ -20,6 +20,7 @@ import type {
   BulkResultItem,
   CalculateShippingRequest,
   CalculateShippingResponse,
+  CallbackOutcome,
   CampaignCreateRequest,
   CampaignListResponse,
   CampaignResponse,
@@ -32,12 +33,41 @@ import type {
   CommentSort,
   ContactRequest,
   ContactResponse,
+  CookieInventoryAdminResponse,
+  CookieSectionAdminResponse,
+  CookiesAdminResponse,
+  CookiesPageAdminResponse,
+  CookiesResponse,
+  CodSettlementResponse,
   Courier,
+  CourierClaimStatus,
+  CreateStripeRefundRequest,
+  DeliveryConfigResponse,
   DeliverySettingsResponse,
   DeliverySettingsUpdate,
+  EcontConnectionTestResponse,
+  EcontFulfillmentActionResponse,
+  EcontManualStatusRequest,
+  EcontOrderFulfillmentResponse,
+  EcontOrderRepairRequest,
+  EcontSettingsResponse,
+  EcontSettingsUpdate,
+  SpeedyActionResponse,
+  SpeedyAdminOverviewResponse,
+  SpeedyCancelShipmentRequest,
+  SpeedyEventResponse,
+  SpeedyPickupRequest,
+  SpeedyPickupResponse,
+  SpeedyPickupTermsRequest,
+  SpeedyPickupTermsResponse,
+  SpeedyShipmentInfoRequest,
+  SpeedyShipmentInfoResponse,
+  SpeedyShipmentSearchRequest,
+  SpeedyShipmentSearchResponse,
   AdminOrderDetailResponse,
   CityPlace,
   CreateOrderRequest,
+  CreateReturnCaseRequest,
   CreateAboutItemRequest,
   CreateFaqItemRequest,
   CreateProductRequest,
@@ -47,11 +77,14 @@ import type {
   FaqResponse,
   FaqSectionAdminResponse,
   ImageUploadResponse,
+  LegalIdentityResponse,
+  InspectReturnCaseRequest,
   OfficeResponse,
   OfficeType,
   OrderListResponse,
   OrderResponse,
   OrderStatus,
+  PaymentRefundResponse,
   PaymentMethod,
   PaymentSettingsResponse,
   PaymentSettingsUpdate,
@@ -61,7 +94,13 @@ import type {
   PatchAboutSectionRequest,
   ProductListResponse,
   ProductImage,
+  PrivacyAdminResponse,
+  PrivacyPageAdminResponse,
+  PrivacyResponse,
+  PrivacySectionAdminResponse,
   PublicPaymentSettingsResponse,
+  RecordCodSettlementRequest,
+  ReturnCaseResponse,
   ShippingQuote,
   ProductResponse,
   ProductVideo,
@@ -71,21 +110,99 @@ import type {
   ReactionToggleResponse,
   TaxonomyKind,
   TaxonomyResponse,
+  TermsAdminResponse,
+  TermsPageAdminResponse,
+  TermsResponse,
+  TermsSectionAdminResponse,
   ReorderFaqItemsRequest,
+  UpdateTermsPageRequest,
+  UpdateTermsSectionRequest,
+  UpdatePrivacyPageRequest,
+  UpdatePrivacySectionRequest,
+  UpdateCookieInventoryRequest,
+  UpdateCookieSectionRequest,
+  UpdateCookiesPageRequest,
   UpdateFaqItemRequest,
   UpdateFaqSectionRequest,
   UpdateProductRequest,
+  UpdateReturnAccountingRequest,
   UpdateTaxonomyTermRequest,
   UserResponse,
   VideoUploadResponse,
 } from "./types";
+import type {
+  AccountantAcceptanceRequest,
+  AccountingConfigurationResponse,
+  AccountingDocumentListResponse,
+  AccountingDocumentRequest,
+  AccountingDocumentResponse,
+  AccountingLedgerName,
+  AccountingLedgerResponse,
+  AdminOrderAccountingFilter,
+  CategoryMappingRequest,
+  CategoryMappingResponse,
+  ExportSchemaSettingsRequest,
+  ExportSchemaSettingsResponse,
+  ExpenseEvidenceListResponse,
+  ExpenseEvidenceRequest,
+  ExpenseEvidenceResponse,
+  ExpenseEvidenceSettingsRequest,
+  ExpenseEvidenceSettingsResponse,
+  ExpensePaymentStatusRequest,
+  FinanceExceptionActionRequest,
+  FinanceExceptionListResponse,
+  FinanceExceptionResponse,
+  FinanceExceptionStatus,
+  FinanceExportPackageListResponse,
+  FinanceExportPackageResponse,
+  FinancePeriodActionRequest,
+  FinancePeriodCreateRequest,
+  FinancePeriodListResponse,
+  FinancePeriodResponse,
+  MissingProductCostDiagnosticsResponse,
+  ProductCostSettingsRequest,
+  ProductCostSettingsResponse,
+  ProductCostVersionListResponse,
+  ProductCostVersionRequest,
+  ProductCostVersionResponse,
+  SellerLegalProfileRequest,
+  SellerLegalProfileResponse,
+  StripeBalanceImportResponse,
+  StripePayoutImportStatusResponse,
+  VatFiscalSettingsRequest,
+  VatFiscalSettingsResponse,
+} from "./types";
 import { ApiError } from "./api-client";
 import { buildTrackingUrl } from "./tracking";
+import enMessages from "@/messages/en.json";
+import bgMessages from "@/messages/bg.json";
 
 // --- Helpers ---
 
 function mockError(code: string, message: string): never {
   throw new ApiError({ error: { code, message, details: null } });
+}
+
+function cloneMock<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function stringField(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function formatMockAddress(address: Record<string, unknown> | null | undefined): string | null {
+  if (!address) return null;
+  const formatted = stringField(address.formatted) ?? stringField(address.formatted_address);
+  if (formatted) return formatted;
+  const cityLine = [stringField(address.postal_code), stringField(address.city)].filter(Boolean).join(" ");
+  const parts = [
+    stringField(address.line1),
+    stringField(address.line2),
+    cityLine || null,
+    stringField(address.country),
+  ].filter(Boolean);
+  return parts.join(", ") || null;
 }
 
 /** Simulate network latency (50–150ms). */
@@ -102,6 +219,425 @@ function generateOrderId(): string {
 }
 
 // --- Mock Data ---
+
+const MOCK_NOW = "2026-08-01T10:00:00Z";
+
+let mockAccountingConfig: AccountingConfigurationResponse = {
+  seller_profile: {
+    id: 1,
+    effective_date: "2026-08-01",
+    reviewed: true,
+    company_display_name: "Atelier Marie",
+    legal_name: "Atelier Marie EOOD",
+    uic_eik: "000000000",
+    vat_identification_number: null,
+    registered_address: { country: "BG", city: "Sofia" },
+    contact_email: "accounting@theateliermarie.com",
+    bank_details: { iban: "REDACTED" },
+    default_currency: "EUR",
+    bank_details_configured: true,
+    created_by_admin_id: "mock-admin",
+    created_at: MOCK_NOW,
+  },
+  vat_fiscal_settings: {
+    id: 1,
+    effective_date: "2026-08-01",
+    reviewed: true,
+    vat_mode: "not_registered",
+    oss_mode: "not_applicable",
+    default_domestic_vat_treatment: "BG domestic review",
+    fiscal_document_mode: "external_reference",
+    document_rules: { cod: "fiscal_receipt_required", card: "invoice_reference_optional" },
+    threshold_warnings: { review_before_registration_threshold: true },
+    tolerance_cents: 1,
+    warning_text: "Configuration must be reviewed by the accountant.",
+    created_by_admin_id: "mock-admin",
+    created_at: MOCK_NOW,
+  },
+  category_mappings: [
+    {
+      id: 1,
+      mapping_key: "sales_revenue",
+      category_code: "701",
+      category_label: "Sales revenue",
+      is_required: true,
+      reviewed: true,
+      created_at: MOCK_NOW,
+      updated_at: MOCK_NOW,
+    },
+    {
+      id: 2,
+      mapping_key: "materials",
+      category_code: "601",
+      category_label: "Materials and wax",
+      is_required: true,
+      reviewed: false,
+      created_at: MOCK_NOW,
+      updated_at: MOCK_NOW,
+    },
+  ],
+  export_schema: {
+    id: "default",
+    workbook_language: "en",
+    date_format: "yyyy-mm-dd",
+    decimal_separator: ".",
+    default_period_range: "monthly",
+    included_tabs: ["summary", "sales", "payments", "expenses", "product_costs", "exceptions"],
+    custom_columns: null,
+    reviewed: true,
+    updated_at: MOCK_NOW,
+  },
+  expense_settings: {
+    id: "default",
+    required_document_categories: ["materials", "packaging"],
+    allowed_payment_statuses: ["unpaid", "paid", "partially_paid", "reimbursed"],
+    default_category_mappings: { materials: "601", packaging: "602" },
+    close_behavior: "block",
+    reviewed: true,
+    updated_at: MOCK_NOW,
+  },
+  product_cost_settings: {
+    id: "default",
+    enabled: true,
+    costing_basis: "recipe_bom",
+    include_labor: true,
+    include_overhead: false,
+    missing_cost_policy: "warning",
+    reviewed: false,
+    estimate_label: "management_estimate",
+    updated_at: MOCK_NOW,
+  },
+  setup_exceptions: [],
+};
+
+const mockFinancePeriods: FinancePeriodResponse[] = [
+  {
+    id: "period-2026-08",
+    period_start: "2026-08-01",
+    period_end: "2026-08-31",
+    currency: "EUR",
+    status: "review",
+    summary_totals: {
+      gross_sales_cents: 17800,
+      discounts_cents: 1200,
+      returns_cents: 2800,
+      net_sales_cents: 13800,
+      shipping_charged_cents: 0,
+      tax_amount_cents: 0,
+      total_customer_payments_cents: 14600,
+      stripe_fees_cents: 420,
+      courier_cod_fees_cents: 310,
+      net_provider_payouts_cents: 9300,
+      cod_receivable_cents: 5600,
+      refunds_pending_cents: 1200,
+      recorded_expenses_cents: 4600,
+      material_packaging_expenses_cents: 3800,
+      estimated_product_cost_cents: 6200,
+      estimated_gross_margin_cents: 7600,
+      review_required_item_count: 3,
+    },
+    open_exception_count: 3,
+    blocking_exception_count: 2,
+    created_by_admin_id: "mock-admin",
+    updated_by_admin_id: "mock-admin",
+    closed_by_admin_id: null,
+    closed_at: null,
+    accepted_at: null,
+    reopened_from_export_id: null,
+    reopen_reason: null,
+    created_at: MOCK_NOW,
+    updated_at: MOCK_NOW,
+  },
+];
+
+const mockFinanceExceptions: FinanceExceptionResponse[] = [
+  {
+    id: "exception-missing-doc",
+    period_id: "period-2026-08",
+    exception_type: "missing_document_reference",
+    severity: "blocking",
+    target_type: "order",
+    target_id: "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+    status: "open",
+    message: "COD order needs fiscal receipt or external document reference.",
+    details: { order_number: "AM-COD01", payment_method: "cod" },
+    created_at: MOCK_NOW,
+    updated_at: MOCK_NOW,
+  },
+  {
+    id: "exception-stripe-payout",
+    period_id: "period-2026-08",
+    exception_type: "stripe_payout_mismatch",
+    severity: "warning",
+    target_type: "payout",
+    target_id: "po_mock_001",
+    status: "open",
+    message: "Stripe payout differs from matched payments by EUR 4.20.",
+    details: { tolerance_cents: 1, difference_cents: 420 },
+    created_at: MOCK_NOW,
+    updated_at: MOCK_NOW,
+  },
+  {
+    id: "exception-expense-receipt",
+    period_id: "period-2026-08",
+    exception_type: "expense_document_missing",
+    severity: "blocking",
+    target_type: "expense",
+    target_id: "expense-wax-001",
+    status: "open",
+    message: "Material expense is missing supplier invoice or receipt evidence.",
+    details: { category_key: "materials" },
+    created_at: MOCK_NOW,
+    updated_at: MOCK_NOW,
+  },
+];
+
+const mockAccountingDocuments: AccountingDocumentResponse[] = [
+  {
+    id: "doc-invoice-001",
+    document_type: "invoice",
+    source_system: "external_accountant",
+    document_number: "INV-2026-0001",
+    issue_date: "2026-08-01",
+    order_id: "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f",
+    refund_id: null,
+    period_id: "period-2026-08",
+    currency: "EUR",
+    net_amount_cents: 3200,
+    tax_amount_cents: 0,
+    gross_amount_cents: 3200,
+    vat_summary: null,
+    original_document_id: null,
+    file_reference: "accountant-drive/INV-2026-0001.pdf",
+    status: "recorded",
+    notes: "External accountant invoice reference.",
+    created_by_admin_id: "mock-admin",
+    updated_by_admin_id: "mock-admin",
+    created_at: MOCK_NOW,
+    updated_at: MOCK_NOW,
+  },
+];
+
+const mockExpenseEvidence: ExpenseEvidenceResponse[] = [
+  {
+    id: "expense-wax-001",
+    supplier_name: "Wax Supplier Ltd",
+    supplier_identifier: "BG123456789",
+    document_number: null,
+    document_date: null,
+    purchase_date: "2026-08-01",
+    payment_date: null,
+    payment_status: "unpaid",
+    category_key: "materials",
+    net_amount_cents: 3200,
+    tax_amount_cents: 640,
+    gross_amount_cents: 3840,
+    currency: "EUR",
+    attachment_reference: null,
+    linked_product_id: "lavender-dreams-300ml",
+    linked_material_name: "Soy wax and fragrance oil",
+    linked_courier: null,
+    linked_order_id: null,
+    review_status: "missing_document",
+    notes: "Awaiting supplier invoice upload.",
+    created_by_admin_id: "mock-admin",
+    updated_by_admin_id: "mock-admin",
+    created_at: MOCK_NOW,
+    updated_at: MOCK_NOW,
+  },
+  {
+    id: "expense-packaging-001",
+    supplier_name: "Packaging Studio",
+    supplier_identifier: null,
+    document_number: "PKG-778",
+    document_date: "2026-08-01",
+    purchase_date: "2026-08-01",
+    payment_date: "2026-08-01",
+    payment_status: "paid",
+    category_key: "packaging",
+    net_amount_cents: 760,
+    tax_amount_cents: 0,
+    gross_amount_cents: 760,
+    currency: "EUR",
+    attachment_reference: "receipts/pkg-778.pdf",
+    linked_product_id: null,
+    linked_material_name: "Gift boxes",
+    linked_courier: null,
+    linked_order_id: null,
+    review_status: "reviewed",
+    notes: null,
+    created_by_admin_id: "mock-admin",
+    updated_by_admin_id: "mock-admin",
+    created_at: MOCK_NOW,
+    updated_at: MOCK_NOW,
+  },
+];
+
+const mockProductCosts: ProductCostVersionResponse[] = [
+  {
+    id: "cost-lavender-001",
+    product_id: "lavender-dreams-300ml",
+    sku: "LAV-300",
+    product_name: "Lavender Dreams",
+    effective_date: "2026-08-01",
+    costing_basis: "recipe_bom",
+    material_cost_cents: 620,
+    packaging_cost_cents: 180,
+    labor_cost_cents: 240,
+    overhead_cost_cents: 0,
+    estimated_unit_cost_cents: 1040,
+    currency: "EUR",
+    reviewed: true,
+    accountant_reviewed: false,
+    review_status: "reviewed",
+    source_expense_ids: ["expense-wax-001", "expense-packaging-001"],
+    notes: "Management estimate; accountant review pending.",
+    components: [
+      {
+        id: "component-wax-001",
+        cost_version_id: "cost-lavender-001",
+        component_type: "material",
+        description: "Wax and fragrance",
+        quantity: 0.28,
+        unit: "kg",
+        unit_cost_cents: 1800,
+        total_cost_cents: 620,
+        source_expense_id: "expense-wax-001",
+        created_at: MOCK_NOW,
+      },
+      {
+        id: "component-packaging-001",
+        cost_version_id: "cost-lavender-001",
+        component_type: "packaging",
+        description: "Gift box and label",
+        quantity: 1,
+        unit: "set",
+        unit_cost_cents: 180,
+        total_cost_cents: 180,
+        source_expense_id: "expense-packaging-001",
+        created_at: MOCK_NOW,
+      },
+    ],
+    created_by_admin_id: "mock-admin",
+    updated_by_admin_id: "mock-admin",
+    created_at: MOCK_NOW,
+    updated_at: MOCK_NOW,
+  },
+];
+
+const mockAccountingExports: FinanceExportPackageResponse[] = [
+  {
+    id: "export-2026-08-v1",
+    period_id: "period-2026-08",
+    version: 1,
+    schema_version: "accounting-finance-hub.v1",
+    xlsx_path: "private-exports/accounting/period-2026-08/v1/accounting.xlsx",
+    csv_dir_path: "private-exports/accounting/period-2026-08/v1/csv",
+    manifest_path: "private-exports/accounting/period-2026-08/v1/manifest.json",
+    manifest: {
+      row_counts: { sales: 4, payments: 3, expenses: 2, product_costs: 1, exceptions: 3 },
+      totals: { net_sales_cents: 13800, recorded_expenses_cents: 4600 },
+      files: ["accounting.xlsx", "sales.csv", "payments.csv", "expenses.csv", "manifest.json"],
+    },
+    generated_by_admin_id: "mock-admin",
+    generated_at: MOCK_NOW,
+    accepted_by_admin_id: null,
+    accepted_at: null,
+    accountant_name: null,
+    accountant_reference: null,
+    acceptance_note: null,
+    current_final: true,
+  },
+];
+
+const mockLedgerRows: Record<AccountingLedgerName, Record<string, unknown>[]> = {
+  sales: [
+    { order_number: "AM-1001", order_date: "2026-08-01", product_name: "Lavender Dreams", quantity: 1, gross_amount_cents: 3200, document_reference_status: "recorded" },
+    { order_number: "AM-COD01", order_date: "2026-08-01", product_name: "Citrus Garden", quantity: 2, gross_amount_cents: 5600, document_reference_status: "missing" },
+  ],
+  payments: [
+    { order_number: "AM-1001", event_date: "2026-08-01", provider: "stripe", gross_amount_cents: 3200, reconciliation_status: "matched" },
+    { order_number: "AM-COD01", event_date: "2026-08-01", provider: "cod", gross_amount_cents: 5600, reconciliation_status: "pending" },
+  ],
+  stripe_payouts: [
+    { balance_transaction_id: "txn_mock_001", payout_id: "po_mock_001", gross_amount_cents: 3200, fee_amount_cents: 120, net_amount_cents: 3080, match_status: "mismatch" },
+  ],
+  cod_settlements: [
+    { order_number: "AM-COD01", state: "unsettled", cod_amount_cents: 5600, courier_reference: null },
+  ],
+  refunds: [
+    { order_number: "AM-1002", refund_date: "2026-08-01", refund_amount_cents: -1200, document_reference_status: "review_required" },
+  ],
+  courier_claims: [
+    { claim_id: "claim-001", order_number: "AM-1002", claim_status: "filed", claim_amount_cents: 600 },
+  ],
+  return_reasons: [
+    { order_number: "AM-1002", reason: "customer_return", status: "received" },
+  ],
+  inventory_adjustments: [
+    { order_number: "AM-1002", product_id: "lavender-dreams-300ml", restock_decision: "partial", quantity: 1 },
+  ],
+  inventory_movements: [
+    { item_type: "finished_good", item_id: "lavender-dreams-300ml", movement_type: "sale_issue", quantity_delta: -1 },
+  ],
+  documents: mockAccountingDocuments as unknown as Record<string, unknown>[],
+  expenses: mockExpenseEvidence as unknown as Record<string, unknown>[],
+  product_costs: mockProductCosts as unknown as Record<string, unknown>[],
+};
+
+function withMockAccountingFlags(order: OrderResponse): OrderResponse {
+  if (order.id === "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e") {
+    return {
+      ...order,
+      order_number: order.order_number ?? "AM-COD01",
+      finance_period_id: "period-2026-08",
+      accounting_readiness_status: "blocked",
+      accounting_classification_state: "manual_review_required",
+      document_reference_status: "missing",
+      payment_reconciliation_status: "pending",
+      payout_reconciliation_status: "not_applicable",
+      cod_settlement_status: "pending",
+      blocking_exception_count: 1,
+      finance_hub_links: {
+        period_id: "period-2026-08",
+        period_href: "/admin/accounting?period=period-2026-08",
+        exceptions_href: "/admin/accounting?period=period-2026-08&tab=exceptions",
+        ledger_href: "/admin/accounting?period=period-2026-08&tab=ledgers&ledger=cod_settlements",
+        documents_href: "/admin/accounting?period=period-2026-08&tab=documents",
+      },
+    };
+  }
+  if (order.id === "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f") {
+    return {
+      ...order,
+      order_number: order.order_number ?? "AM-1001",
+      finance_period_id: "period-2026-08",
+      accounting_readiness_status: "review_required",
+      document_reference_status: "recorded",
+      payment_reconciliation_status: "matched",
+      payout_reconciliation_status: "mismatch",
+      cod_settlement_status: "not_applicable",
+      blocking_exception_count: 0,
+      finance_hub_links: {
+        period_id: "period-2026-08",
+        period_href: "/admin/accounting?period=period-2026-08",
+        exceptions_href: "/admin/accounting?period=period-2026-08&tab=exceptions",
+        ledger_href: "/admin/accounting?period=period-2026-08&tab=ledgers&ledger=stripe_payouts",
+        documents_href: "/admin/accounting?period=period-2026-08&tab=documents",
+      },
+    };
+  }
+  return {
+    ...order,
+    accounting_readiness_status: order.accounting_readiness_status ?? "unreviewed",
+    document_reference_status: order.document_reference_status ?? "not_required",
+    payment_reconciliation_status: order.payment_reconciliation_status ?? "not_applicable",
+    payout_reconciliation_status: order.payout_reconciliation_status ?? "not_applicable",
+    cod_settlement_status: order.cod_settlement_status ?? "not_applicable",
+    blocking_exception_count: order.blocking_exception_count ?? 0,
+    finance_hub_links: order.finance_hub_links ?? null,
+  };
+}
 
 // The mock store carries admin-only fields even though ProductResponse omits them.
 type MockProduct = ProductResponse & {
@@ -529,7 +1065,7 @@ const MOCK_USER: UserResponse = {
 
 const mockFaqTimestamp = "2024-06-01T10:00:00Z";
 
-let mockFaqNextId = 7;
+let mockFaqNextId = 8;
 
 const mockFaqSections: FaqSectionAdminResponse[] = [
   {
@@ -624,6 +1160,20 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
         created_at: mockFaqTimestamp,
         updated_at: mockFaqTimestamp,
       },
+      {
+        id: 7,
+        section: "shipping",
+        question_en: "Do you accept returns?",
+        question_bg: "Приемате ли връщания?",
+        answer_en:
+          "Uncollected or refused courier parcels are reviewed before refund timing, refund amount, or next steps are confirmed. See the [Terms & Conditions returns section](/en/terms#returns) for the full policy.",
+        answer_bg:
+          "Непотърсените или отказани куриерски пратки се преглеждат, преди да потвърдим срок, сума за възстановяване или следваща стъпка. Вижте [раздела за връщания в Общите условия](/bg/terms#returns) за пълната политика.",
+        sort_order: 1,
+        is_published: true,
+        created_at: mockFaqTimestamp,
+        updated_at: mockFaqTimestamp,
+      },
     ],
   },
 ];
@@ -638,6 +1188,245 @@ function findFaqSection(slug: string): FaqSectionAdminResponse | undefined {
 
 function findFaqItem(itemId: number): FaqItemAdminResponse | undefined {
   return mockFaqSections.flatMap((section) => section.items).find((item) => item.id === itemId);
+}
+
+// --- Terms Mock ---
+
+type StaticTerms = typeof enMessages.terms;
+type StaticTermsSection = StaticTerms["sections"][number];
+
+const mockTermsTimestamp = "2026-07-29T00:00:00Z";
+const mockTermsEn = enMessages.terms as StaticTerms;
+const mockTermsBg = bgMessages.terms as StaticTerms;
+
+function findStaticBgTermsSection(slug: string): StaticTermsSection | undefined {
+  return mockTermsBg.sections.find((section) => section.id === slug);
+}
+
+let mockTermsPage: TermsPageAdminResponse = {
+  id: "terms",
+  meta_title_en: mockTermsEn.metaTitle,
+  meta_title_bg: mockTermsBg.metaTitle,
+  meta_description_en: mockTermsEn.metaDescription,
+  meta_description_bg: mockTermsBg.metaDescription,
+  eyebrow_en: mockTermsEn.eyebrow,
+  eyebrow_bg: mockTermsBg.eyebrow,
+  title_en: mockTermsEn.title,
+  title_bg: mockTermsBg.title,
+  subtitle_en: mockTermsEn.subtitle,
+  subtitle_bg: mockTermsBg.subtitle,
+  last_updated_en: mockTermsEn.lastUpdated,
+  last_updated_bg: mockTermsBg.lastUpdated,
+  identity_intro_en: mockTermsEn.identityIntro,
+  identity_intro_bg: mockTermsBg.identityIntro,
+  policy_links_title_en: mockTermsEn.policyLinksTitle,
+  policy_links_title_bg: mockTermsBg.policyLinksTitle,
+  privacy_link_en: mockTermsEn.privacyLink,
+  privacy_link_bg: mockTermsBg.privacyLink,
+  cookies_link_en: mockTermsEn.cookiesLink,
+  cookies_link_bg: mockTermsBg.cookiesLink,
+  nav_label_en: mockTermsEn.navLabel,
+  nav_label_bg: mockTermsBg.navLabel,
+  back_to_top_en: mockTermsEn.backToTop,
+  back_to_top_bg: mockTermsBg.backToTop,
+  created_at: mockTermsTimestamp,
+  updated_at: mockTermsTimestamp,
+};
+
+let mockTermsSections: TermsSectionAdminResponse[] = mockTermsEn.sections.map((section, index) => {
+  const bgSection = findStaticBgTermsSection(section.id);
+  return {
+    slug: section.id,
+    title_en: section.title,
+    title_bg: bgSection?.title ?? null,
+    nav_en: section.nav,
+    nav_bg: bgSection?.nav ?? null,
+    body_en: [...section.body],
+    body_bg: bgSection ? [...bgSection.body] : null,
+    model_form_title_en: "modelFormTitle" in section ? section.modelFormTitle ?? null : null,
+    model_form_title_bg: bgSection && "modelFormTitle" in bgSection ? bgSection.modelFormTitle ?? null : null,
+    model_form_intro_en: "modelFormIntro" in section ? section.modelFormIntro ?? null : null,
+    model_form_intro_bg: bgSection && "modelFormIntro" in bgSection ? bgSection.modelFormIntro ?? null : null,
+    model_form_lines_en: "modelFormLines" in section ? [...(section.modelFormLines ?? [])] : null,
+    model_form_lines_bg: bgSection && "modelFormLines" in bgSection ? [...(bgSection.modelFormLines ?? [])] : null,
+    sort_order: index,
+    created_at: mockTermsTimestamp,
+    updated_at: mockTermsTimestamp,
+  };
+});
+
+function localizedTermsValue(en: string, bg: string | null, locale?: string): string {
+  return locale === "bg" ? bg ?? en : en;
+}
+
+function localizedTermsLines(en: string[] | null, bg: string[] | null, locale?: string): string[] | null {
+  if (locale === "bg" && bg?.length) return [...bg];
+  return en ? [...en] : null;
+}
+
+function cloneAdminTerms(): TermsAdminResponse {
+  return {
+    page: { ...mockTermsPage },
+    sections: mockTermsSections.map((section) => ({
+      ...section,
+      body_en: [...section.body_en],
+      body_bg: section.body_bg ? [...section.body_bg] : null,
+      model_form_lines_en: section.model_form_lines_en ? [...section.model_form_lines_en] : null,
+      model_form_lines_bg: section.model_form_lines_bg ? [...section.model_form_lines_bg] : null,
+    })),
+  };
+}
+
+// --- Privacy Policy Mock ---
+
+type StaticPrivacy = typeof enMessages.privacy;
+type StaticPrivacySection = StaticPrivacy["sections"][number];
+
+const mockPrivacyTimestamp = "2026-07-29T00:00:00Z";
+const mockPrivacyEn = enMessages.privacy as StaticPrivacy;
+const mockPrivacyBg = bgMessages.privacy as StaticPrivacy;
+
+function findStaticBgPrivacySection(slug: string): StaticPrivacySection | undefined {
+  return mockPrivacyBg.sections.find((section) => section.id === slug);
+}
+
+let mockPrivacyPage: PrivacyPageAdminResponse = {
+  id: "privacy",
+  meta_title_en: mockPrivacyEn.metaTitle,
+  meta_title_bg: mockPrivacyBg.metaTitle,
+  meta_description_en: mockPrivacyEn.metaDescription,
+  meta_description_bg: mockPrivacyBg.metaDescription,
+  eyebrow_en: mockPrivacyEn.eyebrow,
+  eyebrow_bg: mockPrivacyBg.eyebrow,
+  title_en: mockPrivacyEn.title,
+  title_bg: mockPrivacyBg.title,
+  subtitle_en: mockPrivacyEn.subtitle,
+  subtitle_bg: mockPrivacyBg.subtitle,
+  last_updated_en: mockPrivacyEn.lastUpdated,
+  last_updated_bg: mockPrivacyBg.lastUpdated,
+  controller_title_en: mockPrivacyEn.controllerTitle,
+  controller_title_bg: mockPrivacyBg.controllerTitle,
+  created_at: mockPrivacyTimestamp,
+  updated_at: mockPrivacyTimestamp,
+};
+
+let mockPrivacySections: PrivacySectionAdminResponse[] = mockPrivacyEn.sections.map(
+  (section, index) => {
+    const bgSection = findStaticBgPrivacySection(section.id);
+    return {
+      slug: section.id,
+      title_en: section.title,
+      title_bg: bgSection?.title ?? null,
+      nav_en: section.nav,
+      nav_bg: bgSection?.nav ?? null,
+      body_en: [...section.body],
+      body_bg: bgSection ? [...bgSection.body] : null,
+      sort_order: index,
+      created_at: mockPrivacyTimestamp,
+      updated_at: mockPrivacyTimestamp,
+    };
+  }
+);
+
+function cloneAdminPrivacy(): PrivacyAdminResponse {
+  return {
+    page: { ...mockPrivacyPage },
+    sections: mockPrivacySections.map((section) => ({
+      ...section,
+      body_en: [...section.body_en],
+      body_bg: section.body_bg ? [...section.body_bg] : null,
+    })),
+  };
+}
+
+// --- Cookie Policy Mock ---
+
+type StaticCookies = typeof enMessages.cookies;
+type StaticCookieSection = StaticCookies["sections"][number];
+
+const mockCookiesTimestamp = "2026-07-29T00:00:00Z";
+const mockCookiesEn = enMessages.cookies as StaticCookies;
+const mockCookiesBg = bgMessages.cookies as StaticCookies;
+
+function findStaticBgCookieSection(slug: string): StaticCookieSection | undefined {
+  return mockCookiesBg.sections.find((section) => section.id === slug);
+}
+
+let mockCookiesPage: CookiesPageAdminResponse = {
+  id: "cookies",
+  meta_title_en: mockCookiesEn.metaTitle,
+  meta_title_bg: mockCookiesBg.metaTitle,
+  meta_description_en: mockCookiesEn.metaDescription,
+  meta_description_bg: mockCookiesBg.metaDescription,
+  eyebrow_en: mockCookiesEn.eyebrow,
+  eyebrow_bg: mockCookiesBg.eyebrow,
+  title_en: mockCookiesEn.title,
+  title_bg: mockCookiesBg.title,
+  subtitle_en: mockCookiesEn.subtitle,
+  subtitle_bg: mockCookiesBg.subtitle,
+  last_updated_en: mockCookiesEn.lastUpdated,
+  last_updated_bg: mockCookiesBg.lastUpdated,
+  inventory_title_en: mockCookiesEn.inventoryTitle,
+  inventory_title_bg: mockCookiesBg.inventoryTitle,
+  header_name_en: mockCookiesEn.headers.name,
+  header_name_bg: mockCookiesBg.headers.name,
+  header_purpose_en: mockCookiesEn.headers.purpose,
+  header_purpose_bg: mockCookiesBg.headers.purpose,
+  header_type_en: mockCookiesEn.headers.type,
+  header_type_bg: mockCookiesBg.headers.type,
+  header_duration_en: mockCookiesEn.headers.duration,
+  header_duration_bg: mockCookiesBg.headers.duration,
+  created_at: mockCookiesTimestamp,
+  updated_at: mockCookiesTimestamp,
+};
+
+let mockCookieInventory: CookieInventoryAdminResponse[] = mockCookiesEn.cookies.map((item, index) => {
+  const bgItem = mockCookiesBg.cookies.find((candidate) => candidate.name === item.name);
+  return {
+    name: item.name,
+    purpose_en: item.purpose,
+    purpose_bg: bgItem?.purpose ?? null,
+    type_en: item.type,
+    type_bg: bgItem?.type ?? null,
+    duration_en: item.duration,
+    duration_bg: bgItem?.duration ?? null,
+    source: "mock_registry",
+    first_seen_at: mockCookiesTimestamp,
+    last_seen_at: mockCookiesTimestamp,
+    last_audited_at: mockCookiesTimestamp,
+    observed_on: ["mock://storefront"],
+    is_active: true,
+    auto_detected: true,
+    sort_order: index,
+    created_at: mockCookiesTimestamp,
+    updated_at: mockCookiesTimestamp,
+  };
+});
+
+let mockCookieSections: CookieSectionAdminResponse[] = mockCookiesEn.sections.map((section, index) => {
+  const bgSection = findStaticBgCookieSection(section.id);
+  return {
+    slug: section.id,
+    title_en: section.title,
+    title_bg: bgSection?.title ?? null,
+    body_en: [...section.body],
+    body_bg: bgSection ? [...bgSection.body] : null,
+    sort_order: index,
+    created_at: mockCookiesTimestamp,
+    updated_at: mockCookiesTimestamp,
+  };
+});
+
+function cloneAdminCookies(): CookiesAdminResponse {
+  return {
+    page: { ...mockCookiesPage },
+    cookies: mockCookieInventory.map((item) => ({ ...item, observed_on: [...item.observed_on] })),
+    sections: mockCookieSections.map((section) => ({
+      ...section,
+      body_en: [...section.body_en],
+      body_bg: section.body_bg ? [...section.body_bg] : null,
+    })),
+  };
 }
 
 // --- In-Memory Cart State ---
@@ -657,6 +1446,17 @@ let mockIsAuthenticated = true;
 // --- In-Memory Order Store ---
 
 const mockOrders: OrderResponse[] = [];
+const mockReturnCases: ReturnCaseResponse[] = [];
+const mockRefundRecords: PaymentRefundResponse[] = [];
+const mockCodSettlements: CodSettlementResponse[] = [];
+
+function mockNow(): string {
+  return new Date().toISOString();
+}
+
+function mockUuid(prefix: string): string {
+  return `${prefix}-${Math.random().toString(16).slice(2)}-${Date.now()}`;
+}
 
 // --- Cart Helpers ---
 
@@ -817,12 +1617,23 @@ const MOCK_OFFICES: Record<Courier, OfficeResponse[]> = {
     { id: "speedy-varna-001", name: "Speedy офис Варна Център", type: "office", city: "Варна", address: "бул. Сливница 10", working_hours: "Mon-Fri 09:00-18:00" },
   ],
   econt: [
-    { id: "econt-sf-001", name: "Econt София Център", type: "office", city: "София", address: "ул. Раковски 100", working_hours: "Mon-Fri 09:00-19:00, Sat 09:00-15:00" },
-    { id: "econt-apt-sf-01", name: "Econt Автомат Люлин", type: "apt", city: "София", address: "ж.к. Люлин, до Билла", working_hours: "24/7" },
-    { id: "econt-plovdiv-001", name: "Econt Пловдив Централ", type: "office", city: "Пловдив", address: "бул. Шести септември 20", working_hours: "Mon-Fri 09:00-19:00" },
-    { id: "econt-burgas-001", name: "Econt Бургас Център", type: "office", city: "Бургас", address: "ул. Александровска 45", working_hours: "Mon-Fri 09:00-18:00" },
+    { id: "econt-sf-001", code: "1001", name: "Econt София Център", type: "office", city: "София", address: "ул. Раковски 100", working_hours: "Mon-Fri 09:00-19:00, Sat 09:00-15:00" },
+    { id: "econt-apt-sf-01", code: "1002", name: "Econt Автомат Люлин", type: "apt", city: "София", address: "ж.к. Люлин, до Билла", working_hours: "24/7" },
+    { id: "econt-plovdiv-001", code: "4001", name: "Econt Пловдив Централ", type: "office", city: "Пловдив", address: "бул. Шести септември 20", working_hours: "Mon-Fri 09:00-19:00" },
+    { id: "econt-burgas-001", code: "8001", name: "Econt Бургас Център", type: "office", city: "Бургас", address: "ул. Александровска 45", working_hours: "Mon-Fri 09:00-18:00" },
   ],
 };
+
+export async function getDeliveryConfig(): Promise<DeliveryConfigResponse> {
+  await delay();
+  return {
+    econt: {
+      office_locator_enabled: false,
+      office_locator_url: "https://delivery-demo.econt.com/customer_info.php",
+      office_locator_origins: ["https://delivery-demo.econt.com"],
+    },
+  };
+}
 
 export async function getDeliveryOffices(
   courier: Courier,
@@ -940,6 +1751,50 @@ let mockDeliverySettings: DeliverySettingsResponse = {
   cod_enabled: true,
   card_enabled: true,
   bank_transfer_enabled: true,
+  updated_at: new Date().toISOString(),
+};
+
+let mockEcontSettings: EcontSettingsResponse = {
+  enabled: false,
+  environment: "demo",
+  shop_id: null,
+  credential_source: "env",
+  sender_delivery_mode: "office",
+  sender_office_code: null,
+  sender_city: null,
+  sender_post_code: null,
+  sender_address: null,
+  sender_quarter: null,
+  sender_street: null,
+  sender_num: null,
+  sender_other: null,
+  default_pack_count: 1,
+  shipment_description: "Atelier Marie order",
+  declared_value_enabled: false,
+  default_payment_side: "receiver",
+  return_parcel_destination: "sender",
+  days_until_return: 7,
+  return_parcel_payment_side: "sender",
+  reject_action: "return_to_sender",
+  reject_payment_side: "sender",
+  reject_return_payment_side: "sender",
+  courier_currency: "EUR",
+  currency_conversion_rate: null,
+  office_locator_enabled: false,
+  auto_confirm_on_label: false,
+  auto_delivered_on_trace: false,
+  base_url: "https://delivery-demo.econt.com/services/",
+  office_locator_url: "https://delivery-demo.econt.com/customer_info.php",
+  office_locator_origins: ["https://delivery-demo.econt.com"],
+  secret_state: {
+    credential_source: "env",
+    private_key_configured: false,
+    shop_id_configured: false,
+    encryption_key_configured: false,
+  },
+  last_health_status: null,
+  last_health_checked_at: null,
+  last_health_error: null,
   updated_at: new Date().toISOString(),
 };
 
@@ -1081,16 +1936,50 @@ export async function createOrder(
   const shipping_cents = freeShipping ? 0 : data.shipping_cents ?? 0;
   const shipping_price_source = freeShipping ? "live" : data.shipping_price_source ?? "live";
   const shipping_is_fallback = freeShipping ? false : data.shipping_is_fallback ?? false;
+  const paymentMethod =
+    data.payment_method === "card"
+      ? "card"
+      : data.payment_method === "bank_transfer"
+        ? "bank_transfer"
+        : "cod";
+  const invoiceProfile = data.invoice_profile ?? null;
+  const accountingClassificationState = invoiceProfile?.vat_identification_number
+    ? "business_vat_id_provided"
+    : invoiceProfile?.billing_country && invoiceProfile.billing_country.toUpperCase() !== "BG"
+      ? "cross_border_candidate"
+      : "domestic_default";
 
   const order: OrderResponse = {
     id: generateOrderId(),
     status: "pending",
-    payment_method: (data as { payment_method?: string }).payment_method === "card" ? "card"
-      : (data as { payment_method?: string }).payment_method === "bank_transfer" ? "bank_transfer"
-      : "cod",
-    payment_status: (data as { payment_method?: string }).payment_method === "cod" || !(data as { payment_method?: string }).payment_method
-      ? "cod_pending" : "pending",
+    payment_method: paymentMethod,
+    payment_status: paymentMethod === "cod" ? "cod_pending" : "pending",
     stripe_checkout_url: null,
+    invoice_profile: invoiceProfile,
+    accounting_currency: "EUR",
+    seller_legal_profile_version_id: null,
+    vat_fiscal_settings_version_id: null,
+    accounting_classification_state: accountingClassificationState,
+    accounting_snapshot: {
+      currency: "EUR",
+      seller_legal_profile_version_id: null,
+      vat_fiscal_settings_version_id: null,
+      payment_method: paymentMethod,
+      delivery_country: "BG",
+      customer_country: invoiceProfile?.billing_country ?? null,
+      shipping_cents,
+      shipping_price_source,
+      discounts_captured_in_effective_prices: true,
+      invoice_profile: invoiceProfile,
+      items: cart.items.map((item) => ({
+        product_id: item.product_id,
+        product_name: item.product.name,
+        quantity: item.quantity,
+        unit_price_cents: item.product.effective_price_cents,
+      })),
+    },
+    accounting_readiness_status: "review_required",
+    finance_period_id: null,
     analytics_consent: data.analytics_consent ?? false,
     items_total_cents: cart.total_cents,
     shipping_cents,
@@ -1120,6 +2009,14 @@ export async function createOrder(
     tracking_url: null,
     courier_status: null,
     label_url: null,
+    courier_provider: null,
+    courier_order_id: null,
+    courier_shipment_number: null,
+    courier_label_url: null,
+    courier_label_created_at: null,
+    courier_sync_status: null,
+    courier_last_error: null,
+    courier_last_synced_at: null,
     created_at: now,
     updated_at: now,
   };
@@ -1184,6 +2081,508 @@ export async function updateAdminDeliverySettings(
     updated_at: new Date().toISOString(),
   };
   return { ...mockDeliverySettings };
+}
+
+export async function getEcontSettings(): Promise<EcontSettingsResponse> {
+  await delay();
+  return {
+    ...mockEcontSettings,
+    auto_confirm_on_label: false,
+    auto_delivered_on_trace: false,
+    office_locator_origins: [...mockEcontSettings.office_locator_origins],
+    secret_state: { ...mockEcontSettings.secret_state },
+  };
+}
+
+export async function updateEcontSettings(
+  data: EcontSettingsUpdate
+): Promise<EcontSettingsResponse> {
+  await delay();
+  const safeData = { ...data };
+  delete safeData.auto_confirm_on_label;
+  delete safeData.auto_delivered_on_trace;
+  mockEcontSettings = {
+    ...mockEcontSettings,
+    ...safeData,
+    auto_confirm_on_label: false,
+    auto_delivered_on_trace: false,
+    updated_at: new Date().toISOString(),
+  };
+  return getEcontSettings();
+}
+
+export async function testEcontConnection(): Promise<EcontConnectionTestResponse> {
+  await delay();
+  const ok = Boolean(
+    mockEcontSettings.enabled &&
+      (mockEcontSettings.shop_id || mockEcontSettings.secret_state.shop_id_configured) &&
+      mockEcontSettings.secret_state.private_key_configured,
+  );
+  mockEcontSettings.last_health_status = ok ? "success" : "missing_configuration";
+  mockEcontSettings.last_health_checked_at = new Date().toISOString();
+  mockEcontSettings.last_health_error = ok ? null : "missing configuration";
+  return {
+    status: ok ? "success" : "missing_configuration",
+    ok,
+    message: ok ? "Econt configuration reached the safe API validation path." : "Econt configuration is incomplete.",
+    checked_at: mockEcontSettings.last_health_checked_at,
+    details: { blockers: ok ? [] : ["private_key_missing", "shop_id_missing"] },
+  };
+}
+
+function findMockOrder(orderId: string): OrderResponse {
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders];
+  const order = allOrders.find((o) => o.id === orderId);
+  if (!order) mockError("NOT_FOUND", `Order ${orderId} not found`);
+  return order;
+}
+
+function econtReadiness(order: OrderResponse): EcontOrderFulfillmentResponse {
+  const details = (order.delivery_details ?? {}) as Record<string, unknown>;
+  const blockers: string[] = [];
+  if (!mockEcontSettings.enabled) blockers.push("settings_disabled");
+  if (order.delivery_courier !== "econt") blockers.push("order_not_econt");
+  if (order.status !== "confirmed") {
+    blockers.push("order_status_not_supported");
+  }
+  if (order.delivery_method === "office" && !details.office_code) {
+    blockers.push("order_office_code_missing");
+  }
+  if (!details.phone) blockers.push("order_recipient_phone_missing");
+  return {
+    order_id: order.id,
+    ready: blockers.length === 0,
+    blockers,
+    courier_provider: order.courier_provider ?? null,
+    courier_order_id: order.courier_order_id ?? null,
+    courier_shipment_number: order.courier_shipment_number ?? null,
+    courier_label_url: order.courier_label_url ?? null,
+    courier_sync_status: order.courier_sync_status ?? null,
+    courier_last_error: order.courier_last_error ?? null,
+    courier_last_synced_at: order.courier_last_synced_at ?? null,
+    tracking_number: order.tracking_number,
+    tracking_url: order.tracking_url,
+  };
+}
+
+export async function getEcontOrderReadiness(
+  orderId: string
+): Promise<EcontOrderFulfillmentResponse> {
+  await delay();
+  return econtReadiness(findMockOrder(orderId));
+}
+
+export async function repairEcontOrder(
+  orderId: string,
+  data: EcontOrderRepairRequest
+): Promise<EcontOrderFulfillmentResponse> {
+  await delay();
+  const order = findMockOrder(orderId);
+  const details = { ...((order.delivery_details ?? {}) as Record<string, unknown>) };
+  if (data.office_code !== undefined) details.office_code = data.office_code;
+  if (data.recipient_phone !== undefined) details.phone = data.recipient_phone;
+  details.econt_overrides = {
+    ...((details.econt_overrides as Record<string, unknown> | undefined) ?? {}),
+    ...(data.pack_count ? { pack_count: data.pack_count } : {}),
+    ...(data.shipment_description ? { shipment_description: data.shipment_description } : {}),
+    ...(data.payment_side ? { payment_side: data.payment_side } : {}),
+  };
+  order.delivery_details = details as unknown as OrderResponse["delivery_details"];
+  order.courier_sync_status = "repaired";
+  order.courier_last_synced_at = new Date().toISOString();
+  return econtReadiness(order);
+}
+
+export async function syncEcontOrder(orderId: string): Promise<EcontFulfillmentActionResponse> {
+  await delay();
+  const order = findMockOrder(orderId);
+  order.courier_provider = "econt";
+  order.courier_order_id = `mock-econt-${order.id.slice(0, 8)}`;
+  order.courier_sync_status = "synced";
+  order.courier_last_synced_at = new Date().toISOString();
+  return {
+    order_id: order.id,
+    action: "sync_order",
+    status: "synced",
+    courier_order_id: order.courier_order_id,
+    shipment_number: order.courier_shipment_number ?? null,
+    label_url: order.courier_label_url ?? null,
+    tracking_url: order.tracking_url,
+    courier_status: order.courier_status ?? null,
+  };
+}
+
+export async function createEcontLabel(orderId: string): Promise<EcontFulfillmentActionResponse> {
+  await delay();
+  const order = findMockOrder(orderId);
+  const readiness = econtReadiness(order);
+  if (!readiness.ready) {
+    mockError("ECONT_NOT_READY", `Econt order is not ready: ${readiness.blockers.join(", ")}`);
+  }
+  const shipment = order.courier_shipment_number ?? `EC${Date.now()}`;
+  order.courier_provider = "econt";
+  order.courier_shipment_number = shipment;
+  order.courier_label_url = `https://delivery-demo.econt.com/labels/${shipment}.pdf`;
+  order.courier_label_created_at = new Date().toISOString();
+  order.courier_sync_status = "label_created";
+  order.courier_last_synced_at = order.courier_label_created_at;
+  order.tracking_number = shipment;
+  order.tracking_carrier = "econt";
+  order.tracking_url = buildTrackingUrl("econt", shipment);
+  return {
+    order_id: order.id,
+    action: "create_label",
+    status: "created",
+    courier_order_id: order.courier_order_id ?? null,
+    shipment_number: shipment,
+    label_url: order.courier_label_url,
+    tracking_url: order.tracking_url,
+    courier_status: order.courier_status ?? null,
+  };
+}
+
+export async function createAndShipEcontOrder(
+  orderId: string
+): Promise<EcontFulfillmentActionResponse> {
+  const order = findMockOrder(orderId);
+  if (order.status !== "confirmed") {
+    mockError("ECONT_NOT_READY", "Econt order must be confirmed before shipping");
+  }
+  const result = await createEcontLabel(orderId);
+  order.status = "shipped";
+  order.updated_at = new Date().toISOString();
+  return {
+    ...result,
+    action: "create_label_and_ship",
+    status: "shipped",
+    status_updated_to: "shipped",
+  };
+}
+
+export async function deleteEcontLabel(orderId: string): Promise<EcontFulfillmentActionResponse> {
+  await delay();
+  const order = findMockOrder(orderId);
+  order.courier_shipment_number = null;
+  order.courier_label_url = null;
+  order.courier_label_created_at = null;
+  order.courier_sync_status = "label_deleted";
+  order.courier_last_synced_at = new Date().toISOString();
+  order.tracking_number = null;
+  order.tracking_carrier = null;
+  order.tracking_url = null;
+  return {
+    order_id: order.id,
+    action: "delete_label",
+    status: "deleted",
+    courier_order_id: order.courier_order_id ?? null,
+    shipment_number: null,
+    label_url: null,
+    tracking_url: null,
+    courier_status: order.courier_status ?? null,
+  };
+}
+
+export async function refreshEcontTrace(orderId: string): Promise<EcontFulfillmentActionResponse> {
+  await delay();
+  const order = findMockOrder(orderId);
+  order.courier_sync_status = "trace_synced";
+  order.courier_last_synced_at = new Date().toISOString();
+  return {
+    order_id: order.id,
+    action: "refresh_trace",
+    status: "trace_synced",
+    courier_order_id: order.courier_order_id ?? null,
+    shipment_number: order.courier_shipment_number ?? order.tracking_number,
+    label_url: order.courier_label_url ?? null,
+    tracking_url: order.tracking_url,
+    courier_status: order.courier_status ?? null,
+  };
+}
+
+const mockSpeedyEvents: SpeedyEventResponse[] = [
+  {
+    id: 1,
+    order_id: "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f",
+    action: "refresh_tracking",
+    status: "success",
+    request: { shipmentNumber: "1234567890" },
+    response: { courier_status: "in_transit" },
+    error: null,
+    actor_user_id: null,
+    created_at: new Date(Date.now() - 3600000).toISOString(),
+  },
+];
+
+function addSpeedyEvent(
+  orderId: string,
+  action: string,
+  status: string,
+  response: Record<string, unknown> | null,
+  error: Record<string, unknown> | null = null,
+): void {
+  mockSpeedyEvents.unshift({
+    id: mockSpeedyEvents.length + 1,
+    order_id: orderId,
+    action,
+    status,
+    request: { order_id: orderId },
+    response,
+    error,
+    actor_user_id: "mock-admin",
+    created_at: new Date().toISOString(),
+  });
+}
+
+function speedyDeliveryLabel(order: OrderResponse): string | null {
+  const details = order.delivery_details;
+  if (!details) return null;
+  if ("office_name" in details) return details.office_name;
+  if ("street" in details) return `${details.street}, ${details.city}`;
+  return null;
+}
+
+function speedySummary(order: OrderResponse) {
+  return {
+    order_id: order.id,
+    order_number: order.order_number ?? null,
+    status: order.status,
+    customer_email: order.customer_email,
+    customer_name: order.customer_name,
+    delivery_method: order.delivery_method,
+    delivery_label: speedyDeliveryLabel(order),
+    total_cents: order.total_cents,
+    tracking_number: order.tracking_number,
+    tracking_url: order.tracking_url,
+    courier_status: order.courier_status,
+    courier_sync_status: order.courier_sync_status ?? null,
+    courier_last_error: order.courier_last_error ?? null,
+    courier_last_synced_at: order.courier_last_synced_at ?? null,
+    created_at: order.created_at,
+    updated_at: order.updated_at,
+  };
+}
+
+export async function recordEcontManualStatus(
+  orderId: string,
+  data: EcontManualStatusRequest
+): Promise<EcontFulfillmentActionResponse> {
+  await delay();
+  const order = findMockOrder(orderId);
+  order.courier_provider = "econt";
+  order.courier_status = data.courier_status;
+  order.courier_sync_status = "manual_status";
+  order.courier_last_synced_at = new Date().toISOString();
+  if (data.tracking_number) {
+    order.courier_shipment_number = data.tracking_number;
+    order.tracking_number = data.tracking_number;
+    order.tracking_carrier = "econt";
+    order.tracking_url = data.tracking_url ?? buildTrackingUrl("econt", data.tracking_number);
+  }
+  return {
+    order_id: order.id,
+    action: "manual_status",
+    status: "manual_status_recorded",
+    courier_order_id: order.courier_order_id ?? null,
+    shipment_number: order.courier_shipment_number ?? null,
+    label_url: order.courier_label_url ?? null,
+    tracking_url: order.tracking_url,
+    courier_status: order.courier_status ?? null,
+  };
+}
+
+export async function getSpeedyAdminOverview(
+  orderId?: string | null
+): Promise<SpeedyAdminOverviewResponse> {
+  await delay();
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders].map(withMockAccountingFlags);
+  const scoped = orderId ? allOrders.filter((order) => order.id === orderId) : allOrders;
+  const ready = scoped.filter(
+    (order) =>
+      order.delivery_courier === "speedy" &&
+      order.status === "confirmed" &&
+      !order.tracking_number &&
+      !order.courier_shipment_number,
+  );
+  const shipped = scoped.filter(
+    (order) =>
+      order.status === "shipped" &&
+      (order.tracking_carrier === "speedy" || order.courier_provider === "speedy") &&
+      Boolean(order.tracking_number || order.courier_shipment_number),
+  );
+  const failuresByCategory = mockSpeedyEvents.reduce<Record<string, number>>((acc, event) => {
+    const category = event.error?.category;
+    if (event.status === "failed" && typeof category === "string") {
+      acc[category] = (acc[category] ?? 0) + 1;
+    }
+    return acc;
+  }, {});
+  return {
+    health: {
+      status: "healthy",
+      ok: true,
+      message: "Speedy configuration is healthy.",
+      username_configured: true,
+      password_configured: true,
+      client_id_configured: true,
+      client_id_numeric: true,
+      configured_client_id: "123456789",
+      verified_client_id: "123456789",
+      client_id_matches: true,
+      blockers: [],
+      circuit: { name: "speedy_operational", state: "closed", failure_count: 0, failure_threshold: 3 },
+      last_failure_category: null,
+      last_successful_check_at: new Date(Date.now() - 600000).toISOString(),
+      checked_at: new Date().toISOString(),
+    },
+    queues: {
+      ready_to_ship: ready.map(speedySummary),
+      shipped: shipped.map(speedySummary),
+    },
+    events: mockSpeedyEvents.slice(0, 25),
+    metrics: {
+      recent_successes: mockSpeedyEvents.filter((event) => event.status === "success").length,
+      recent_failures: mockSpeedyEvents.filter((event) => event.status === "failed").length,
+      failures_by_category: failuresByCategory,
+      cancellation_count: mockSpeedyEvents.filter((event) => event.action === "cancel_shipment" && event.status === "success").length,
+      pickup_request_count: mockSpeedyEvents.filter((event) => event.action === "request_pickup" && event.status === "success").length,
+      last_successful_health_check_at: new Date(Date.now() - 600000).toISOString(),
+    },
+    office_refresh: {
+      status: "success",
+      refreshed_at: new Date(Date.now() - 86400000).toISOString(),
+      records: 1284,
+      error: null,
+    },
+  };
+}
+
+export async function createSpeedyWaybill(orderId: string): Promise<SpeedyActionResponse> {
+  await delay();
+  const order = findMockOrder(orderId);
+  if (order.delivery_courier !== "speedy") mockError("SPEEDY_NOT_READY", "Order is not assigned to Speedy");
+  if (order.status !== "confirmed" && !order.tracking_number) {
+    mockError("SPEEDY_NOT_READY", "Speedy waybill can only be created for confirmed orders");
+  }
+  const shipment = order.tracking_number ?? `63689${Date.now().toString().slice(-6)}`;
+  order.status = "shipped";
+  order.tracking_number = shipment;
+  order.tracking_carrier = "speedy";
+  order.tracking_url = buildTrackingUrl("speedy", shipment);
+  order.courier_provider = "speedy";
+  order.courier_shipment_number = shipment;
+  order.courier_sync_status = "waybill_created";
+  order.courier_last_synced_at = new Date().toISOString();
+  order.updated_at = order.courier_last_synced_at;
+  addSpeedyEvent(order.id, "create_waybill", "success", { shipment_number: shipment });
+  return {
+    order_id: order.id,
+    action: "create_waybill",
+    status: "created",
+    shipment_number: shipment,
+    tracking_url: order.tracking_url,
+    courier_status: order.courier_status,
+    status_updated_to: "shipped",
+    details: null,
+  };
+}
+
+export async function refreshSpeedyTracking(orderId: string): Promise<SpeedyActionResponse> {
+  await delay();
+  const order = findMockOrder(orderId);
+  const shipment = order.tracking_number ?? order.courier_shipment_number;
+  if (!shipment || order.tracking_carrier !== "speedy") mockError("SPEEDY_NOT_READY", "Order has no Speedy waybill");
+  order.courier_status = order.courier_status === "in_transit" ? "out_for_delivery" : "in_transit";
+  order.courier_sync_status = "track_synced";
+  order.courier_last_synced_at = new Date().toISOString();
+  addSpeedyEvent(order.id, "refresh_tracking", "success", { courier_status: order.courier_status });
+  return {
+    order_id: order.id,
+    action: "refresh_tracking",
+    status: "success",
+    shipment_number: shipment,
+    tracking_url: order.tracking_url,
+    courier_status: order.courier_status,
+    status_updated_to: null,
+    details: null,
+  };
+}
+
+export async function searchSpeedyShipments(
+  data: SpeedyShipmentSearchRequest
+): Promise<SpeedyShipmentSearchResponse> {
+  await delay();
+  const ref = data.reference.trim();
+  if (!ref) mockError("SPEEDY_VALIDATION", "reference is required");
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders].map(withMockAccountingFlags);
+  const matches = allOrders
+    .filter((order) => order.id === ref || order.order_number === ref)
+    .map((order) => order.tracking_number ?? order.courier_shipment_number)
+    .filter((value): value is string => Boolean(value));
+  return { reference: ref, barcodes: matches.length ? matches : ["1234567890"] };
+}
+
+export async function getSpeedyShipmentInfo(
+  data: SpeedyShipmentInfoRequest
+): Promise<SpeedyShipmentInfoResponse> {
+  await delay();
+  return {
+    shipments: data.shipment_ids.map((id) => ({ id, serviceId: 505, status: "accepted" })),
+  };
+}
+
+export async function cancelSpeedyShipment(
+  orderId: string,
+  _data: SpeedyCancelShipmentRequest = {},
+): Promise<SpeedyActionResponse> {
+  await delay();
+  const order = findMockOrder(orderId);
+  const shipment = order.tracking_number ?? order.courier_shipment_number;
+  if (!shipment || order.status === "delivered") mockError("SPEEDY_NOT_READY", "Speedy shipment cannot be cancelled");
+  order.courier_provider = "speedy";
+  order.courier_status = "cancelled";
+  order.courier_sync_status = "shipment_cancelled";
+  order.courier_last_synced_at = new Date().toISOString();
+  addSpeedyEvent(order.id, "cancel_shipment", "success", { shipment_id: shipment });
+  return {
+    order_id: order.id,
+    action: "cancel_shipment",
+    status: "cancelled",
+    shipment_number: shipment,
+    tracking_url: order.tracking_url,
+    courier_status: "cancelled",
+    status_updated_to: null,
+    details: { cancelled: true },
+  };
+}
+
+export async function getSpeedyPickupTerms(
+  data: SpeedyPickupTermsRequest
+): Promise<SpeedyPickupTermsResponse> {
+  await delay();
+  if (data.shipment_ids.length === 0) mockError("SPEEDY_NOT_READY", "Select at least one shipment");
+  return { cutoffs: [new Date(Date.now() + 7200000).toISOString(), new Date(Date.now() + 10800000).toISOString()] };
+}
+
+export async function requestSpeedyPickup(
+  data: SpeedyPickupRequest
+): Promise<SpeedyPickupResponse> {
+  await delay();
+  for (const shipmentId of data.shipment_ids) {
+    const order = [...MOCK_ORDERS_SEEDED, ...mockOrders].find(
+      (item) => item.tracking_number === shipmentId || item.courier_shipment_number === shipmentId,
+    );
+    if (order) addSpeedyEvent(order.id, "request_pickup", "success", { shipment_ids: data.shipment_ids });
+  }
+  return {
+    orders: [
+      {
+        id: Date.now(),
+        shipmentIds: data.shipment_ids,
+        pickupPeriodFrom: data.pickup_datetime,
+        pickupPeriodTo: data.visit_end_time,
+      },
+    ],
+  };
 }
 
 export async function getOrders(
@@ -1391,7 +2790,7 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
 export async function getAdminStats(): Promise<AdminStats> {
   await delay();
   const today = new Date().toISOString().split("T")[0]!;
-  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders];
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders].map(withMockAccountingFlags);
   const ordersToday = allOrders.filter(
     (o) => o.created_at.startsWith(today)
   ).length;
@@ -1738,14 +3137,23 @@ export async function getAdminOrders(
   limit = 20,
   status?: string,
   paymentStatus?: PaymentStatus | "",
-  paymentMethod?: PaymentMethod | ""
+  paymentMethod?: PaymentMethod | "",
+  accountingFilter?: AdminOrderAccountingFilter | "",
+  financePeriodId?: string
 ): Promise<OrderListResponse> {
   await delay();
-  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders];
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders].map(withMockAccountingFlags);
   const filtered = allOrders.filter((order) => {
     if (status && order.status !== status) return false;
     if (paymentStatus && order.payment_status !== paymentStatus) return false;
     if (paymentMethod && order.payment_method !== paymentMethod) return false;
+    if (financePeriodId && order.finance_period_id !== financePeriodId) return false;
+    if (accountingFilter === "missing_document_reference" && order.document_reference_status !== "missing") return false;
+    if (accountingFilter === "unresolved_exception" && !order.blocking_exception_count) return false;
+    if (accountingFilter === "payout_mismatch" && order.payout_reconciliation_status !== "mismatch") return false;
+    if (accountingFilter === "cod_settlement_pending" && order.cod_settlement_status !== "pending") return false;
+    if (accountingFilter === "refund_document_missing" && order.document_reference_status !== "review_required") return false;
+    if (accountingFilter === "vat_review_required" && order.accounting_classification_state !== "manual_review_required") return false;
     return true;
   });
   const start = (page - 1) * limit;
@@ -1760,7 +3168,7 @@ export async function getAdminOrders(
 
 export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailResponse> {
   await delay();
-  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders];
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders].map(withMockAccountingFlags);
   const order = allOrders.find((o) => o.id === orderId);
   if (!order) mockError("NOT_FOUND", `Order ${orderId} not found`);
   return {
@@ -1781,13 +3189,632 @@ export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailRe
         created_at: order.updated_at,
       },
     ],
+    return_cases: mockReturnCases.filter((returnCase) => returnCase.order_id === order.id),
+    return_events: [],
+    refund_records: mockRefundRecords.filter((refund) => refund.order_id === order.id),
+    cod_settlement:
+      mockCodSettlements.find((settlement) => settlement.order_id === order.id) ?? null,
+    cod_settlement_required:
+      order.payment_method === "cod" &&
+      order.status === "delivered" &&
+      !mockCodSettlements.some((settlement) => settlement.order_id === order.id),
+    econt_cod_evidence: null,
+  };
+}
+
+export async function getAccountingConfig(): Promise<AccountingConfigurationResponse> {
+  await delay();
+  return cloneMock(mockAccountingConfig);
+}
+
+export async function getLegalIdentity(): Promise<LegalIdentityResponse> {
+  await delay();
+  const seller = mockAccountingConfig.seller_profile;
+  const address = formatMockAddress(seller?.registered_address ?? null);
+  const identity: LegalIdentityResponse = {
+    trading_name: seller?.company_display_name || "Atelier Marie",
+    legal_name: seller?.legal_name || "TODO: legal entity name",
+    country: stringField(seller?.registered_address?.country) ?? "Bulgaria",
+    geographic_address: address || "TODO: geographic business address",
+    contact_email: seller?.contact_email || "contacts@theateliermarie.com",
+    registration_number: seller?.uic_eik || "TODO: registration number",
+    vat_number: seller?.vat_identification_number || "TODO: VAT number or not VAT registered",
+    responsible_party_name: seller?.company_display_name || "Atelier Marie",
+    responsible_party_address: address || "TODO: geographic business address",
+    responsible_party_email: seller?.contact_email || "contacts@theateliermarie.com",
+  };
+  return cloneMock(identity);
+}
+
+export async function createSellerLegalProfile(
+  data: SellerLegalProfileRequest
+): Promise<SellerLegalProfileResponse> {
+  await delay();
+  const profile: SellerLegalProfileResponse = {
+    ...data,
+    id: Date.now(),
+    reviewed: Boolean(data.reviewed),
+    default_currency: data.default_currency ?? "EUR",
+    bank_details_configured: Boolean(data.bank_details),
+    created_by_admin_id: "mock-admin",
+    created_at: new Date().toISOString(),
+  };
+  mockAccountingConfig = { ...mockAccountingConfig, seller_profile: profile };
+  return cloneMock(profile);
+}
+
+export async function createVatFiscalSettings(
+  data: VatFiscalSettingsRequest
+): Promise<VatFiscalSettingsResponse> {
+  await delay();
+  const settings: VatFiscalSettingsResponse = {
+    ...data,
+    id: Date.now(),
+    reviewed: Boolean(data.reviewed),
+    vat_mode: data.vat_mode ?? "unknown",
+    oss_mode: data.oss_mode ?? "not_applicable",
+    fiscal_document_mode: data.fiscal_document_mode ?? "external_reference",
+    tolerance_cents: data.tolerance_cents ?? 1,
+    created_by_admin_id: "mock-admin",
+    created_at: new Date().toISOString(),
+  };
+  mockAccountingConfig = { ...mockAccountingConfig, vat_fiscal_settings: settings };
+  return cloneMock(settings);
+}
+
+export async function upsertAccountingCategoryMapping(
+  mappingKey: string,
+  data: CategoryMappingRequest
+): Promise<CategoryMappingResponse> {
+  await delay();
+  const now = new Date().toISOString();
+  const existing = mockAccountingConfig.category_mappings.find((item) => item.mapping_key === mappingKey);
+  const mapping: CategoryMappingResponse = {
+    id: existing?.id ?? Date.now(),
+    mapping_key: mappingKey,
+    category_code: data.category_code ?? null,
+    category_label: data.category_label,
+    is_required: Boolean(data.is_required),
+    reviewed: Boolean(data.reviewed),
+    created_at: existing?.created_at ?? now,
+    updated_at: now,
+  };
+  mockAccountingConfig = {
+    ...mockAccountingConfig,
+    category_mappings: [
+      ...mockAccountingConfig.category_mappings.filter((item) => item.mapping_key !== mappingKey),
+      mapping,
+    ],
+  };
+  return cloneMock(mapping);
+}
+
+export async function updateAccountingExportSchema(
+  data: ExportSchemaSettingsRequest
+): Promise<ExportSchemaSettingsResponse> {
+  await delay();
+  const next: ExportSchemaSettingsResponse = {
+    ...mockAccountingConfig.export_schema,
+    ...data,
+    updated_at: new Date().toISOString(),
+  };
+  mockAccountingConfig = { ...mockAccountingConfig, export_schema: next };
+  return cloneMock(next);
+}
+
+export async function updateExpenseEvidenceSettings(
+  data: ExpenseEvidenceSettingsRequest
+): Promise<ExpenseEvidenceSettingsResponse> {
+  await delay();
+  const next: ExpenseEvidenceSettingsResponse = {
+    ...mockAccountingConfig.expense_settings,
+    ...data,
+    updated_at: new Date().toISOString(),
+  };
+  mockAccountingConfig = { ...mockAccountingConfig, expense_settings: next };
+  return cloneMock(next);
+}
+
+export async function updateProductCostSettings(
+  data: ProductCostSettingsRequest
+): Promise<ProductCostSettingsResponse> {
+  await delay();
+  const next: ProductCostSettingsResponse = {
+    ...mockAccountingConfig.product_cost_settings,
+    ...data,
+    updated_at: new Date().toISOString(),
+  };
+  mockAccountingConfig = { ...mockAccountingConfig, product_cost_settings: next };
+  return cloneMock(next);
+}
+
+export async function listFinancePeriods(status?: string): Promise<FinancePeriodListResponse> {
+  await delay();
+  const items = status ? mockFinancePeriods.filter((period) => period.status === status) : mockFinancePeriods;
+  return { items: cloneMock(items), total: items.length };
+}
+
+export async function createFinancePeriod(
+  data: FinancePeriodCreateRequest
+): Promise<FinancePeriodResponse> {
+  await delay();
+  const now = new Date().toISOString();
+  const period: FinancePeriodResponse = {
+    id: `period-${data.period_start}`,
+    period_start: data.period_start,
+    period_end: data.period_end,
+    currency: data.currency ?? "EUR",
+    status: "open",
+    summary_totals: null,
+    open_exception_count: 0,
+    blocking_exception_count: 0,
+    created_by_admin_id: "mock-admin",
+    updated_by_admin_id: "mock-admin",
+    closed_by_admin_id: null,
+    closed_at: null,
+    accepted_at: null,
+    reopened_from_export_id: null,
+    reopen_reason: null,
+    created_at: now,
+    updated_at: now,
+  };
+  mockFinancePeriods.unshift(period);
+  return cloneMock(period);
+}
+
+function findMockPeriod(periodId: string): FinancePeriodResponse {
+  const period = mockFinancePeriods.find((item) => item.id === periodId);
+  if (!period) mockError("FINANCE_PERIOD_NOT_FOUND", "Finance period not found");
+  return period;
+}
+
+export async function reviewFinancePeriod(periodId: string): Promise<FinancePeriodResponse> {
+  await delay();
+  const period = findMockPeriod(periodId);
+  period.status = "review";
+  period.updated_at = new Date().toISOString();
+  return cloneMock(period);
+}
+
+export async function closeFinancePeriod(periodId: string): Promise<FinancePeriodResponse> {
+  await delay();
+  const period = findMockPeriod(periodId);
+  if (period.blocking_exception_count > 0) {
+    mockError("FINANCE_PERIOD_CLOSE_BLOCKED", "Blocking accounting exceptions remain open");
+  }
+  period.status = "closed";
+  period.closed_at = new Date().toISOString();
+  period.updated_at = period.closed_at;
+  return cloneMock(period);
+}
+
+export async function reopenFinancePeriod(
+  periodId: string,
+  data: FinancePeriodActionRequest
+): Promise<FinancePeriodResponse> {
+  await delay();
+  if (!data.reason?.trim()) mockError("REASON_REQUIRED", "A reopen reason is required");
+  const period = findMockPeriod(periodId);
+  period.status = "reopened";
+  period.reopen_reason = data.reason;
+  period.updated_at = new Date().toISOString();
+  return cloneMock(period);
+}
+
+export async function acceptFinancePeriod(
+  periodId: string,
+  data: FinancePeriodActionRequest
+): Promise<FinancePeriodResponse> {
+  await delay();
+  const period = findMockPeriod(periodId);
+  period.status = "accepted";
+  period.accepted_at = new Date().toISOString();
+  period.updated_at = period.accepted_at;
+  void data;
+  return cloneMock(period);
+}
+
+export async function listFinanceExceptions(
+  periodId: string,
+  status?: FinanceExceptionStatus | ""
+): Promise<FinanceExceptionListResponse> {
+  await delay();
+  const items = mockFinanceExceptions.filter(
+    (item) => item.period_id === periodId && (!status || item.status === status)
+  );
+  return { items: cloneMock(items), total: items.length };
+}
+
+function applyExceptionAction(
+  exceptionId: string,
+  data: FinanceExceptionActionRequest,
+  status: "resolved" | "waived"
+): FinanceExceptionResponse {
+  if (!data.reason.trim()) mockError("REASON_REQUIRED", "A reason is required");
+  const item = mockFinanceExceptions.find((exception) => exception.id === exceptionId);
+  if (!item) mockError("FINANCE_EXCEPTION_NOT_FOUND", "Finance exception not found");
+  item.status = status;
+  item.updated_at = new Date().toISOString();
+  if (status === "resolved") item.resolved_at = item.updated_at;
+  if (status === "waived") {
+    item.waiver_reason = data.reason;
+    item.waived_at = item.updated_at;
+    item.waived_by_admin_id = "mock-admin";
+  }
+  const period = item.period_id ? mockFinancePeriods.find((periodItem) => periodItem.id === item.period_id) : null;
+  if (period) {
+    const open = mockFinanceExceptions.filter((exception) => exception.period_id === period.id && exception.status === "open");
+    period.open_exception_count = open.length;
+    period.blocking_exception_count = open.filter((exception) => exception.severity === "blocking").length;
+  }
+  return item;
+}
+
+export async function resolveFinanceException(
+  exceptionId: string,
+  data: FinanceExceptionActionRequest
+): Promise<FinanceExceptionResponse> {
+  await delay();
+  return cloneMock(applyExceptionAction(exceptionId, data, "resolved"));
+}
+
+export async function waiveFinanceException(
+  exceptionId: string,
+  data: FinanceExceptionActionRequest
+): Promise<FinanceExceptionResponse> {
+  await delay();
+  return cloneMock(applyExceptionAction(exceptionId, data, "waived"));
+}
+
+export async function getAccountingLedger(
+  periodId: string,
+  ledger: AccountingLedgerName,
+  options: { dateBasis?: string; page?: number; limit?: number } = {}
+): Promise<AccountingLedgerResponse> {
+  await delay();
+  findMockPeriod(periodId);
+  const rows = mockLedgerRows[ledger] ?? [];
+  const page = options.page ?? 1;
+  const limit = options.limit ?? 100;
+  const start = (page - 1) * limit;
+  const slice = rows.slice(start, start + limit);
+  return {
+    period_id: periodId,
+    ledger,
+    date_basis: options.dateBasis ?? "default",
+    rows: cloneMock(slice),
+    totals: { row_count: rows.length },
+    total: rows.length,
+    page,
+    limit,
+  };
+}
+
+export async function listAccountingDocuments(filters: {
+  orderId?: string;
+  refundId?: string;
+  periodId?: string;
+} = {}): Promise<AccountingDocumentListResponse> {
+  await delay();
+  const items = mockAccountingDocuments.filter((document) => {
+    if (filters.orderId && document.order_id !== filters.orderId) return false;
+    if (filters.refundId && document.refund_id !== filters.refundId) return false;
+    if (filters.periodId && document.period_id !== filters.periodId) return false;
+    return true;
+  });
+  return { items: cloneMock(items), total: items.length };
+}
+
+export async function listOrderAccountingDocuments(orderId: string): Promise<AccountingDocumentListResponse> {
+  return listAccountingDocuments({ orderId });
+}
+
+export async function createAccountingDocument(
+  data: AccountingDocumentRequest
+): Promise<AccountingDocumentResponse> {
+  await delay();
+  const now = new Date().toISOString();
+  const document: AccountingDocumentResponse = {
+    ...data,
+    id: `doc-${Date.now()}`,
+    source_system: data.source_system ?? "external",
+    currency: data.currency ?? "EUR",
+    status: data.status ?? "recorded",
+    created_by_admin_id: "mock-admin",
+    updated_by_admin_id: "mock-admin",
+    created_at: now,
+    updated_at: now,
+  };
+  mockAccountingDocuments.unshift(document);
+  mockLedgerRows.documents = mockAccountingDocuments as unknown as Record<string, unknown>[];
+  return cloneMock(document);
+}
+
+export async function updateAccountingDocument(
+  documentId: string,
+  data: AccountingDocumentRequest
+): Promise<AccountingDocumentResponse> {
+  await delay();
+  const index = mockAccountingDocuments.findIndex((document) => document.id === documentId);
+  if (index < 0) mockError("ACCOUNTING_DOCUMENT_NOT_FOUND", "Accounting document not found");
+  const next: AccountingDocumentResponse = {
+    ...mockAccountingDocuments[index]!,
+    ...data,
+    source_system: data.source_system ?? mockAccountingDocuments[index]!.source_system,
+    currency: data.currency ?? mockAccountingDocuments[index]!.currency,
+    status: data.status ?? mockAccountingDocuments[index]!.status,
+    updated_by_admin_id: "mock-admin",
+    updated_at: new Date().toISOString(),
+  };
+  mockAccountingDocuments[index] = next;
+  mockLedgerRows.documents = mockAccountingDocuments as unknown as Record<string, unknown>[];
+  return cloneMock(next);
+}
+
+export async function listExpenseEvidence(filters: {
+  categoryKey?: string;
+  reviewStatus?: string;
+} = {}): Promise<ExpenseEvidenceListResponse> {
+  await delay();
+  const items = mockExpenseEvidence.filter((expense) => {
+    if (filters.categoryKey && expense.category_key !== filters.categoryKey) return false;
+    if (filters.reviewStatus && expense.review_status !== filters.reviewStatus) return false;
+    return true;
+  });
+  return { items: cloneMock(items), total: items.length };
+}
+
+export async function createExpenseEvidence(
+  data: ExpenseEvidenceRequest
+): Promise<ExpenseEvidenceResponse> {
+  await delay();
+  const now = new Date().toISOString();
+  const expense: ExpenseEvidenceResponse = {
+    ...data,
+    id: `expense-${Date.now()}`,
+    payment_status: data.payment_status ?? "unpaid",
+    tax_amount_cents: data.tax_amount_cents ?? 0,
+    currency: data.currency ?? "EUR",
+    review_status: data.review_status ?? "unreviewed",
+    created_by_admin_id: "mock-admin",
+    updated_by_admin_id: "mock-admin",
+    created_at: now,
+    updated_at: now,
+  };
+  mockExpenseEvidence.unshift(expense);
+  mockLedgerRows.expenses = mockExpenseEvidence as unknown as Record<string, unknown>[];
+  return cloneMock(expense);
+}
+
+export async function updateExpenseEvidence(
+  expenseId: string,
+  data: ExpenseEvidenceRequest
+): Promise<ExpenseEvidenceResponse> {
+  await delay();
+  const index = mockExpenseEvidence.findIndex((expense) => expense.id === expenseId);
+  if (index < 0) mockError("EXPENSE_EVIDENCE_NOT_FOUND", "Expense evidence not found");
+  const next: ExpenseEvidenceResponse = {
+    ...mockExpenseEvidence[index]!,
+    ...data,
+    payment_status: data.payment_status ?? mockExpenseEvidence[index]!.payment_status,
+    tax_amount_cents: data.tax_amount_cents ?? mockExpenseEvidence[index]!.tax_amount_cents,
+    currency: data.currency ?? mockExpenseEvidence[index]!.currency,
+    review_status: data.review_status ?? mockExpenseEvidence[index]!.review_status,
+    updated_by_admin_id: "mock-admin",
+    updated_at: new Date().toISOString(),
+  };
+  mockExpenseEvidence[index] = next;
+  mockLedgerRows.expenses = mockExpenseEvidence as unknown as Record<string, unknown>[];
+  return cloneMock(next);
+}
+
+export async function updateExpensePaymentStatus(
+  expenseId: string,
+  data: ExpensePaymentStatusRequest
+): Promise<ExpenseEvidenceResponse> {
+  await delay();
+  if (!data.reason.trim()) mockError("REASON_REQUIRED", "A reason is required");
+  const expense = mockExpenseEvidence.find((item) => item.id === expenseId);
+  if (!expense) mockError("EXPENSE_EVIDENCE_NOT_FOUND", "Expense evidence not found");
+  expense.payment_status = data.payment_status;
+  expense.payment_date = data.payment_date ?? expense.payment_date;
+  expense.updated_at = new Date().toISOString();
+  return cloneMock(expense);
+}
+
+export async function listProductCosts(productId?: string): Promise<ProductCostVersionListResponse> {
+  await delay();
+  const items = productId ? mockProductCosts.filter((cost) => cost.product_id === productId) : mockProductCosts;
+  return { items: cloneMock(items), total: items.length };
+}
+
+export async function createProductCost(
+  data: ProductCostVersionRequest
+): Promise<ProductCostVersionResponse> {
+  await delay();
+  const now = new Date().toISOString();
+  const estimated = data.estimated_unit_cost_cents ??
+    (data.material_cost_cents ?? 0) + (data.packaging_cost_cents ?? 0) + (data.labor_cost_cents ?? 0) + (data.overhead_cost_cents ?? 0);
+  const cost: ProductCostVersionResponse = {
+    ...data,
+    id: `cost-${Date.now()}`,
+    costing_basis: data.costing_basis ?? "manual_snapshot",
+    material_cost_cents: data.material_cost_cents ?? 0,
+    packaging_cost_cents: data.packaging_cost_cents ?? 0,
+    labor_cost_cents: data.labor_cost_cents ?? 0,
+    overhead_cost_cents: data.overhead_cost_cents ?? 0,
+    estimated_unit_cost_cents: estimated,
+    currency: data.currency ?? "EUR",
+    reviewed: Boolean(data.reviewed),
+    accountant_reviewed: Boolean(data.accountant_reviewed),
+    review_status: data.review_status ?? "estimate",
+    source_expense_ids: data.source_expense_ids ?? [],
+    components: [],
+    created_by_admin_id: "mock-admin",
+    updated_by_admin_id: "mock-admin",
+    created_at: now,
+    updated_at: now,
+  };
+  mockProductCosts.unshift(cost);
+  mockLedgerRows.product_costs = mockProductCosts as unknown as Record<string, unknown>[];
+  return cloneMock(cost);
+}
+
+export async function updateProductCost(
+  costVersionId: string,
+  data: ProductCostVersionRequest
+): Promise<ProductCostVersionResponse> {
+  await delay();
+  const index = mockProductCosts.findIndex((cost) => cost.id === costVersionId);
+  if (index < 0) mockError("PRODUCT_COST_NOT_FOUND", "Product cost version not found");
+  const previous = mockProductCosts[index]!;
+  const next: ProductCostVersionResponse = {
+    ...previous,
+    ...data,
+    estimated_unit_cost_cents: data.estimated_unit_cost_cents ?? previous.estimated_unit_cost_cents,
+    costing_basis: data.costing_basis ?? previous.costing_basis,
+    material_cost_cents: data.material_cost_cents ?? previous.material_cost_cents,
+    packaging_cost_cents: data.packaging_cost_cents ?? previous.packaging_cost_cents,
+    labor_cost_cents: data.labor_cost_cents ?? previous.labor_cost_cents,
+    overhead_cost_cents: data.overhead_cost_cents ?? previous.overhead_cost_cents,
+    currency: data.currency ?? previous.currency,
+    reviewed: data.reviewed ?? previous.reviewed,
+    accountant_reviewed: data.accountant_reviewed ?? previous.accountant_reviewed,
+    review_status: data.review_status ?? previous.review_status,
+    source_expense_ids: data.source_expense_ids ?? previous.source_expense_ids,
+    components: previous.components,
+    updated_by_admin_id: "mock-admin",
+    updated_at: new Date().toISOString(),
+  };
+  mockProductCosts[index] = next;
+  mockLedgerRows.product_costs = mockProductCosts as unknown as Record<string, unknown>[];
+  return cloneMock(next);
+}
+
+export async function getMissingProductCosts(periodId: string): Promise<MissingProductCostDiagnosticsResponse> {
+  await delay();
+  findMockPeriod(periodId);
+  return {
+    items: [
+      {
+        order_id: "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+        order_number: "AM-COD01",
+        order_date: "2026-08-01",
+        product_id: "citrus-garden-200ml",
+        product_name: "Citrus Garden",
+      },
+    ],
+    total: 1,
+  };
+}
+
+export async function listAccountingExports(periodId?: string): Promise<FinanceExportPackageListResponse> {
+  await delay();
+  const items = periodId ? mockAccountingExports.filter((item) => item.period_id === periodId) : mockAccountingExports;
+  return { items: cloneMock(items), total: items.length };
+}
+
+export async function generateAccountingExport(periodId: string): Promise<FinanceExportPackageResponse> {
+  await delay();
+  const period = findMockPeriod(periodId);
+  if (period.status !== "closed" && period.status !== "exported" && period.status !== "accepted") {
+    mockError("FINANCE_PERIOD_NOT_CLOSED", "Period must be closed before final export");
+  }
+  const version = mockAccountingExports.filter((item) => item.period_id === periodId).length + 1;
+  const exportPackage: FinanceExportPackageResponse = {
+    id: `export-${periodId}-v${version}`,
+    period_id: periodId,
+    version,
+    schema_version: "accounting-finance-hub.v1",
+    xlsx_path: `private-exports/accounting/${periodId}/v${version}/accounting.xlsx`,
+    csv_dir_path: `private-exports/accounting/${periodId}/v${version}/csv`,
+    manifest_path: `private-exports/accounting/${periodId}/v${version}/manifest.json`,
+    manifest: { row_counts: { sales: 2, expenses: mockExpenseEvidence.length }, totals: period.summary_totals },
+    generated_by_admin_id: "mock-admin",
+    generated_at: new Date().toISOString(),
+    accepted_by_admin_id: null,
+    accepted_at: null,
+    accountant_name: null,
+    accountant_reference: null,
+    acceptance_note: null,
+    current_final: true,
+  };
+  mockAccountingExports.forEach((item) => {
+    if (item.period_id === periodId) item.current_final = false;
+  });
+  mockAccountingExports.unshift(exportPackage);
+  period.status = "exported";
+  return cloneMock(exportPackage);
+}
+
+export async function acceptAccountingExport(
+  exportId: string,
+  data: AccountantAcceptanceRequest
+): Promise<FinanceExportPackageResponse> {
+  await delay();
+  const exportPackage = mockAccountingExports.find((item) => item.id === exportId);
+  if (!exportPackage) mockError("EXPORT_PACKAGE_NOT_FOUND", "Export package not found");
+  exportPackage.accountant_name = data.accountant_name ?? null;
+  exportPackage.accountant_reference = data.accountant_reference ?? null;
+  exportPackage.acceptance_note = data.note ?? null;
+  exportPackage.accepted_by_admin_id = "mock-admin";
+  exportPackage.accepted_at = new Date().toISOString();
+  const period = mockFinancePeriods.find((item) => item.id === exportPackage.period_id);
+  if (period && exportPackage.current_final) {
+    period.status = "accepted";
+    period.accepted_at = exportPackage.accepted_at;
+  }
+  return cloneMock(exportPackage);
+}
+
+export async function getStripePayoutImportStatus(): Promise<StripePayoutImportStatusResponse> {
+  await delay();
+  return {
+    total_rows: 3,
+    matched: 1,
+    unmatched: 1,
+    mismatched: 1,
+    duplicate: 0,
+    ignored: 0,
+    latest_imported_at: MOCK_NOW,
+  };
+}
+
+export async function syncStripeBalanceTransactions(limit = 100): Promise<StripeBalanceImportResponse> {
+  await delay();
+  void limit;
+  return {
+    imported: 0,
+    updated: 1,
+    duplicate_provider_ids: 0,
+    matched: 1,
+    unmatched: 1,
+    mismatched: 1,
+    ignored: 0,
+    errors: [],
+  };
+}
+
+export async function importStripeBalanceCsv(file: File): Promise<StripeBalanceImportResponse> {
+  await delay();
+  void file;
+  return {
+    imported: 2,
+    updated: 0,
+    duplicate_provider_ids: 0,
+    matched: 1,
+    unmatched: 1,
+    mismatched: 0,
+    ignored: 0,
+    errors: [],
   };
 }
 
 export async function applyManualPaymentAction(
   orderId: string,
   action: ManualPaymentAction,
-  note: string
+  note: string,
+  callbackOutcome?: CallbackOutcome | null
 ): Promise<OrderResponse> {
   await delay();
   if (!note.trim()) mockError("NOTE_REQUIRED", "A note is required");
@@ -1799,8 +3826,16 @@ export async function applyManualPaymentAction(
     order.payment_status = "paid";
   } else if (action === "mark_refunded") {
     order.payment_status = "refunded";
-  } else if (action === "mark_failed" || action === "mark_review") {
+  } else if (action === "mark_failed") {
     order.payment_status = "failed";
+  } else if (action === "mark_review") {
+    order.payment_status = "review_required";
+  } else if (action === "record_callback") {
+    if (!callbackOutcome) mockError("CALLBACK_OUTCOME_REQUIRED", "Callback outcome is required");
+    order.payment_status = "review_required";
+  } else if (action === "convert_to_cod") {
+    order.payment_method = "cod";
+    order.payment_status = "cod_pending";
   } else if (action === "cancel") {
     order.status = "cancelled";
     if (order.payment_status !== "paid" && order.payment_status !== "refunded") {
@@ -1809,6 +3844,177 @@ export async function applyManualPaymentAction(
   }
   order.updated_at = new Date().toISOString();
   return { ...order };
+}
+
+export async function createReturnCase(
+  orderId: string,
+  data: CreateReturnCaseRequest
+): Promise<ReturnCaseResponse> {
+  await delay();
+  const order = findMockOrder(orderId);
+  const now = mockNow();
+  const returnCase: ReturnCaseResponse = {
+    id: mockUuid("return"),
+    order_id: orderId,
+    reason: data.reason,
+    source: data.source ?? "admin",
+    status: data.status ?? "requested",
+    refund_amount_cents: data.refund_amount_cents ?? null,
+    courier_return_fee_cents: data.courier_return_fee_cents ?? 0,
+    courier_claim_id: data.courier_claim_id ?? null,
+    courier_claim_status: data.courier_claim_status ?? "none",
+    courier_claim_amount_cents: data.courier_claim_amount_cents ?? null,
+    restock_decision: "pending",
+    returned_at: data.status === "return_in_transit" ? now : null,
+    received_at: null,
+    inspected_at: null,
+    closed_at: null,
+    notes: data.notes ?? null,
+    created_by_admin_id: null,
+    updated_by_admin_id: null,
+    created_at: now,
+    updated_at: now,
+  };
+  if (data.status === "return_in_transit" && ["shipped", "delivered"].includes(order.status)) {
+    order.status = "return_in_transit";
+  }
+  order.updated_at = now;
+  mockReturnCases.push(returnCase);
+  return returnCase;
+}
+
+export async function receiveReturnCase(
+  orderId: string,
+  returnId: string
+): Promise<ReturnCaseResponse> {
+  await delay();
+  const order = findMockOrder(orderId);
+  const returnCase = mockReturnCases.find((item) => item.id === returnId && item.order_id === orderId);
+  if (!returnCase) mockError("RETURN_CASE_NOT_FOUND", `Return ${returnId} not found`);
+  const now = mockNow();
+  returnCase.status = "received";
+  returnCase.received_at = returnCase.received_at ?? now;
+  returnCase.updated_at = now;
+  if (order.status === "return_in_transit") order.status = "returned";
+  order.updated_at = now;
+  return { ...returnCase };
+}
+
+export async function inspectReturnCase(
+  orderId: string,
+  returnId: string,
+  data: InspectReturnCaseRequest
+): Promise<ReturnCaseResponse> {
+  await delay();
+  findMockOrder(orderId);
+  const returnCase = mockReturnCases.find((item) => item.id === returnId && item.order_id === orderId);
+  if (!returnCase) mockError("RETURN_CASE_NOT_FOUND", `Return ${returnId} not found`);
+  const now = mockNow();
+  returnCase.status = "inspected";
+  returnCase.restock_decision = data.restock_decision;
+  returnCase.inspected_at = returnCase.inspected_at ?? now;
+  returnCase.notes = data.notes ?? returnCase.notes;
+  returnCase.updated_at = now;
+  return { ...returnCase };
+}
+
+export async function closeReturnCase(
+  orderId: string,
+  returnId: string
+): Promise<ReturnCaseResponse> {
+  await delay();
+  findMockOrder(orderId);
+  const returnCase = mockReturnCases.find((item) => item.id === returnId && item.order_id === orderId);
+  if (!returnCase) mockError("RETURN_CASE_NOT_FOUND", `Return ${returnId} not found`);
+  const now = mockNow();
+  returnCase.status = "closed";
+  returnCase.closed_at = returnCase.closed_at ?? now;
+  returnCase.updated_at = now;
+  return { ...returnCase };
+}
+
+export async function updateReturnAccounting(
+  orderId: string,
+  returnId: string,
+  data: UpdateReturnAccountingRequest
+): Promise<ReturnCaseResponse> {
+  await delay();
+  findMockOrder(orderId);
+  const returnCase = mockReturnCases.find((item) => item.id === returnId && item.order_id === orderId);
+  if (!returnCase) mockError("RETURN_CASE_NOT_FOUND", `Return ${returnId} not found`);
+  const now = mockNow();
+  if (data.courier_return_fee_cents != null) {
+    returnCase.courier_return_fee_cents = data.courier_return_fee_cents;
+  }
+  if (data.courier_claim_id !== undefined) returnCase.courier_claim_id = data.courier_claim_id;
+  if (data.courier_claim_status) returnCase.courier_claim_status = data.courier_claim_status;
+  if (data.courier_claim_amount_cents !== undefined) {
+    returnCase.courier_claim_amount_cents = data.courier_claim_amount_cents;
+  }
+  if (data.notes !== undefined) returnCase.notes = data.notes;
+  returnCase.updated_at = now;
+  return { ...returnCase };
+}
+
+export async function createStripeRefund(
+  orderId: string,
+  data: CreateStripeRefundRequest
+): Promise<PaymentRefundResponse> {
+  await delay();
+  const order = findMockOrder(orderId);
+  const existing = mockRefundRecords.find(
+    (refund) => refund.provider === "stripe" && refund.idempotency_key === data.idempotency_key
+  );
+  if (existing) return { ...existing };
+  const alreadyPending = mockRefundRecords
+    .filter((refund) => refund.order_id === orderId && ["pending", "succeeded"].includes(refund.status))
+    .reduce((total, refund) => total + refund.amount_cents, 0);
+  const amount = data.amount_cents ?? Math.max(0, order.total_cents - alreadyPending);
+  const now = mockNow();
+  const refund: PaymentRefundResponse = {
+    id: mockUuid("refund"),
+    order_id: orderId,
+    payment_id: null,
+    provider: "stripe",
+    provider_refund_id: null,
+    amount_cents: amount,
+    status: "pending",
+    reason: data.reason ?? null,
+    idempotency_key: data.idempotency_key,
+    failure_reason: null,
+    created_by_admin_id: null,
+    created_at: now,
+    confirmed_at: null,
+  };
+  mockRefundRecords.push(refund);
+  order.payment_status = "refund_pending";
+  order.updated_at = now;
+  return { ...refund };
+}
+
+export async function recordCodSettlement(
+  orderId: string,
+  data: RecordCodSettlementRequest
+): Promise<CodSettlementResponse> {
+  await delay();
+  const order = findMockOrder(orderId);
+  const now = mockNow();
+  const existingIndex = mockCodSettlements.findIndex((settlement) => settlement.order_id === orderId);
+  const settlement: CodSettlementResponse = {
+    id: existingIndex >= 0 ? mockCodSettlements[existingIndex]!.id : mockUuid("cod"),
+    order_id: orderId,
+    amount_cents: data.amount_cents,
+    settlement_date: data.settlement_date,
+    courier_reference: data.courier_reference ?? null,
+    notes: data.notes ?? null,
+    mismatch_review: data.amount_cents !== order.total_cents,
+    created_by_admin_id: null,
+    created_at: existingIndex >= 0 ? mockCodSettlements[existingIndex]!.created_at : now,
+    updated_at: now,
+  };
+  if (existingIndex >= 0) mockCodSettlements[existingIndex] = settlement;
+  else mockCodSettlements.push(settlement);
+  return { ...settlement };
 }
 
 export async function updateOrderStatus(
@@ -1828,8 +4034,10 @@ export async function updateOrderStatus(
   const validTransitions: Record<OrderStatus, OrderStatus[]> = {
     pending: ["confirmed", "cancelled"],
     confirmed: ["shipped", "cancelled"],
-    shipped: ["delivered"],
-    delivered: [],
+    shipped: ["delivered", "return_in_transit"],
+    delivered: ["return_in_transit"],
+    return_in_transit: ["returned"],
+    returned: [],
     cancelled: [],
   };
 
@@ -1842,6 +4050,11 @@ export async function updateOrderStatus(
       order.tracking_number = "63689182611";
       order.tracking_carrier = "speedy";
       order.tracking_url = buildTrackingUrl("speedy", "63689182611");
+      order.courier_provider = "speedy";
+      order.courier_shipment_number = "63689182611";
+      order.courier_sync_status = "waybill_created";
+      order.courier_last_synced_at = new Date().toISOString();
+      addSpeedyEvent(order.id, "create_waybill", "success", { shipment_number: "63689182611" });
     } else if (!tracking?.tracking_number || !tracking?.tracking_carrier) {
       mockError(
         "TRACKING_REQUIRED",
@@ -2256,6 +4469,251 @@ export async function updateFaqSection(
   if (data.sort_order !== undefined) section.sort_order = data.sort_order;
   section.updated_at = new Date().toISOString();
   return { ...section, items: section.items.map((item) => ({ ...item })) };
+}
+
+export async function getTerms(locale?: string): Promise<TermsResponse> {
+  await delay();
+  return {
+    meta_title: localizedTermsValue(mockTermsPage.meta_title_en, mockTermsPage.meta_title_bg, locale),
+    meta_description: localizedTermsValue(
+      mockTermsPage.meta_description_en,
+      mockTermsPage.meta_description_bg,
+      locale
+    ),
+    eyebrow: localizedTermsValue(mockTermsPage.eyebrow_en, mockTermsPage.eyebrow_bg, locale),
+    title: localizedTermsValue(mockTermsPage.title_en, mockTermsPage.title_bg, locale),
+    subtitle: localizedTermsValue(mockTermsPage.subtitle_en, mockTermsPage.subtitle_bg, locale),
+    last_updated: localizedTermsValue(
+      mockTermsPage.last_updated_en,
+      mockTermsPage.last_updated_bg,
+      locale
+    ),
+    identity_intro: localizedTermsValue(
+      mockTermsPage.identity_intro_en,
+      mockTermsPage.identity_intro_bg,
+      locale
+    ),
+    policy_links_title: localizedTermsValue(
+      mockTermsPage.policy_links_title_en,
+      mockTermsPage.policy_links_title_bg,
+      locale
+    ),
+    privacy_link: localizedTermsValue(mockTermsPage.privacy_link_en, mockTermsPage.privacy_link_bg, locale),
+    cookies_link: localizedTermsValue(mockTermsPage.cookies_link_en, mockTermsPage.cookies_link_bg, locale),
+    nav_label: localizedTermsValue(mockTermsPage.nav_label_en, mockTermsPage.nav_label_bg, locale),
+    back_to_top: localizedTermsValue(mockTermsPage.back_to_top_en, mockTermsPage.back_to_top_bg, locale),
+    sections: mockTermsSections
+      .slice()
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((section) => ({
+        id: section.slug,
+        title: localizedTermsValue(section.title_en, section.title_bg, locale),
+        nav: localizedTermsValue(section.nav_en, section.nav_bg, locale),
+        body: localizedTermsLines(section.body_en, section.body_bg, locale) ?? [],
+        model_form_title: localizedTermsValue(
+          section.model_form_title_en ?? "",
+          section.model_form_title_bg,
+          locale
+        ) || null,
+        model_form_intro: localizedTermsValue(
+          section.model_form_intro_en ?? "",
+          section.model_form_intro_bg,
+          locale
+        ) || null,
+        model_form_lines: localizedTermsLines(
+          section.model_form_lines_en,
+          section.model_form_lines_bg,
+          locale
+        ),
+      })),
+  };
+}
+
+export async function getAdminTerms(): Promise<TermsAdminResponse> {
+  await delay();
+  return cloneAdminTerms();
+}
+
+export async function updateTermsPage(
+  data: UpdateTermsPageRequest
+): Promise<TermsPageAdminResponse> {
+  await delay();
+  mockTermsPage = { ...mockTermsPage, ...data, updated_at: new Date().toISOString() };
+  return { ...mockTermsPage };
+}
+
+export async function updateTermsSection(
+  slug: string,
+  data: UpdateTermsSectionRequest
+): Promise<TermsSectionAdminResponse> {
+  await delay();
+  const section = mockTermsSections.find((candidate) => candidate.slug === slug);
+  if (!section) mockError("terms_section_not_found", `Terms section ${slug} not found`);
+  Object.assign(section, data, { updated_at: new Date().toISOString() });
+  return {
+    ...section,
+    body_en: [...section.body_en],
+    body_bg: section.body_bg ? [...section.body_bg] : null,
+    model_form_lines_en: section.model_form_lines_en ? [...section.model_form_lines_en] : null,
+    model_form_lines_bg: section.model_form_lines_bg ? [...section.model_form_lines_bg] : null,
+  };
+}
+
+export async function getPrivacy(locale?: string): Promise<PrivacyResponse> {
+  await delay();
+  return {
+    meta_title: localizedTermsValue(mockPrivacyPage.meta_title_en, mockPrivacyPage.meta_title_bg, locale),
+    meta_description: localizedTermsValue(
+      mockPrivacyPage.meta_description_en,
+      mockPrivacyPage.meta_description_bg,
+      locale
+    ),
+    eyebrow: localizedTermsValue(mockPrivacyPage.eyebrow_en, mockPrivacyPage.eyebrow_bg, locale),
+    title: localizedTermsValue(mockPrivacyPage.title_en, mockPrivacyPage.title_bg, locale),
+    subtitle: localizedTermsValue(mockPrivacyPage.subtitle_en, mockPrivacyPage.subtitle_bg, locale),
+    last_updated: localizedTermsValue(
+      mockPrivacyPage.last_updated_en,
+      mockPrivacyPage.last_updated_bg,
+      locale
+    ),
+    controller_title: localizedTermsValue(
+      mockPrivacyPage.controller_title_en,
+      mockPrivacyPage.controller_title_bg,
+      locale
+    ),
+    sections: mockPrivacySections
+      .slice()
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((section) => ({
+        id: section.slug,
+        title: localizedTermsValue(section.title_en, section.title_bg, locale),
+        nav: localizedTermsValue(section.nav_en, section.nav_bg, locale),
+        body: localizedTermsLines(section.body_en, section.body_bg, locale) ?? [],
+      })),
+  };
+}
+
+export async function getAdminPrivacy(): Promise<PrivacyAdminResponse> {
+  await delay();
+  return cloneAdminPrivacy();
+}
+
+export async function updatePrivacyPage(
+  data: UpdatePrivacyPageRequest
+): Promise<PrivacyPageAdminResponse> {
+  await delay();
+  mockPrivacyPage = { ...mockPrivacyPage, ...data, updated_at: new Date().toISOString() };
+  return { ...mockPrivacyPage };
+}
+
+export async function updatePrivacySection(
+  slug: string,
+  data: UpdatePrivacySectionRequest
+): Promise<PrivacySectionAdminResponse> {
+  await delay();
+  const section = mockPrivacySections.find((candidate) => candidate.slug === slug);
+  if (!section) mockError("privacy_section_not_found", `Privacy section ${slug} not found`);
+  Object.assign(section, data, { updated_at: new Date().toISOString() });
+  return {
+    ...section,
+    body_en: [...section.body_en],
+    body_bg: section.body_bg ? [...section.body_bg] : null,
+  };
+}
+
+export async function getCookies(locale?: string): Promise<CookiesResponse> {
+  await delay();
+  return {
+    meta_title: localizedTermsValue(mockCookiesPage.meta_title_en, mockCookiesPage.meta_title_bg, locale),
+    meta_description: localizedTermsValue(
+      mockCookiesPage.meta_description_en,
+      mockCookiesPage.meta_description_bg,
+      locale
+    ),
+    eyebrow: localizedTermsValue(mockCookiesPage.eyebrow_en, mockCookiesPage.eyebrow_bg, locale),
+    title: localizedTermsValue(mockCookiesPage.title_en, mockCookiesPage.title_bg, locale),
+    subtitle: localizedTermsValue(mockCookiesPage.subtitle_en, mockCookiesPage.subtitle_bg, locale),
+    last_updated: localizedTermsValue(
+      mockCookiesPage.last_updated_en,
+      mockCookiesPage.last_updated_bg,
+      locale
+    ),
+    inventory_title: localizedTermsValue(
+      mockCookiesPage.inventory_title_en,
+      mockCookiesPage.inventory_title_bg,
+      locale
+    ),
+    headers: {
+      name: localizedTermsValue(mockCookiesPage.header_name_en, mockCookiesPage.header_name_bg, locale),
+      purpose: localizedTermsValue(
+        mockCookiesPage.header_purpose_en,
+        mockCookiesPage.header_purpose_bg,
+        locale
+      ),
+      type: localizedTermsValue(mockCookiesPage.header_type_en, mockCookiesPage.header_type_bg, locale),
+      duration: localizedTermsValue(
+        mockCookiesPage.header_duration_en,
+        mockCookiesPage.header_duration_bg,
+        locale
+      ),
+    },
+    cookies: mockCookieInventory
+      .slice()
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((item) => ({
+        name: item.name,
+        purpose: localizedTermsValue(item.purpose_en, item.purpose_bg, locale),
+        type: localizedTermsValue(item.type_en, item.type_bg, locale),
+        duration: localizedTermsValue(item.duration_en, item.duration_bg, locale),
+      })),
+    sections: mockCookieSections
+      .slice()
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((section) => ({
+        id: section.slug,
+        title: localizedTermsValue(section.title_en, section.title_bg, locale),
+        body: localizedTermsLines(section.body_en, section.body_bg, locale) ?? [],
+      })),
+  };
+}
+
+export async function getAdminCookies(): Promise<CookiesAdminResponse> {
+  await delay();
+  return cloneAdminCookies();
+}
+
+export async function updateCookiesPage(
+  data: UpdateCookiesPageRequest
+): Promise<CookiesPageAdminResponse> {
+  await delay();
+  mockCookiesPage = { ...mockCookiesPage, ...data, updated_at: new Date().toISOString() };
+  return { ...mockCookiesPage };
+}
+
+export async function updateCookieInventory(
+  name: string,
+  data: UpdateCookieInventoryRequest
+): Promise<CookieInventoryAdminResponse> {
+  await delay();
+  const item = mockCookieInventory.find((candidate) => candidate.name === name);
+  if (!item) mockError("cookie_inventory_not_found", `Cookie ${name} not found`);
+  Object.assign(item, data, { updated_at: new Date().toISOString() });
+  return { ...item, observed_on: [...item.observed_on] };
+}
+
+export async function updateCookieSection(
+  slug: string,
+  data: UpdateCookieSectionRequest
+): Promise<CookieSectionAdminResponse> {
+  await delay();
+  const section = mockCookieSections.find((candidate) => candidate.slug === slug);
+  if (!section) mockError("cookie_section_not_found", `Cookie section ${slug} not found`);
+  Object.assign(section, data, { updated_at: new Date().toISOString() });
+  return {
+    ...section,
+    body_en: [...section.body_en],
+    body_bg: section.body_bg ? [...section.body_bg] : null,
+  };
 }
 
 function termProductCount(kind: TaxonomyKind, slug: string): number {

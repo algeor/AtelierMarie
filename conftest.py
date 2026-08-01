@@ -257,11 +257,51 @@ def _clean_tables(db_path, app):
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA foreign_keys=ON")
     for table in (
+        "cogs_ledger",
+        "inventory_valuation_layers",
+        "stock_count_lines",
+        "stock_counts",
+        "production_batch_outputs",
+        "production_batch_consumption",
+        "inventory_movements",
+        "inventory_exceptions",
+        "inventory_closes",
+        "production_batches",
+        "recipe_cost_snapshots",
+        "recipe_components",
+        "recipe_versions",
+        "material_lots",
+        "material_receipts",
+        "materials",
+        "product_inventory_profiles",
+        "inventory_settings",
+        "product_cost_components",
+        "product_cost_versions",
+        "finance_exceptions",
+        "finance_export_packages",
+        "stripe_balance_transactions",
+        "accounting_documents",
+        "expense_evidence",
+        "finance_audit_events",
+        "finance_periods",
+        "accounting_category_mappings",
+        "product_cost_settings",
+        "expense_evidence_settings",
+        "accounting_export_schema_settings",
         "order_email_send_claims",
         "order_emails",
         "contact_messages",
+        "inventory_adjustments",
+        "order_return_events",
+        "order_returns",
+        "payment_refunds",
+        "cod_settlements",
+        "payment_events",
+        "payments",
         "order_items",
         "orders",
+        "vat_fiscal_settings_versions",
+        "seller_legal_profile_versions",
         "cart_items",
         "product_videos",
         "product_images",
@@ -272,10 +312,11 @@ def _clean_tables(db_path, app):
     # Reset the singleton managed banner to its seeded default between tests.
     conn.execute("DELETE FROM site_banners")
     conn.execute("DELETE FROM delivery_settings")
-    from app.database import _seed_delivery_settings, _seed_site_banner
+    from app.database import _seed_delivery_settings, _seed_inventory_settings, _seed_site_banner
 
     _seed_site_banner(conn)
     _seed_delivery_settings(conn)
+    _seed_inventory_settings(conn)
     # Delete sessions except the fake middleware session
     if fake_session_id:
         conn.execute("DELETE FROM sessions WHERE id != ?", (fake_session_id,))

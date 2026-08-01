@@ -1,6 +1,7 @@
 """FAQ service layer for public and admin-managed FAQ content."""
 
 import sqlite3
+from typing import Any
 
 from app.database import get_db
 
@@ -85,28 +86,28 @@ def get_public_faq(locale: str | None = "en") -> dict:
             """
         ).fetchall()
 
-    sections = []
-    by_slug: dict[str, dict] = {}
+    sections: list[dict[str, Any]] = []
+    by_slug: dict[str, dict[str, Any]] = {}
     for row in section_rows:
         title = row["title_bg"] or row["title_en"] if resolved == "bg" else row["title_en"]
-        section = {
+        section_data = {
             "slug": row["slug"],
             "title": title,
             "icon": row["icon"],
             "items": [],
         }
-        by_slug[row["slug"]] = section
-        sections.append(section)
+        by_slug[row["slug"]] = section_data
+        sections.append(section_data)
 
     for row in item_rows:
-        section = by_slug.get(row["section"])
-        if section is None:
+        target_section = by_slug.get(row["section"])
+        if target_section is None:
             continue
         question = (
             row["question_bg"] or row["question_en"] if resolved == "bg" else row["question_en"]
         )
         answer = row["answer_bg"] or row["answer_en"] if resolved == "bg" else row["answer_en"]
-        section["items"].append({"id": row["id"], "question": question, "answer": answer})
+        target_section["items"].append({"id": row["id"], "question": question, "answer": answer})
 
     return {"sections": sections}
 
@@ -121,17 +122,17 @@ def list_faq_admin() -> dict:
             "SELECT * FROM faq_items ORDER BY section, sort_order, id"
         ).fetchall()
 
-    sections = []
-    by_slug: dict[str, dict] = {}
+    sections: list[dict[str, Any]] = []
+    by_slug: dict[str, dict[str, Any]] = {}
     for row in section_rows:
-        section = _section_to_admin_dict(row)
-        by_slug[section["slug"]] = section
-        sections.append(section)
+        section_data = _section_to_admin_dict(row)
+        by_slug[section_data["slug"]] = section_data
+        sections.append(section_data)
 
     for row in item_rows:
-        section = by_slug.get(row["section"])
-        if section is not None:
-            section["items"].append(_item_to_admin_dict(row))
+        target_section = by_slug.get(row["section"])
+        if target_section is not None:
+            target_section["items"].append(_item_to_admin_dict(row))
 
     return {"sections": sections}
 
@@ -165,7 +166,10 @@ def create_item(data: dict) -> dict:
                 sort_order,
             ),
         )
-        return _get_admin_item(conn, int(cursor.lastrowid))
+        item_id = cursor.lastrowid
+        if item_id is None:
+            raise RuntimeError("FAQ item insert did not return an id")
+        return _get_admin_item(conn, item_id)
 
 
 def update_item(item_id: int, updates: dict) -> dict:

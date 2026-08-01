@@ -252,8 +252,7 @@ describe("Admin Dashboard", () => {
       expect(screen.getByText("Dashboard")).toBeInTheDocument();
     });
 
-    // Skeleton elements should be present (they render as divs with animate-pulse)
-    expect(screen.getByText("Overview of your store performance")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "More information" })).not.toBeInTheDocument();
   });
 
   it("shows error when stats fail to load", async () => {

@@ -3,9 +3,12 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Image from "next/image";
 import { useTranslations } from "next-intl";
-import { useRouter } from "@/i18n/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/Button";
+import { DeleteIconButton } from "@/components/ui/DeleteIconButton";
 import { Input } from "@/components/ui/Input";
+import { AdminFieldLabel } from "@/components/admin/AdminFieldLabel";
+import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
 import { ApiError } from "@/lib/api-client";
 import { resolveMediaUrl } from "@/lib/media";
 import { getAdminTaxonomy } from "@/lib/api";
@@ -213,6 +216,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
 
   const translationStaleBg = product?.translation_stale_bg;
   const translationStaleEn = product?.translation_stale_en;
+  const ledgerManaged = product?.ledger_managed || product?.inventory_mode === "ledger_managed";
 
   useEffect(() => {
     if (!pendingImageFiles) return;
@@ -495,6 +499,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
   const discountPreviewCents = showDiscountPreview
     ? Math.max(1, Math.floor((formData.price_cents * (100 - percentNum) + 50) / 100))
     : 0;
+  const fieldInfo = (content: string) => <AdminInfoPopover content={content} />;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -508,6 +513,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
       {!product && (
         <Input
           label={t("productId")}
+          labelExtra={fieldInfo(t("fieldHelp.productId"))}
           placeholder={t("productIdPlaceholder")}
           value={formData.id}
           onChange={(e) => updateField("id", e.target.value)}
@@ -520,6 +526,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
         <div className="relative">
           <Input
             label={t("nameEn")}
+            labelExtra={fieldInfo(t("fieldHelp.nameEn"))}
             placeholder={t("nameEnPlaceholder")}
             value={formData.name_en}
             onChange={(e) => updateField("name_en", e.target.value)}
@@ -534,6 +541,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
         <div className="relative">
           <Input
             label={t("nameBg")}
+            labelExtra={fieldInfo(t("fieldHelp.nameBg"))}
             placeholder={t("nameBgPlaceholder")}
             value={formData.name_bg}
             onChange={(e) => updateField("name_bg", e.target.value)}
@@ -549,9 +557,9 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
       {/* Dual-language description fields */}
       <div className="grid gap-6 sm:grid-cols-2">
         <div className="relative">
-          <label htmlFor="description_en" className="mb-1.5 block text-sm font-medium text-soft-brown">
+          <AdminFieldLabel htmlFor="description_en" info={t("fieldHelp.descriptionEn")}>
             {t("descriptionEn")}
-          </label>
+          </AdminFieldLabel>
           <textarea
             id="description_en"
             value={formData.description_en}
@@ -567,9 +575,9 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
           )}
         </div>
         <div className="relative">
-          <label htmlFor="description_bg" className="mb-1.5 block text-sm font-medium text-soft-brown">
+          <AdminFieldLabel htmlFor="description_bg" info={t("fieldHelp.descriptionBg")}>
             {t("descriptionBg")}
-          </label>
+          </AdminFieldLabel>
           <textarea
             id="description_bg"
             value={formData.description_bg}
@@ -587,15 +595,15 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
       </div>
 
       <div className="space-y-4 rounded-brand border border-champagne-beige p-4">
-        <div>
+        <div className="flex items-center gap-2">
           <h2 className="font-heading text-lg text-charcoal">{t("safetySectionTitle")}</h2>
-          <p className="mt-1 text-xs text-soft-brown/70">{t("safetySectionHelp")}</p>
+          <AdminInfoPopover content={t("safetySectionHelp")} />
         </div>
         <div className="grid gap-6 sm:grid-cols-2">
           <div>
-            <label htmlFor="safety_warnings_en" className="mb-1.5 block text-sm font-medium text-soft-brown">
+            <AdminFieldLabel htmlFor="safety_warnings_en" info={t("fieldHelp.safetyWarnings")}>
               {t("safetyWarningsEn")}
-            </label>
+            </AdminFieldLabel>
             <textarea
               id="safety_warnings_en"
               value={formData.safety_warnings_en}
@@ -608,9 +616,9 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
             {errors.safety_warnings_en && <p className="mt-1.5 text-sm text-red-700">{errors.safety_warnings_en}</p>}
           </div>
           <div>
-            <label htmlFor="safety_warnings_bg" className="mb-1.5 block text-sm font-medium text-soft-brown">
+            <AdminFieldLabel htmlFor="safety_warnings_bg" info={t("fieldHelp.safetyWarnings")}>
               {t("safetyWarningsBg")}
-            </label>
+            </AdminFieldLabel>
             <textarea
               id="safety_warnings_bg"
               value={formData.safety_warnings_bg}
@@ -623,9 +631,9 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
             {errors.safety_warnings_bg && <p className="mt-1.5 text-sm text-red-700">{errors.safety_warnings_bg}</p>}
           </div>
           <div>
-            <label htmlFor="care_instructions_en" className="mb-1.5 block text-sm font-medium text-soft-brown">
+            <AdminFieldLabel htmlFor="care_instructions_en" info={t("fieldHelp.careInstructions")}>
               {t("careInstructionsEn")}
-            </label>
+            </AdminFieldLabel>
             <textarea
               id="care_instructions_en"
               value={formData.care_instructions_en}
@@ -638,9 +646,9 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
             {errors.care_instructions_en && <p className="mt-1.5 text-sm text-red-700">{errors.care_instructions_en}</p>}
           </div>
           <div>
-            <label htmlFor="care_instructions_bg" className="mb-1.5 block text-sm font-medium text-soft-brown">
+            <AdminFieldLabel htmlFor="care_instructions_bg" info={t("fieldHelp.careInstructions")}>
               {t("careInstructionsBg")}
-            </label>
+            </AdminFieldLabel>
             <textarea
               id="care_instructions_bg"
               value={formData.care_instructions_bg}
@@ -658,9 +666,9 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
       {/* Other fields */}
       <div className="grid gap-6 sm:grid-cols-2">
         <div className="w-full">
-          <label htmlFor="product_type" className="mb-1.5 block text-sm font-medium text-soft-brown">
+          <AdminFieldLabel htmlFor="product_type" info={t("fieldHelp.productType")}>
             {t("productType")}
-          </label>
+          </AdminFieldLabel>
           <select
             id="product_type"
             value={formData.product_type}
@@ -680,9 +688,9 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
           )}
         </div>
         <div className="w-full">
-          <label htmlFor="category" className="mb-1.5 block text-sm font-medium text-soft-brown">
+          <AdminFieldLabel htmlFor="category" info={t("fieldHelp.category")}>
             {t("category")}
-          </label>
+          </AdminFieldLabel>
           <select
             id="category"
             value={formData.category}
@@ -699,10 +707,9 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
           </select>
         </div>
         <div className="sm:col-span-2">
-          <span className="mb-1.5 block text-sm font-medium text-soft-brown">
+          <AdminFieldLabel info={t("fieldHelp.labels")}>
             {t("labelsField")}
-          </span>
-          <p className="mb-2 text-xs text-soft-brown/70">{t("labelsHint")}</p>
+          </AdminFieldLabel>
           <div className="flex flex-wrap gap-2">
             {labelOptions.map((term) => {
               const checked = formData.labels.includes(term.slug);
@@ -739,7 +746,10 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
         <div className="sm:col-span-2 space-y-3 rounded-brand border border-champagne-beige p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="font-heading text-lg text-charcoal">{t("video.title")}</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="font-heading text-lg text-charcoal">{t("video.title")}</h2>
+                <AdminInfoPopover content={t("fieldHelp.video")} />
+              </div>
               {product?.video && !videoDeleted && (
                 <p className="mt-1 text-xs text-soft-brown/70">
                   {t(`video.status.${product.video.status}`)}
@@ -750,9 +760,10 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
               )}
             </div>
             {product?.video && !videoDeleted && (
-              <Button type="button" variant="ghost" onClick={markVideoDeleted}>
-                {tCommon("delete")}
-              </Button>
+              <DeleteIconButton
+                label={tCommon("delete")}
+                onClick={markVideoDeleted}
+              />
             )}
           </div>
           {product?.video?.poster_url && !videoDeleted && (
@@ -768,6 +779,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
           )}
           <Input
             label={t("video.sortOrder")}
+            labelExtra={fieldInfo(t("fieldHelp.videoSortOrder"))}
             type="number"
             min="0"
             step="1"
@@ -790,6 +802,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
         </div>
         <Input
           label={t("priceEur")}
+          labelExtra={fieldInfo(t("fieldHelp.price"))}
           type="number"
           step="0.01"
           min="0"
@@ -805,16 +818,37 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
         />
         <Input
           label={t("stock")}
+          labelExtra={fieldInfo(t("fieldHelp.stock"))}
           type="number"
           min="0"
           step="1"
+          disabled={ledgerManaged}
           value={String(formData.stock)}
-          onChange={(e) => updateField("stock", Math.max(0, Math.floor(Number(e.target.value) || 0)))}
+          onChange={(e) => {
+            if (!ledgerManaged) updateField("stock", Math.max(0, Math.floor(Number(e.target.value) || 0)));
+          }}
           error={errors.stock}
         />
+        {ledgerManaged && (
+          <div className="rounded-brand border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 sm:col-span-2">
+            <p className="font-medium">{t("ledgerStockBlocked")}</p>
+            <div className="mt-2 flex flex-wrap gap-3 text-xs">
+              <Link href={product?.inventory_links?.movements_href ?? `/admin/inventory/movements?item_type=finished_good&item_id=${product?.id ?? ""}`} className="underline-offset-2 hover:underline">
+                {t("inventoryLinks.movements")}
+              </Link>
+              <Link href={product?.inventory_links?.valuation_href ?? `/admin/inventory/valuation/layers?item_type=finished_good&item_id=${product?.id ?? ""}`} className="underline-offset-2 hover:underline">
+                {t("inventoryLinks.valuation")}
+              </Link>
+              <Link href={`/admin/inventory/batches?product_id=${product?.id ?? ""}`} className="underline-offset-2 hover:underline">
+                {t("inventoryLinks.batches")}
+              </Link>
+            </div>
+          </div>
+        )}
         <div className="w-full">
           <Input
             label={t("weightGrams")}
+            labelExtra={fieldInfo(t("fieldHelp.weight"))}
             type="number"
             min="1"
             max={String(MAX_WEIGHT_GRAMS)}
@@ -832,12 +866,11 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
             }}
             error={errors.weight_grams}
           />
-          <p className="mt-1.5 text-xs text-soft-brown/70">{t("weightGramsHelp")}</p>
         </div>
         <div className="sm:col-span-2 space-y-3">
-          <label htmlFor="image_file" className="mb-1.5 block text-sm font-medium text-soft-brown">
+          <AdminFieldLabel htmlFor="image_file" info={t("fieldHelp.productImage")}>
             {t("productImage")}
-          </label>
+          </AdminFieldLabel>
           {images.length > 0 && (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {images.map((image, index) => (
@@ -861,9 +894,10 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
                     <Button type="button" variant={image.is_primary ? "primary" : "secondary"} onClick={() => setPrimaryImage(image.id)}>
                       {t("setPrimary")}
                     </Button>
-                    <Button type="button" variant="ghost" onClick={() => removeImage(image.id)}>
-                      {tCommon("delete")}
-                    </Button>
+                    <DeleteIconButton
+                      label={tCommon("delete")}
+                      onClick={() => removeImage(image.id)}
+                    />
                   </div>
                 </div>
               ))}
@@ -945,12 +979,14 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
         </div>
         <Input
           label={t("materials")}
+          labelExtra={fieldInfo(t("fieldHelp.materials"))}
           placeholder={t("materialsPlaceholder")}
           value={formData.materials}
           onChange={(e) => updateField("materials", e.target.value)}
         />
         <Input
           label={t("daysToCraft")}
+          labelExtra={fieldInfo(t("fieldHelp.daysToCraft"))}
           type="number"
           min="1"
           placeholder={t("optional")}
@@ -973,6 +1009,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
         <label htmlFor="is_featured" className="text-sm text-soft-brown">
           {t("featuredProduct")}
         </label>
+        <AdminInfoPopover content={t("fieldHelp.featuredProduct")} />
       </div>
       {errors.is_active && (
         <p className="-mt-4 text-sm text-red-700">{errors.is_active}</p>
@@ -980,13 +1017,14 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
 
       {/* Discount */}
       <div className="space-y-4 rounded-brand border border-champagne-beige p-4">
-        <div>
+        <div className="flex items-center gap-2">
           <h2 className="font-heading text-lg text-charcoal">{t("discount.title")}</h2>
-          <p className="mt-1 text-xs text-soft-brown/70">{t("discount.help")}</p>
+          <AdminInfoPopover content={t("discount.help")} />
         </div>
         <div className="grid gap-6 sm:grid-cols-3">
           <Input
             label={t("discount.percent")}
+            labelExtra={fieldInfo(t("fieldHelp.discountPercent"))}
             type="number"
             min="1"
             max="99"
@@ -1004,12 +1042,9 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
             error={errors.discount_percent}
           />
           <div className="w-full">
-            <label
-              htmlFor="discount_starts_at"
-              className="mb-1.5 block text-sm font-medium text-soft-brown"
-            >
+            <AdminFieldLabel htmlFor="discount_starts_at" info={t("fieldHelp.discountDates")}>
               {t("discount.startsAt")}
-            </label>
+            </AdminFieldLabel>
             <input
               id="discount_starts_at"
               type="datetime-local"
@@ -1019,12 +1054,9 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
             />
           </div>
           <div className="w-full">
-            <label
-              htmlFor="discount_ends_at"
-              className="mb-1.5 block text-sm font-medium text-soft-brown"
-            >
+            <AdminFieldLabel htmlFor="discount_ends_at" info={t("fieldHelp.discountDates")}>
               {t("discount.endsAt")}
-            </label>
+            </AdminFieldLabel>
             <input
               id="discount_ends_at"
               type="datetime-local"
@@ -1055,6 +1087,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
         <label htmlFor="is_active" className="text-sm text-soft-brown">
           {t("activeProduct")}
         </label>
+        <AdminInfoPopover content={t("fieldHelp.activeProduct")} />
       </div>
 
       <div className="flex items-center gap-3 border-t border-champagne-beige pt-6">

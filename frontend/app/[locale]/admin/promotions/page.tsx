@@ -14,11 +14,10 @@ export default function AdminPromotionsPage() {
 
   return (
     <div>
-      <div className="mb-8">
+      <div className="mb-8 flex items-center gap-2">
         <h1 className="font-heading text-2xl font-semibold text-charcoal">
           {t("promotions.title")}
         </h1>
-        <p className="mt-1 text-sm text-soft-brown">{t("promotions.subtitle")}</p>
       </div>
 
       <div className="mb-6 flex gap-1 border-b border-champagne-beige" role="tablist">

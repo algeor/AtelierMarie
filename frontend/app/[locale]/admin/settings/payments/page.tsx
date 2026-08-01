@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/Button";
+import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
 import { SaveConfirmation } from "@/components/admin/SaveConfirmation";
 import { ApiError } from "@/lib/api-client";
 import { getAdminPaymentSettings, updateAdminPaymentSettings } from "@/lib/api";
@@ -105,9 +106,8 @@ export default function AdminPaymentSettingsPage() {
 
   return (
     <div>
-      <div className="mb-8">
+      <div className="mb-8 flex items-center gap-2">
         <h1 className="font-heading text-2xl font-semibold text-charcoal">{t("title")}</h1>
-        <p className="mt-1 text-sm text-soft-brown">{t("subtitle")}</p>
       </div>
 
       {error && (
@@ -118,11 +118,11 @@ export default function AdminPaymentSettingsPage() {
 
       <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
         <section className="rounded-brand border border-champagne-beige bg-warm-ivory">
-          <div className="border-b border-champagne-beige px-5 py-4">
+          <div className="flex items-center gap-2 border-b border-champagne-beige px-5 py-4">
             <h2 className="font-heading text-lg font-semibold text-charcoal">
               {t("stripeTitle")}
             </h2>
-            <p className="mt-1 text-sm text-soft-brown">{t("stripeSubtitle")}</p>
+            <AdminInfoPopover content={t("stripeSubtitle")} />
           </div>
 
           {isLoading || !stripe ? (
@@ -181,11 +181,11 @@ export default function AdminPaymentSettingsPage() {
         </section>
 
         <section className="rounded-brand border border-champagne-beige bg-warm-ivory">
-          <div className="border-b border-champagne-beige px-5 py-4">
+          <div className="flex items-center gap-2 border-b border-champagne-beige px-5 py-4">
             <h2 className="font-heading text-lg font-semibold text-charcoal">
               {t("methodsTitle")}
             </h2>
-            <p className="mt-1 text-sm text-soft-brown">{t("methodsSubtitle")}</p>
+            <AdminInfoPopover content={t("methodsSubtitle")} />
           </div>
 
           {isLoading || !settings ? (
@@ -233,9 +233,12 @@ export default function AdminPaymentSettingsPage() {
               </div>
 
               <div className="border-t border-champagne-beige px-5 py-4">
-                <label className="block text-sm font-semibold text-charcoal" htmlFor="cod-max">
-                  {t("codMaxLabel")}
-                </label>
+                <div className="flex items-center gap-2">
+                  <label className="block text-sm font-semibold text-charcoal" htmlFor="cod-max">
+                    {t("codMaxLabel")}
+                  </label>
+                  <AdminInfoPopover content={t("codMaxHint")} />
+                </div>
                 <div className="mt-2 flex max-w-xs items-center gap-2">
                   <span className="text-sm text-soft-brown">EUR</span>
                   <input
@@ -258,7 +261,6 @@ export default function AdminPaymentSettingsPage() {
                     className="h-10 w-full rounded-brand border border-champagne-beige bg-cream px-3 text-sm text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown"
                   />
                 </div>
-                <p className="mt-2 text-xs text-soft-brown">{t("codMaxHint")}</p>
               </div>
             </div>
           )}

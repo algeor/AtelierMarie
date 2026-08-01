@@ -13,6 +13,9 @@ vi.mock("next/image", () => ({
 }));
 
 vi.mock("@/i18n/navigation", () => ({
+  Link: ({ children, href }: { children: React.ReactNode; href: string }) => (
+    <a href={href}>{children}</a>
+  ),
   useRouter: () => ({ push: vi.fn() }),
 }));
 
@@ -262,5 +265,33 @@ describe("ProductForm image crop editor", () => {
 
     expect(await screen.findAllByText("Active products need at least one product image.")).not.toHaveLength(0);
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("blocks direct stock edits for ledger-managed products", async () => {
+    renderWithIntl(
+      <ProductForm
+        product={{
+          ...product,
+          ledger_managed: true,
+          inventory_mode: "ledger_managed",
+          stock_source: "inventory_ledger",
+          inventory_links: {
+            movements_href: "/admin/inventory/movements?item_type=finished_good&item_id=lavender-dreams-300ml",
+            valuation_href: "/admin/inventory/valuation/layers?item_type=finished_good&item_id=lavender-dreams-300ml",
+            cogs_href: null,
+            exceptions_href: null,
+          },
+        }}
+        onSubmit={vi.fn()}
+        submitLabel="Save"
+      />
+    );
+
+    expect(screen.getByLabelText("Stock")).toBeDisabled();
+    expect(screen.getByText(/Stock is controlled in the Stock area/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Movements" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("/admin/inventory/movements")
+    );
   });
 });

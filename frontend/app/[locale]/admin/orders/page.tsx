@@ -3,7 +3,11 @@
 import { useEffect, useState, useRef } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
-import { getAdminOrders, updateOrderStatus } from "@/lib/api";
+import {
+  createAndShipEcontOrder,
+  getAdminOrders,
+  updateOrderStatus,
+} from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
 import { cn, formatPrice } from "@/lib/utils";
@@ -12,7 +16,14 @@ import {
   ShipOrderModal,
   type ShipTrackingInput,
 } from "@/components/admin/ShipOrderModal";
-import type { OrderResponse, OrderStatus, PaymentMethod, PaymentStatus } from "@/lib/types";
+import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
+import type {
+  AdminOrderAccountingFilter,
+  OrderResponse,
+  OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
+} from "@/lib/types";
 
 const STATUS_FILTERS: (OrderStatus | "")[] = [
   "",
@@ -20,6 +31,8 @@ const STATUS_FILTERS: (OrderStatus | "")[] = [
   "confirmed",
   "shipped",
   "delivered",
+  "return_in_transit",
+  "returned",
   "cancelled",
 ];
 
@@ -39,19 +52,38 @@ const PAYMENT_METHOD_FILTERS: (PaymentMethod | "")[] = [
   "bank_transfer",
 ];
 
+const ACCOUNTING_FILTERS: (AdminOrderAccountingFilter | "")[] = [
+  "",
+  "missing_document_reference",
+  "unresolved_exception",
+  "payout_mismatch",
+  "cod_settlement_pending",
+  "refund_document_missing",
+  "vat_review_required",
+  "missing_batch_assignment",
+  "missing_inventory_movement",
+  "missing_cogs_row",
+  "valuation_exception",
+  "return_inventory_review_pending",
+];
+
 const STATUS_COLORS: Record<OrderStatus, string> = {
   pending: "bg-amber-100 text-amber-800",
   confirmed: "bg-blue-100 text-blue-800",
   shipped: "bg-purple-100 text-purple-800",
   delivered: "bg-green-100 text-green-800",
+  return_in_transit: "bg-orange-100 text-orange-800",
+  returned: "bg-slate-100 text-slate-700",
   cancelled: "bg-red-100 text-red-800",
 };
 
 const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   pending: ["confirmed", "cancelled"],
   confirmed: ["shipped", "cancelled"],
-  shipped: ["delivered"],
-  delivered: [],
+  shipped: ["delivered", "return_in_transit"],
+  delivered: ["return_in_transit"],
+  return_in_transit: ["returned"],
+  returned: [],
   cancelled: [],
 };
 
@@ -60,7 +92,13 @@ const PAYMENT_STATUS_COLORS: Record<PaymentStatus, string> = {
   paid: "bg-green-100 text-green-800",
   cod_pending: "bg-gray-100 text-gray-700",
   failed: "bg-red-100 text-red-800",
+  review_required: "bg-amber-100 text-amber-800",
+  refund_pending: "bg-blue-100 text-blue-800",
+  partially_refunded: "bg-blue-100 text-blue-800",
   refunded: "bg-blue-100 text-blue-800",
+  dispute_open: "bg-red-100 text-red-800",
+  dispute_won: "bg-green-100 text-green-800",
+  dispute_lost: "bg-red-100 text-red-800",
 };
 
 function formatDate(iso: string, locale: string): string {
@@ -94,6 +132,7 @@ export default function AdminOrdersPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<PaymentStatus | "">("");
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<PaymentMethod | "">("");
+  const [accountingFilter, setAccountingFilter] = useState<AdminOrderAccountingFilter | "">("");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   // Order awaiting the shipping form (tracking is required before we ship).
   const [shippingOrder, setShippingOrder] = useState<OrderResponse | null>(null);
@@ -110,10 +149,11 @@ export default function AdminOrdersPage() {
         setError(null);
         const args: Parameters<typeof getAdminOrders> = [1, 100];
         if (statusFilter) args[2] = statusFilter;
-        if (paymentStatusFilter || paymentMethodFilter) {
+        if (paymentStatusFilter || paymentMethodFilter || accountingFilter) {
           args[2] = statusFilter || undefined;
           args[3] = paymentStatusFilter || undefined;
           args[4] = paymentMethodFilter || undefined;
+          args[5] = accountingFilter || undefined;
         }
         const data = await getAdminOrders(...args);
         setOrders(data.items);
@@ -126,7 +166,7 @@ export default function AdminOrdersPage() {
       }
     }
     loadOrders();
-  }, [statusFilter, paymentStatusFilter, paymentMethodFilter, getLocalizedError, t]);
+  }, [statusFilter, paymentStatusFilter, paymentMethodFilter, accountingFilter, getLocalizedError, t]);
 
   async function handleStatusChange(
     order: OrderResponse,
@@ -166,10 +206,62 @@ export default function AdminOrdersPage() {
     }
   }
 
-  // "shipped" needs tracking data first — open the shipping form instead of
-  // transitioning immediately. Every other transition applies directly.
+  async function handleEcontCreateAndShip(order: OrderResponse) {
+    const previousStatus = order.status;
+    setUpdatingId(order.id);
+    setError(null);
+
+    try {
+      const result = await createAndShipEcontOrder(order.id);
+      setShippingOrder(null);
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === order.id
+            ? {
+                ...o,
+                status: "shipped",
+                tracking_number: result.shipment_number ?? o.tracking_number,
+                tracking_carrier: "econt",
+                tracking_url: result.tracking_url ?? o.tracking_url,
+                courier_provider: "econt",
+                courier_shipment_number: result.shipment_number ?? o.courier_shipment_number,
+                courier_label_url: result.label_url ?? o.courier_label_url,
+                courier_sync_status: "label_created",
+              }
+            : o,
+        ),
+      );
+      if (statusFilter && statusFilter !== "shipped") {
+        setOrders((prev) => prev.filter((o) => o.id !== order.id));
+      }
+    } catch (err) {
+      setOrders((prev) =>
+        prev.map((o) => (o.id === order.id ? { ...o, status: previousStatus } : o)),
+      );
+      setError(
+        err instanceof ApiError ? getLocalizedError(err.code) : t("errors.updateOrderStatus"),
+      );
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+  // Known courier integrations can create/reuse shipment numbers themselves;
+  // manual carriers still need tracking data before the shipped transition.
   function handleTransitionSelected(order: OrderResponse, newStatus: OrderStatus) {
     if (newStatus === "shipped") {
+      if (order.delivery_courier === "speedy") {
+        handleStatusChange(order, newStatus);
+        return;
+      }
+      if (order.delivery_courier === "econt") {
+        if (order.tracking_number || order.courier_shipment_number) {
+          handleStatusChange(order, newStatus);
+          return;
+        }
+        handleEcontCreateAndShip(order);
+        return;
+      }
       setShippingOrder(order);
       return;
     }
@@ -179,20 +271,22 @@ export default function AdminOrdersPage() {
   return (
     <div>
       <div className="mb-8">
-        <h1 className="font-heading text-2xl font-semibold text-charcoal">
-          {t("orders")}
-        </h1>
-        <p className="mt-1 text-sm text-soft-brown">
-          {t("manageOrders")}
-        </p>
+        <div className="flex items-center gap-2">
+          <h1 className="font-heading text-2xl font-semibold text-charcoal">
+            {t("orders")}
+          </h1>
+        </div>
       </div>
 
       {/* Filter Pills */}
       <div className="mb-6 space-y-3">
         <div>
-          <p className="mb-2 text-xs font-semibold uppercase text-soft-brown">
-            {t("fulfillmentFilter")}
-          </p>
+          <div className="mb-2 flex items-center gap-2">
+            <p className="text-xs font-semibold uppercase text-soft-brown">
+              {t("fulfillmentFilter")}
+            </p>
+            <AdminInfoPopover content={t("ordersHelp.fulfillment")} />
+          </div>
           <div className="flex flex-wrap gap-2">
             {STATUS_FILTERS.map((filter) => (
               <button
@@ -213,9 +307,12 @@ export default function AdminOrdersPage() {
         </div>
 
         <div>
-          <p className="mb-2 text-xs font-semibold uppercase text-soft-brown">
-            {t("paymentStatusFilter")}
-          </p>
+          <div className="mb-2 flex items-center gap-2">
+            <p className="text-xs font-semibold uppercase text-soft-brown">
+              {t("paymentStatusFilter")}
+            </p>
+            <AdminInfoPopover content={t("ordersHelp.paymentStatus")} />
+          </div>
           <div className="flex flex-wrap gap-2">
             {PAYMENT_STATUS_FILTERS.map((filter) => (
               <button
@@ -236,9 +333,12 @@ export default function AdminOrdersPage() {
         </div>
 
         <div>
-          <p className="mb-2 text-xs font-semibold uppercase text-soft-brown">
-            {t("paymentMethodFilter")}
-          </p>
+          <div className="mb-2 flex items-center gap-2">
+            <p className="text-xs font-semibold uppercase text-soft-brown">
+              {t("paymentMethodFilter")}
+            </p>
+            <AdminInfoPopover content={t("ordersHelp.paymentMethod")} />
+          </div>
           <div className="flex flex-wrap gap-2">
             {PAYMENT_METHOD_FILTERS.map((filter) => (
               <button
@@ -253,6 +353,32 @@ export default function AdminOrdersPage() {
                 aria-pressed={paymentMethodFilter === filter}
               >
                 {filter ? tPayment(`method.${filter}` as Parameters<typeof tPayment>[0]) : t("all")}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-2 flex items-center gap-2">
+            <p className="text-xs font-semibold uppercase text-soft-brown">
+              {t("accountingFilter")}
+            </p>
+            <AdminInfoPopover content={t("ordersHelp.accounting")} />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {ACCOUNTING_FILTERS.map((filter) => (
+              <button
+                key={filter || "all-accounting"}
+                onClick={() => setAccountingFilter(filter)}
+                className={cn(
+                  "rounded-pill px-4 py-1.5 text-sm font-medium transition-colors duration-fast",
+                  accountingFilter === filter
+                    ? "bg-muted-gold text-charcoal"
+                    : "bg-champagne-beige/50 text-soft-brown hover:bg-champagne-beige"
+                )}
+                aria-pressed={accountingFilter === filter}
+              >
+                {filter ? t(`accountingFilters.${filter}` as Parameters<typeof t>[0]) : t("all")}
               </button>
             ))}
           </div>
@@ -281,6 +407,7 @@ export default function AdminOrdersPage() {
               <th className="px-4 py-3 font-medium text-charcoal">{t("total")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("status")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{tPayment("sectionTitle")}</th>
+              <th className="px-4 py-3 font-medium text-charcoal">{t("accountingColumn")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("date")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("actions")}</th>
             </tr>
@@ -295,13 +422,14 @@ export default function AdminOrdersPage() {
                   <td className="px-4 py-3"><Skeleton className="h-4 w-16" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-5 w-20" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-5 w-20" /></td>
+                  <td className="px-4 py-3"><Skeleton className="h-5 w-24" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-4 w-24" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-8 w-28" /></td>
                 </tr>
               ))
             ) : orders.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-soft-brown">
+                <td colSpan={9} className="px-4 py-8 text-center text-soft-brown">
                   {t("noOrders")}
                 </td>
               </tr>
@@ -344,6 +472,14 @@ export default function AdminOrdersPage() {
                             {order.delivery_details.street}, {order.delivery_details.city}
                           </span>
                         )}
+                        {(order.delivery_courier === "speedy" || order.tracking_carrier === "speedy") && (
+                          <Link
+                            href={`/admin/speedy?order_id=${order.id}`}
+                            className="text-xs font-medium text-charcoal underline-offset-2 hover:underline"
+                          >
+                            {t("speedyDiagnostics")}
+                          </Link>
+                        )}
                       </div>
                     ) : (
                       <span className="text-soft-brown/50">{tDisplay("none")}</span>
@@ -374,6 +510,29 @@ export default function AdminOrdersPage() {
                         )}>
                           {tPayment(`status.${order.payment_status}` as Parameters<typeof tPayment>[0])}
                         </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-soft-brown">
+                    <div className="flex flex-col gap-1">
+                      <span className={cn(
+                        "inline-flex w-fit rounded-pill px-2 py-0.5 font-medium",
+                        order.accounting_readiness_status === "blocked"
+                          ? "bg-red-100 text-red-800"
+                          : order.accounting_readiness_status === "ready"
+                            ? "bg-green-100 text-green-800"
+                            : "bg-amber-100 text-amber-800"
+                      )}>
+                        {order.accounting_readiness_status ?? "unreviewed"}
+                      </span>
+                      <span>{order.document_reference_status ?? "not_required"}</span>
+                      {Boolean(order.blocking_exception_count) && (
+                        <span>{t("blockingExceptions", { count: order.blocking_exception_count ?? 0 })}</span>
+                      )}
+                      {order.finance_hub_links?.period_href && (
+                        <Link href={order.finance_hub_links.period_href} className="font-medium text-charcoal underline-offset-2 hover:underline">
+                          {t("openFinanceHub")}
+                        </Link>
                       )}
                     </div>
                   </td>

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { SaveConfirmation } from "@/components/admin/SaveConfirmation";
 import { Button } from "@/components/ui/Button";
+import { DeleteIconButton } from "@/components/ui/DeleteIconButton";
 import {
   clearAboutItemImage,
   clearAboutSectionImage,
@@ -183,7 +184,14 @@ export function AtelierAdminManager() {
                           <Button type="button" variant="ghost" disabled={itemIndex === 0} onClick={() => moveItem(section, item.id, -1)}>↑</Button>
                           <Button type="button" variant="ghost" disabled={itemIndex === section.items.length - 1} onClick={() => moveItem(section, item.id, 1)}>↓</Button>
                           <Button type="button" variant="secondary" onClick={() => run(`item-publish-${item.id}`, () => setAboutItemPublished(section.slug, item.id, !item.is_published))}>{item.is_published ? "Hide" : "Publish"}</Button>
-                          <Button type="button" variant="ghost" onClick={() => run(`item-delete-${item.id}`, () => deleteAboutItem(section.slug, item.id))}>Delete</Button>
+                          <DeleteIconButton
+                            label={`Delete item #${item.id}`}
+                            onClick={() =>
+                              run(`item-delete-${item.id}`, () =>
+                                deleteAboutItem(section.slug, item.id),
+                              )
+                            }
+                          />
                         </div>
                       </div>
                       <div className="grid gap-3 lg:grid-cols-2">
@@ -253,7 +261,7 @@ function ImageControl({ image, onUpload, onClear }: { image: string | null; onUp
           event.target.value = "";
         }} />
       </label>
-      {image ? <Button type="button" variant="ghost" onClick={onClear}>Clear image</Button> : null}
+      {image ? <DeleteIconButton label="Clear image" onClick={onClear} /> : null}
     </div>
   );
 }

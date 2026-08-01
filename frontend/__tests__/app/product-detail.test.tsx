@@ -19,6 +19,18 @@ vi.mock("@/i18n/navigation", () => ({
 
 vi.mock("@/lib/api", () => ({
   getProduct: vi.fn(),
+  getLegalIdentity: vi.fn(async () => ({
+    trading_name: "Atelier Marie",
+    legal_name: "Atelier Marie OOD",
+    country: "Bulgaria",
+    geographic_address: "1 Candle Street, Sofia, Bulgaria",
+    contact_email: "contacts@theateliermarie.com",
+    registration_number: "123456789",
+    vat_number: "not VAT registered",
+    responsible_party_name: "Atelier Marie",
+    responsible_party_address: "1 Candle Street, Sofia, Bulgaria",
+    responsible_party_email: "contacts@theateliermarie.com",
+  })),
 }));
 
 vi.mock("next-intl/server", () => ({

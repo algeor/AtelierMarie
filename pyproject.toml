@@ -17,6 +17,7 @@ dependencies = [
     "jinja2>=3.1.0",
     "stripe>=10.0.0",
     "duckdb>=1.1.0",
+    "openpyxl>=3.1.0",
 ]
 
 [project.optional-dependencies]
@@ -41,6 +42,27 @@ addopts = "-n auto --dist worksteal -q"
 markers = [
     "integration: marks tests as integration tests (real middleware, slower)",
 ]
+
+[tool.coverage.run]
+source = ["app"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 80
+
+[tool.mypy]
+python_version = "3.11"
+files = ["app"]
+plugins = ["pydantic.mypy"]
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+check_untyped_defs = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+module = ["stripe.*", "duckdb.*", "openpyxl.*"]
+ignore_missing_imports = true
 
 [tool.ruff]
 target-version = "py311"

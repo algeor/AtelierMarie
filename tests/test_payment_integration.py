@@ -3,6 +3,7 @@ payment_service handlers, webhook route, 24h auto-cancel, and order_cancelled em
 """
 
 import sqlite3
+import threading
 import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
@@ -32,10 +33,15 @@ from app.services.order_service import (
 from app.services.payment_service import (
     InvalidRetryStateError,
     InvalidRetryTokenError,
+    StripeRefundActionError,
     create_checkout_session,
+    create_checkout_session_async,
     create_retry_session,
+    create_stripe_refund_async,
     handle_charge_refunded,
+    handle_dispute_event,
     handle_payment_failed,
+    handle_refund_updated,
     handle_payment_succeeded,
     handle_session_expired,
 )
@@ -482,7 +488,7 @@ class TestHandlePaymentSucceeded:
         )
 
         updated = get_order(conn, order["id"])
-        assert updated["payment_status"] == "failed"
+        assert updated["payment_status"] == "review_required"
         count = conn.execute(
             "SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND event = 'placed'",
             (order["id"],),
@@ -516,7 +522,7 @@ class TestHandlePaymentSucceeded:
 
 
 class TestHandleSessionExpired:
-    def test_sets_failed(self, conn, delivery):
+    def test_sets_review_required(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="card")
         # Simulate the session id Stripe would have stored after create_checkout_session.
         conn.execute(
@@ -528,7 +534,12 @@ class TestHandleSessionExpired:
         result = handle_session_expired(conn, "evt_exp_001", order["id"], "cs_test_abc", now)
         assert result is True
         updated = get_order(conn, order["id"])
-        assert updated["payment_status"] == "failed"
+        assert updated["payment_status"] == "review_required"
+        event = conn.execute(
+            "SELECT provider_status FROM payment_events WHERE stripe_event_id = ?",
+            ("evt_exp_001",),
+        ).fetchone()
+        assert event["provider_status"] == "review_required"
 
     def test_idempotent_on_duplicate(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="card")
@@ -649,7 +660,337 @@ class TestAdditionalStripeEvents:
 
 
 # ---------------------------------------------------------------------------
-# 10.5c security and retry edge cases
+# 10.5c Stripe refund creation
+# ---------------------------------------------------------------------------
+
+
+class TestStripeRefundCreation:
+    def _paid_card_order(self, conn, delivery):
+        order = _do_checkout(conn, delivery, payment_method="card")
+        conn.execute(
+            """
+            UPDATE orders
+            SET payment_status = 'paid', paid_at = ?, stripe_payment_intent_id = 'pi_refund'
+            WHERE id = ?
+            """,
+            (datetime.now(UTC).strftime(_DT_FMT), order["id"]),
+        )
+        conn.execute(
+            """
+            UPDATE payments
+            SET stripe_payment_intent_id = 'pi_refund', provider_status = 'paid'
+            WHERE order_id = ? AND provider = 'stripe'
+            """,
+            (order["id"],),
+        )
+        conn.commit()
+        return get_order(conn, order["id"])
+
+    def _fake_stripe(self, monkeypatch, *, calls: list[dict], fail: bool = False):
+        import sys
+        import types
+
+        class FakeRefund:
+            id = "re_created"
+            status = "pending"
+
+        class FakeRefundAPI:
+            @staticmethod
+            def create(**kwargs):
+                calls.append(kwargs)
+                if fail:
+                    raise RuntimeError("stripe unavailable")
+                return FakeRefund()
+
+        fake_stripe = types.ModuleType("stripe")
+        fake_stripe.api_key = None
+        fake_stripe.Refund = FakeRefundAPI
+        monkeypatch.setitem(sys.modules, "stripe", fake_stripe)
+
+    async def test_full_refund_creates_pending_record_and_marks_order_pending(
+        self, conn, delivery, monkeypatch
+    ):
+        order = self._paid_card_order(conn, delivery)
+        calls: list[dict] = []
+        self._fake_stripe(monkeypatch, calls=calls)
+
+        refund = await create_stripe_refund_async(
+            conn,
+            order_id=order["id"],
+            amount_cents=None,
+            reason="Customer return",
+            idempotency_key="refund-full-1",
+            admin_id="admin-1",
+            stripe_secret_key="sk_test_refund",
+        )
+
+        assert refund["amount_cents"] == order["total_cents"]
+        assert refund["status"] == "pending"
+        assert refund["provider_refund_id"] == "re_created"
+        assert calls[0]["payment_intent"] == "pi_refund"
+        assert calls[0]["amount"] == order["total_cents"]
+        assert calls[0]["idempotency_key"] == "refund-full-1"
+        assert get_order(conn, order["id"])["payment_status"] == "refund_pending"
+
+    async def test_partial_refund_uses_requested_amount(self, conn, delivery, monkeypatch):
+        order = self._paid_card_order(conn, delivery)
+        calls: list[dict] = []
+        self._fake_stripe(monkeypatch, calls=calls)
+
+        refund = await create_stripe_refund_async(
+            conn,
+            order_id=order["id"],
+            amount_cents=50,
+            reason="Partial goodwill refund",
+            idempotency_key="refund-partial-1",
+            stripe_secret_key="sk_test_refund",
+        )
+
+        assert refund["amount_cents"] == 50
+        assert calls[0]["amount"] == 50
+
+    async def test_duplicate_idempotency_key_returns_existing_without_stripe_call(
+        self, conn, delivery, monkeypatch
+    ):
+        order = self._paid_card_order(conn, delivery)
+        calls: list[dict] = []
+        self._fake_stripe(monkeypatch, calls=calls)
+
+        first = await create_stripe_refund_async(
+            conn,
+            order_id=order["id"],
+            amount_cents=50,
+            reason=None,
+            idempotency_key="refund-dupe-1",
+            stripe_secret_key="sk_test_refund",
+        )
+        second = await create_stripe_refund_async(
+            conn,
+            order_id=order["id"],
+            amount_cents=75,
+            reason=None,
+            idempotency_key="refund-dupe-1",
+            stripe_secret_key="sk_test_refund",
+        )
+
+        assert second["id"] == first["id"]
+        assert second["amount_cents"] == 50
+        assert len(calls) == 1
+
+    async def test_over_refund_rejected_before_stripe_call(self, conn, delivery, monkeypatch):
+        order = self._paid_card_order(conn, delivery)
+        calls: list[dict] = []
+        self._fake_stripe(monkeypatch, calls=calls)
+        conn.execute(
+            """
+            INSERT INTO payment_refunds (id, order_id, provider, amount_cents, status)
+            VALUES ('existing-refund', ?, 'stripe', ?, 'pending')
+            """,
+            (order["id"], order["total_cents"] - 10),
+        )
+        conn.commit()
+
+        with pytest.raises(StripeRefundActionError) as exc_info:
+            await create_stripe_refund_async(
+                conn,
+                order_id=order["id"],
+                amount_cents=11,
+                reason=None,
+                idempotency_key="refund-too-much",
+                stripe_secret_key="sk_test_refund",
+            )
+
+        assert exc_info.value.code == "REFUND_AMOUNT_EXCEEDS_PAID"
+        assert calls == []
+
+    async def test_failed_stripe_creation_records_failed_refund_and_review_state(
+        self, conn, delivery, monkeypatch
+    ):
+        order = self._paid_card_order(conn, delivery)
+        calls: list[dict] = []
+        self._fake_stripe(monkeypatch, calls=calls, fail=True)
+
+        with pytest.raises(StripeRefundActionError) as exc_info:
+            await create_stripe_refund_async(
+                conn,
+                order_id=order["id"],
+                amount_cents=50,
+                reason=None,
+                idempotency_key="refund-fails-1",
+                stripe_secret_key="sk_test_refund",
+            )
+
+        assert exc_info.value.code == "STRIPE_REFUND_FAILED"
+        refund = conn.execute(
+            "SELECT status, failure_reason FROM payment_refunds WHERE order_id = ?",
+            (order["id"],),
+        ).fetchone()
+        assert refund["status"] == "failed"
+        assert "stripe unavailable" in refund["failure_reason"]
+        assert get_order(conn, order["id"])["payment_status"] == "review_required"
+
+    def test_refund_succeeded_webhook_marks_full_refund_confirmed(self, conn, delivery):
+        order = self._paid_card_order(conn, delivery)
+        payment_id = conn.execute(
+            "SELECT id FROM payments WHERE order_id = ? AND provider = 'stripe'",
+            (order["id"],),
+        ).fetchone()["id"]
+        conn.execute(
+            """
+            INSERT INTO payment_refunds (
+                id, order_id, payment_id, provider, provider_refund_id, amount_cents, status
+            ) VALUES ('refund-full', ?, ?, 'stripe', 're_full', ?, 'pending')
+            """,
+            (order["id"], payment_id, order["total_cents"]),
+        )
+        conn.execute(
+            "UPDATE orders SET payment_status = 'refund_pending' WHERE id = ?",
+            (order["id"],),
+        )
+        conn.commit()
+
+        handle_refund_updated(
+            conn,
+            "evt_refund_full",
+            "refund.updated",
+            "re_full",
+            "pi_refund",
+            datetime.now(UTC).strftime(_DT_FMT),
+            amount_cents=order["total_cents"],
+            status="succeeded",
+        )
+
+        assert get_order(conn, order["id"])["payment_status"] == "refunded"
+        refund = conn.execute(
+            "SELECT status, confirmed_at FROM payment_refunds WHERE id = 'refund-full'"
+        ).fetchone()
+        assert refund["status"] == "succeeded"
+        assert refund["confirmed_at"] is not None
+
+    def test_refund_succeeded_webhook_marks_partial_refund(self, conn, delivery):
+        order = self._paid_card_order(conn, delivery)
+        payment_id = conn.execute(
+            "SELECT id FROM payments WHERE order_id = ? AND provider = 'stripe'",
+            (order["id"],),
+        ).fetchone()["id"]
+        conn.execute(
+            """
+            INSERT INTO payment_refunds (
+                id, order_id, payment_id, provider, provider_refund_id, amount_cents, status
+            ) VALUES ('refund-partial', ?, ?, 'stripe', 're_partial', 50, 'pending')
+            """,
+            (order["id"], payment_id),
+        )
+        conn.execute(
+            "UPDATE orders SET payment_status = 'refund_pending' WHERE id = ?",
+            (order["id"],),
+        )
+        conn.commit()
+
+        handle_refund_updated(
+            conn,
+            "evt_refund_partial",
+            "charge.refund.updated",
+            "re_partial",
+            "pi_refund",
+            datetime.now(UTC).strftime(_DT_FMT),
+            amount_cents=50,
+            status="succeeded",
+        )
+
+        assert get_order(conn, order["id"])["payment_status"] == "partially_refunded"
+
+    def test_refund_failed_webhook_records_failure_and_review_state(self, conn, delivery):
+        order = self._paid_card_order(conn, delivery)
+        payment_id = conn.execute(
+            "SELECT id FROM payments WHERE order_id = ? AND provider = 'stripe'",
+            (order["id"],),
+        ).fetchone()["id"]
+        conn.execute(
+            """
+            INSERT INTO payment_refunds (
+                id, order_id, payment_id, provider, provider_refund_id, amount_cents, status
+            ) VALUES ('refund-failed', ?, ?, 'stripe', 're_failed', 50, 'pending')
+            """,
+            (order["id"], payment_id),
+        )
+        conn.execute(
+            "UPDATE orders SET payment_status = 'refund_pending' WHERE id = ?",
+            (order["id"],),
+        )
+        conn.commit()
+
+        handle_refund_updated(
+            conn,
+            "evt_refund_failed",
+            "refund.updated",
+            "re_failed",
+            "pi_refund",
+            datetime.now(UTC).strftime(_DT_FMT),
+            amount_cents=50,
+            status="failed",
+            failure_reason="expired_or_canceled_card",
+        )
+
+        assert get_order(conn, order["id"])["payment_status"] == "review_required"
+        refund = conn.execute(
+            "SELECT status, failure_reason FROM payment_refunds WHERE id = 'refund-failed'"
+        ).fetchone()
+        assert refund["status"] == "failed"
+        assert refund["failure_reason"] == "expired_or_canceled_card"
+
+    def test_dispute_events_update_payment_status_and_record_details(self, conn, delivery):
+        order = self._paid_card_order(conn, delivery)
+        now = datetime.now(UTC).strftime(_DT_FMT)
+
+        handle_dispute_event(
+            conn,
+            "evt_dispute_open",
+            "charge.dispute.created",
+            None,
+            "pi_refund",
+            "dp_1",
+            "needs_response",
+            now,
+            amount_cents=100,
+            evidence_due_by=123456,
+        )
+
+        assert get_order(conn, order["id"])["payment_status"] == "dispute_open"
+        event = conn.execute(
+            "SELECT provider_status, details FROM payment_events WHERE stripe_event_id = ?",
+            ("evt_dispute_open",),
+        ).fetchone()
+        assert event["provider_status"] == "dispute_open"
+        assert '"dispute_id":"dp_1"' in event["details"]
+
+        handle_dispute_event(
+            conn,
+            "evt_dispute_won",
+            "charge.dispute.closed",
+            order["id"],
+            "pi_refund",
+            "dp_1",
+            "won",
+            now,
+        )
+        assert get_order(conn, order["id"])["payment_status"] == "dispute_won"
+
+        handle_dispute_event(
+            conn,
+            "evt_dispute_lost",
+            "charge.dispute.closed",
+            order["id"],
+            "pi_refund",
+            "dp_1",
+            "lost",
+            now,
+        )
+        assert get_order(conn, order["id"])["payment_status"] == "dispute_lost"
+
+
+# ---------------------------------------------------------------------------
+# 10.5d security and retry edge cases
 # ---------------------------------------------------------------------------
 
 
@@ -762,6 +1103,47 @@ class TestPaymentSecurityEdges:
 
         unit_amount = captured["line_items"][0]["price_data"]["unit_amount"]
         assert unit_amount == order["total_cents"]
+
+    async def test_async_stripe_checkout_offloads_provider_call_and_persists(self, conn, delivery):
+        import sys
+        import types
+
+        order = _do_checkout(conn, delivery, payment_method="card")
+        caller_thread_id = threading.get_ident()
+        provider_thread_ids: list[int] = []
+
+        class FakeSession:
+            id = "cs_async"
+            url = "https://checkout.example/async-session"
+            status = "open"
+            payment_intent = None
+
+        class FakeCheckoutSession:
+            @staticmethod
+            def create(**_kwargs):
+                provider_thread_ids.append(threading.get_ident())
+                return FakeSession()
+
+        fake_stripe = types.ModuleType("stripe")
+        fake_stripe.api_key = None
+        fake_stripe.checkout = types.SimpleNamespace(Session=FakeCheckoutSession)
+
+        with patch.dict(sys.modules, {"stripe": fake_stripe}):
+            url = await create_checkout_session_async(
+                conn,
+                order,
+                "https://shop.example/success",
+                "https://shop.example/cancel",
+                "sk_test_async",
+            )
+
+        assert url == "https://checkout.example/async-session"
+        assert provider_thread_ids and provider_thread_ids[0] != caller_thread_id
+        row = conn.execute(
+            "SELECT stripe_checkout_session_id FROM orders WHERE id = ?",
+            (order["id"],),
+        ).fetchone()
+        assert row["stripe_checkout_session_id"] == "cs_async"
 
     def test_retry_rejects_wrong_return_token(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="card")
@@ -959,20 +1341,22 @@ class TestStripeWebhookRoute:
 
 
 # ---------------------------------------------------------------------------
-# 10.7 24h auto-cancel — card pending/failed orders
+# 10.7 abandoned card payment cleanup — pending/failed cards move to review
 # ---------------------------------------------------------------------------
 
 
-class TestAutoCancel:
+class TestAbandonedCardPaymentReview:
     def _run(self, conn):
         from app.main import _cancel_abandoned_card_orders
 
         with patch("app.main.get_db") as m:
             m.return_value.__enter__ = lambda s: conn
             m.return_value.__exit__ = MagicMock(return_value=False)
-            _cancel_abandoned_card_orders()
+            return _cancel_abandoned_card_orders()
 
-    def test_cancels_old_card_pending_order_and_restores_stock(self, conn, delivery):
+    def test_marks_old_card_pending_order_for_review_and_keeps_stock_reserved(
+        self, conn, delivery
+    ):
         pid = _seed_product(conn, stock=5)
         sid = uuid.uuid4().hex
         _add_cart(conn, sid, pid, qty=2)
@@ -993,15 +1377,12 @@ class TestAutoCancel:
         conn.commit()
         self._run(conn)
         updated = get_order(conn, order["id"])
-        assert updated["status"] == "cancelled"
-        assert (
-            conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0]
-            == stock_after_order + 2
-        )
+        assert updated["status"] == "pending"
+        assert updated["payment_status"] == "review_required"
+        assert conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0] == stock_after_order
+        assert updated["reserved_until"] is not None
 
-    def test_expired_card_reservation_writes_payment_event_and_expires_stripe(
-        self, conn, delivery
-    ):
+    def test_expired_card_reservation_writes_payment_event_and_expires_stripe(self, conn, delivery):
         from app.config import Settings
         from app.main import _cancel_abandoned_card_orders
 
@@ -1043,12 +1424,10 @@ class TestAutoCancel:
         assert count == 1
         expire.assert_called_once_with("cs_expired", "sk_test_cleanup")
         updated = get_order(conn, order["id"])
-        assert updated["status"] == "cancelled"
-        assert updated["payment_status"] == "failed"
-        assert (
-            conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0]
-            == stock_after_order + 2
-        )
+        assert updated["status"] == "pending"
+        assert updated["payment_status"] == "review_required"
+        assert conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0] == stock_after_order
+        assert updated["reserved_until"] is not None
         event = conn.execute(
             """
             SELECT event_type, source, provider_status, processing_status, details
@@ -1059,9 +1438,200 @@ class TestAutoCancel:
         ).fetchone()
         assert event["event_type"] == "reservation_expired"
         assert event["source"] == "system"
+        assert event["provider_status"] == "review_required"
+        assert event["processing_status"] == "requires_review"
+        assert "stripe_expired" in event["details"]
+        assert "requires_admin_callback" in event["details"]
+        assert "review_expires_at" in event["details"]
+
+    def test_expired_unconfirmed_review_order_is_cancelled_and_releases_stock_without_refund(
+        self, conn, delivery
+    ):
+        pid = _seed_product(conn, stock=5)
+        sid = uuid.uuid4().hex
+        _add_cart(conn, sid, pid, qty=2)
+        order = checkout(
+            conn,
+            session_id=sid,
+            customer_email="x@x.com",
+            customer_name=None,
+            delivery=delivery,
+            notes=None,
+            payment_method="card",
+        )
+        assert conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0] == 3
+        expired_at = (datetime.now(UTC) - timedelta(minutes=1)).strftime(_DT_FMT)
+        conn.execute(
+            """
+            UPDATE orders
+            SET payment_status = 'review_required', reserved_until = ?,
+                stripe_checkout_session_id = 'cs_abandoned'
+            WHERE id = ?
+            """,
+            (expired_at, order["id"]),
+        )
+        conn.execute(
+            """
+            UPDATE payments
+            SET provider_status = 'review_required', stripe_checkout_session_id = 'cs_abandoned'
+            WHERE order_id = ? AND provider = 'stripe'
+            """,
+            (order["id"],),
+        )
+        conn.commit()
+
+        count = self._run(conn)
+
+        assert count == 1
+        updated = get_order(conn, order["id"])
+        assert updated["status"] == "cancelled"
+        assert updated["payment_status"] == "failed"
+        assert updated["reserved_until"] is None
+        assert conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0] == 5
+        assert conn.execute(
+            "SELECT COUNT(*) FROM payment_refunds WHERE order_id = ?",
+            (order["id"],),
+        ).fetchone()[0] == 0
+        payment = conn.execute(
+            "SELECT provider_status FROM payments WHERE order_id = ? AND provider = 'stripe'",
+            (order["id"],),
+        ).fetchone()
+        assert payment["provider_status"] == "failed"
+        event = conn.execute(
+            """
+            SELECT event_type, provider_status, processing_status, details
+            FROM payment_events
+            WHERE order_id = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (order["id"],),
+        ).fetchone()
+        assert event["event_type"] == "reservation_closed"
         assert event["provider_status"] == "failed"
         assert event["processing_status"] == "processed"
-        assert "stripe_expired" in event["details"]
+        assert '"stock_released":true' in event["details"]
+        assert '"refund_created":false' in event["details"]
+
+    def test_admin_records_abandoned_card_callback_outcome(self, conn, delivery):
+        order = _do_checkout(conn, delivery, payment_method="card")
+        conn.execute(
+            "UPDATE orders SET payment_status = 'review_required' WHERE id = ?",
+            (order["id"],),
+        )
+
+        updated = apply_manual_payment_action(
+            conn,
+            order["id"],
+            "record_callback",
+            "Left voicemail, try again tomorrow",
+            callback_outcome="needs_follow_up",
+            admin_id="admin-1",
+            admin_email="owner@example.com",
+        )
+
+        assert updated["payment_method"] == "card"
+        assert updated["payment_status"] == "review_required"
+        event = conn.execute(
+            "SELECT event_type, provider_status, admin_email, details "
+            "FROM payment_events WHERE order_id = ? ORDER BY created_at DESC LIMIT 1",
+            (order["id"],),
+        ).fetchone()
+        assert event["event_type"] == "manual_record_callback"
+        assert event["provider_status"] == "review_required"
+        assert event["admin_email"] == "owner@example.com"
+        assert '"callback_outcome":"needs_follow_up"' in event["details"]
+
+    def test_admin_converts_confirmed_abandoned_card_order_to_cod(self, conn, delivery):
+        order = _do_checkout(conn, delivery, payment_method="card")
+        conn.execute(
+            """
+            UPDATE orders
+            SET payment_status = 'review_required', stripe_checkout_session_id = 'cs_abandoned'
+            WHERE id = ?
+            """,
+            (order["id"],),
+        )
+        stripe_payment = conn.execute(
+            "SELECT id FROM payments WHERE order_id = ? AND provider = 'stripe'",
+            (order["id"],),
+        ).fetchone()
+        conn.execute(
+            """
+            UPDATE payments
+            SET stripe_checkout_session_id = 'cs_abandoned', provider_status = 'review_required'
+            WHERE id = ?
+            """,
+            (stripe_payment["id"],),
+        )
+
+        updated = apply_manual_payment_action(
+            conn,
+            order["id"],
+            "convert_to_cod",
+            "Customer confirmed by phone",
+            callback_outcome="confirmed",
+            admin_id="admin-1",
+            admin_email="owner@example.com",
+        )
+
+        assert updated["payment_method"] == "cod"
+        assert updated["payment_status"] == "cod_pending"
+        assert updated["reserved_until"] is None
+        provider_rows = conn.execute(
+            "SELECT provider, provider_status FROM payments WHERE order_id = ? ORDER BY provider",
+            (order["id"],),
+        ).fetchall()
+        assert [(row["provider"], row["provider_status"]) for row in provider_rows] == [
+            ("cod", "cod_pending"),
+            ("stripe", "review_required"),
+        ]
+        event = conn.execute(
+            "SELECT event_type, provider, provider_status, details "
+            "FROM payment_events WHERE order_id = ? ORDER BY created_at DESC LIMIT 1",
+            (order["id"],),
+        ).fetchone()
+        assert event["event_type"] == "manual_convert_to_cod"
+        assert event["provider"] == "cod"
+        assert event["provider_status"] == "cod_pending"
+        assert f'"original_card_payment_id":"{stripe_payment["id"]}"' in event["details"]
+        assert '"original_stripe_checkout_session_id":"cs_abandoned"' in event["details"]
+
+    def test_cancel_unconfirmed_abandoned_card_order_restores_stock_without_refund(
+        self, conn, delivery
+    ):
+        pid = _seed_product(conn, stock=5)
+        sid = uuid.uuid4().hex
+        _add_cart(conn, sid, pid, qty=2)
+        order = checkout(
+            conn,
+            session_id=sid,
+            customer_email="x@x.com",
+            customer_name=None,
+            delivery=delivery,
+            notes=None,
+            payment_method="card",
+        )
+        assert conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0] == 3
+        conn.execute(
+            "UPDATE orders SET payment_status = 'review_required' WHERE id = ?",
+            (order["id"],),
+        )
+
+        updated = apply_manual_payment_action(
+            conn,
+            order["id"],
+            "cancel",
+            "Customer did not confirm abandoned card payment",
+        )
+
+        assert updated["status"] == "cancelled"
+        assert updated["payment_status"] == "failed"
+        assert conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0] == 5
+        assert conn.execute(
+            "SELECT COUNT(*) FROM payment_refunds WHERE order_id = ?",
+            (order["id"],),
+        ).fetchone()[0] == 0
 
     def test_does_not_cancel_cod_orders(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="cod")
@@ -1079,7 +1649,7 @@ class TestAutoCancel:
         self._run(conn)
         assert get_order(conn, order["id"])["status"] == "pending"
 
-    def test_cancels_old_card_failed_order(self, conn, delivery):
+    def test_marks_old_card_failed_order_for_review(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="card")
         old_time = (datetime.now(UTC) - timedelta(hours=25)).strftime(_DT_FMT)
         conn.execute(
@@ -1088,7 +1658,9 @@ class TestAutoCancel:
         )
         conn.commit()
         self._run(conn)
-        assert get_order(conn, order["id"])["status"] == "cancelled"
+        updated = get_order(conn, order["id"])
+        assert updated["status"] == "pending"
+        assert updated["payment_status"] == "review_required"
 
 
 # ---------------------------------------------------------------------------

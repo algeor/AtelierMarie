@@ -35,6 +35,16 @@ class BulkTargetLimitError(Exception):
     """
 
 
+class LedgerManagedStockEditError(Exception):
+    """Raised when direct stock editing is attempted for a ledger-managed product."""
+
+    def __init__(self, product_id: str) -> None:
+        self.product_id = product_id
+        super().__init__(
+            "Ledger-managed product stock must be changed through inventory movements"
+        )
+
+
 BULK_DISCOUNT_TARGET_LIMIT = 500
 
 
@@ -109,6 +119,104 @@ def _flatten_admin_labels(product: dict) -> dict:
     """Collapse resolved label refs ([{slug, name}]) down to slugs for admin responses."""
     product["labels"] = [ref["slug"] for ref in product.get("labels", [])]
     return product
+
+
+def _attach_admin_inventory_context(conn: sqlite3.Connection, products: list[dict]) -> None:
+    """Attach admin-only inventory/recipe/batch context without changing public payloads."""
+    if not products:
+        return
+    product_ids = [product["id"] for product in products]
+    placeholders = ", ".join("?" for _ in product_ids)
+
+    profiles = {
+        row["product_id"]: row
+        for row in conn.execute(
+            f"SELECT * FROM product_inventory_profiles WHERE product_id IN ({placeholders})",  # noqa: S608
+            product_ids,
+        ).fetchall()
+    }
+
+    active_recipes: dict[str, sqlite3.Row] = {}
+    for row in conn.execute(
+        f"""
+        SELECT id, product_id, status, effective_date, review_state
+        FROM recipe_versions
+        WHERE product_id IN ({placeholders}) AND status = 'active'
+        ORDER BY product_id, effective_date DESC, created_at DESC
+        """,  # noqa: S608
+        product_ids,
+    ).fetchall():
+        active_recipes.setdefault(row["product_id"], row)
+
+    latest_batches: dict[str, sqlite3.Row] = {}
+    for row in conn.execute(
+        f"""
+        SELECT id, product_id, batch_number, status, production_date
+        FROM production_batches
+        WHERE product_id IN ({placeholders})
+        ORDER BY product_id, production_date DESC, created_at DESC
+        """,  # noqa: S608
+        product_ids,
+    ).fetchall():
+        latest_batches.setdefault(row["product_id"], row)
+
+    exception_counts = {
+        row["target_id"]: row["count"]
+        for row in conn.execute(
+            f"""
+            SELECT target_id, COUNT(*) AS count
+            FROM inventory_exceptions
+            WHERE status = 'open'
+              AND target_type = 'product'
+              AND target_id IN ({placeholders})
+            GROUP BY target_id
+            """,  # noqa: S608
+            product_ids,
+        ).fetchall()
+    }
+    exceptions_by_product: dict[str, list[dict]] = {product_id: [] for product_id in product_ids}
+    for row in conn.execute(
+        f"""
+        SELECT id, exception_type, severity, target_id, message, created_at
+        FROM inventory_exceptions
+        WHERE status = 'open'
+          AND target_type = 'product'
+          AND target_id IN ({placeholders})
+        ORDER BY created_at DESC, id DESC
+        """,  # noqa: S608
+        product_ids,
+    ).fetchall():
+        exceptions_by_product.setdefault(row["target_id"], []).append(dict(row))
+
+    for product in products:
+        product_id = product["id"]
+        profile = profiles.get(product_id)
+        recipe = active_recipes.get(product_id)
+        batch = latest_batches.get(product_id)
+        inventory_mode = profile["inventory_mode"] if profile else "legacy"
+        product["inventory_mode"] = inventory_mode
+        product["stock_source"] = profile["stock_source"] if profile else "product_stock"
+        product["ledger_managed"] = inventory_mode == "ledger_managed"
+        product["valuation_readiness"] = (
+            profile["valuation_readiness"] if profile else "setup_required"
+        )
+        product["active_recipe_id"] = recipe["id"] if recipe else None
+        product["active_recipe_status"] = recipe["status"] if recipe else "missing"
+        product["active_recipe_review_state"] = recipe["review_state"] if recipe else None
+        product["latest_batch_id"] = batch["id"] if batch else None
+        product["latest_batch_number"] = batch["batch_number"] if batch else None
+        product["latest_batch_status"] = batch["status"] if batch else None
+        product["latest_batch_date"] = batch["production_date"] if batch else None
+        product["inventory_exception_count"] = int(exception_counts.get(product_id, 0))
+        product["inventory_exceptions"] = exceptions_by_product.get(product_id, [])
+        product["inventory_links"] = {
+            "recipes_href": f"/admin/inventory/recipes?product_id={product_id}",
+            "batches_href": f"/admin/inventory/batches?product_id={product_id}",
+            "movements_href": f"/admin/inventory/movements?item_type=finished_good&item_id={product_id}",
+            "valuation_href": f"/admin/inventory/valuation/layers?item_type=finished_good&item_id={product_id}",
+            "cogs_href": f"/admin/inventory/valuation/cogs?product_id={product_id}",
+            "exceptions_href": f"/admin/inventory/valuation/exceptions?target_type=product&target_id={product_id}",
+        }
 
 
 def _resolve_locale_fields(product: dict, locale: Locale) -> dict:
@@ -313,6 +421,7 @@ def get_product_admin(product_id: str) -> dict:
 
         product = _row_to_dict(row)
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
+        _attach_admin_inventory_context(conn, [product])
 
     product = _flatten_admin_labels(_annotate_admin_one(product))
     product = product_image_service.attach_image_fields_one(product)
@@ -351,6 +460,7 @@ def list_products_admin(
 
         products = [_row_to_dict(r) for r in rows]
         taxonomy_service.resolve_products_taxonomy(conn, products, "en")
+        _attach_admin_inventory_context(conn, products)
 
     products = [_flatten_admin_labels(p) for p in _annotate_admin(products)]
     products = product_image_service.attach_image_fields(products)
@@ -450,6 +560,7 @@ def create_product(data: dict) -> dict:
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
         product = _row_to_dict(row)
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
+        _attach_admin_inventory_context(conn, [product])
 
     product = _flatten_admin_labels(_annotate_admin_one(product))
     product = product_image_service.attach_image_fields_one(product)
@@ -470,9 +581,23 @@ def upsert_product(product_id: str, data: dict) -> dict:
         # Distinguish insert from update so a new row's product type is resolved
         # and validated like create_product. An update that omits product_type
         # must preserve the current (possibly inactive) assignment.
-        is_insert = (
-            conn.execute("SELECT 1 FROM products WHERE id = ?", (product_id,)).fetchone() is None
-        )
+        existing_product = conn.execute(
+            """
+            SELECT p.stock, COALESCE(pip.inventory_mode, 'legacy') AS inventory_mode
+            FROM products p
+            LEFT JOIN product_inventory_profiles pip ON pip.product_id = p.id
+            WHERE p.id = ?
+            """,
+            (product_id,),
+        ).fetchone()
+        is_insert = existing_product is None
+        if (
+            existing_product is not None
+            and existing_product["inventory_mode"] == "ledger_managed"
+            and data.get("stock") is not None
+            and int(data["stock"]) != int(existing_product["stock"])
+        ):
+            raise LedgerManagedStockEditError(product_id)
         if data.get("product_type"):
             taxonomy_service.validate_product_type(conn, data["product_type"])
             product_type_slug = data["product_type"]
@@ -542,6 +667,7 @@ def upsert_product(product_id: str, data: dict) -> dict:
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
         product = _row_to_dict(row)
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
+        _attach_admin_inventory_context(conn, [product])
 
     product = _flatten_admin_labels(_annotate_admin_one(product))
     product = product_image_service.attach_image_fields_one(product)
@@ -566,12 +692,26 @@ def update_product(product_id: str, data: dict) -> dict:
     """
     with get_db() as conn:
         current = conn.execute(
-            "SELECT product_type_slug, category_slug, discount_percent, "
-            "discount_starts_at, discount_ends_at FROM products WHERE id = ?",
+            """
+            SELECT p.product_type_slug, p.category_slug, p.discount_percent,
+                   p.discount_starts_at, p.discount_ends_at, p.stock,
+                   COALESCE(pip.inventory_mode, 'legacy') AS inventory_mode
+            FROM products p
+            LEFT JOIN product_inventory_profiles pip ON pip.product_id = p.id
+            WHERE p.id = ?
+            """,
             (product_id,),
         ).fetchone()
         if current is None:
             raise NotFoundError(f"Product not found: {product_id}")
+
+        if (
+            current["inventory_mode"] == "ledger_managed"
+            and "stock" in data
+            and data["stock"] is not None
+            and int(data["stock"]) != int(current["stock"])
+        ):
+            raise LedgerManagedStockEditError(product_id)
 
         current_type = current["product_type_slug"]
         current_category = current["category_slug"]
@@ -664,6 +804,7 @@ def update_product(product_id: str, data: dict) -> dict:
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
         product = _row_to_dict(row)
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
+        _attach_admin_inventory_context(conn, [product])
 
     product = _flatten_admin_labels(_annotate_admin_one(product))
     product = product_image_service.attach_image_fields_one(product)
@@ -692,6 +833,7 @@ def deactivate_product(product_id: str) -> dict:
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
         product = _row_to_dict(row)
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
+        _attach_admin_inventory_context(conn, [product])
 
     product = _flatten_admin_labels(_annotate_admin_one(product))
     product = product_image_service.attach_image_fields_one(product)
@@ -884,6 +1026,7 @@ def get_low_stock_products(threshold: int = 5) -> list[dict]:
         ).fetchall()
         products = [_row_to_dict(r) for r in rows]
         taxonomy_service.resolve_products_taxonomy(conn, products, "en")
+        _attach_admin_inventory_context(conn, products)
     products = [_flatten_admin_labels(p) for p in _annotate_admin(products)]
     products = product_image_service.attach_image_fields(products)
     return product_video_service.attach_video_fields(products, public_only=False)
@@ -942,6 +1085,8 @@ def resolve_bulk_target(
         # Preserve order, drop duplicates.
         resolved = list(dict.fromkeys(product_ids))
     else:
+        if filter is None:
+            raise ValueError("filter must be provided")
         with get_db() as conn:
             resolved = _resolve_filter_target_ids(conn, filter)
 

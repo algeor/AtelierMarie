@@ -5,6 +5,7 @@ import json
 import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import structlog
@@ -28,15 +29,20 @@ from app.routes import (
     cart,
     comments,
     contact,
+    cookies,
     delivery,
     faq,
+    inventory,
+    legal,
     locale,
     orders,
     payment_settings,
+    privacy,
     products,
     promotions,
     reactions,
     taxonomy,
+    terms,
     webhooks,
 )
 from app.services.analytics_service import (
@@ -45,16 +51,38 @@ from app.services.analytics_service import (
     load_jsonl_to_duckdb,
 )
 from app.services.contact_service import cleanup_old_contact_messages, drain_contact_message_emails
+from app.services.courier_polling_service import poll_due_shipments_from_settings
 from app.services.email_service import drain_email_outbox
 from app.services.product_video_service import drain_video_transcodes
 
 logger = structlog.get_logger(__name__)
 SESSION_CLEANUP_INTERVAL_SECONDS = 3600
 PAYMENT_RESERVATION_CLEANUP_INTERVAL_SECONDS = 60
+_DT_FMT = "%Y-%m-%d %H:%M:%S"
 # Poll interval for the email outbox sweeper. ~15s keeps "shipped" mail prompt
 # without hammering the DB (design Decision 25); not 60s.
 EMAIL_OUTBOX_INTERVAL_SECONDS = 15
 VIDEO_TRANSCODE_INTERVAL_SECONDS = VIDEO_SWEEPER_INTERVAL_SECONDS
+
+
+async def courier_status_polling_loop(
+    *,
+    interval_seconds: float | None = None,
+    sleep: Callable[[float], Awaitable[object]] | None = None,
+    poll: Callable[[], Awaitable[dict[str, int]]] | None = None,
+) -> None:
+    """Poll courier statuses on a fixed async tick without thread offload."""
+    sleep_fn = sleep or asyncio.sleep
+    poll_fn = poll or poll_due_shipments_from_settings
+
+    while True:
+        await sleep_fn(interval_seconds or get_settings().courier_polling_interval_seconds)
+        try:
+            result = await poll_fn()
+            if result.get("succeeded") or result.get("failed"):
+                logger.info("Polled courier statuses", **result)
+        except Exception:
+            logger.exception("Courier status polling failed")
 
 
 def ensure_video_temp_path_is_private(static_path: Path, temp_path: Path) -> None:
@@ -84,16 +112,95 @@ def cleanup_runtime_records() -> int:
 
 
 def _cancel_abandoned_card_orders() -> int:
-    """Auto-cancel expired/abandoned unpaid card orders.
+    """Review or close expired/abandoned unpaid card orders.
 
-    Restores stock for each cancelled order. Must NOT touch COD or bank_transfer orders.
+    Must NOT touch COD or bank_transfer orders, and must not send anything to a
+    courier. First expiry creates an admin callback window; if that review
+    window expires without confirmation, the system cancels the order and
+    releases the stock reservation without creating a refund.
     """
-    from app.services.order_service import VALID_TRANSITIONS
     from app.services.payment_service import expire_checkout_session
+    from app.services.order_service import update_status
 
-    cancelled = 0
+    reviewed = 0
     settings = get_settings()
     with get_db() as conn:
+        close_rows = conn.execute(
+            """
+            SELECT id, status, payment_status, stripe_checkout_session_id
+            FROM orders
+            WHERE payment_method = 'card'
+              AND payment_status = 'review_required'
+              AND reserved_until IS NOT NULL
+              AND reserved_until < datetime('now')
+              AND status IN ('pending', 'confirmed')
+            """
+        ).fetchall()
+
+        for row in close_rows:
+            order_id = row["id"]
+            payment_row = conn.execute(
+                """
+                SELECT id FROM payments
+                WHERE order_id = ? AND provider = 'stripe'
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (order_id,),
+            ).fetchone()
+            payment_id = payment_row["id"] if payment_row else None
+
+            update_status(conn, order_id, "cancelled")
+            conn.execute(
+                """
+                UPDATE orders
+                SET payment_status = 'failed', reserved_until = NULL,
+                    updated_at = datetime('now')
+                WHERE id = ?
+                """,
+                (order_id,),
+            )
+            if payment_id:
+                conn.execute(
+                    """
+                    UPDATE payments
+                    SET provider_status = 'failed', updated_at = datetime('now')
+                    WHERE id = ?
+                    """,
+                    (payment_id,),
+                )
+            conn.execute(
+                """
+                INSERT INTO payment_events (
+                    id, order_id, payment_id, event_type, source, provider,
+                    provider_status, processing_status, details
+                ) VALUES (?, ?, ?, 'reservation_closed', 'system', 'stripe',
+                          'failed', 'processed', ?)
+                """,
+                (
+                    str(uuid.uuid4()),
+                    order_id,
+                    payment_id,
+                    json.dumps(
+                        {
+                            "old_order_status": row["status"],
+                            "old_payment_status": row["payment_status"],
+                            "new_order_status": "cancelled",
+                            "new_payment_status": "failed",
+                            "stock_released": True,
+                            "refund_created": False,
+                            "stripe_checkout_session_id": row["stripe_checkout_session_id"],
+                        },
+                        separators=(",", ":"),
+                    ),
+                ),
+            )
+            reviewed += 1
+            logger.info("closed_unconfirmed_abandoned_card_order", order_id=order_id)
+
+        review_until = (
+            datetime.now(UTC) + timedelta(hours=settings.abandoned_card_review_hours)
+        ).strftime(_DT_FMT)
         rows = conn.execute(
             """
             SELECT id, status, payment_status, stripe_checkout_session_id
@@ -104,15 +211,13 @@ def _cancel_abandoned_card_orders() -> int:
                   (reserved_until IS NOT NULL AND reserved_until < datetime('now'))
                   OR created_at < datetime('now', '-24 hours')
               )
-              AND status NOT IN ('cancelled', 'delivered')
+              AND status NOT IN ('cancelled', 'shipped', 'delivered', 'return_in_transit', 'returned')
             """
         ).fetchall()
 
         for row in rows:
             order_id = row["id"]
             current = row["status"]
-            if "cancelled" not in VALID_TRANSITIONS.get(current, set()):
-                continue
             payment_row = conn.execute(
                 """
                 SELECT id FROM payments
@@ -129,28 +234,20 @@ def _cancel_abandoned_card_orders() -> int:
             conn.execute(
                 """
                 UPDATE orders
-                SET status = 'cancelled', payment_status = 'failed', updated_at = datetime('now')
+                SET payment_status = 'review_required', reserved_until = ?,
+                    updated_at = datetime('now')
                 WHERE id = ?
                 """,
-                (order_id,),
+                (review_until, order_id),
             )
             if payment_id:
                 conn.execute(
                     """
                     UPDATE payments
-                    SET provider_status = 'failed', updated_at = datetime('now')
+                    SET provider_status = 'review_required', updated_at = datetime('now')
                     WHERE id = ?
                     """,
                     (payment_id,),
-                )
-            item_rows = conn.execute(
-                "SELECT product_id, quantity FROM order_items WHERE order_id = ?",
-                (order_id,),
-            ).fetchall()
-            for item in item_rows:
-                conn.execute(
-                    "UPDATE products SET stock = stock + ? WHERE id = ?",
-                    (item["quantity"], item["product_id"]),
                 )
             conn.execute(
                 """
@@ -158,7 +255,7 @@ def _cancel_abandoned_card_orders() -> int:
                     id, order_id, payment_id, event_type, source, provider,
                     provider_status, processing_status, details
                 ) VALUES (?, ?, ?, 'reservation_expired', 'system', 'stripe',
-                          'failed', 'processed', ?)
+                          'review_required', 'requires_review', ?)
                 """,
                 (
                     str(uuid.uuid4()),
@@ -168,9 +265,10 @@ def _cancel_abandoned_card_orders() -> int:
                         {
                             "old_order_status": current,
                             "old_payment_status": row["payment_status"],
-                            "new_order_status": "cancelled",
-                            "new_payment_status": "failed",
-                            "restored_item_count": len(item_rows),
+                            "new_order_status": current,
+                            "new_payment_status": "review_required",
+                            "review_expires_at": review_until,
+                            "requires_admin_callback": True,
                             "stripe_checkout_session_id": stripe_session_id,
                             "stripe_expire_attempted": stripe_expire_attempted,
                             "stripe_expired": stripe_expired,
@@ -179,10 +277,10 @@ def _cancel_abandoned_card_orders() -> int:
                     ),
                 ),
             )
-            cancelled += 1
-            logger.info("auto_cancelled_abandoned_card_order", order_id=order_id)
+            reviewed += 1
+            logger.info("marked_abandoned_card_order_for_review", order_id=order_id)
 
-    return cancelled
+    return reviewed
 
 
 async def session_cleanup_loop(
@@ -198,7 +296,7 @@ async def session_cleanup_loop(
     while True:
         await sleep_fn(interval_seconds)
         try:
-            count = cleanup_fn()
+            count = await asyncio.to_thread(cleanup_fn)
             if count:
                 logger.info("Cleaned up expired sessions", count=count)
         except Exception:
@@ -290,13 +388,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Background task: clean expired sessions every hour
     task = asyncio.create_task(session_cleanup_loop())
     payment_task = asyncio.create_task(payment_reservation_cleanup_loop())
+    courier_polling_task = asyncio.create_task(
+        courier_status_polling_loop(interval_seconds=settings.courier_polling_interval_seconds)
+    )
     # Background task: drain the durable email outbox (~15s tick, per worker)
     email_task = asyncio.create_task(email_outbox_loop())
     video_task = asyncio.create_task(video_transcode_loop())
     yield
     if settings.analytics_enabled:
         await asyncio.to_thread(load_jsonl_to_duckdb)
-    for background_task in (task, payment_task, email_task, video_task):
+    for background_task in (task, payment_task, courier_polling_task, email_task, video_task):
         background_task.cancel()
         try:
             await asyncio.wait_for(background_task, timeout=5.0)
@@ -420,6 +521,20 @@ def create_app() -> FastAPI:
     application.include_router(taxonomy.admin_router, prefix="/v1/admin/taxonomy", tags=["admin"])
     application.include_router(faq.public_router, prefix="/v1/faq", tags=["faq"])
     application.include_router(faq.admin_router, prefix="/v1/admin/faq", tags=["admin-faq"])
+    application.include_router(terms.public_router, prefix="/v1/terms", tags=["terms"])
+    application.include_router(terms.admin_router, prefix="/v1/admin/terms", tags=["admin-terms"])
+    application.include_router(privacy.public_router, prefix="/v1/privacy", tags=["privacy"])
+    application.include_router(
+        privacy.admin_router, prefix="/v1/admin/privacy", tags=["admin-privacy"]
+    )
+    application.include_router(cookies.public_router, prefix="/v1/cookies", tags=["cookies"])
+    application.include_router(
+        cookies.admin_router, prefix="/v1/admin/cookies", tags=["admin-cookies"]
+    )
+    application.include_router(legal.router, prefix="/v1/legal", tags=["legal"])
+    application.include_router(
+        inventory.admin_router, prefix="/v1/admin/inventory", tags=["admin-inventory"]
+    )
     application.include_router(
         promotions.admin_router, prefix="/v1/admin/promotions", tags=["admin-promotions"]
     )

@@ -15,11 +15,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations, useLocale } from "next-intl";
-import { getDeliveryCities, getDeliveryOffices, getDeliveryPlaces } from "@/lib/api";
+import { getDeliveryCities, getDeliveryConfig, getDeliveryOffices, getDeliveryPlaces } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type {
   CityPlace,
   Courier,
+  DeliveryConfigResponse,
   DeliverySettingsResponse,
   DeliveryDoor,
   DeliveryInfo,
@@ -31,6 +32,11 @@ import type {
 import type { Locale } from "@/i18n/routing";
 
 const PHONE_REGEX = /^\+?[0-9]{8,15}$/;
+const DEFAULT_ECONT_LOCATOR_URL = "https://delivery.econt.com/customer_info.php";
+const DEFAULT_ECONT_LOCATOR_ORIGINS = [
+  "https://delivery.econt.com",
+  "https://delivery-demo.econt.com",
+];
 
 /**
  * Normalize phone input to match backend validation (app/models/delivery.py).
@@ -40,6 +46,153 @@ const PHONE_REGEX = /^\+?[0-9]{8,15}$/;
  */
 function normalizePhone(value: string): string {
   return value.replace(/[^\d+]/g, "");
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function asString(value: unknown): string | null {
+  if (typeof value === "string") return value.trim() || null;
+  if (typeof value === "number") return String(value);
+  return null;
+}
+
+function parseLocatorMessage(data: unknown): Record<string, unknown> | null {
+  if (typeof data === "string") {
+    try {
+      return asRecord(JSON.parse(data));
+    } catch {
+      return null;
+    }
+  }
+  return asRecord(data);
+}
+
+function readAddress(value: unknown): string {
+  const direct = asString(value);
+  if (direct) return direct;
+  const address = asRecord(value);
+  if (!address) return "";
+  return (
+    asString(address.fullAddress) ??
+    asString(address.full_address) ??
+    asString(address.address) ??
+    [address.street, address.number].map(asString).filter(Boolean).join(" ")
+  );
+}
+
+function readOfficeType(value: unknown, name: string): OfficeType {
+  const raw = `${asString(value) ?? ""} ${name}`.toLowerCase();
+  return raw.includes("apt") || raw.includes("aps") || raw.includes("locker") || raw.includes("автомат")
+    ? "apt"
+    : "office";
+}
+
+export function normalizeEcontLocatorOfficeMessage(data: unknown): OfficeResponse | null {
+  const message = parseLocatorMessage(data);
+  if (!message) return null;
+
+  const nested =
+    asRecord(message.office) ??
+    asRecord(message.selectedOffice) ??
+    asRecord(message.selected_office) ??
+    asRecord(message.officeData) ??
+    asRecord(message.data) ??
+    message;
+
+  const rawId =
+    asString(nested.id) ?? asString(nested.officeId) ?? asString(nested.office_id) ?? null;
+  const code = asString(nested.code) ?? asString(nested.officeCode) ?? asString(nested.office_code);
+  const name = asString(nested.name) ?? asString(nested.officeName) ?? asString(nested.office_name);
+  if (!rawId || !code || !name) return null;
+
+  const addressRecord = asRecord(nested.address);
+  return {
+    id: rawId.startsWith("econt-") ? rawId : `econt-${rawId}`,
+    code,
+    name,
+    type: readOfficeType(nested.type ?? nested.officeType ?? nested.office_type, name),
+    city:
+      asString(nested.city) ??
+      asString(nested.cityName) ??
+      asString(nested.city_name) ??
+      asString(addressRecord?.city) ??
+      "",
+    address: readAddress(nested.address ?? nested.fullAddress ?? nested.full_address),
+    working_hours:
+      asString(nested.workingHours) ??
+      asString(nested.working_hours) ??
+      asString(nested.workTime) ??
+      "",
+  };
+}
+
+function uniqueOrigins(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+type EcontOfficeLocatorConfig = {
+  enabled: boolean;
+  url: string;
+  allowedOrigins: string[];
+};
+
+function buildEcontOfficeLocatorConfig(
+  enabled: boolean,
+  url: string,
+  origins: string[],
+): EcontOfficeLocatorConfig {
+  let urlOrigin: string | null = null;
+  try {
+    urlOrigin = new URL(url).origin;
+  } catch {
+    urlOrigin = null;
+  }
+  return {
+    enabled,
+    url,
+    allowedOrigins: uniqueOrigins([
+      ...origins,
+      ...(urlOrigin ? [urlOrigin] : []),
+      ...DEFAULT_ECONT_LOCATOR_ORIGINS,
+    ]),
+  };
+}
+
+function getEcontOfficeLocatorEnvConfig(): EcontOfficeLocatorConfig {
+  const enabled = process.env.NEXT_PUBLIC_ECONT_OFFICE_LOCATOR_ENABLED === "true";
+  const url = process.env.NEXT_PUBLIC_ECONT_OFFICE_LOCATOR_URL?.trim() || DEFAULT_ECONT_LOCATOR_URL;
+  const origins = process.env.NEXT_PUBLIC_ECONT_OFFICE_LOCATOR_ORIGINS?.split(",") ?? [];
+  return buildEcontOfficeLocatorConfig(enabled, url, origins);
+}
+
+function getEcontOfficeLocatorApiConfig(
+  config: DeliveryConfigResponse,
+): EcontOfficeLocatorConfig {
+  return buildEcontOfficeLocatorConfig(
+    config.econt.office_locator_enabled,
+    config.econt.office_locator_url || DEFAULT_ECONT_LOCATOR_URL,
+    config.econt.office_locator_origins,
+  );
+}
+
+function buildLocatorSrc(baseUrl: string, city: string, locale: string): string {
+  try {
+    const url = new URL(baseUrl);
+    if (city.trim()) url.searchParams.set("city", city.trim());
+    url.searchParams.set("lang", locale === "bg" ? "bg" : "en");
+    url.searchParams.set("office_type", "office");
+    url.searchParams.set("delivery_type", "office");
+    if (typeof window !== "undefined") {
+      url.searchParams.set("shop_url", window.location.origin);
+    }
+    return url.toString();
+  } catch {
+    return baseUrl;
+  }
 }
 
 export interface DeliveryValidationErrors {
@@ -196,6 +349,67 @@ interface OfficePickerProps {
   locale: Locale;
 }
 
+interface EcontOfficeLocatorProps {
+  city: string;
+  config: EcontOfficeLocatorConfig;
+  onSelect: (office: OfficeResponse) => void;
+  onUnavailable: () => void;
+}
+
+function EcontOfficeLocator({ city, config, onSelect, onUnavailable }: EcontOfficeLocatorProps) {
+  const t = useTranslations("checkout.delivery.office");
+  const locale = useLocale();
+  const [loading, setLoading] = useState(true);
+  const allowedOriginsKey = config.allowedOrigins.join("|");
+
+  const iframeSrc = useMemo(
+    () => buildLocatorSrc(config.url, city, locale),
+    [city, config.url, locale],
+  );
+
+  useEffect(() => {
+    if (!config.enabled || typeof window === "undefined") return;
+    const allowedOrigins = new Set(config.allowedOrigins);
+    const handleMessage = (event: MessageEvent) => {
+      if (!allowedOrigins.has(event.origin)) return;
+      const office = normalizeEcontLocatorOfficeMessage(event.data);
+      if (office) onSelect(office);
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [allowedOriginsKey, config.allowedOrigins, config.enabled, onSelect]);
+
+  return (
+    <div className="mb-5 rounded-brand border border-champagne-beige bg-warm-ivory">
+      <div className="flex items-center justify-between gap-3 border-b border-champagne-beige px-4 py-3">
+        <p className="text-sm font-medium text-charcoal">{t("locatorTitle")}</p>
+        <button
+          type="button"
+          onClick={onUnavailable}
+          className="text-sm text-soft-brown underline hover:text-charcoal"
+        >
+          {t("locatorFallback")}
+        </button>
+      </div>
+      <div className="relative h-[420px] overflow-hidden rounded-b-brand bg-champagne-beige/20">
+        {loading && (
+          <p className="absolute inset-x-0 top-4 text-center text-sm text-soft-brown">
+            {t("locatorLoading")}
+          </p>
+        )}
+        <iframe
+          title={t("locatorFrameTitle")}
+          src={iframeSrc}
+          allow="geolocation"
+          loading="lazy"
+          onLoad={() => setLoading(false)}
+          className="h-full w-full border-0"
+        />
+      </div>
+    </div>
+  );
+}
+
 function OfficePicker({ courier, selectedOffice, onSelect, error, locale }: OfficePickerProps) {
   const t = useTranslations("checkout.delivery.office");
   const tType = useTranslations("checkout.delivery.officeType");
@@ -208,6 +422,26 @@ function OfficePicker({ courier, selectedOffice, onSelect, error, locale }: Offi
   const [typeFilter, setTypeFilter] = useState<OfficeType | "all">("all");
   const [loading, setLoading] = useState(false);
   const [confirmedCity, setConfirmedCity] = useState<string | null>(null);
+  const [locatorUnavailable, setLocatorUnavailable] = useState(false);
+  const [locatorConfig, setLocatorConfig] = useState<EcontOfficeLocatorConfig>(() =>
+    buildEcontOfficeLocatorConfig(false, DEFAULT_ECONT_LOCATOR_URL, []),
+  );
+  const showLocator = courier === "econt" && locatorConfig.enabled && !locatorUnavailable;
+
+  useEffect(() => {
+    if (courier !== "econt") return;
+    let cancelled = false;
+    getDeliveryConfig()
+      .then((config) => {
+        if (!cancelled) setLocatorConfig(getEcontOfficeLocatorApiConfig(config));
+      })
+      .catch(() => {
+        if (!cancelled) setLocatorConfig(getEcontOfficeLocatorEnvConfig());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [courier]);
 
   // Reset when courier changes
   useEffect(() => {
@@ -215,6 +449,7 @@ function OfficePicker({ courier, selectedOffice, onSelect, error, locale }: Offi
     setConfirmedCity(null);
     setOffices([]);
     setCitySuggestions([]);
+    setLocatorUnavailable(false);
   }, [courier]);
 
   // Load city suggestions as user types
@@ -313,101 +548,114 @@ function OfficePicker({ courier, selectedOffice, onSelect, error, locale }: Offi
 
   return (
     <div className="mb-6">
-      {/* City input with typeahead */}
-      <label htmlFor="delivery-office-city" className="mb-1.5 block text-sm font-medium text-soft-brown">
-        {t("cityLabel")} <span className="text-red-700">*</span>
-      </label>
-      <div className="relative mb-4">
-        <input
-          id="delivery-office-city"
-          type="text"
-          value={city}
-          onChange={(e) => {
-            setCity(e.target.value);
-            setConfirmedCity(null);
-            setShowSuggestions(true);
-          }}
-          onFocus={() => setShowSuggestions(true)}
-          onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-          placeholder={t("cityPlaceholder")}
-          className="w-full rounded-brand border border-champagne-beige bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown"
+      {showLocator ? (
+        <EcontOfficeLocator
+          city={confirmedCity ?? city}
+          config={locatorConfig}
+          onSelect={onSelect}
+          onUnavailable={() => setLocatorUnavailable(true)}
         />
-        {showSuggestions && citySuggestions.length > 0 && (
-          <ul className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-brand border border-champagne-beige bg-warm-ivory shadow-lg">
-            {citySuggestions.map((c) => (
-              <li key={c}>
-                <button
-                  type="button"
-                  onClick={() => confirmCity(c)}
-                  className="block w-full px-4 py-2 text-left text-sm text-charcoal hover:bg-champagne-beige/30"
-                >
-                  {c}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {!confirmedCity ? (
-        <p className="text-sm italic text-soft-brown">{t("selectCityFirst")}</p>
       ) : (
         <>
-          {/* Type filter */}
-          <div className="mb-3 flex gap-2" role="tablist">
-            {(["all", "office", "apt"] as const).map((f) => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => setTypeFilter(f)}
-                className={cn(
-                  "rounded-pill px-3 py-1 text-xs font-medium transition-colors",
-                  typeFilter === f
-                    ? "bg-muted-gold text-charcoal"
-                    : "bg-champagne-beige/50 text-soft-brown hover:bg-champagne-beige"
-                )}
-                aria-pressed={typeFilter === f}
-              >
-                {tType(f)}
-              </button>
-            ))}
+          {locatorUnavailable && (
+            <p className="mb-3 text-sm text-soft-brown">{t("locatorUnavailable")}</p>
+          )}
+          {/* City input with typeahead */}
+          <label className="mb-1.5 block text-sm font-medium text-soft-brown">
+            {t("cityLabel")} <span className="text-red-700">*</span>
+          </label>
+          <div className="relative mb-4">
+            <input
+              type="text"
+              value={city}
+              onChange={(e) => {
+                setCity(e.target.value);
+                setConfirmedCity(null);
+                setShowSuggestions(true);
+              }}
+              onFocus={() => setShowSuggestions(true)}
+              onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+              placeholder={t("cityPlaceholder")}
+              className="w-full rounded-brand border border-champagne-beige bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown"
+            />
+            {showSuggestions && citySuggestions.length > 0 && (
+              <ul className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-brand border border-champagne-beige bg-warm-ivory shadow-lg">
+                {citySuggestions.map((c) => (
+                  <li key={c}>
+                    <button
+                      type="button"
+                      onClick={() => confirmCity(c)}
+                      className="block w-full px-4 py-2 text-left text-sm text-charcoal hover:bg-champagne-beige/30"
+                    >
+                      {c}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
-          {/* Search filter */}
-          <input
-            type="text"
-            value={officeFilter}
-            onChange={(e) => setOfficeFilter(e.target.value)}
-            placeholder={t("searchPlaceholder")}
-            aria-label={t("searchLabel")}
-            className="mb-3 w-full rounded-brand border border-champagne-beige bg-warm-ivory px-4 py-2 text-sm text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown"
-          />
-
-          {/* Office list */}
-          {loading ? (
-            <p className="text-sm text-soft-brown">{t("loading")}</p>
-          ) : filteredOffices.length === 0 ? (
-            <p className="text-sm text-soft-brown">{t("empty")}</p>
+          {!confirmedCity ? (
+            <p className="text-sm italic text-soft-brown">{t("selectCityFirst")}</p>
           ) : (
-            <ul className="max-h-72 divide-y divide-champagne-beige overflow-auto rounded-brand border border-champagne-beige">
-              {filteredOffices.map((office) => (
-                <li key={office.id}>
+            <>
+              {/* Type filter */}
+              <div className="mb-3 flex gap-2" role="tablist">
+                {(["all", "office", "apt"] as const).map((f) => (
                   <button
+                    key={f}
                     type="button"
-                    onClick={() => onSelect(office)}
-                    className="block w-full px-4 py-3 text-left transition-colors hover:bg-champagne-beige/30"
+                    onClick={() => setTypeFilter(f)}
+                    className={cn(
+                      "rounded-pill px-3 py-1 text-xs font-medium transition-colors",
+                      typeFilter === f
+                        ? "bg-muted-gold text-charcoal"
+                        : "bg-champagne-beige/50 text-soft-brown hover:bg-champagne-beige"
+                    )}
+                    aria-pressed={typeFilter === f}
                   >
-                    <p className="text-sm font-medium text-charcoal">
-                      {office.type === "apt" ? "🔐 " : "📦 "}
-                      {office.name}
-                    </p>
-                    <p className="mt-0.5 text-xs text-soft-brown">
-                      {office.address} · {office.working_hours}
-                    </p>
+                    {tType(f)}
                   </button>
-                </li>
-              ))}
-            </ul>
+                ))}
+              </div>
+
+              {/* Search filter */}
+              <input
+                type="text"
+                value={officeFilter}
+                onChange={(e) => setOfficeFilter(e.target.value)}
+                placeholder={t("searchPlaceholder")}
+                aria-label={t("searchLabel")}
+                className="mb-3 w-full rounded-brand border border-champagne-beige bg-warm-ivory px-4 py-2 text-sm text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown"
+              />
+
+              {/* Office list */}
+              {loading ? (
+                <p className="text-sm text-soft-brown">{t("loading")}</p>
+              ) : filteredOffices.length === 0 ? (
+                <p className="text-sm text-soft-brown">{t("empty")}</p>
+              ) : (
+                <ul className="max-h-72 divide-y divide-champagne-beige overflow-auto rounded-brand border border-champagne-beige">
+                  {filteredOffices.map((office) => (
+                    <li key={office.id}>
+                      <button
+                        type="button"
+                        onClick={() => onSelect(office)}
+                        className="block w-full px-4 py-3 text-left transition-colors hover:bg-champagne-beige/30"
+                      >
+                        <p className="text-sm font-medium text-charcoal">
+                          {office.type === "apt" ? "🔐 " : "📦 "}
+                          {office.name}
+                        </p>
+                        <p className="mt-0.5 text-xs text-soft-brown">
+                          {office.address} · {office.working_hours}
+                        </p>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
           )}
         </>
       )}
@@ -442,16 +690,13 @@ function DoorAddressForm({ value, onChange, errors, locale }: DoorAddressFormPro
     readOnly = false,
   ) => {
     const err = errorKey ? errors[errorKey] : undefined;
-    const inputId = `delivery-door-${String(fieldKey).replaceAll("_", "-")}`;
-    const errorId = `${inputId}-error`;
     return (
       <div className="mb-4">
-        <label htmlFor={inputId} className="mb-1.5 block text-sm font-medium text-soft-brown">
+        <label className="mb-1.5 block text-sm font-medium text-soft-brown">
           {t(`${key}Label`)}
           {required && <span className="text-red-700"> *</span>}
         </label>
         <input
-          id={inputId}
           type="text"
           value={(value[fieldKey] as string | null | undefined) ?? ""}
           onChange={(e) => onChange({ [fieldKey]: e.target.value })}
@@ -467,7 +712,6 @@ function DoorAddressForm({ value, onChange, errors, locale }: DoorAddressFormPro
                   : 100
           }
           aria-invalid={err ? "true" : undefined}
-          aria-describedby={err ? errorId : undefined}
           className={cn(
             "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
             readOnly && "cursor-not-allowed opacity-70",
@@ -475,7 +719,7 @@ function DoorAddressForm({ value, onChange, errors, locale }: DoorAddressFormPro
           )}
         />
         {err && (
-          <p id={errorId} className="mt-1 text-sm text-red-700" role="alert">
+          <p className="mt-1 text-sm text-red-700" role="alert">
             {err}
           </p>
         )}
@@ -495,7 +739,6 @@ function DoorAddressForm({ value, onChange, errors, locale }: DoorAddressFormPro
         }
         onPostalCodeChange={(postal_code) => onChange({ postal_code })}
         error={errors.city}
-        postalCodeError={errors.postalCode}
       />
       {field("street", "street", true, "street")}
       <div className="grid gap-4 sm:grid-cols-2">
@@ -516,7 +759,6 @@ interface DoorPlaceFieldProps {
   onSelect: (place: CityPlace) => void;
   onPostalCodeChange: (postalCode: string) => void;
   error?: string;
-  postalCodeError?: string;
 }
 
 // Debounced place typeahead for courier door delivery — mirrors the OfficePicker
@@ -531,7 +773,6 @@ function DoorPlaceField({
   onSelect,
   onPostalCodeChange,
   error,
-  postalCodeError,
 }: DoorPlaceFieldProps) {
   const t = useTranslations("checkout.delivery.door");
   const [query, setQuery] = useState(city);
@@ -571,12 +812,11 @@ function DoorPlaceField({
   return (
     <>
       <div className="mb-4">
-        <label htmlFor="delivery-door-city" className="mb-1.5 block text-sm font-medium text-soft-brown">
+        <label className="mb-1.5 block text-sm font-medium text-soft-brown">
           {t("cityLabel")} <span className="text-red-700">*</span>
         </label>
         <div className="relative">
           <input
-            id="delivery-door-city"
             type="text"
             value={query}
             onChange={(e) => {
@@ -590,7 +830,6 @@ function DoorPlaceField({
             placeholder={t("cityPlaceholder")}
             maxLength={100}
             aria-invalid={error ? "true" : undefined}
-            aria-describedby={error ? "delivery-door-city-error" : undefined}
             className={cn(
               "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
               error ? "border-red-700" : "border-champagne-beige"
@@ -613,35 +852,26 @@ function DoorPlaceField({
           )}
         </div>
         {error && (
-          <p id="delivery-door-city-error" className="mt-1 text-sm text-red-700" role="alert">
+          <p className="mt-1 text-sm text-red-700" role="alert">
             {error}
           </p>
         )}
       </div>
       <div className="mb-4">
-        <label htmlFor="delivery-door-postal-code" className="mb-1.5 block text-sm font-medium text-soft-brown">
+        <label className="mb-1.5 block text-sm font-medium text-soft-brown">
           {t("postalCodeLabel")} <span className="text-red-700">*</span>
         </label>
         <input
-          id="delivery-door-postal-code"
           type="text"
           value={postalCode}
           readOnly={postalCodeLocked}
           onChange={(e) => onPostalCodeChange(e.target.value)}
           placeholder={t("postalCodePlaceholder")}
-          aria-invalid={postalCodeError ? "true" : undefined}
-          aria-describedby={postalCodeError ? "delivery-door-postal-code-error" : undefined}
           className={cn(
-            "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
-            postalCodeError ? "border-red-700" : "border-champagne-beige",
+            "w-full rounded-brand border border-champagne-beige bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
             postalCodeLocked && "cursor-not-allowed opacity-70 focus:ring-0"
           )}
         />
-        {postalCodeError && (
-          <p id="delivery-door-postal-code-error" className="mt-1 text-sm text-red-700" role="alert">
-            {postalCodeError}
-          </p>
-        )}
       </div>
     </>
   );
@@ -659,24 +889,22 @@ function PhoneField({ value, onChange, error }: PhoneFieldProps) {
   const t = useTranslations("checkout.delivery");
   return (
     <div className="mb-6">
-      <label htmlFor="delivery-phone" className="mb-1.5 block text-sm font-medium text-soft-brown">
+      <label className="mb-1.5 block text-sm font-medium text-soft-brown">
         {t("phoneLabel")} <span className="text-red-700">*</span>
       </label>
       <input
-        id="delivery-phone"
         type="tel"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={t("phonePlaceholder")}
         aria-invalid={error ? "true" : undefined}
-        aria-describedby={error ? "delivery-phone-error" : undefined}
         className={cn(
           "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
           error ? "border-red-700" : "border-champagne-beige"
         )}
       />
       {error && (
-        <p id="delivery-phone-error" className="mt-1 text-sm text-red-700" role="alert">
+        <p className="mt-1 text-sm text-red-700" role="alert">
           {error}
         </p>
       )}
@@ -782,7 +1010,15 @@ export function DeliverySection({
       setSelectedOfficeFull(null);
       onChange({
         ...value,
-        office: { courier: currentCourier ?? "speedy", office_id: "", office_name: "", office_type: "office", city: "", phone: office?.phone ?? "" },
+        office: {
+          courier: currentCourier ?? "speedy",
+          office_id: "",
+          office_code: null,
+          office_name: "",
+          office_type: "office",
+          city: "",
+          phone: office?.phone ?? "",
+        },
       });
       return;
     }
@@ -792,6 +1028,7 @@ export function DeliverySection({
       office: {
         courier: currentCourier ?? "speedy",
         office_id: o.id,
+        office_code: o.code ?? null,
         office_name: o.name,
         office_type: o.type,
         city: o.city,
@@ -822,9 +1059,10 @@ export function DeliverySection({
   const selectedOffice: OfficeResponse | null =
     method === "office" && office?.office_id
       ? selectedOfficeFull && selectedOfficeFull.id === office.office_id
-        ? selectedOfficeFull
+          ? selectedOfficeFull
         : {
             id: office.office_id,
+            code: office.office_code ?? null,
             name: office.office_name,
             type: office.office_type,
             city: office.city ?? "",
@@ -900,6 +1138,8 @@ export function validateDelivery(
     }
     if (!o?.office_id) {
       errors.office = t("checkout.delivery.office.required");
+    } else if (o.courier === "econt" && !o.office_code) {
+      errors.office = t("checkout.delivery.office.econtOfficeCodeRequired");
     }
     const normalizedOfficePhone = o?.phone ? normalizePhone(o.phone) : "";
     if (!o?.phone) {

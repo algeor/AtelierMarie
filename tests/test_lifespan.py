@@ -1,6 +1,7 @@
 """Tests for the FastAPI application lifespan (startup/shutdown, background tasks)."""
 
 import asyncio
+import threading
 from contextlib import suppress
 from unittest.mock import Mock, patch
 
@@ -46,6 +47,9 @@ async def test_lifespan_cleanup_loop_calls_cleanup(tmp_path, monkeypatch):
     from app.main import session_cleanup_loop
 
     cleanup_called = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    caller_thread_id = threading.get_ident()
+    cleanup_thread_ids: list[int] = []
     sleep_count = 0
 
     async def one_shot_sleep(_seconds):
@@ -56,7 +60,8 @@ async def test_lifespan_cleanup_loop_calls_cleanup(tmp_path, monkeypatch):
         await asyncio.Event().wait()
 
     def mock_cleanup():
-        cleanup_called.set()
+        cleanup_thread_ids.append(threading.get_ident())
+        loop.call_soon_threadsafe(cleanup_called.set)
         return 3
 
     task = asyncio.create_task(
@@ -65,6 +70,7 @@ async def test_lifespan_cleanup_loop_calls_cleanup(tmp_path, monkeypatch):
     try:
         await asyncio.wait_for(cleanup_called.wait(), timeout=0.5)
         assert cleanup_called.is_set(), "cleanup_expired_sessions was not called"
+        assert cleanup_thread_ids and cleanup_thread_ids[0] != caller_thread_id
     finally:
         task.cancel()
         with suppress(asyncio.CancelledError):
@@ -111,9 +117,10 @@ async def test_lifespan_cleanup_loop_logs_count(tmp_path, monkeypatch):
     from app.main import session_cleanup_loop
 
     cleanup_done = asyncio.Event()
+    loop = asyncio.get_running_loop()
 
     def mock_cleanup():
-        cleanup_done.set()
+        loop.call_soon_threadsafe(cleanup_done.set)
         return 5
 
     async def one_shot_sleep(_seconds):
@@ -164,6 +171,39 @@ async def test_payment_reservation_cleanup_loop_calls_cleanup(tmp_path, monkeypa
     )
     try:
         await asyncio.wait_for(cleanup_called.wait(), timeout=1.0)
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+
+@pytest.mark.asyncio
+async def test_courier_status_polling_loop_awaits_async_poll_without_thread_offload():
+    from app.main import courier_status_polling_loop
+
+    poll_called = asyncio.Event()
+    caller_thread_id = threading.get_ident()
+    poll_thread_ids: list[int] = []
+    sleep_count = 0
+
+    async def one_shot_sleep(_seconds):
+        nonlocal sleep_count
+        sleep_count += 1
+        if sleep_count == 1:
+            return
+        await asyncio.Event().wait()
+
+    async def mock_poll():
+        poll_thread_ids.append(threading.get_ident())
+        poll_called.set()
+        return {"acquired": 1, "succeeded": 1, "failed": 0, "skipped": 0}
+
+    task = asyncio.create_task(
+        courier_status_polling_loop(interval_seconds=0, sleep=one_shot_sleep, poll=mock_poll)
+    )
+    try:
+        await asyncio.wait_for(poll_called.wait(), timeout=1.0)
+        assert poll_thread_ids == [caller_thread_id]
     finally:
         task.cancel()
         with suppress(asyncio.CancelledError):

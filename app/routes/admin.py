@@ -5,11 +5,11 @@ import io
 import re
 import sqlite3
 from pathlib import Path
-from typing import Annotated, get_args
+from typing import Annotated, cast, get_args
 
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from app.config import get_settings
 from app.constants import MAX_CSV_ROWS, MAX_CSV_UPLOAD_BYTES, MAX_PRICE_CENTS, MAX_STOCK
@@ -22,6 +22,46 @@ from app.models.admin import (
     DashboardResponse,
     LowStockProductsResponse,
 )
+from app.models.accounting import (
+    AccountingConfigurationResponse,
+    AccountingDocumentListResponse,
+    AccountingDocumentRequest,
+    AccountingDocumentResponse,
+    AccountingLedgerResponse,
+    CategoryMappingRequest,
+    CategoryMappingResponse,
+    ExpenseEvidenceSettingsRequest,
+    ExpenseEvidenceSettingsResponse,
+    ExpenseEvidenceListResponse,
+    ExpenseEvidenceRequest,
+    ExpenseEvidenceResponse,
+    ExpensePaymentStatusRequest,
+    AccountantAcceptanceRequest,
+    FinanceExceptionActionRequest,
+    FinanceExceptionListResponse,
+    FinanceExceptionResponse,
+    FinancePeriodActionRequest,
+    FinancePeriodCreateRequest,
+    FinancePeriodListResponse,
+    FinancePeriodResponse,
+    FinanceExportPackageListResponse,
+    FinanceExportPackageResponse,
+    ExportSchemaSettingsRequest,
+    ExportSchemaSettingsResponse,
+    ProductCostSettingsRequest,
+    ProductCostSettingsResponse,
+    ProductCostVersionListResponse,
+    ProductCostVersionRequest,
+    ProductCostVersionResponse,
+    MissingProductCostDiagnosticsResponse,
+    SellerLegalProfileRequest,
+    SellerLegalProfileResponse,
+    StripeBalanceImportResponse,
+    StripePayoutImportStatusResponse,
+    StripePayoutMatchReviewRequest,
+    VatFiscalSettingsRequest,
+    VatFiscalSettingsResponse,
+)
 from app.models.analytics import (
     AnalyticsFunnelResponse,
     AnalyticsHealthResponse,
@@ -32,6 +72,15 @@ from app.models.analytics import (
 from app.models.comments import AdminCommentListResponse, AdminCommentResponse
 from app.models.common import PRODUCT_ID_PATTERN
 from app.models.delivery import DeliverySettingsResponse, DeliverySettingsUpdate
+from app.models.econt import (
+    EcontConnectionTestResponse,
+    EcontFulfillmentActionResponse,
+    EcontManualStatusRequest,
+    EcontOrderFulfillmentResponse,
+    EcontOrderRepairRequest,
+    EcontSettingsResponse,
+    EcontSettingsUpdate,
+)
 from app.models.orders import (
     AdminOrderDetailResponse,
     ManualPaymentActionRequest,
@@ -44,6 +93,16 @@ from app.models.orders import (
     PaymentMethod,
     PaymentStatus,
     UpdateOrderStatusRequest,
+)
+from app.models.returns import (
+    CodSettlementResponse,
+    CreateReturnCaseRequest,
+    CreateStripeRefundRequest,
+    InspectReturnCaseRequest,
+    PaymentRefundResponse,
+    RecordCodSettlementRequest,
+    ReturnCaseResponse,
+    UpdateReturnAccountingRequest,
 )
 from app.models.products import (
     MAX_CATEGORY_LENGTH,
@@ -66,21 +125,53 @@ from app.models.products import (
     UpdateProductVideoRequest,
 )
 from app.models.promotions import BulkDiscountRequest, BulkDiscountResponse
+from app.models.speedy import (
+    SpeedyActionResponse,
+    SpeedyAdminOverviewResponse,
+    SpeedyCancelShipmentRequest,
+    SpeedyEventResponse,
+    SpeedyHealthResponse,
+    SpeedyMetricsResponse,
+    SpeedyOfficeRefreshStatusResponse,
+    SpeedyPickupRequest,
+    SpeedyPickupResponse,
+    SpeedyPickupTermsRequest,
+    SpeedyPickupTermsResponse,
+    SpeedyQueuesResponse,
+    SpeedyShipmentInfoRequest,
+    SpeedyShipmentInfoResponse,
+    SpeedyShipmentSearchRequest,
+    SpeedyShipmentSearchResponse,
+)
 from app.models.users import UserResponse
 from app.responses import error_response
 from app.services import (
+    accounting_config_service,
+    accounting_document_service,
+    accounting_export_service,
+    accounting_ledger_service,
+    accounting_report_service,
     admin_alert_service,
     admin_service,
     analytics_service,
+    courier_polling_service,
     delivery_settings_service,
+    econt_fulfillment_service,
+    econt_settings_service,
+    expense_product_cost_service,
+    finance_period_service,
     product_image_service,
     product_service,
     product_video_service,
+    speedy_admin_service,
+    stripe_reconciliation_service,
     video_service,
 )
 from app.services.auth_service import get_oauth_circuit_breaker
 from app.services.comment_service import CommentNotFoundError, list_all_comments
 from app.services.comment_service import delete_comment as delete_comment_service
+from app.services.econt_delivery_client import EcontDeliveryError, get_econt_circuit_breaker
+from app.services.econt_fulfillment_service import EcontFulfillmentValidationError
 from app.services.email_service import event_for_status, queue_order_email
 from app.services.image_service import (
     MAX_FILE_SIZE,
@@ -93,29 +184,56 @@ from app.services.image_service import (
     FileTooLargeError as ImageFileTooLargeError,
 )
 from app.services.order_service import (
+    ADMIN_ACCOUNTING_FILTERS,
+    ADMIN_REVIEW_FILTERS,
     InvalidStateTransitionError,
     ManualPaymentActionError,
+    OrderNotFoundError,
     PaymentAlreadyPaidError,
     WrongPaymentMethodError,
     apply_manual_payment_action,
     get_order_admin,
+    get_order_inventory_context,
     list_orders_admin,
     list_payment_events,
     mark_bank_transfer_paid,
     update_status,
+    update_status_async,
 )
+from app.services.payment_service import StripeRefundActionError, create_stripe_refund_async
 from app.services.product_service import (
     BulkTargetLimitError,
     DiscountValidationError,
     DuplicateError,
+    LedgerManagedStockEditError,
     NotFoundError,
+)
+from app.services.return_service import (
+    InvalidRestockQuantityError,
+    InvalidReturnTransitionError,
+    InvalidReturnValueError,
+    ReturnCaseNotFoundError,
+    close_return_case,
+    cod_settlement_required_for_order,
+    create_return_case,
+    get_cod_settlement_for_order,
+    get_return_case,
+    inspect_return_case,
+    list_refunds_for_order,
+    list_return_cases_for_order,
+    list_return_events_for_order,
+    record_cod_settlement,
+    receive_return_case,
+    update_return_accounting,
 )
 from app.services.speedy_client import (
     LabelPrintError,
     SpeedyError,
+    get_speedy_circuit_breaker,
     print_label,
-    track_shipment,
+    track_shipment_with_details as track_shipment,
 )
+from app.services.speedy_admin_service import SpeedyAdminValidationError
 from app.services.taxonomy_service import TaxonomyValidationError
 from app.services.video_service import (
     FfmpegUnavailableError,
@@ -131,6 +249,26 @@ from app.services.video_service import (
 )
 
 router = APIRouter(dependencies=[Depends(require_admin)])
+
+
+def _csv_cell(value: object) -> object:
+    return "" if value is None else value
+
+
+def _csv_response(filename: str, headers: list[str], rows: list[dict]) -> Response:
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(headers)
+    for row in rows:
+        writer.writerow([_csv_cell(row.get(header)) for header in headers])
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv",
+        headers={
+            "Cache-Control": "no-store, no-cache",
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
 
 
 @router.get(
@@ -154,6 +292,1442 @@ async def admin_update_delivery_settings(
     """Persist admin-managed Speedy/Econt office/door availability switches."""
     settings = delivery_settings_service.update_delivery_settings(body.model_dump())
     return DeliverySettingsResponse(**settings)
+
+
+@router.get(
+    "/accounting/config",
+    response_model=AccountingConfigurationResponse,
+    summary="Get Accounting & Finance Hub configuration",
+)
+def admin_get_accounting_config(response: Response) -> AccountingConfigurationResponse:
+    """Return accounting settings, reviewed state, and setup exceptions."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return accounting_config_service.get_accounting_configuration()
+
+
+@router.post(
+    "/accounting/config/seller-profile",
+    response_model=SellerLegalProfileResponse,
+    summary="Create seller legal profile version",
+)
+def admin_create_seller_profile(
+    body: SellerLegalProfileRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> SellerLegalProfileResponse:
+    """Create an audited seller legal profile settings version."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return accounting_config_service.create_seller_legal_profile(
+        body,
+        actor_user_id=_admin_actor_id(current_admin),
+        actor_email=current_admin.email if current_admin else None,
+        request_id=request_id_var.get() or request.headers.get("x-request-id"),
+    )
+
+
+@router.post(
+    "/accounting/config/vat-fiscal",
+    response_model=VatFiscalSettingsResponse,
+    summary="Create VAT/fiscal settings version",
+)
+def admin_create_vat_fiscal_settings(
+    body: VatFiscalSettingsRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> VatFiscalSettingsResponse:
+    """Create an audited accountant-reviewed VAT/fiscal settings version."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return accounting_config_service.create_vat_fiscal_settings(
+        body,
+        actor_user_id=_admin_actor_id(current_admin),
+        actor_email=current_admin.email if current_admin else None,
+        request_id=request_id_var.get() or request.headers.get("x-request-id"),
+    )
+
+
+@router.put(
+    "/accounting/config/category-mappings/{mapping_key}",
+    response_model=CategoryMappingResponse,
+    summary="Upsert accounting category mapping",
+)
+def admin_upsert_accounting_category_mapping(
+    mapping_key: str,
+    body: CategoryMappingRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> CategoryMappingResponse | JSONResponse:
+    """Create or update an audited accountant category mapping."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return accounting_config_service.upsert_category_mapping(
+            mapping_key,
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except ValueError as exc:
+        return error_response(422, "INVALID_MAPPING_KEY", str(exc))
+
+
+@router.put(
+    "/accounting/config/export-schema",
+    response_model=ExportSchemaSettingsResponse,
+    summary="Update accounting export schema settings",
+)
+def admin_update_accounting_export_schema(
+    body: ExportSchemaSettingsRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ExportSchemaSettingsResponse:
+    """Update audited export schema settings for future packages."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return accounting_config_service.update_export_schema_settings(
+        body,
+        actor_user_id=_admin_actor_id(current_admin),
+        actor_email=current_admin.email if current_admin else None,
+        request_id=request_id_var.get() or request.headers.get("x-request-id"),
+    )
+
+
+@router.put(
+    "/accounting/config/expense-settings",
+    response_model=ExpenseEvidenceSettingsResponse,
+    summary="Update expense evidence settings",
+)
+def admin_update_expense_evidence_settings(
+    body: ExpenseEvidenceSettingsRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ExpenseEvidenceSettingsResponse:
+    """Update audited expense evidence close/review settings."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return accounting_config_service.update_expense_evidence_settings(
+        body,
+        actor_user_id=_admin_actor_id(current_admin),
+        actor_email=current_admin.email if current_admin else None,
+        request_id=request_id_var.get() or request.headers.get("x-request-id"),
+    )
+
+
+@router.put(
+    "/accounting/config/product-cost-settings",
+    response_model=ProductCostSettingsResponse,
+    summary="Update product-cost estimate settings",
+)
+def admin_update_product_cost_settings(
+    body: ProductCostSettingsRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ProductCostSettingsResponse:
+    """Update audited optional product-cost estimate settings."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return accounting_config_service.update_product_cost_settings(
+        body,
+        actor_user_id=_admin_actor_id(current_admin),
+        actor_email=current_admin.email if current_admin else None,
+        request_id=request_id_var.get() or request.headers.get("x-request-id"),
+    )
+
+
+def _finance_error_response(exc: finance_period_service.FinancePeriodError) -> JSONResponse:
+    return error_response(exc.status_code, exc.code, str(exc), exc.details)
+
+
+@router.get(
+    "/accounting/periods",
+    response_model=FinancePeriodListResponse,
+    summary="List finance periods",
+)
+def admin_list_finance_periods(
+    response: Response,
+    status: str | None = Query(default=None, description="Optional finance period status"),
+) -> FinancePeriodListResponse:
+    """Return finance periods for the Accounting & Finance Hub."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return finance_period_service.list_periods(status=status)
+
+
+@router.post(
+    "/accounting/periods",
+    response_model=FinancePeriodResponse,
+    summary="Create finance period",
+)
+def admin_create_finance_period(
+    body: FinancePeriodCreateRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> FinancePeriodResponse | JSONResponse:
+    """Create an audited open finance period."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return finance_period_service.create_period(
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.get(
+    "/accounting/periods/{period_id}",
+    response_model=FinancePeriodResponse,
+    summary="Get finance period",
+)
+def admin_get_finance_period(
+    period_id: str,
+    response: Response,
+) -> FinancePeriodResponse | JSONResponse:
+    """Return one finance period."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return finance_period_service.get_period(period_id)
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.post(
+    "/accounting/periods/{period_id}/review",
+    response_model=FinancePeriodResponse,
+    summary="Start finance period review",
+)
+def admin_review_finance_period(
+    period_id: str,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> FinancePeriodResponse | JSONResponse:
+    """Move a period into review, refresh exceptions, and compute totals."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return finance_period_service.start_review(
+            period_id,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.post(
+    "/accounting/periods/{period_id}/close",
+    response_model=FinancePeriodResponse,
+    summary="Close finance period",
+)
+def admin_close_finance_period(
+    period_id: str,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> FinancePeriodResponse | JSONResponse:
+    """Close a finance period when no blocking exceptions are open."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return finance_period_service.close_period(
+            period_id,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.post(
+    "/accounting/periods/{period_id}/mark-exported",
+    response_model=FinancePeriodResponse,
+    summary="Mark finance period exported",
+)
+def admin_mark_finance_period_exported(
+    period_id: str,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> FinancePeriodResponse | JSONResponse:
+    """Move a closed period to exported after package generation."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return finance_period_service.mark_exported(
+            period_id,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.post(
+    "/accounting/periods/{period_id}/accept",
+    response_model=FinancePeriodResponse,
+    summary="Accept finance period",
+)
+def admin_accept_finance_period(
+    period_id: str,
+    body: FinancePeriodActionRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> FinancePeriodResponse | JSONResponse:
+    """Record accountant acceptance for an exported period."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return finance_period_service.accept_period(
+            period_id,
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.post(
+    "/accounting/periods/{period_id}/reopen",
+    response_model=FinancePeriodResponse,
+    summary="Reopen finance period",
+)
+def admin_reopen_finance_period(
+    period_id: str,
+    body: FinancePeriodActionRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> FinancePeriodResponse | JSONResponse:
+    """Reopen a period with a required reason and preserved export history."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return finance_period_service.reopen_period(
+            period_id,
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.get(
+    "/accounting/periods/{period_id}/exceptions",
+    response_model=FinanceExceptionListResponse,
+    summary="List finance period exceptions",
+)
+def admin_list_finance_exceptions(
+    period_id: str,
+    response: Response,
+    status: str | None = Query(default=None, description="Optional exception status"),
+) -> FinanceExceptionListResponse | JSONResponse:
+    """Return period exceptions after refreshing engine-managed rows."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return finance_period_service.list_exceptions(period_id, status=status)
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.get(
+    "/accounting/periods/{period_id}/ledgers/{ledger_name}",
+    response_model=AccountingLedgerResponse,
+    summary="Get accounting ledger",
+)
+def admin_get_accounting_ledger(
+    period_id: str,
+    ledger_name: str,
+    response: Response,
+    date_basis: str | None = Query(default=None, description="Ledger-specific date basis"),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=100, ge=1, le=500),
+) -> AccountingLedgerResponse | JSONResponse:
+    """Return paginated accounting ledger rows and cent totals."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return accounting_ledger_service.get_ledger(
+            period_id,
+            ledger_name,  # type: ignore[arg-type]
+            date_basis=date_basis,
+            page=page,
+            limit=limit,
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.get(
+    "/accounting/documents",
+    response_model=AccountingDocumentListResponse,
+    summary="List accounting documents",
+)
+def admin_list_accounting_documents(
+    response: Response,
+    order_id: str | None = Query(default=None),
+    refund_id: str | None = Query(default=None),
+    period_id: str | None = Query(default=None),
+) -> AccountingDocumentListResponse:
+    """List accounting document references with optional linked-object filters."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return accounting_document_service.list_documents(
+        order_id=order_id,
+        refund_id=refund_id,
+        period_id=period_id,
+    )
+
+
+@router.get(
+    "/accounting/orders/{order_id}/documents",
+    response_model=AccountingDocumentListResponse,
+    summary="List accounting documents for order",
+)
+def admin_list_order_accounting_documents(
+    order_id: str,
+    response: Response,
+) -> AccountingDocumentListResponse:
+    """List invoice/fiscal/external document references linked to an order."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return accounting_document_service.list_documents(order_id=order_id)
+
+
+@router.post(
+    "/accounting/documents",
+    response_model=AccountingDocumentResponse,
+    summary="Create accounting document reference",
+)
+def admin_create_accounting_document(
+    body: AccountingDocumentRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> AccountingDocumentResponse | JSONResponse:
+    """Create an audited accounting document reference."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return accounting_document_service.create_document(
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.put(
+    "/accounting/documents/{document_id}",
+    response_model=AccountingDocumentResponse,
+    summary="Update accounting document reference",
+)
+def admin_update_accounting_document(
+    document_id: str,
+    body: AccountingDocumentRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> AccountingDocumentResponse | JSONResponse:
+    """Replace an audited accounting document reference."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return accounting_document_service.update_document(
+            document_id,
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.get(
+    "/accounting/expenses",
+    response_model=ExpenseEvidenceListResponse,
+    summary="List expense evidence",
+)
+def admin_list_expense_evidence(
+    response: Response,
+    category_key: str | None = Query(default=None),
+    review_status: str | None = Query(default=None),
+) -> ExpenseEvidenceListResponse:
+    """List supplier invoice/receipt evidence records."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return expense_product_cost_service.list_expenses(
+        category_key=category_key,
+        review_status=review_status,
+    )
+
+
+@router.post(
+    "/accounting/expenses",
+    response_model=ExpenseEvidenceResponse,
+    summary="Create expense evidence",
+)
+def admin_create_expense_evidence(
+    body: ExpenseEvidenceRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ExpenseEvidenceResponse | JSONResponse:
+    """Create audited supplier purchase/expense evidence."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return expense_product_cost_service.create_expense(
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.put(
+    "/accounting/expenses/{expense_id}",
+    response_model=ExpenseEvidenceResponse,
+    summary="Update expense evidence",
+)
+def admin_update_expense_evidence(
+    expense_id: str,
+    body: ExpenseEvidenceRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ExpenseEvidenceResponse | JSONResponse:
+    """Replace audited supplier purchase/expense evidence."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return expense_product_cost_service.update_expense(
+            expense_id,
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.patch(
+    "/accounting/expenses/{expense_id}/payment-status",
+    response_model=ExpenseEvidenceResponse,
+    summary="Update expense payment status",
+)
+def admin_update_expense_payment_status(
+    expense_id: str,
+    body: ExpensePaymentStatusRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ExpenseEvidenceResponse | JSONResponse:
+    """Update an expense payment status with an audited reason."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return expense_product_cost_service.update_expense_payment_status(
+            expense_id,
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.get(
+    "/accounting/product-costs",
+    response_model=ProductCostVersionListResponse,
+    summary="List product-cost versions",
+)
+def admin_list_product_cost_versions(
+    response: Response,
+    product_id: str | None = Query(default=None),
+) -> ProductCostVersionListResponse:
+    """List manual/recipe/imported product-cost estimate versions."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return expense_product_cost_service.list_product_costs(product_id=product_id)
+
+
+@router.post(
+    "/accounting/product-costs",
+    response_model=ProductCostVersionResponse,
+    summary="Create product-cost version",
+)
+def admin_create_product_cost_version(
+    body: ProductCostVersionRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ProductCostVersionResponse:
+    """Create audited product-cost estimate version."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return expense_product_cost_service.create_product_cost(
+        body,
+        actor_user_id=_admin_actor_id(current_admin),
+        actor_email=current_admin.email if current_admin else None,
+        request_id=request_id_var.get() or request.headers.get("x-request-id"),
+    )
+
+
+@router.put(
+    "/accounting/product-costs/{cost_version_id}",
+    response_model=ProductCostVersionResponse,
+    summary="Update product-cost version",
+)
+def admin_update_product_cost_version(
+    cost_version_id: str,
+    body: ProductCostVersionRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ProductCostVersionResponse | JSONResponse:
+    """Replace audited product-cost estimate version and components."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return expense_product_cost_service.update_product_cost(
+            cost_version_id,
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.get(
+    "/accounting/product-costs/effective",
+    response_model=ProductCostVersionResponse | None,
+    summary="Lookup effective product-cost version",
+)
+def admin_get_effective_product_cost(
+    response: Response,
+    product_id: str = Query(...),
+    effective_date: str = Query(...),
+) -> ProductCostVersionResponse | None:
+    """Return the latest product-cost version effective on a date."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return expense_product_cost_service.effective_product_cost(product_id, effective_date)
+
+
+@router.get(
+    "/accounting/product-costs/missing",
+    response_model=MissingProductCostDiagnosticsResponse,
+    summary="Get missing product-cost diagnostics",
+)
+def admin_get_missing_product_costs(
+    response: Response,
+    period_id: str = Query(...),
+) -> MissingProductCostDiagnosticsResponse | JSONResponse:
+    """List sold products in a period without an effective cost version."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return expense_product_cost_service.missing_product_costs(period_id)
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.get(
+    "/accounting/exports",
+    response_model=FinanceExportPackageListResponse,
+    summary="List accounting export packages",
+)
+def admin_list_accounting_exports(
+    response: Response,
+    period_id: str | None = Query(default=None),
+) -> FinanceExportPackageListResponse:
+    """List generated accountant export packages."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return accounting_export_service.list_export_packages(period_id=period_id)
+
+
+@router.post(
+    "/accounting/periods/{period_id}/exports",
+    response_model=FinanceExportPackageResponse,
+    summary="Generate accounting export package",
+)
+def admin_generate_accounting_export(
+    period_id: str,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> FinanceExportPackageResponse | JSONResponse:
+    """Generate immutable XLSX/CSV/manifest package for a closed period."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return accounting_export_service.generate_export_package(
+            period_id,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.get(
+    "/accounting/exports/{export_id}/download",
+    response_model=None,
+    summary="Download accounting export package file",
+)
+def admin_download_accounting_export(
+    export_id: str,
+    response: Response,
+    file: str = Query(default="xlsx", description="xlsx, manifest, or a CSV file name"),
+) -> FileResponse | JSONResponse:
+    """Download one file from an export package by export id."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        path = accounting_export_service.resolve_download_path(export_id, file)
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+    return FileResponse(
+        path,
+        filename=path.name,
+        headers={"Cache-Control": "no-store, no-cache"},
+    )
+
+
+@router.post(
+    "/accounting/exports/{export_id}/accept",
+    response_model=FinanceExportPackageResponse,
+    summary="Accept accounting export package",
+)
+def admin_accept_accounting_export(
+    export_id: str,
+    body: AccountantAcceptanceRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> FinanceExportPackageResponse | JSONResponse:
+    """Record accountant acceptance for the current export package."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return accounting_export_service.accept_export_package(
+            export_id,
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.get(
+    "/accounting/stripe/import-status",
+    response_model=StripePayoutImportStatusResponse,
+    summary="Get Stripe payout import status",
+)
+def admin_get_stripe_import_status(response: Response) -> StripePayoutImportStatusResponse:
+    """Return aggregate Stripe balance transaction reconciliation status."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return stripe_reconciliation_service.import_status()
+
+
+@router.post(
+    "/accounting/stripe/sync",
+    response_model=StripeBalanceImportResponse,
+    summary="Sync Stripe balance transactions",
+)
+async def admin_sync_stripe_balance_transactions(
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+    limit: int = Query(default=100, ge=1, le=500),
+) -> StripeBalanceImportResponse | JSONResponse:
+    """Import Stripe balance transactions through the Stripe SDK when configured."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return await run_in_threadpool(
+            stripe_reconciliation_service.sync_from_stripe,
+            limit=limit,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.post(
+    "/accounting/stripe/manual-import",
+    response_model=StripeBalanceImportResponse,
+    summary="Import Stripe balance transactions from CSV",
+)
+async def admin_import_stripe_balance_csv(
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+    file: UploadFile = File(...),
+) -> StripeBalanceImportResponse | JSONResponse:
+    """Import Stripe balance/payout rows from an admin-uploaded CSV file."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    content = await file.read()
+    try:
+        return await run_in_threadpool(
+            stripe_reconciliation_service.import_balance_csv,
+            content,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.post(
+    "/accounting/stripe/matches/{balance_transaction_id}/review",
+    response_model=None,
+    summary="Review Stripe balance transaction match",
+)
+def admin_review_stripe_balance_match(
+    balance_transaction_id: str,
+    body: StripePayoutMatchReviewRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> dict[str, object] | JSONResponse:
+    """Manually update reconciliation status for one Stripe balance transaction."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return stripe_reconciliation_service.review_match(
+            balance_transaction_id,
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.post(
+    "/accounting/exceptions/{exception_id}/resolve",
+    response_model=FinanceExceptionResponse,
+    summary="Resolve finance exception",
+)
+def admin_resolve_finance_exception(
+    exception_id: str,
+    body: FinanceExceptionActionRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> FinanceExceptionResponse | JSONResponse:
+    """Resolve an exception with an audited admin reason."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return finance_period_service.resolve_exception(
+            exception_id,
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.post(
+    "/accounting/exceptions/{exception_id}/waive",
+    response_model=FinanceExceptionResponse,
+    summary="Waive finance exception",
+)
+def admin_waive_finance_exception(
+    exception_id: str,
+    body: FinanceExceptionActionRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> FinanceExceptionResponse | JSONResponse:
+    """Waive an exception with an audited admin reason."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return finance_period_service.waive_exception(
+            exception_id,
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.get(
+    "/econt/settings",
+    response_model=EcontSettingsResponse,
+    summary="Get Econt integration settings",
+    description="Return admin-safe Econt settings and credential configured state. "
+    "Raw private keys are never returned.",
+)
+def admin_get_econt_settings() -> EcontSettingsResponse:
+    """Read Econt settings for the admin settings panel."""
+    return econt_settings_service.get_econt_settings()
+
+
+@router.patch(
+    "/econt/settings",
+    response_model=EcontSettingsResponse,
+    summary="Update Econt integration settings",
+    description="Patch non-secret Econt settings. Private keys remain env-backed or encrypted "
+    "through separate secret storage.",
+)
+def admin_update_econt_settings(body: EcontSettingsUpdate) -> EcontSettingsResponse:
+    """Update non-secret Econt settings."""
+    return econt_settings_service.update_econt_settings(body)
+
+
+@router.post(
+    "/econt/test-connection",
+    response_model=EcontConnectionTestResponse,
+    summary="Validate Econt configuration",
+    description="Validate current Econt settings without creating a shipment and store the "
+    "admin-safe health result.",
+)
+async def admin_test_econt_connection() -> EcontConnectionTestResponse:
+    """Run a safe Econt configuration readiness check."""
+    return await econt_settings_service.test_econt_configuration()
+
+
+def _econt_error_response(exc: EcontDeliveryError) -> JSONResponse:
+    if exc.category in {"config", "auth", "validation"}:
+        status_code = 422
+    elif exc.category == "unexpected_response":
+        status_code = 502
+    else:
+        status_code = 503
+    return error_response(
+        status_code,
+        f"ECONT_{exc.category.upper()}",
+        str(exc),
+        exc.to_safe_dict(),
+    )
+
+
+def _admin_actor_id(current_admin: UserResponse | None) -> str | None:
+    return current_admin.id if current_admin else None
+
+
+def _speedy_error_response(exc: SpeedyError) -> JSONResponse:
+    if isinstance(exc, LabelPrintError):
+        return error_response(502, "LABEL_PRINT_FAILED", str(exc), exc.to_safe_dict())
+    if exc.category in {"config", "auth", "validation"}:
+        status_code = 422
+    elif exc.category == "unexpected_response":
+        status_code = 502
+    else:
+        status_code = 503
+    return error_response(
+        status_code,
+        f"SPEEDY_{exc.category.upper()}",
+        str(exc),
+        exc.to_safe_dict(),
+    )
+
+
+def _speedy_validation_response(exc: SpeedyAdminValidationError) -> JSONResponse:
+    if "no_speedy_waybill" in exc.blockers:
+        return error_response(404, "NO_SPEEDY_WAYBILL", str(exc), {"blockers": exc.blockers})
+    return error_response(422, "SPEEDY_NOT_READY", str(exc), {"blockers": exc.blockers})
+
+
+@router.get(
+    "/speedy",
+    response_model=SpeedyAdminOverviewResponse,
+    summary="Speedy admin overview",
+)
+async def admin_get_speedy_overview(
+    order_id: str | None = Query(default=None, description="Optional local order focus"),
+) -> SpeedyAdminOverviewResponse:
+    with get_db() as conn:
+        overview = await speedy_admin_service.get_overview(conn, order_id=order_id)
+    return SpeedyAdminOverviewResponse(**overview)
+
+
+@router.get(
+    "/speedy/health",
+    response_model=SpeedyHealthResponse,
+    summary="Speedy integration health",
+)
+async def admin_get_speedy_health() -> SpeedyHealthResponse:
+    with get_db() as conn:
+        health = await speedy_admin_service.get_health(conn)
+    return SpeedyHealthResponse(**health)
+
+
+@router.get(
+    "/speedy/orders",
+    response_model=SpeedyQueuesResponse,
+    summary="Speedy operational order queues",
+)
+def admin_get_speedy_orders(
+    order_id: str | None = Query(default=None, description="Optional local order focus"),
+) -> SpeedyQueuesResponse:
+    with get_db() as conn:
+        queues = speedy_admin_service.get_queues(conn, order_id=order_id)
+    return SpeedyQueuesResponse(**queues)
+
+
+@router.get(
+    "/speedy/events",
+    response_model=list[SpeedyEventResponse],
+    summary="Recent Speedy operation events",
+)
+def admin_get_speedy_events(
+    limit: int = Query(default=25, ge=1, le=100),
+) -> list[SpeedyEventResponse]:
+    with get_db() as conn:
+        events = speedy_admin_service.list_events(conn, limit=limit)
+    return [SpeedyEventResponse(**event) for event in events]
+
+
+@router.get(
+    "/speedy/metrics",
+    response_model=SpeedyMetricsResponse,
+    summary="Speedy operational metrics",
+)
+def admin_get_speedy_metrics() -> SpeedyMetricsResponse:
+    with get_db() as conn:
+        metrics = speedy_admin_service.get_metrics(conn)
+    return SpeedyMetricsResponse(**metrics)
+
+
+@router.get(
+    "/speedy/offices/refresh-status",
+    response_model=SpeedyOfficeRefreshStatusResponse,
+    summary="Speedy office refresh status",
+)
+def admin_get_speedy_office_refresh_status() -> SpeedyOfficeRefreshStatusResponse:
+    with get_db() as conn:
+        status = speedy_admin_service.get_office_refresh_status(conn)
+    return SpeedyOfficeRefreshStatusResponse(**status)
+
+
+@router.post(
+    "/speedy/orders/{order_id}/ship",
+    response_model=SpeedyActionResponse,
+    summary="Create/reuse Speedy waybill and mark order shipped",
+)
+async def admin_speedy_create_waybill(
+    order_id: str,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> SpeedyActionResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = await speedy_admin_service.create_or_reuse_waybill(
+                conn,
+                order_id,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except SpeedyAdminValidationError as exc:
+            return _speedy_validation_response(exc)
+        except SpeedyError as exc:
+            return _speedy_error_response(exc)
+
+        event = event_for_status("shipped")
+        if event is not None and result.get("status_updated_to") == "shipped":
+            order_data = get_order_admin(conn, order_id)
+            queue_order_email(conn, order_id, event, order_data["customer_email"])
+    return SpeedyActionResponse(**result)
+
+
+@router.get(
+    "/speedy/orders/{order_id}/label",
+    response_model=None,
+    summary="Print Speedy label from Speedy admin API",
+)
+async def admin_speedy_print_label(
+    order_id: str,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> Response | JSONResponse:
+    with get_db() as conn:
+        try:
+            shipment_number, pdf = await speedy_admin_service.print_order_label(
+                conn,
+                order_id,
+                actor_user_id=_admin_actor_id(current_admin),
+                print_label_func=print_label,
+            )
+        except SpeedyAdminValidationError as exc:
+            return _speedy_validation_response(exc)
+        except SpeedyError as exc:
+            return _speedy_error_response(exc)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="label-{shipment_number}.pdf"'},
+    )
+
+
+@router.post(
+    "/speedy/orders/{order_id}/track",
+    response_model=SpeedyActionResponse,
+    summary="Refresh Speedy tracking from Speedy admin API",
+)
+async def admin_speedy_refresh_tracking(
+    order_id: str,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> SpeedyActionResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = await courier_polling_service.refresh_order_now(
+                conn,
+                order_id,
+                provider="speedy",
+                actor_user_id=_admin_actor_id(current_admin),
+                speedy_track_func=track_shipment,
+            )
+        except courier_polling_service.CourierPollingValidationError as exc:
+            if "courier_provider_mismatch" in exc.blockers:
+                return _speedy_validation_response(
+                    SpeedyAdminValidationError(
+                        "Order has no Speedy waybill",
+                        blockers=["no_speedy_waybill"],
+                    )
+                )
+            return error_response(
+                422,
+                "COURIER_REFRESH_BLOCKED",
+                str(exc),
+                {"blockers": exc.blockers},
+            )
+        except SpeedyAdminValidationError as exc:
+            return _speedy_validation_response(exc)
+        except SpeedyError as exc:
+            return _speedy_error_response(exc)
+    return SpeedyActionResponse(**result)
+
+
+@router.post(
+    "/speedy/shipments/search",
+    response_model=SpeedyShipmentSearchResponse,
+    summary="Search Speedy shipments by local reference",
+)
+async def admin_speedy_search_shipments(
+    body: SpeedyShipmentSearchRequest,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> SpeedyShipmentSearchResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = await speedy_admin_service.search_shipments(
+                conn,
+                body.reference,
+                include_returns=body.include_returns,
+                shipments_only=body.shipments_only,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except SpeedyError as exc:
+            return _speedy_error_response(exc)
+    return SpeedyShipmentSearchResponse(**result)
+
+
+@router.post(
+    "/speedy/shipments/info",
+    response_model=SpeedyShipmentInfoResponse,
+    summary="Fetch Speedy shipment information",
+)
+async def admin_speedy_shipment_info(
+    body: SpeedyShipmentInfoRequest,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> SpeedyShipmentInfoResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = await speedy_admin_service.shipment_info(
+                conn,
+                body.shipment_ids,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except SpeedyError as exc:
+            return _speedy_error_response(exc)
+    return SpeedyShipmentInfoResponse(**result)
+
+
+@router.post(
+    "/speedy/orders/{order_id}/cancel-shipment",
+    response_model=SpeedyActionResponse,
+    summary="Cancel Speedy shipment where safe",
+)
+async def admin_speedy_cancel_shipment(
+    order_id: str,
+    body: SpeedyCancelShipmentRequest,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> SpeedyActionResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = await speedy_admin_service.cancel_order_shipment(
+                conn,
+                order_id,
+                comment=body.comment,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except SpeedyAdminValidationError as exc:
+            return _speedy_validation_response(exc)
+        except SpeedyError as exc:
+            return _speedy_error_response(exc)
+    return SpeedyActionResponse(**result)
+
+
+@router.post(
+    "/speedy/pickup/terms",
+    response_model=SpeedyPickupTermsResponse,
+    summary="Get Speedy pickup terms",
+)
+async def admin_speedy_pickup_terms(
+    body: SpeedyPickupTermsRequest,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> SpeedyPickupTermsResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = await speedy_admin_service.pickup_terms_for_shipments(
+                conn,
+                body.shipment_ids,
+                starting_date_utc_ms=body.starting_date_utc_ms,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except SpeedyAdminValidationError as exc:
+            return _speedy_validation_response(exc)
+        except SpeedyError as exc:
+            return _speedy_error_response(exc)
+    return SpeedyPickupTermsResponse(**result)
+
+
+@router.post(
+    "/speedy/pickup",
+    response_model=SpeedyPickupResponse,
+    summary="Request Speedy pickup",
+)
+async def admin_speedy_request_pickup(
+    body: SpeedyPickupRequest,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> SpeedyPickupResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = await speedy_admin_service.request_pickup(
+                conn,
+                shipment_ids=body.shipment_ids,
+                pickup_datetime=body.pickup_datetime,
+                visit_end_time=body.visit_end_time,
+                contact_name=body.contact_name,
+                phone=body.phone,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except SpeedyAdminValidationError as exc:
+            return _speedy_validation_response(exc)
+        except SpeedyError as exc:
+            return _speedy_error_response(exc)
+    return SpeedyPickupResponse(**result)
+
+
+@router.get(
+    "/orders/{order_id}/econt/readiness",
+    response_model=EcontOrderFulfillmentResponse,
+    summary="Validate Econt readiness for an order",
+    description="Return admin-safe readiness blockers and current Econt shipment metadata.",
+)
+def admin_get_econt_order_readiness(order_id: str) -> EcontOrderFulfillmentResponse:
+    with get_db() as conn:
+        state = econt_fulfillment_service.get_fulfillment_state(conn, order_id)
+    return EcontOrderFulfillmentResponse(**state)
+
+
+@router.patch(
+    "/orders/{order_id}/econt/repair",
+    response_model=EcontOrderFulfillmentResponse,
+    summary="Repair Econt fulfillment fields before label creation",
+)
+def admin_repair_econt_order(
+    order_id: str,
+    body: EcontOrderRepairRequest,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> EcontOrderFulfillmentResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            state = econt_fulfillment_service.repair_order_fields(
+                conn,
+                order_id,
+                office_code=body.office_code,
+                recipient_phone=body.recipient_phone,
+                pack_count=body.pack_count,
+                shipment_description=body.shipment_description,
+                payment_side=body.payment_side,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except EcontFulfillmentValidationError as exc:
+            return error_response(422, "ECONT_REPAIR_BLOCKED", str(exc), {"blockers": exc.blockers})
+    return EcontOrderFulfillmentResponse(**state)
+
+
+@router.post(
+    "/orders/{order_id}/econt/sync",
+    response_model=EcontFulfillmentActionResponse,
+    summary="Sync local order to Econt",
+)
+async def admin_sync_econt_order(
+    order_id: str,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> EcontFulfillmentActionResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = await econt_fulfillment_service.sync_order(
+                conn,
+                order_id,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except EcontFulfillmentValidationError as exc:
+            return error_response(422, "ECONT_NOT_READY", str(exc), {"blockers": exc.blockers})
+        except EcontDeliveryError as exc:
+            return _econt_error_response(exc)
+    return EcontFulfillmentActionResponse(order_id=order_id, action="sync_order", **result)
+
+
+@router.post(
+    "/orders/{order_id}/econt/label",
+    response_model=EcontFulfillmentActionResponse,
+    summary="Create Econt AWB label",
+)
+async def admin_create_econt_label(
+    order_id: str,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> EcontFulfillmentActionResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = await econt_fulfillment_service.create_label(
+                conn,
+                order_id,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except EcontFulfillmentValidationError as exc:
+            return error_response(422, "ECONT_NOT_READY", str(exc), {"blockers": exc.blockers})
+        except EcontDeliveryError as exc:
+            return _econt_error_response(exc)
+    return EcontFulfillmentActionResponse(order_id=order_id, action="create_label", **result)
+
+
+@router.post(
+    "/orders/{order_id}/econt/ship",
+    response_model=EcontFulfillmentActionResponse,
+    summary="Create Econt AWB label and mark order shipped",
+)
+async def admin_create_and_ship_econt_order(
+    order_id: str,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> EcontFulfillmentActionResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = await econt_fulfillment_service.create_label_and_mark_shipped(
+                conn,
+                order_id,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except EcontFulfillmentValidationError as exc:
+            return error_response(422, "ECONT_NOT_READY", str(exc), {"blockers": exc.blockers})
+        except EcontDeliveryError as exc:
+            return _econt_error_response(exc)
+
+        event = event_for_status("shipped")
+        if event is not None:
+            order_data = get_order_admin(conn, order_id)
+            queue_order_email(conn, order_id, event, order_data["customer_email"])
+
+    return EcontFulfillmentActionResponse(
+        order_id=order_id,
+        action="create_label_and_ship",
+        **result,
+    )
+
+
+@router.delete(
+    "/orders/{order_id}/econt/label",
+    response_model=EcontFulfillmentActionResponse,
+    summary="Delete Econt AWB label where safe",
+)
+async def admin_delete_econt_label(
+    order_id: str,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> EcontFulfillmentActionResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = await econt_fulfillment_service.delete_label(
+                conn,
+                order_id,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except EcontFulfillmentValidationError as exc:
+            return error_response(422, "ECONT_NOT_READY", str(exc), {"blockers": exc.blockers})
+        except EcontDeliveryError as exc:
+            return _econt_error_response(exc)
+    return EcontFulfillmentActionResponse(order_id=order_id, action="delete_label", **result)
+
+
+@router.post(
+    "/orders/{order_id}/econt/trace",
+    response_model=EcontFulfillmentActionResponse,
+    summary="Refresh Econt shipment trace",
+)
+async def admin_refresh_econt_trace(
+    order_id: str,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> EcontFulfillmentActionResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = await courier_polling_service.refresh_order_now(
+                conn,
+                order_id,
+                provider="econt",
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except courier_polling_service.CourierPollingValidationError as exc:
+            return error_response(
+                422,
+                "COURIER_REFRESH_BLOCKED",
+                str(exc),
+                {"blockers": exc.blockers},
+            )
+        except EcontFulfillmentValidationError as exc:
+            return error_response(422, "ECONT_NOT_READY", str(exc), {"blockers": exc.blockers})
+        except EcontDeliveryError as exc:
+            return _econt_error_response(exc)
+    return EcontFulfillmentActionResponse(order_id=order_id, action="refresh_trace", **result)
+
+
+@router.post(
+    "/orders/{order_id}/econt/manual-status",
+    response_model=EcontFulfillmentActionResponse,
+    summary="Record manual Econt courier status",
+)
+def admin_record_econt_manual_status(
+    order_id: str,
+    body: EcontManualStatusRequest,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> EcontFulfillmentActionResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            result = econt_fulfillment_service.record_manual_status(
+                conn,
+                order_id,
+                courier_status=body.courier_status,
+                tracking_number=body.tracking_number,
+                tracking_url=body.tracking_url,
+                notes=body.notes,
+                actor_user_id=_admin_actor_id(current_admin),
+            )
+        except EcontFulfillmentValidationError as exc:
+            return error_response(
+                422,
+                "ECONT_MANUAL_STATUS_BLOCKED",
+                str(exc),
+                {"blockers": exc.blockers},
+            )
+    return EcontFulfillmentActionResponse(order_id=order_id, action="manual_status", **result)
 
 
 @router.post(
@@ -306,6 +1880,13 @@ async def admin_update_product(
         return error_response(422, "INVALID_TAXONOMY", str(e))
     except DiscountValidationError as e:
         return error_response(422, "VALIDATION_ERROR", str(e))
+    except LedgerManagedStockEditError as e:
+        return error_response(
+            422,
+            "LEDGER_STOCK_EDIT_BLOCKED",
+            str(e),
+            details={"product_id": e.product_id},
+        )
 
     return ProductAdminResponse(**product)
 
@@ -675,7 +2256,13 @@ async def admin_import_products(
                 updated += 1
             else:
                 created += 1
-        except (TaxonomyValidationError, DuplicateError, ValueError, sqlite3.IntegrityError) as e:
+        except (
+            TaxonomyValidationError,
+            DuplicateError,
+            LedgerManagedStockEditError,
+            ValueError,
+            sqlite3.IntegrityError,
+        ) as e:
             # Expected per-row data errors are reported and the import continues.
             # Unexpected exceptions propagate rather than masquerading as row errors.
             errors.append(CSVImportError(row=row_num, message=str(e)))
@@ -694,6 +2281,9 @@ def admin_list_orders(
     status: str | None = Query(default=None, description="Filter by order status"),
     payment_status: str | None = Query(default=None, description="Filter by payment status"),
     payment_method: str | None = Query(default=None, description="Filter by payment method"),
+    review_filter: str | None = Query(default=None, description="Filter operational review queues"),
+    accounting_filter: str | None = Query(default=None, description="Filter accounting readiness queues"),
+    finance_period_id: str | None = Query(default=None, description="Filter by finance period id"),
     page: int = Query(default=1, ge=1, description="Page number"),
     limit: int = Query(default=20, ge=1, le=100, description="Items per page"),
 ) -> OrderListResponse | JSONResponse:
@@ -724,13 +2314,31 @@ def admin_list_orders(
                 "Invalid payment_method "
                 f"'{payment_method}'. Must be one of: {', '.join(valid_payment_methods)}",
             )
+    if review_filter is not None and review_filter not in ADMIN_REVIEW_FILTERS:
+        return error_response(
+            422,
+            "INVALID_REVIEW_FILTER",
+            "Invalid review_filter "
+            f"'{review_filter}'. Must be one of: {', '.join(sorted(ADMIN_REVIEW_FILTERS))}",
+        )
+    if accounting_filter is not None and accounting_filter not in ADMIN_ACCOUNTING_FILTERS:
+        return error_response(
+            422,
+            "INVALID_ACCOUNTING_FILTER",
+            "Invalid accounting_filter "
+            f"'{accounting_filter}'. Must be one of: "
+            f"{', '.join(sorted(ADMIN_ACCOUNTING_FILTERS))}",
+        )
 
     with get_db() as conn:
         result = list_orders_admin(
             conn=conn,
-            status=status,
+            status=cast(OrderStatus | None, status),
             payment_status=payment_status,
             payment_method=payment_method,
+            review_filter=review_filter,
+            accounting_filter=accounting_filter,
+            finance_period_id=finance_period_id,
             page=page,
             limit=limit,
         )
@@ -755,9 +2363,32 @@ def admin_get_order_detail(order_id: str) -> AdminOrderDetailResponse:
     with get_db() as conn:
         order_data = get_order_admin(conn=conn, order_id=order_id)
         payment_events = list_payment_events(conn, order_id)
+        return_cases = list_return_cases_for_order(conn, order_id)
+        return_events = list_return_events_for_order(conn, order_id)
+        refund_records = list_refunds_for_order(conn, order_id)
+        cod_settlement = get_cod_settlement_for_order(conn, order_id)
+        cod_settlement_required = cod_settlement_required_for_order(conn, order_id)
+        econt_cod_evidence = econt_fulfillment_service.get_latest_cod_evidence(conn, order_id)
+        inventory_context = get_order_inventory_context(conn, order_id)
 
     payload = dict(order_data)
+    raw_item_contexts = inventory_context.get("items", {})
+    item_contexts = raw_item_contexts if isinstance(raw_item_contexts, dict) else {}
+    payload_items = []
+    for item in order_data["items"]:
+        context = item_contexts.get(item["product_id"], {})
+        payload_items.append({**dict(item), **(context if isinstance(context, dict) else {})})
+    payload["items"] = payload_items
     payload["payment_events"] = payment_events
+    payload["return_cases"] = return_cases
+    payload["return_events"] = return_events
+    payload["refund_records"] = refund_records
+    payload["cod_settlement"] = cod_settlement
+    payload["cod_settlement_required"] = cod_settlement_required
+    payload["econt_cod_evidence"] = econt_cod_evidence
+    payload["inventory_context"] = {
+        key: value for key, value in inventory_context.items() if key != "items"
+    }
     return AdminOrderDetailResponse.model_validate(payload)
 
 
@@ -811,6 +2442,7 @@ def admin_apply_manual_payment_action(
                 order_id=order_id,
                 action=body.action,
                 note=body.note,
+                callback_outcome=body.callback_outcome,
                 admin_id=admin_user.id if admin_user else None,
                 admin_email=admin_user.email if admin_user else None,
                 request_id=request_id,
@@ -825,6 +2457,298 @@ def admin_apply_manual_payment_action(
             return error_response(e.status_code, e.code, str(e))
 
     return OrderResponse.model_validate(order_data)
+
+
+@router.post(
+    "/orders/{order_id}/refunds",
+    response_model=PaymentRefundResponse,
+    summary="Create Stripe refund (admin)",
+    description="Create a full or partial Stripe refund with idempotency and local audit.",
+)
+async def admin_create_stripe_refund(
+    order_id: str,
+    body: CreateStripeRefundRequest,
+    admin_user: Annotated[UserResponse | None, Depends(require_admin)],
+) -> PaymentRefundResponse | JSONResponse:
+    settings = get_settings()
+    with get_db() as conn:
+        try:
+            refund = await create_stripe_refund_async(
+                conn,
+                order_id=order_id,
+                amount_cents=body.amount_cents,
+                reason=body.reason,
+                idempotency_key=body.idempotency_key,
+                admin_id=admin_user.id if admin_user else None,
+                stripe_secret_key=settings.stripe_secret_key,
+            )
+        except OrderNotFoundError:
+            return error_response(404, "ORDER_NOT_FOUND", "Order not found")
+        except StripeRefundActionError as e:
+            return error_response(e.status_code, e.code, str(e))
+
+    return PaymentRefundResponse.model_validate(refund)
+
+
+@router.post(
+    "/orders/{order_id}/cod-settlement",
+    response_model=CodSettlementResponse,
+    summary="Record COD settlement (admin)",
+    description="Record courier COD payout details and flag amount mismatches for accounting.",
+)
+def admin_record_cod_settlement(
+    order_id: str,
+    body: RecordCodSettlementRequest,
+    admin_user: Annotated[UserResponse | None, Depends(require_admin)],
+) -> CodSettlementResponse | JSONResponse:
+    try:
+        with get_db() as conn:
+            settlement = record_cod_settlement(
+                conn,
+                order_id=order_id,
+                amount_cents=body.amount_cents,
+                settlement_date=body.settlement_date,
+                courier_reference=body.courier_reference,
+                notes=body.notes,
+                admin_id=admin_user.id if admin_user else None,
+            )
+    except InvalidReturnValueError as exc:
+        return _return_service_error_response(exc)
+
+    return CodSettlementResponse.model_validate(settlement)
+
+
+def _return_service_error_response(exc: Exception) -> JSONResponse:
+    if isinstance(exc, ReturnCaseNotFoundError):
+        return error_response(404, "RETURN_CASE_NOT_FOUND", str(exc))
+    if isinstance(exc, InvalidReturnTransitionError):
+        return error_response(
+            422,
+            "INVALID_RETURN_TRANSITION",
+            str(exc),
+            details={
+                "return_id": exc.return_id,
+                "current_status": exc.current_status,
+                "requested_status": exc.requested_status,
+            },
+        )
+    if isinstance(exc, InvalidRestockQuantityError):
+        return error_response(
+            422,
+            "INVALID_RESTOCK_QUANTITY",
+            str(exc),
+            details={
+                "product_id": exc.product_id,
+                "quantity": exc.quantity,
+                "max_quantity": exc.max_quantity,
+            },
+        )
+    if isinstance(exc, InvalidReturnValueError):
+        return error_response(
+            422,
+            "INVALID_RETURN_VALUE",
+            str(exc),
+            details={"field": exc.field, "value": exc.value},
+        )
+    if isinstance(exc, InvalidStateTransitionError):
+        return error_response(
+            422,
+            "INVALID_TRANSITION",
+            str(exc),
+            details={
+                "order_id": exc.order_id,
+                "current_status": exc.current_status,
+                "requested_status": exc.requested_status,
+            },
+        )
+    raise exc
+
+
+def _ensure_return_case_belongs_to_order(
+    conn: sqlite3.Connection, *, order_id: str, return_id: str
+) -> None:
+    case = get_return_case(conn, return_id)
+    if case["order_id"] != order_id:
+        raise ReturnCaseNotFoundError(return_id)
+
+
+@router.post(
+    "/orders/{order_id}/returns",
+    response_model=ReturnCaseResponse,
+    summary="Create return case (admin)",
+    description="Create an admin-controlled return/uncollected/refused case for an order.",
+)
+def admin_create_return_case(
+    order_id: str,
+    body: CreateReturnCaseRequest,
+    admin_user: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ReturnCaseResponse | JSONResponse:
+    try:
+        with get_db() as conn:
+            get_order_admin(conn=conn, order_id=order_id)
+            if body.status == "return_in_transit":
+                update_status(conn=conn, order_id=order_id, new_status="return_in_transit")
+            case = create_return_case(
+                conn,
+                order_id=order_id,
+                reason=body.reason,
+                source=body.source,
+                status=body.status,
+                notes=body.notes,
+                refund_amount_cents=body.refund_amount_cents,
+                courier_return_fee_cents=body.courier_return_fee_cents,
+                courier_claim_id=body.courier_claim_id,
+                courier_claim_status=body.courier_claim_status,
+                courier_claim_amount_cents=body.courier_claim_amount_cents,
+                admin_id=admin_user.id if admin_user else None,
+                admin_email=admin_user.email if admin_user else None,
+            )
+    except (
+        InvalidStateTransitionError,
+        InvalidReturnValueError,
+        InvalidReturnTransitionError,
+        InvalidRestockQuantityError,
+        ReturnCaseNotFoundError,
+    ) as exc:
+        return _return_service_error_response(exc)
+
+    return ReturnCaseResponse.model_validate(case)
+
+
+@router.post(
+    "/orders/{order_id}/returns/{return_id}/receive",
+    response_model=ReturnCaseResponse,
+    summary="Receive return case (admin)",
+)
+def admin_receive_return_case(
+    order_id: str,
+    return_id: str,
+    admin_user: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ReturnCaseResponse | JSONResponse:
+    try:
+        with get_db() as conn:
+            _ensure_return_case_belongs_to_order(conn, order_id=order_id, return_id=return_id)
+            order = get_order_admin(conn=conn, order_id=order_id)
+            if order["status"] == "return_in_transit":
+                update_status(conn=conn, order_id=order_id, new_status="returned")
+            case = receive_return_case(
+                conn,
+                return_id,
+                admin_id=admin_user.id if admin_user else None,
+                admin_email=admin_user.email if admin_user else None,
+            )
+    except (
+        InvalidStateTransitionError,
+        InvalidReturnValueError,
+        InvalidReturnTransitionError,
+        InvalidRestockQuantityError,
+        ReturnCaseNotFoundError,
+    ) as exc:
+        return _return_service_error_response(exc)
+
+    return ReturnCaseResponse.model_validate(case)
+
+
+@router.patch(
+    "/orders/{order_id}/returns/{return_id}/accounting",
+    response_model=ReturnCaseResponse,
+    summary="Update return accounting fields (admin)",
+)
+def admin_update_return_accounting(
+    order_id: str,
+    return_id: str,
+    body: UpdateReturnAccountingRequest,
+    admin_user: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ReturnCaseResponse | JSONResponse:
+    try:
+        with get_db() as conn:
+            _ensure_return_case_belongs_to_order(conn, order_id=order_id, return_id=return_id)
+            case = update_return_accounting(
+                conn,
+                return_id,
+                courier_return_fee_cents=body.courier_return_fee_cents,
+                courier_claim_id=body.courier_claim_id,
+                courier_claim_status=body.courier_claim_status,
+                courier_claim_amount_cents=body.courier_claim_amount_cents,
+                notes=body.notes,
+                admin_id=admin_user.id if admin_user else None,
+                admin_email=admin_user.email if admin_user else None,
+            )
+    except (
+        InvalidReturnValueError,
+        InvalidReturnTransitionError,
+        InvalidRestockQuantityError,
+        ReturnCaseNotFoundError,
+    ) as exc:
+        return _return_service_error_response(exc)
+
+    return ReturnCaseResponse.model_validate(case)
+
+
+@router.patch(
+    "/orders/{order_id}/returns/{return_id}/inspect",
+    response_model=ReturnCaseResponse,
+    summary="Inspect return case (admin)",
+)
+def admin_inspect_return_case(
+    order_id: str,
+    return_id: str,
+    body: InspectReturnCaseRequest,
+    admin_user: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ReturnCaseResponse | JSONResponse:
+    try:
+        with get_db() as conn:
+            _ensure_return_case_belongs_to_order(conn, order_id=order_id, return_id=return_id)
+            case = inspect_return_case(
+                conn,
+                return_id,
+                restock_decision=body.restock_decision,
+                restock_quantities=body.restock_quantities,
+                notes=body.notes,
+                admin_id=admin_user.id if admin_user else None,
+                admin_email=admin_user.email if admin_user else None,
+            )
+    except (
+        InvalidStateTransitionError,
+        InvalidReturnValueError,
+        InvalidReturnTransitionError,
+        InvalidRestockQuantityError,
+        ReturnCaseNotFoundError,
+    ) as exc:
+        return _return_service_error_response(exc)
+
+    return ReturnCaseResponse.model_validate(case)
+
+
+@router.post(
+    "/orders/{order_id}/returns/{return_id}/close",
+    response_model=ReturnCaseResponse,
+    summary="Close return case (admin)",
+)
+def admin_close_return_case(
+    order_id: str,
+    return_id: str,
+    admin_user: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ReturnCaseResponse | JSONResponse:
+    try:
+        with get_db() as conn:
+            _ensure_return_case_belongs_to_order(conn, order_id=order_id, return_id=return_id)
+            case = close_return_case(
+                conn,
+                return_id,
+                admin_id=admin_user.id if admin_user else None,
+                admin_email=admin_user.email if admin_user else None,
+            )
+    except (
+        InvalidStateTransitionError,
+        InvalidReturnValueError,
+        InvalidReturnTransitionError,
+        InvalidRestockQuantityError,
+        ReturnCaseNotFoundError,
+    ) as exc:
+        return _return_service_error_response(exc)
+
+    return ReturnCaseResponse.model_validate(case)
 
 
 @router.get(
@@ -872,7 +2796,7 @@ def admin_get_order_emails(order_id: str) -> OrderEmailAuditResponse:
         422: {"description": "Invalid state transition or validation error"},
     },
 )
-def admin_update_order_status(
+async def admin_update_order_status(
     order_id: str,
     body: UpdateOrderStatusRequest,
 ) -> OrderResponse | JSONResponse:
@@ -884,7 +2808,7 @@ def admin_update_order_status(
     """
     with get_db() as conn:
         try:
-            order_data = update_status(
+            order_data = await update_status_async(
                 conn=conn,
                 order_id=order_id,
                 new_status=body.status,
@@ -915,6 +2839,7 @@ def admin_update_order_status(
 
 @router.get(
     "/orders/{order_id}/label",
+    response_model=None,
     summary="Print Speedy shipment label (admin)",
     description="Streams the Speedy PDF label for an order's waybill.",
     responses={
@@ -922,39 +2847,23 @@ def admin_update_order_status(
         502: {"description": "Speedy label print failed"},
     },
 )
-async def admin_print_order_label(order_id: str) -> Response:
+async def admin_print_order_label(
+    order_id: str,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> Response | JSONResponse:
     """Fetch and stream the Speedy PDF label for an order (admin-only)."""
     with get_db() as conn:
-        order = get_order_admin(conn, order_id)
-    tracking_number = order["tracking_number"]
-    if not tracking_number or order["tracking_carrier"] != "speedy":
-        return JSONResponse(
-            status_code=404,
-            content={
-                "error": {
-                    "code": "NO_SPEEDY_WAYBILL",
-                    "message": "Order has no Speedy tracking number",
-                }
-            },
-        )
-    settings = get_settings()
-    try:
-        pdf = await print_label(
-            tracking_number=tracking_number,
-            username=settings.speedy_api_username,
-            password=settings.speedy_api_password.get_secret_value(),
-        )
-    except LabelPrintError as exc:
-        return JSONResponse(
-            status_code=502,
-            content={
-                "error": {
-                    "code": "LABEL_PRINT_FAILED",
-                    "message": str(exc),
-                    "details": {"context": exc.context},
-                }
-            },
-        )
+        try:
+            tracking_number, pdf = await speedy_admin_service.print_order_label(
+                conn,
+                order_id,
+                actor_user_id=_admin_actor_id(current_admin),
+                print_label_func=print_label,
+            )
+        except SpeedyAdminValidationError as exc:
+            return _speedy_validation_response(exc)
+        except SpeedyError as exc:
+            return _speedy_error_response(exc)
     return Response(
         content=pdf,
         media_type="application/pdf",
@@ -973,45 +2882,38 @@ async def admin_print_order_label(order_id: str) -> Response:
         502: {"description": "Speedy track failed"},
     },
 )
-async def admin_track_order(order_id: str) -> OrderResponse | JSONResponse:
+async def admin_track_order(
+    order_id: str,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> OrderResponse | JSONResponse:
     """Refresh the order's courier_status from Speedy (admin-only, display-only)."""
     with get_db() as conn:
-        order = get_order_admin(conn, order_id)
-    tracking_number = order["tracking_number"]
-    if not tracking_number or order["tracking_carrier"] != "speedy":
-        return JSONResponse(
-            status_code=404,
-            content={
-                "error": {
-                    "code": "NO_SPEEDY_WAYBILL",
-                    "message": "Order has no Speedy tracking number",
-                }
-            },
-        )
-    settings = get_settings()
-    try:
-        courier_status = await track_shipment(
-            tracking_number=tracking_number,
-            username=settings.speedy_api_username,
-            password=settings.speedy_api_password.get_secret_value(),
-        )
-    except SpeedyError as exc:
-        return JSONResponse(
-            status_code=502,
-            content={
-                "error": {
-                    "code": "TRACK_FAILED",
-                    "message": str(exc),
-                    "details": {"context": exc.context},
-                }
-            },
-        )
-    # Persist the display status ONLY — the order's own status is untouched.
-    with get_db() as conn:
-        conn.execute(
-            "UPDATE orders SET courier_status = ? WHERE id = ?",
-            (courier_status, order_id),
-        )
+        try:
+            await courier_polling_service.refresh_order_now(
+                conn,
+                order_id,
+                provider="speedy",
+                actor_user_id=_admin_actor_id(current_admin),
+                speedy_track_func=track_shipment,
+            )
+        except courier_polling_service.CourierPollingValidationError as exc:
+            if "courier_provider_mismatch" in exc.blockers:
+                return _speedy_validation_response(
+                    SpeedyAdminValidationError(
+                        "Order has no Speedy waybill",
+                        blockers=["no_speedy_waybill"],
+                    )
+                )
+            return error_response(
+                422,
+                "COURIER_REFRESH_BLOCKED",
+                str(exc),
+                {"blockers": exc.blockers},
+            )
+        except SpeedyAdminValidationError as exc:
+            return _speedy_validation_response(exc)
+        except SpeedyError as exc:
+            return _speedy_error_response(exc)
         order = get_order_admin(conn, order_id)
     return OrderResponse.model_validate(order)
 
@@ -1075,7 +2977,8 @@ async def admin_analytics_summary(
 ) -> AnalyticsSummaryResponse:
     """Admin-only first-party analytics summary."""
     response.headers["Cache-Control"] = "no-store, no-cache"
-    return AnalyticsSummaryResponse(**analytics_service.get_summary(start_date, end_date))
+    summary = await run_in_threadpool(analytics_service.get_summary, start_date, end_date)
+    return AnalyticsSummaryResponse(**summary)
 
 
 @router.get(
@@ -1090,7 +2993,8 @@ async def admin_analytics_funnel(
 ) -> AnalyticsFunnelResponse:
     """Return funnel counts and conversion percentages."""
     response.headers["Cache-Control"] = "no-store, no-cache"
-    return AnalyticsFunnelResponse(steps=analytics_service.get_funnel(start_date, end_date))
+    steps = await run_in_threadpool(analytics_service.get_funnel, start_date, end_date)
+    return AnalyticsFunnelResponse(steps=steps)
 
 
 @router.get(
@@ -1105,7 +3009,7 @@ async def admin_analytics_products(
 ) -> ProductAnalyticsResponse:
     """Return product-level aggregate analytics without customer PII."""
     response.headers["Cache-Control"] = "no-store, no-cache"
-    products = analytics_service.get_product_metrics(start_date, end_date)
+    products = await run_in_threadpool(analytics_service.get_product_metrics, start_date, end_date)
     return ProductAnalyticsResponse(products=products)
 
 
@@ -1121,7 +3025,8 @@ async def admin_analytics_checkout(
 ) -> CheckoutAnalyticsResponse:
     """Return checkout, delivery, and payment aggregates without customer PII."""
     response.headers["Cache-Control"] = "no-store, no-cache"
-    return CheckoutAnalyticsResponse(**analytics_service.get_checkout_metrics(start_date, end_date))
+    metrics = await run_in_threadpool(analytics_service.get_checkout_metrics, start_date, end_date)
+    return CheckoutAnalyticsResponse(**metrics)
 
 
 @router.get(
@@ -1132,7 +3037,7 @@ async def admin_analytics_checkout(
 async def admin_analytics_health(response: Response) -> AnalyticsHealthResponse:
     """Return accepted, rejected, duplicate, and load health metrics."""
     response.headers["Cache-Control"] = "no-store, no-cache"
-    return analytics_service.get_health()
+    return await run_in_threadpool(analytics_service.get_health)
 
 
 @router.get(
@@ -1145,10 +3050,11 @@ async def admin_analytics_export_csv(
     end_date: str | None = Query(default=None),
 ) -> Response:
     """Export aggregate funnel metrics as CSV."""
+    steps = await run_in_threadpool(analytics_service.get_funnel, start_date, end_date)
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow(["report", "event_type", "count", "conversion_from_previous"])
-    for step in analytics_service.get_funnel(start_date, end_date):
+    for step in steps:
         writer.writerow(
             [
                 "funnel",
@@ -1168,6 +3074,166 @@ async def admin_analytics_export_csv(
 
 
 @router.get(
+    "/reports/refunds.csv",
+    summary="Export Stripe refund reconciliation CSV",
+    description=(
+        "Exports Stripe refund IDs, amounts, statuses, idempotency keys, and order references."
+    ),
+)
+def admin_refund_reconciliation_report_csv() -> Response:
+    """Export Stripe refund reconciliation rows for accounting."""
+    headers = [
+        "refund_id",
+        "order_id",
+        "order_number",
+        "customer_email",
+        "order_payment_status",
+        "order_total_cents",
+        "payment_id",
+        "provider",
+        "provider_refund_id",
+        "amount_cents",
+        "refund_status",
+        "reason",
+        "idempotency_key",
+        "failure_reason",
+        "created_by_admin_id",
+        "created_at",
+        "confirmed_at",
+    ]
+    with get_db() as conn:
+        rows = accounting_report_service.stripe_refund_reconciliation_rows(conn)
+    return _csv_response("atelier-stripe-refunds.csv", headers, rows)
+
+
+@router.get(
+    "/reports/cod-settlements.csv",
+    summary="Export COD settlement reconciliation CSV",
+    description=(
+        "Exports unsettled, settled, and mismatch COD orders with Econt COD evidence where present."
+    ),
+)
+def admin_cod_settlement_report_csv() -> Response:
+    """Export COD settlement reconciliation rows for accounting."""
+    headers = [
+        "order_id",
+        "order_number",
+        "customer_email",
+        "order_status",
+        "delivery_courier",
+        "order_total_cents",
+        "courier_status",
+        "courier_last_synced_at",
+        "settlement_id",
+        "settlement_amount_cents",
+        "settlement_date",
+        "courier_reference",
+        "mismatch_review",
+        "settlement_notes",
+        "created_by_admin_id",
+        "settlement_created_at",
+        "settlement_updated_at",
+        "settlement_state",
+        "econt_cd_collected_amount",
+        "econt_cd_collected_time",
+        "econt_cd_paid_amount",
+        "econt_cd_paid_time",
+        "econt_evidence_event_id",
+        "econt_evidence_action",
+        "econt_evidence_recorded_at",
+    ]
+    with get_db() as conn:
+        rows = accounting_report_service.cod_settlement_rows(conn)
+    return _csv_response("atelier-cod-settlements.csv", headers, rows)
+
+
+@router.get(
+    "/reports/courier-claims.csv",
+    summary="Export courier fees and manual claim CSV",
+    description="Exports return courier fees and manually recorded courier claim fields.",
+)
+def admin_courier_claim_report_csv() -> Response:
+    """Export courier fee and manual claim rows for accounting follow-up."""
+    headers = [
+        "return_id",
+        "order_id",
+        "order_number",
+        "customer_email",
+        "delivery_courier",
+        "reason",
+        "source",
+        "return_status",
+        "courier_return_fee_cents",
+        "courier_claim_id",
+        "courier_claim_status",
+        "courier_claim_amount_cents",
+        "notes",
+        "created_at",
+        "updated_at",
+    ]
+    with get_db() as conn:
+        rows = accounting_report_service.courier_fee_claim_rows(conn)
+    return _csv_response("atelier-courier-claims.csv", headers, rows)
+
+
+@router.get(
+    "/reports/return-reasons.csv",
+    summary="Export return reason summary CSV",
+    description=(
+        "Exports return reason counts for uncollected, refused, damaged, lost, merchant error, "
+        "and other cases."
+    ),
+)
+def admin_return_reason_report_csv() -> Response:
+    """Export aggregate return reason rows."""
+    headers = [
+        "reason",
+        "source",
+        "return_status",
+        "return_count",
+        "refund_amount_cents",
+        "courier_return_fee_cents",
+        "claim_count",
+        "first_created_at",
+        "last_created_at",
+    ]
+    with get_db() as conn:
+        rows = accounting_report_service.return_reason_rows(conn)
+    return _csv_response("atelier-return-reasons.csv", headers, rows)
+
+
+@router.get(
+    "/reports/inventory-adjustments.csv",
+    summary="Export return inventory adjustment CSV",
+    description=(
+        "Exports inventory adjustments created by returned/restocked/not-restocked "
+        "return decisions."
+    ),
+)
+def admin_inventory_adjustment_report_csv() -> Response:
+    """Export return inventory adjustment rows."""
+    headers = [
+        "adjustment_id",
+        "order_id",
+        "order_number",
+        "return_id",
+        "return_reason",
+        "restock_decision",
+        "product_id",
+        "product_name",
+        "quantity",
+        "adjustment_reason",
+        "source",
+        "notes",
+        "created_by_admin_id",
+        "created_at",
+    ]
+    with get_db() as conn:
+        rows = accounting_report_service.inventory_adjustment_rows(conn)
+    return _csv_response("atelier-inventory-adjustments.csv", headers, rows)
+
+
+@router.get(
     "/health/oauth",
     summary="OAuth circuit breaker health",
     description="Returns the current state of the Google OAuth circuit breaker, "
@@ -1176,6 +3242,29 @@ async def admin_analytics_export_csv(
 async def admin_health_oauth() -> JSONResponse:
     """Expose Google OAuth circuit breaker state for admin diagnostics."""
     breaker = get_oauth_circuit_breaker()
+    return JSONResponse(content=breaker.get_health())
+
+
+@router.get(
+    "/health/econt",
+    summary="Econt circuit breaker health",
+    description="Returns the current state of the Econt Delivery circuit breaker, "
+    "including failure count and recovery timing. Admin-only.",
+)
+async def admin_health_econt() -> JSONResponse:
+    """Expose Econt Delivery circuit breaker state for admin diagnostics."""
+    breaker = get_econt_circuit_breaker()
+    return JSONResponse(content=breaker.get_health())
+
+
+@router.get(
+    "/health/speedy",
+    summary="Speedy circuit breaker health",
+    description="Returns the current state of the Speedy operational circuit breaker. Admin-only.",
+)
+async def admin_health_speedy() -> JSONResponse:
+    """Expose Speedy operational circuit breaker state for admin diagnostics."""
+    breaker = get_speedy_circuit_breaker()
     return JSONResponse(content=breaker.get_health())
 
 

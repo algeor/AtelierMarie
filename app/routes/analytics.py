@@ -3,6 +3,7 @@
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
@@ -40,7 +41,8 @@ async def record_analytics_consent(
 ) -> AnalyticsConsentResponse | JSONResponse:
     """Persist the server-side consent record used by analytics ingestion."""
     try:
-        analytics_service.record_consent(
+        await run_in_threadpool(
+            analytics_service.record_consent,
             session_id=session_id,
             analytics=body.analytics,
             consent_version=body.consent_version,
@@ -69,11 +71,11 @@ async def ingest_analytics_events(
     try:
         payload = await request.json()
         if not isinstance(payload, dict):
-            analytics_service.mark_validation_failure()
+            await run_in_threadpool(analytics_service.mark_validation_failure)
             return error_response(422, "VALIDATION_ERROR", "Analytics payload must be an object")
         body = _parse_payload(payload)
     except (ValueError, ValidationError) as exc:
-        analytics_service.mark_validation_failure()
+        await run_in_threadpool(analytics_service.mark_validation_failure)
         return error_response(422, "VALIDATION_ERROR", str(exc))
 
     with get_db() as conn:
@@ -81,11 +83,16 @@ async def ingest_analytics_events(
         user_id = row["user_id"] if row else None
 
     try:
-        result = analytics_service.ingest_events(
+        consent_verified = await run_in_threadpool(
+            analytics_service.has_current_analytics_consent,
+            session_id,
+        )
+        result = await run_in_threadpool(
+            analytics_service.ingest_events,
             body.event_list(),
             session_id=session_id,
             user_id=user_id,
-            consent_verified=analytics_service.has_current_analytics_consent(session_id),
+            consent_verified=consent_verified,
         )
     except analytics_service.AnalyticsValidationError as exc:
         return error_response(422, "VALIDATION_ERROR", str(exc))

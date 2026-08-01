@@ -30,7 +30,7 @@ from app.email.providers import (
 )
 from app.email.redaction import redact_recipient
 from app.email.renderer import TemplateMissingError, render_template
-from app.legal import LEGAL_IDENTITY, localized_policy_url
+from app.legal import get_public_legal_identity, localized_policy_url
 from app.services.order_service import OrderData, _fetch_order_with_items
 
 logger = structlog.get_logger(__name__)
@@ -206,6 +206,7 @@ def _build_email_context(
     order_id = order_data["id"]
     display_order_number = order_data.get("order_number") or order_id[:8]
     payment_review = payment_review or {}
+    legal_identity = get_public_legal_identity()
     context = {
         "order_id_short": order_id[:8],
         "order_number": display_order_number,
@@ -223,12 +224,12 @@ def _build_email_context(
         "privacy_url": localized_policy_url(settings.frontend_url, locale, "privacy"),
         "cookies_url": localized_policy_url(settings.frontend_url, locale, "cookies"),
         "contact_url": localized_policy_url(settings.frontend_url, locale, "contact"),
-        "trader_name": LEGAL_IDENTITY["trading_name"],
-        "trader_legal_name": LEGAL_IDENTITY["legal_name"],
-        "trader_contact_email": LEGAL_IDENTITY["contact_email"],
-        "trader_address": LEGAL_IDENTITY["geographic_address"],
-        "trader_registration_number": LEGAL_IDENTITY["registration_number"],
-        "trader_vat_number": LEGAL_IDENTITY["vat_number"],
+        "trader_name": legal_identity["trading_name"],
+        "trader_legal_name": legal_identity["legal_name"],
+        "trader_contact_email": legal_identity["contact_email"],
+        "trader_address": legal_identity["geographic_address"],
+        "trader_registration_number": legal_identity["registration_number"],
+        "trader_vat_number": legal_identity["vat_number"],
         # Payment fields (payment-integration) — safe defaults for legacy rows.
         "payment_method": order_data.get("payment_method", "cod"),
         "payment_status": order_data.get("payment_status", "cod_pending"),

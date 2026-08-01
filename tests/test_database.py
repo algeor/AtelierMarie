@@ -1,6 +1,7 @@
 """Tests for database layer — schema constraints and utility functions."""
 
 import sqlite3
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -132,7 +133,16 @@ class TestDatabaseConstraints:
             )
 
     def test_order_valid_statuses_accepted(self, db_conn: sqlite3.Connection):
-        for i, status in enumerate(("pending", "confirmed", "shipped", "delivered", "cancelled")):
+        valid_statuses = (
+            "pending",
+            "confirmed",
+            "shipped",
+            "delivered",
+            "return_in_transit",
+            "returned",
+            "cancelled",
+        )
+        for i, status in enumerate(valid_statuses):
             db_conn.execute(
                 "INSERT INTO orders (id, session_id, status, total_cents, customer_email) "
                 "VALUES (?, 's1', ?, 100, 'test@example.com')",
@@ -140,7 +150,46 @@ class TestDatabaseConstraints:
             )
         db_conn.commit()
         rows = db_conn.execute("SELECT COUNT(*) FROM orders").fetchone()
-        assert rows[0] == 5
+        assert rows[0] == len(valid_statuses)
+
+    def test_order_new_payment_statuses_accepted(self, db_conn: sqlite3.Connection):
+        valid_payment_statuses = (
+            "pending",
+            "paid",
+            "cod_pending",
+            "failed",
+            "review_required",
+            "refund_pending",
+            "partially_refunded",
+            "refunded",
+            "dispute_open",
+            "dispute_won",
+            "dispute_lost",
+        )
+        for i, payment_status in enumerate(valid_payment_statuses):
+            db_conn.execute(
+                """
+                INSERT INTO orders (
+                    id, session_id, status, total_cents, customer_email,
+                    payment_method, payment_status
+                ) VALUES (?, 's1', 'pending', 100, 'test@example.com', 'card', ?)
+                """,
+                (f"payment-order-{i}", payment_status),
+            )
+        db_conn.commit()
+        rows = db_conn.execute("SELECT COUNT(*) FROM orders").fetchone()
+        assert rows[0] == len(valid_payment_statuses)
+
+    def test_order_invalid_payment_status_rejected(self, db_conn: sqlite3.Connection):
+        with pytest.raises(sqlite3.IntegrityError):
+            db_conn.execute(
+                """
+                INSERT INTO orders (
+                    id, session_id, status, total_cents, customer_email,
+                    payment_method, payment_status
+                ) VALUES ('bad-payment', 's1', 'pending', 100, 'test@example.com', 'card', 'bogus')
+                """
+            )
 
     def test_contact_message_invalid_status_rejected(self, db_conn: sqlite3.Connection):
         with pytest.raises(sqlite3.IntegrityError):
@@ -191,6 +240,324 @@ class TestDatabaseConstraints:
         # Cart items should be gone (CASCADE)
         row = db_conn.execute("SELECT COUNT(*) FROM cart_items WHERE session_id = 's1'").fetchone()
         assert row[0] == 0
+
+
+class TestReturnRefundSettlementSchema:
+    """Return/refund/accounting tables enforce the operational vocabulary."""
+
+    @staticmethod
+    def _insert_order(conn: sqlite3.Connection, order_id: str = "order-returns-1") -> str:
+        conn.execute(
+            """
+            INSERT INTO orders (
+                id, session_id, status, total_cents, customer_email,
+                payment_method, payment_status
+            ) VALUES (?, 'session-returns', 'shipped', 5000,
+                      'returns@example.com', 'card', 'paid')
+            """,
+            (order_id,),
+        )
+        return order_id
+
+    def test_return_case_accepts_expected_fields(self, db_conn: sqlite3.Connection):
+        order_id = self._insert_order(db_conn)
+        db_conn.execute(
+            """
+            INSERT INTO order_returns (
+                id, order_id, reason, source, status, refund_amount_cents,
+                courier_return_fee_cents, courier_claim_id, courier_claim_status,
+                courier_claim_amount_cents, restock_decision, notes,
+                created_by_admin_id
+            ) VALUES ('ret-1', ?, 'damaged_by_courier', 'admin', 'return_in_transit',
+                      4200, 600, 'CLM-123', 'filed', 1500, 'pending',
+                      'Box crushed by courier', 'admin-1')
+            """,
+            (order_id,),
+        )
+        row = db_conn.execute(
+            "SELECT reason, courier_claim_id, courier_claim_status FROM order_returns"
+        ).fetchone()
+        assert row == ("damaged_by_courier", "CLM-123", "filed")
+
+    def test_return_case_invalid_reason_rejected(self, db_conn: sqlite3.Connection):
+        order_id = self._insert_order(db_conn)
+        with pytest.raises(sqlite3.IntegrityError):
+            db_conn.execute(
+                "INSERT INTO order_returns (id, order_id, reason) VALUES ('ret-bad', ?, 'exchange')",
+                (order_id,),
+            )
+
+    def test_return_case_negative_courier_fee_rejected(self, db_conn: sqlite3.Connection):
+        order_id = self._insert_order(db_conn)
+        with pytest.raises(sqlite3.IntegrityError):
+            db_conn.execute(
+                """
+                INSERT INTO order_returns (
+                    id, order_id, reason, courier_return_fee_cents
+                ) VALUES ('ret-fee', ?, 'not_picked_up', -1)
+                """,
+                (order_id,),
+            )
+
+    def test_return_event_cascades_with_return_case(self, db_conn: sqlite3.Connection):
+        order_id = self._insert_order(db_conn)
+        db_conn.execute(
+            "INSERT INTO order_returns (id, order_id, reason) VALUES ('ret-cascade', ?, 'other')",
+            (order_id,),
+        )
+        db_conn.execute(
+            """
+            INSERT INTO order_return_events (
+                id, order_return_id, order_id, event_type, source, payload_json
+            ) VALUES ('ret-event-1', 'ret-cascade', ?, 'created', 'admin', '{"ok":true}')
+            """,
+            (order_id,),
+        )
+        db_conn.commit()
+
+        db_conn.execute("DELETE FROM order_returns WHERE id = 'ret-cascade'")
+        db_conn.commit()
+
+        count = db_conn.execute("SELECT COUNT(*) FROM order_return_events").fetchone()[0]
+        assert count == 0
+
+    def test_payment_refund_requires_positive_amount(self, db_conn: sqlite3.Connection):
+        order_id = self._insert_order(db_conn)
+        with pytest.raises(sqlite3.IntegrityError):
+            db_conn.execute(
+                """
+                INSERT INTO payment_refunds (id, order_id, provider, amount_cents)
+                VALUES ('refund-zero', ?, 'stripe', 0)
+                """,
+                (order_id,),
+            )
+
+    def test_payment_refund_idempotency_key_is_unique_per_provider(
+        self, db_conn: sqlite3.Connection
+    ):
+        order_id = self._insert_order(db_conn)
+        db_conn.execute(
+            """
+            INSERT INTO payment_refunds (
+                id, order_id, provider, amount_cents, idempotency_key
+            ) VALUES ('refund-1', ?, 'stripe', 1000, 'same-key')
+            """,
+            (order_id,),
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            db_conn.execute(
+                """
+                INSERT INTO payment_refunds (
+                    id, order_id, provider, amount_cents, idempotency_key
+                ) VALUES ('refund-2', ?, 'stripe', 1000, 'same-key')
+                """,
+                (order_id,),
+            )
+
+    def test_cod_settlement_flags_mismatch_and_is_one_per_order(
+        self, db_conn: sqlite3.Connection
+    ):
+        order_id = self._insert_order(db_conn)
+        db_conn.execute(
+            """
+            INSERT INTO cod_settlements (
+                id, order_id, amount_cents, settlement_date, courier_reference,
+                mismatch_review
+            ) VALUES ('cod-settlement-1', ?, 4800, '2026-08-01', 'ECONT-PAYOUT-1', 1)
+            """,
+            (order_id,),
+        )
+        row = db_conn.execute(
+            "SELECT amount_cents, mismatch_review FROM cod_settlements WHERE order_id = ?",
+            (order_id,),
+        ).fetchone()
+        assert row == (4800, 1)
+        with pytest.raises(sqlite3.IntegrityError):
+            db_conn.execute(
+                """
+                INSERT INTO cod_settlements (id, order_id, amount_cents, settlement_date)
+                VALUES ('cod-settlement-2', ?, 4800, '2026-08-02')
+                """,
+                (order_id,),
+            )
+
+
+class TestAccountingFinanceHubSchema:
+    """Accounting & Finance Hub tables enforce the core evidence model."""
+
+    def test_fresh_db_has_finance_tables_and_order_snapshot_columns(
+        self, db_conn: sqlite3.Connection
+    ):
+        expected_tables = {
+            "finance_periods",
+            "finance_audit_events",
+            "seller_legal_profile_versions",
+            "vat_fiscal_settings_versions",
+            "accounting_category_mappings",
+            "accounting_export_schema_settings",
+            "expense_evidence_settings",
+            "product_cost_settings",
+            "accounting_documents",
+            "stripe_balance_transactions",
+            "finance_export_packages",
+            "expense_evidence",
+            "product_cost_versions",
+            "product_cost_components",
+            "finance_exceptions",
+        }
+        tables = {
+            row[0]
+            for row in db_conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        assert expected_tables.issubset(tables)
+
+        order_columns = {row[1] for row in db_conn.execute("PRAGMA table_info(orders)")}
+        assert {
+            "invoice_profile_json",
+            "accounting_currency",
+            "seller_legal_profile_version_id",
+            "vat_fiscal_settings_version_id",
+            "accounting_classification_state",
+            "accounting_snapshot_json",
+            "accounting_readiness_status",
+            "finance_period_id",
+        }.issubset(order_columns)
+
+    def test_order_accounting_snapshot_defaults(self, db_conn: sqlite3.Connection):
+        db_conn.execute(
+            """
+            INSERT INTO orders (id, session_id, status, total_cents, customer_email)
+            VALUES ('acct-order-defaults', 'acct-session', 'pending', 1000, 'acct@example.com')
+            """
+        )
+        row = db_conn.execute(
+            """
+            SELECT accounting_currency, accounting_classification_state,
+                   accounting_readiness_status
+            FROM orders WHERE id = 'acct-order-defaults'
+            """
+        ).fetchone()
+        assert row == ("EUR", "unreviewed", "unreviewed")
+
+    def test_finance_period_status_and_dates_are_constrained(
+        self, db_conn: sqlite3.Connection
+    ):
+        db_conn.execute(
+            """
+            INSERT INTO finance_periods (id, period_start, period_end, currency, status)
+            VALUES ('period-2026-08', '2026-08-01', '2026-08-31', 'EUR', 'open')
+            """
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            db_conn.execute(
+                """
+                INSERT INTO finance_periods (id, period_start, period_end, status)
+                VALUES ('period-bad-status', '2026-08-01', '2026-08-31', 'draft')
+                """
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            db_conn.execute(
+                """
+                INSERT INTO finance_periods (id, period_start, period_end)
+                VALUES ('period-bad-dates', '2026-09-01', '2026-08-31')
+                """
+            )
+
+    def test_accounting_document_and_credit_note_reference_shape(
+        self, db_conn: sqlite3.Connection
+    ):
+        db_conn.execute(
+            """
+            INSERT INTO accounting_documents (
+                id, document_type, document_number, issue_date, gross_amount_cents
+            ) VALUES ('doc-invoice-1', 'invoice', 'INV-1', '2026-08-03', 2400)
+            """
+        )
+        db_conn.execute(
+            """
+            INSERT INTO accounting_documents (
+                id, document_type, document_number, issue_date,
+                gross_amount_cents, original_document_id
+            ) VALUES ('doc-credit-1', 'credit_note', 'CN-1', '2026-08-04', 1200,
+                      'doc-invoice-1')
+            """
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            db_conn.execute(
+                """
+                INSERT INTO accounting_documents (
+                    id, document_type, issue_date, gross_amount_cents
+                ) VALUES ('doc-bad-type', 'receiptish', '2026-08-03', 2400)
+                """
+            )
+
+    def test_stripe_balance_transaction_provider_id_is_unique(
+        self, db_conn: sqlite3.Connection
+    ):
+        for row_id in ("stripe-btxn-1", "stripe-btxn-2"):
+            with pytest.raises(sqlite3.IntegrityError) if row_id.endswith("2") else nullcontext():
+                db_conn.execute(
+                    """
+                    INSERT INTO stripe_balance_transactions (
+                        id, balance_transaction_id, gross_amount_cents,
+                        fee_amount_cents, net_amount_cents, currency
+                    ) VALUES (?, 'txn_same', 1000, 50, 950, 'EUR')
+                    """,
+                    (row_id,),
+                )
+
+    def test_expense_and_product_cost_constraints(self, db_conn: sqlite3.Connection):
+        db_conn.execute(
+            """
+            INSERT INTO products (id, name_en, price_cents, stock)
+            VALUES ('costed-candle', 'Costed Candle', 3000, 5)
+            """
+        )
+        db_conn.execute(
+            """
+            INSERT INTO expense_evidence (
+                id, supplier_name, purchase_date, payment_status, category_key,
+                gross_amount_cents, tax_amount_cents, linked_product_id
+            ) VALUES ('expense-1', 'Wax Supplier', '2026-08-02', 'unpaid',
+                      'materials', 12000, 2000, 'costed-candle')
+            """
+        )
+        db_conn.execute(
+            """
+            INSERT INTO product_cost_versions (
+                id, product_id, product_name, effective_date, costing_basis,
+                material_cost_cents, packaging_cost_cents, estimated_unit_cost_cents
+            ) VALUES ('cost-version-1', 'costed-candle', 'Costed Candle',
+                      '2026-08-01', 'recipe_bom', 400, 150, 550)
+            """
+        )
+        db_conn.execute(
+            """
+            INSERT INTO product_cost_components (
+                id, cost_version_id, component_type, description, quantity, unit,
+                unit_cost_cents, total_cost_cents, source_expense_id
+            ) VALUES ('cost-component-1', 'cost-version-1', 'material', 'Wax',
+                      0.18, 'kg', 2000, 360, 'expense-1')
+            """
+        )
+
+        with pytest.raises(sqlite3.IntegrityError):
+            db_conn.execute(
+                """
+                INSERT INTO expense_evidence (
+                    id, supplier_name, purchase_date, payment_status, gross_amount_cents
+                ) VALUES ('expense-bad-status', 'Supplier', '2026-08-02', 'waiting', 100)
+                """
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            db_conn.execute(
+                """
+                INSERT INTO product_cost_versions (
+                    id, product_name, effective_date, costing_basis,
+                    estimated_unit_cost_cents
+                ) VALUES ('cost-version-bad', 'Bad', '2026-08-01', 'fifo', 100)
+                """
+            )
 
 
 class TestWeightGramsMigration:
@@ -261,6 +628,70 @@ class TestWeightGramsMigration:
         # Second run is a no-op (guard: columns == set(_PRODUCT_COLUMNS))
         _migrate_products_table(conn)
         assert "weight_grams" in _table_columns(conn, "products")
+        conn.close()
+
+
+class TestOrderConstraintMigration:
+    """Existing DBs with the old status CHECK constraints are rebuilt safely."""
+
+    @staticmethod
+    def _old_orders_schema_sql() -> str:
+        return """
+        CREATE TABLE orders (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'confirmed', 'shipped', 'delivered', 'cancelled')),
+            total_cents INTEGER NOT NULL CHECK (total_cents >= 0),
+            customer_email TEXT NOT NULL,
+            payment_method TEXT NOT NULL DEFAULT 'cod'
+                CHECK (payment_method IN ('cod', 'card', 'bank_transfer')),
+            payment_status TEXT NOT NULL DEFAULT 'cod_pending'
+                CHECK (payment_status IN ('pending', 'paid', 'cod_pending', 'failed', 'refunded')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        """
+
+    def test_init_db_rebuilds_order_constraints_and_preserves_rows(self, tmp_path):
+        db_file = tmp_path / "legacy-orders.db"
+        conn = sqlite3.connect(db_file)
+        conn.executescript(self._old_orders_schema_sql())
+        conn.execute(
+            """
+            INSERT INTO orders (
+                id, session_id, status, total_cents, customer_email,
+                payment_method, payment_status
+            ) VALUES ('legacy-order', 'legacy-session', 'confirmed', 1200,
+                      'legacy@example.com', 'card', 'pending')
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        init_db(str(db_file))
+
+        conn = sqlite3.connect(db_file)
+        conn.row_factory = sqlite3.Row
+        preserved = conn.execute(
+            "SELECT status, payment_status FROM orders WHERE id = 'legacy-order'"
+        ).fetchone()
+        assert preserved["status"] == "confirmed"
+        assert preserved["payment_status"] == "pending"
+        conn.execute(
+            "INSERT INTO orders (id, session_id, status, total_cents, customer_email) "
+            "VALUES ('return-order', 'legacy-session', 'return_in_transit', 100, 'r@example.com')"
+        )
+        conn.execute(
+            """
+            INSERT INTO orders (
+                id, session_id, status, total_cents, customer_email,
+                payment_method, payment_status
+            ) VALUES ('review-order', 'legacy-session', 'pending', 100,
+                      'review@example.com', 'card', 'review_required')
+            """
+        )
+        conn.commit()
         conn.close()
 
 

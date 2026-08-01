@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useAuth } from "@/contexts/AuthContext";
 import { getCurrentUser } from "@/lib/api";
 import { validateRedirectPath } from "@/lib/validateRedirectPath";
@@ -9,6 +10,7 @@ import { validateRedirectPath } from "@/lib/validateRedirectPath";
 type CallbackState = "loading" | "error" | "cancelled";
 
 export function CallbackHandler() {
+  const t = useTranslations("auth");
   const searchParams = useSearchParams();
   const router = useRouter();
   const { login, loginComplete } = useAuth();
@@ -66,18 +68,18 @@ export function CallbackHandler() {
       <div className="min-h-[60vh] flex items-center justify-center">
         <div className="text-center max-w-md mx-auto px-4">
           <h1 className="font-heading text-2xl text-charcoal mb-4">
-            {isCancelled ? "Sign in cancelled" : "Sign in failed"}
+            {isCancelled ? t("signInCancelled") : t("signInFailed")}
           </h1>
           <p className="text-soft-brown mb-6">
             {isCancelled
-              ? "No problem. You can keep browsing or try signing in again."
-              : "Something went wrong during sign in. Please try again."}
+              ? t("signInCancelledDescription")
+              : t("signInFailedDescription")}
           </p>
           <button
             onClick={login}
             className="inline-flex items-center justify-center px-6 py-3 bg-charcoal text-warm-ivory font-medium rounded-brand hover:bg-soft-brown transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
           >
-            Try Again
+            {t("tryAgain")}
           </button>
         </div>
       </div>
@@ -89,7 +91,7 @@ export function CallbackHandler() {
     <div className="min-h-[60vh] flex items-center justify-center">
       <div className="text-center">
         <div className="w-8 h-8 border-2 border-soft-brown border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-        <p className="text-soft-brown font-medium">Signing you in...</p>
+        <p className="text-soft-brown font-medium">{t("signingIn")}</p>
       </div>
     </div>
   );

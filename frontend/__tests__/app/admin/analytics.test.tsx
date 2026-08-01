@@ -53,9 +53,9 @@ describe("AdminAnalyticsPage", () => {
     expect(screen.getByRole("heading", { name: "Analytics" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Export CSV" })).toHaveAttribute("href", "http://localhost/export.csv");
 
-    await waitFor(() => expect(screen.getByText("Consented sessions")).toBeInTheDocument());
-    expect(screen.getByText("Order coverage")).toBeInTheDocument();
-    expect(screen.getByText("Delivery health")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Visitors counted")).toBeInTheDocument());
+    expect(screen.getByText("Orders counted")).toBeInTheDocument();
+    expect(screen.getByText("Tracking health")).toBeInTheDocument();
     expect(screen.getByText("Product view")).toBeInTheDocument();
     expect(screen.getByText("Lavender")).toBeInTheDocument();
     expect(screen.getByText("Delivery methods")).toBeInTheDocument();

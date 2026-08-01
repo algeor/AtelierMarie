@@ -116,7 +116,9 @@ def create_contact_message(
             """,
             (body.name, str(body.email).lower(), body.message, body.locale, ip_address),
         )
-        message_id = int(cursor.lastrowid)
+        message_id = cursor.lastrowid
+        if message_id is None:
+            raise RuntimeError("Contact message insert did not return an id")
         conn.execute("COMMIT")
         return message_id
     except Exception:

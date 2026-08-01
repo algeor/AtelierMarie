@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/Button";
+import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
 import { SaveConfirmation } from "@/components/admin/SaveConfirmation";
 import { getAdminDeliverySettings, updateAdminDeliverySettings } from "@/lib/api";
 import type { DeliverySettingsResponse, DeliverySettingsUpdate } from "@/lib/types";
@@ -105,9 +106,8 @@ export default function AdminDeliveryPage() {
 
   return (
     <div>
-      <div className="mb-8">
+      <div className="mb-8 flex items-center gap-2">
         <h1 className="font-heading text-2xl font-semibold text-charcoal">{t("title")}</h1>
-        <p className="mt-1 text-sm text-soft-brown">{t("subtitle")}</p>
       </div>
 
       {error && (
@@ -117,10 +117,12 @@ export default function AdminDeliveryPage() {
       )}
 
       <div className="mb-6 rounded-brand border border-champagne-beige bg-warm-ivory p-5">
-        <h2 className="font-heading text-lg font-semibold text-charcoal">
-          {t("pricingTitle")}
-        </h2>
-        <p className="mt-2 text-sm leading-6 text-soft-brown">{t("pricingBody")}</p>
+        <div className="flex items-center gap-2">
+          <h2 className="font-heading text-lg font-semibold text-charcoal">
+            {t("pricingTitle")}
+          </h2>
+          <AdminInfoPopover content={t("pricingBody")} />
+        </div>
       </div>
 
       <div className="rounded-brand border border-champagne-beige bg-warm-ivory">

@@ -16,6 +16,13 @@ const getDeliveryPlaces = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   getDeliveryCities: vi.fn(async () => []),
+  getDeliveryConfig: vi.fn(async () => ({
+    econt: {
+      office_locator_enabled: false,
+      office_locator_url: "https://delivery.econt.com/customer_info.php",
+      office_locator_origins: ["https://delivery.econt.com"],
+    },
+  })),
   getDeliveryOffices: vi.fn(async () => []),
   getDeliveryPlaces: (...args: unknown[]) => getDeliveryPlaces(...args),
 }));

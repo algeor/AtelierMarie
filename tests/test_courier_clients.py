@@ -16,6 +16,7 @@ import pytest
 
 from app.constants import FALLBACK_SHIPPING_CENTS
 from app.services import econt_client, speedy_client
+from app.utils.circuit_breaker import CircuitBreaker
 
 
 class _FakeResponse:
@@ -677,6 +678,245 @@ class TestSpeedyTrack:
             tracking_number="123", username="u", password="p"
         )
         assert status == "delivered"
+
+    @pytest.mark.asyncio
+    async def test_detailed_tracking_keeps_raw_provider_payload(self, monkeypatch):
+        payload = {
+            "parcels": [
+                {
+                    "id": "123",
+                    "operations": [
+                        {"description": "Returned to sender", "operationCode": 42}
+                    ],
+                }
+            ]
+        }
+        _patch_httpx(monkeypatch, response=_FakeResponse(200, payload))
+
+        result = await speedy_client.track_shipment_with_details(
+            tracking_number="123", username="u", password="p"
+        )
+
+        assert result["courier_status"] == "returned"
+        assert result["tracking_details"] == payload
+
+
+class _MalformedJsonResponse:
+    status_code = 200
+    text = "not-json"
+    content = b"not-json"
+    headers = {}
+
+    def json(self):
+        raise ValueError("bad json")
+
+
+def _client_factory_for(response=None, raises=None, captured=None):
+    def _factory(*args, **kwargs):
+        return _FakeAsyncClient(response=response, raises=raises, captured=captured)
+
+    return _factory
+
+
+def _speedy_breaker(threshold: int = 3) -> CircuitBreaker:
+    return CircuitBreaker(
+        name="test_speedy",
+        failure_threshold=threshold,
+        failure_window=30.0,
+        recovery_timeout=60.0,
+    )
+
+
+class TestSpeedyOperationalClient:
+    @pytest.mark.asyncio
+    async def test_get_own_client_id_posts_official_client_payload(self):
+        captured = []
+        client_id = await speedy_client.get_own_client_id(
+            username="user",
+            password="secret",
+            breaker=_speedy_breaker(),
+            client_factory=_client_factory_for(
+                response=_FakeResponse(200, {"clientId": 123456789}),
+                captured=captured,
+            ),
+        )
+
+        assert client_id == "123456789"
+        assert captured[0] == {"userName": "user", "password": "secret"}
+
+    @pytest.mark.asyncio
+    async def test_get_client_returns_client_detail(self):
+        detail = await speedy_client.get_client(
+            "123",
+            username="user",
+            password="secret",
+            breaker=_speedy_breaker(),
+            client_factory=_client_factory_for(
+                response=_FakeResponse(200, {"client": {"clientId": 123, "clientName": "Shop"}}),
+            ),
+        )
+
+        assert detail["clientId"] == 123
+        assert detail["clientName"] == "Shop"
+
+    @pytest.mark.asyncio
+    async def test_search_info_cancel_and_pickup_payloads_use_official_keys(self):
+        captured = []
+        factory = _client_factory_for(response=_FakeResponse(200, {"barcodes": ["111"]}), captured=captured)
+        assert await speedy_client.find_parcels_by_reference(
+            "order-1",
+            username="user",
+            password="secret",
+            include_returns=True,
+            shipments_only=False,
+            breaker=_speedy_breaker(),
+            client_factory=factory,
+        ) == ["111"]
+        assert captured[-1]["ref"] == "order-1"
+        assert captured[-1]["searchInRef"] == 1
+        assert captured[-1]["shipmentsOnly"] is False
+        assert captured[-1]["includeReturns"] is True
+
+        captured.clear()
+        info = await speedy_client.get_shipment_info(
+            ["111"],
+            username="user",
+            password="secret",
+            breaker=_speedy_breaker(),
+            client_factory=_client_factory_for(
+                response=_FakeResponse(200, {"shipments": [{"id": "111"}]}),
+                captured=captured,
+            ),
+        )
+        assert info == [{"id": "111"}]
+        assert captured[-1]["shipmentIds"] == ["111"]
+
+        captured.clear()
+        cancel = await speedy_client.cancel_shipment(
+            "111",
+            username="user",
+            password="secret",
+            comment="admin cancel",
+            breaker=_speedy_breaker(),
+            client_factory=_client_factory_for(response=_FakeResponse(200, {}), captured=captured),
+        )
+        assert cancel == {"cancelled": True, "shipment_id": "111"}
+        assert captured[-1]["shipmentId"] == "111"
+        assert captured[-1]["comment"] == "admin cancel"
+
+        captured.clear()
+        cutoffs = await speedy_client.pickup_terms(
+            client_id="123",
+            username="user",
+            password="secret",
+            starting_date_utc_ms=123456,
+            breaker=_speedy_breaker(),
+            client_factory=_client_factory_for(
+                response=_FakeResponse(200, {"cutoffs": ["2026-08-01T15:00:00+03:00"]}),
+                captured=captured,
+            ),
+        )
+        assert cutoffs == ["2026-08-01T15:00:00+03:00"]
+        assert captured[-1]["startingDate"] == 123456
+        assert captured[-1]["sender"] == {"clientId": 123}
+
+        captured.clear()
+        pickup = await speedy_client.request_pickup(
+            shipment_ids=["111"],
+            pickup_datetime="2026-08-01T13:00:00+03:00",
+            visit_end_time="17:00",
+            contact_name="Mira",
+            phone="0888123456",
+            username="user",
+            password="secret",
+            breaker=_speedy_breaker(),
+            client_factory=_client_factory_for(
+                response=_FakeResponse(200, {"orders": [{"id": 9, "shipmentIds": ["111"]}]}),
+                captured=captured,
+            ),
+        )
+        assert pickup == [{"id": 9, "shipmentIds": ["111"]}]
+        assert captured[-1]["pickupScope"] == "EXPLICIT_SHIPMENT_ID_LIST"
+        assert captured[-1]["explicitShipmentIdList"] == ["111"]
+        assert captured[-1]["phoneNumber"] == {"number": "0888123456"}
+
+    @pytest.mark.asyncio
+    async def test_validation_error_does_not_trip_circuit_and_redacts_password(self):
+        breaker = _speedy_breaker(threshold=1)
+
+        with pytest.raises(speedy_client.SpeedyValidationError) as exc_info:
+            await speedy_client.find_parcels_by_reference(
+                "order-1",
+                username="user",
+                password="secret-password",
+                breaker=breaker,
+                client_factory=_client_factory_for(
+                    response=_FakeResponse(
+                        400,
+                        {"error": {"context": "shipment.ref", "message": "bad reference"}},
+                    ),
+                ),
+            )
+
+        assert breaker.get_health()["state"] == "closed"
+        safe = exc_info.value.to_safe_dict()
+        assert safe["category"] == "validation"
+        assert "secret-password" not in str(safe)
+
+    @pytest.mark.asyncio
+    async def test_auth_error_is_classified_without_tripping_circuit(self):
+        breaker = _speedy_breaker(threshold=1)
+
+        with pytest.raises(speedy_client.SpeedyAuthError):
+            await speedy_client.get_own_client_id(
+                username="user",
+                password="bad",
+                breaker=breaker,
+                client_factory=_client_factory_for(
+                    response=_FakeResponse(
+                        401,
+                        {"error": {"context": "auth", "message": "Invalid username or password"}},
+                    ),
+                ),
+            )
+
+        assert breaker.get_health()["state"] == "closed"
+
+    @pytest.mark.asyncio
+    async def test_transient_error_opens_circuit_and_fails_fast(self):
+        breaker = _speedy_breaker(threshold=1)
+        factory = _client_factory_for(response=_FakeResponse(503, {"error": {"message": "down"}}))
+
+        with pytest.raises(speedy_client.SpeedyTransientError):
+            await speedy_client.get_own_client_id(
+                username="user",
+                password="secret",
+                breaker=breaker,
+                client_factory=factory,
+            )
+
+        assert breaker.get_health()["state"] == "open"
+        with pytest.raises(speedy_client.SpeedyCircuitOpenError):
+            await speedy_client.get_own_client_id(
+                username="user",
+                password="secret",
+                breaker=breaker,
+                client_factory=factory,
+            )
+
+    @pytest.mark.asyncio
+    async def test_malformed_json_is_unexpected_response(self):
+        breaker = _speedy_breaker(threshold=1)
+
+        with pytest.raises(speedy_client.SpeedyUnexpectedResponseError):
+            await speedy_client.get_own_client_id(
+                username="user",
+                password="secret",
+                breaker=breaker,
+                client_factory=_client_factory_for(response=_MalformedJsonResponse()),
+            )
+
+        assert breaker.get_health()["state"] == "open"
 
     @pytest.mark.asyncio
     async def test_no_operations_is_in_transit(self, monkeypatch):

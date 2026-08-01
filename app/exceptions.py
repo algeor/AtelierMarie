@@ -20,6 +20,7 @@ from app.services.cart_service import (
 from app.services.order_service import (
     InvalidStateTransitionError,
     OrderNotFoundError,
+    PaymentReviewRequiredError,
     TrackingRequiredError,
 )
 from app.services.product_video_service import ProductVideoProcessingConflictError
@@ -254,6 +255,21 @@ def register_exception_handlers(app: FastAPI) -> None:
                     "code": "TRACKING_REQUIRED",
                     "message": str(exc),
                     "details": {"missing": exc.missing},
+                }
+            },
+        )
+
+    @app.exception_handler(PaymentReviewRequiredError)
+    async def payment_review_required_handler(
+        request: Request, exc: PaymentReviewRequiredError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "PAYMENT_REVIEW_REQUIRED",
+                    "message": str(exc),
+                    "details": {"order_id": exc.order_id},
                 }
             },
         )

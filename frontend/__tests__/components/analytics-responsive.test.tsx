@@ -78,9 +78,9 @@ describe("analytics responsive surfaces", () => {
     setViewport(width);
     renderWithIntl(<AdminAnalyticsPage />);
 
-    await waitFor(() => expect(screen.getByText("Consented sessions")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Visitors counted")).toBeInTheDocument());
     expect(screen.getByRole("heading", { name: "Analytics" })).toBeInTheDocument();
-    expect(screen.getByText("Funnel").closest("section")?.querySelector(".overflow-x-auto"))
+    expect(screen.getByText("Customer steps").closest("section")?.querySelector(".overflow-x-auto"))
       .toBeTruthy();
     expect(screen.getByText("Checkout, delivery, and payment").closest("section")?.querySelector(".md\\:grid-cols-3"))
       .toBeTruthy();

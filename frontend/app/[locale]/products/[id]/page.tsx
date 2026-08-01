@@ -10,8 +10,12 @@ import { AddToCartSection } from "@/components/products/AddToCartSection";
 import { ProductSocialSection } from "@/components/products/ProductSocialSection";
 import { ProductViewTracker } from "@/components/products/ProductViewTracker";
 import type { Locale } from "@/i18n/routing";
-import { LEGAL_IDENTITY } from "@/lib/legal";
-import { buildProductJsonLd, getLocalizedAlternates, serializeJsonLd } from "@/lib/seo";
+import { loadLegalIdentity } from "@/lib/legal";
+import {
+  buildProductJsonLd,
+  getLocalizedAlternates,
+  serializeJsonLd,
+} from "@/lib/seo";
 
 interface ProductPageProps {
   params: Promise<{ id: string; locale: Locale }>;
@@ -50,6 +54,8 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
     notFound();
   }
   const productJsonLd = buildProductJsonLd(product, locale);
+
+  const legalIdentity = await loadLegalIdentity();
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
@@ -140,15 +146,15 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
               </div>
               <div>
                 <dt className="font-medium text-charcoal">{t("responsibleParty")}</dt>
-                <dd>{LEGAL_IDENTITY.responsiblePartyName}</dd>
+                <dd>{legalIdentity.responsiblePartyName}</dd>
               </div>
               <div>
                 <dt className="font-medium text-charcoal">{t("responsiblePartyAddress")}</dt>
-                <dd className="break-words">{LEGAL_IDENTITY.responsiblePartyAddress}</dd>
+                <dd className="break-words">{legalIdentity.responsiblePartyAddress}</dd>
               </div>
               <div>
                 <dt className="font-medium text-charcoal">{t("responsiblePartyEmail")}</dt>
-                <dd className="break-words">{LEGAL_IDENTITY.responsiblePartyEmail}</dd>
+                <dd className="break-words">{legalIdentity.responsiblePartyEmail}</dd>
               </div>
             </dl>
             {(product.safety_warnings || product.care_instructions) && (
