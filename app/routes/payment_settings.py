@@ -3,6 +3,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.database import get_db
@@ -62,7 +63,7 @@ def admin_update_payment_settings(
     body: PaymentSettingsUpdate,
     request: Request,
     admin_user: Annotated[UserResponse | None, Depends(require_admin)],
-) -> PaymentSettingsResponse:
+) -> PaymentSettingsResponse | JSONResponse:
     """Persist admin payment settings and write audit events."""
     settings = get_settings()
     admin_id = admin_user.id if admin_user else None

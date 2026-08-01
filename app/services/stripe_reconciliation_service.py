@@ -340,7 +340,7 @@ def sync_from_stripe(
     if not settings.stripe_secret_key:
         raise FinancePeriodError(422, "STRIPE_NOT_CONFIGURED", "Stripe secret key is not configured.")
     try:
-        import stripe  # type: ignore[import-not-found]
+        import stripe
     except ImportError as exc:
         raise FinancePeriodError(503, "STRIPE_SDK_UNAVAILABLE", "Stripe SDK is unavailable.") from exc
     stripe.api_key = settings.stripe_secret_key

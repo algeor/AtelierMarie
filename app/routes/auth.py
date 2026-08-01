@@ -29,7 +29,7 @@ async def login(
     request: Request,
     session_id: Annotated[str, Depends(require_session)],
     redirect_to: str = Query(default="/"),
-) -> RedirectResponse:
+) -> Response:
     """Initiate Google OAuth login flow.
 
     Builds a signed state JWT (PKCE + session binding) and redirects

@@ -153,7 +153,7 @@ def _record_failure_event(
 
 def _safe_order(conn: sqlite3.Connection, order_id: str) -> dict[str, Any]:
     try:
-        return get_order_admin(conn, order_id)
+        return dict(get_order_admin(conn, order_id))
     except OrderNotFoundError:
         raise
 
@@ -563,6 +563,11 @@ async def cancel_order_shipment(
         blockers.append("shipment_already_cancelled")
     if blockers:
         raise SpeedyAdminValidationError("Speedy shipment cannot be cancelled", blockers=blockers)
+    if shipment_number is None:
+        raise SpeedyAdminValidationError(
+            "Speedy shipment cannot be cancelled",
+            blockers=["no_speedy_waybill"],
+        )
 
     username, password, _client_id = _settings_credentials()
     request_payload = {"shipmentId": shipment_number, "comment": comment}

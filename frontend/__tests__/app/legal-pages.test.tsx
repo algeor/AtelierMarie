@@ -11,6 +11,9 @@ vi.mock("@/i18n/navigation", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({
+  getPrivacy: vi.fn(async () => {
+    throw new Error("Use static fallback in test");
+  }),
   getCookies: vi.fn(async () => {
     throw new Error("Use static fallback in test");
   }),

@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import { getTranslations } from "next-intl/server";
 import type { Locale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
+import { getPrivacy } from "@/lib/api";
 import { loadLegalIdentity, policyPath } from "@/lib/legal";
 import { getLocalizedAlternates } from "@/lib/seo";
+import type { PrivacyResponse } from "@/lib/types";
 import enMessages from "@/messages/en.json";
 import bgMessages from "@/messages/bg.json";
 
@@ -33,20 +34,41 @@ function getPrivacyMessages(locale: Locale): PrivacyMessages {
   return (locale === "bg" ? bgMessages.privacy : enMessages.privacy) as PrivacyMessages;
 }
 
+function mapPrivacyResponse(privacy: PrivacyResponse): PrivacyMessages {
+  return {
+    metaTitle: privacy.meta_title,
+    metaDescription: privacy.meta_description,
+    eyebrow: privacy.eyebrow,
+    title: privacy.title,
+    subtitle: privacy.subtitle,
+    lastUpdated: privacy.last_updated,
+    controllerTitle: privacy.controller_title,
+    sections: privacy.sections,
+  };
+}
+
+async function getEditablePrivacyMessages(locale: Locale): Promise<PrivacyMessages> {
+  try {
+    return mapPrivacyResponse(await getPrivacy(locale));
+  } catch {
+    return getPrivacyMessages(locale);
+  }
+}
+
 export async function generateMetadata({ params }: PrivacyPageProps): Promise<Metadata> {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "privacy" });
+  const privacy = await getEditablePrivacyMessages(locale);
 
   return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
+    title: privacy.metaTitle,
+    description: privacy.metaDescription,
     alternates: getLocalizedAlternates(locale, policyPath("privacy")),
   };
 }
 
 export default async function PrivacyPage({ params }: PrivacyPageProps) {
   const { locale } = await params;
-  const privacy = getPrivacyMessages(locale);
+  const privacy = await getEditablePrivacyMessages(locale);
   const legal = locale === "bg" ? bgMessages.legal : enMessages.legal;
   const legalIdentity = await loadLegalIdentity();
 

@@ -427,6 +427,88 @@ export type UpdateTermsSectionRequest = Partial<
   >
 >;
 
+// --- Privacy Policy ---
+
+export interface PrivacySectionResponse {
+  id: string;
+  title: string;
+  nav: string;
+  body: string[];
+}
+
+export interface PrivacyResponse {
+  meta_title: string;
+  meta_description: string;
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+  last_updated: string;
+  controller_title: string;
+  sections: PrivacySectionResponse[];
+}
+
+export interface PrivacyPageAdminResponse {
+  id: string;
+  meta_title_en: string;
+  meta_title_bg: string | null;
+  meta_description_en: string;
+  meta_description_bg: string | null;
+  eyebrow_en: string;
+  eyebrow_bg: string | null;
+  title_en: string;
+  title_bg: string | null;
+  subtitle_en: string;
+  subtitle_bg: string | null;
+  last_updated_en: string;
+  last_updated_bg: string | null;
+  controller_title_en: string;
+  controller_title_bg: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PrivacySectionAdminResponse {
+  slug: string;
+  title_en: string;
+  title_bg: string | null;
+  nav_en: string;
+  nav_bg: string | null;
+  body_en: string[];
+  body_bg: string[] | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PrivacyAdminResponse {
+  page: PrivacyPageAdminResponse;
+  sections: PrivacySectionAdminResponse[];
+}
+
+export type UpdatePrivacyPageRequest = Partial<
+  Pick<
+    PrivacyPageAdminResponse,
+    | "meta_title_en"
+    | "meta_title_bg"
+    | "meta_description_en"
+    | "meta_description_bg"
+    | "eyebrow_en"
+    | "eyebrow_bg"
+    | "title_en"
+    | "title_bg"
+    | "subtitle_en"
+    | "subtitle_bg"
+    | "last_updated_en"
+    | "last_updated_bg"
+    | "controller_title_en"
+    | "controller_title_bg"
+  >
+>;
+
+export type UpdatePrivacySectionRequest = Partial<
+  Pick<PrivacySectionAdminResponse, "title_en" | "title_bg" | "nav_en" | "nav_bg" | "body_en" | "body_bg">
+>;
+
 // --- Cookie Policy ---
 
 export interface CookieHeadersResponse {

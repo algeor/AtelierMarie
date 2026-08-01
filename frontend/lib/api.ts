@@ -95,6 +95,10 @@ import type {
   ProductAnalyticsResponse,
   PublicPaymentSettingsResponse,
   ProductResponse,
+  PrivacyAdminResponse,
+  PrivacyPageAdminResponse,
+  PrivacyResponse,
+  PrivacySectionAdminResponse,
   ReactionCountsResponse,
   RecordCodSettlementRequest,
   ReactionToggleRequest,
@@ -114,6 +118,8 @@ import type {
   ReorderFaqItemsRequest,
   UpdateTermsPageRequest,
   UpdateTermsSectionRequest,
+  UpdatePrivacyPageRequest,
+  UpdatePrivacySectionRequest,
   UpdateCookieInventoryRequest,
   UpdateCookieSectionRequest,
   UpdateCookiesPageRequest,
@@ -506,6 +512,39 @@ export async function updateTermsSection(
   if (USE_MOCK) return (await getMock()).updateTermsSection(slug, data);
   return apiClient.patch<TermsSectionAdminResponse>(
     `/v1/admin/terms/sections/${encodeURIComponent(slug)}`,
+    data
+  );
+}
+
+// --- Privacy Policy ---
+
+export async function getPrivacy(locale?: Locale): Promise<PrivacyResponse> {
+  if (USE_MOCK) return (await getMock()).getPrivacy(locale);
+  const params = new URLSearchParams();
+  if (locale) params.set("locale", locale);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<PrivacyResponse>(`/v1/privacy${query}`);
+}
+
+export async function getAdminPrivacy(): Promise<PrivacyAdminResponse> {
+  if (USE_MOCK) return (await getMock()).getAdminPrivacy();
+  return apiClient.get<PrivacyAdminResponse>("/v1/admin/privacy");
+}
+
+export async function updatePrivacyPage(
+  data: UpdatePrivacyPageRequest
+): Promise<PrivacyPageAdminResponse> {
+  if (USE_MOCK) return (await getMock()).updatePrivacyPage(data);
+  return apiClient.patch<PrivacyPageAdminResponse>("/v1/admin/privacy/page", data);
+}
+
+export async function updatePrivacySection(
+  slug: string,
+  data: UpdatePrivacySectionRequest
+): Promise<PrivacySectionAdminResponse> {
+  if (USE_MOCK) return (await getMock()).updatePrivacySection(slug, data);
+  return apiClient.patch<PrivacySectionAdminResponse>(
+    `/v1/admin/privacy/sections/${encodeURIComponent(slug)}`,
     data
   );
 }

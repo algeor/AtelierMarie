@@ -1,6 +1,6 @@
 """Order endpoints — checkout, list, detail."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -169,9 +169,8 @@ async def create_order(
                 (session_id,),
             ).fetchone()
             user_id = row["user_id"] if row else None
-            locale = (
-                row["preferred_locale"] if row and row["preferred_locale"] in {"en", "bg"} else "en"
-            )
+            preferred_locale = row["preferred_locale"] if row else None
+            locale: Literal["en", "bg"] = "bg" if preferred_locale == "bg" else "en"
             analytics_consent = analytics_service.has_current_analytics_consent(session_id)
 
             # Resolve the order's contact email. A logged-in user may omit it and

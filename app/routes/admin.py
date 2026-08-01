@@ -5,7 +5,7 @@ import io
 import re
 import sqlite3
 from pathlib import Path
-from typing import Annotated, get_args
+from typing import Annotated, cast, get_args
 
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -2333,7 +2333,7 @@ def admin_list_orders(
     with get_db() as conn:
         result = list_orders_admin(
             conn=conn,
-            status=status,
+            status=cast(OrderStatus | None, status),
             payment_status=payment_status,
             payment_method=payment_method,
             review_filter=review_filter,
@@ -2372,11 +2372,13 @@ def admin_get_order_detail(order_id: str) -> AdminOrderDetailResponse:
         inventory_context = get_order_inventory_context(conn, order_id)
 
     payload = dict(order_data)
-    item_contexts = inventory_context.get("items", {})
-    payload["items"] = [
-        {**dict(item), **item_contexts.get(item["product_id"], {})}
-        for item in order_data["items"]
-    ]
+    raw_item_contexts = inventory_context.get("items", {})
+    item_contexts = raw_item_contexts if isinstance(raw_item_contexts, dict) else {}
+    payload_items = []
+    for item in order_data["items"]:
+        context = item_contexts.get(item["product_id"], {})
+        payload_items.append({**dict(item), **(context if isinstance(context, dict) else {})})
+    payload["items"] = payload_items
     payload["payment_events"] = payment_events
     payload["return_cases"] = return_cases
     payload["return_events"] = return_events

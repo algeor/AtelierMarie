@@ -187,6 +187,43 @@ CREATE TABLE IF NOT EXISTS terms_sections (
 
 CREATE INDEX IF NOT EXISTS idx_terms_sections_order ON terms_sections(sort_order, slug);
 
+-- Admin-managed Privacy Policy page. Section slugs are stable public anchors;
+-- only page labels and bilingual section text are editable.
+CREATE TABLE IF NOT EXISTS privacy_page (
+    id                    TEXT PRIMARY KEY CHECK (id = 'privacy'),
+    meta_title_en         TEXT NOT NULL,
+    meta_title_bg         TEXT,
+    meta_description_en   TEXT NOT NULL,
+    meta_description_bg   TEXT,
+    eyebrow_en            TEXT NOT NULL,
+    eyebrow_bg            TEXT,
+    title_en              TEXT NOT NULL,
+    title_bg              TEXT,
+    subtitle_en           TEXT NOT NULL,
+    subtitle_bg           TEXT,
+    last_updated_en       TEXT NOT NULL,
+    last_updated_bg       TEXT,
+    controller_title_en   TEXT NOT NULL,
+    controller_title_bg   TEXT,
+    created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS privacy_sections (
+    slug                  TEXT PRIMARY KEY,
+    title_en              TEXT NOT NULL,
+    title_bg              TEXT,
+    nav_en                TEXT NOT NULL,
+    nav_bg                TEXT,
+    body_en               TEXT NOT NULL,
+    body_bg               TEXT,
+    sort_order            INTEGER NOT NULL DEFAULT 0,
+    created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_privacy_sections_order ON privacy_sections(sort_order, slug);
+
 -- Admin-managed Cookie Policy page. Cookie names and section slugs are stable;
 -- user-facing labels and text are editable in both storefront languages.
 CREATE TABLE IF NOT EXISTS cookies_page (
@@ -1958,6 +1995,16 @@ BEGIN
     UPDATE terms_sections SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
 END;
 
+CREATE TRIGGER IF NOT EXISTS privacy_page_updated_at AFTER UPDATE ON privacy_page
+BEGIN
+    UPDATE privacy_page SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS privacy_sections_updated_at AFTER UPDATE ON privacy_sections
+BEGIN
+    UPDATE privacy_sections SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
 CREATE TRIGGER IF NOT EXISTS cookies_page_updated_at AFTER UPDATE ON cookies_page
 BEGIN
     UPDATE cookies_page SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
@@ -2352,6 +2399,7 @@ def init_db(path: str) -> None:
         _migrate_faq_returns_policy_reference(conn)
         _migrate_faq_uncollected_refused_reference(conn)
         _migrate_terms(conn)
+        _migrate_privacy(conn)
         _migrate_cookies(conn)
         _rebuild_product_fts(conn)
         conn.commit()
@@ -4313,6 +4361,127 @@ def _migrate_terms(conn: sqlite3.Connection) -> None:
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)",
             (_TERMS_SEED_MARKER,),
+        )
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+
+# ---------------------------------------------------------------------------
+# Privacy Policy content seed migration (admin-managed-privacy)
+# ---------------------------------------------------------------------------
+
+_PRIVACY_SEED_MARKER = "privacy_content_v1"
+
+_PRIVACY_PAGE_KEY_MAP = [
+    ("metaTitle", "meta_title"),
+    ("metaDescription", "meta_description"),
+    ("eyebrow", "eyebrow"),
+    ("title", "title"),
+    ("subtitle", "subtitle"),
+    ("lastUpdated", "last_updated"),
+    ("controllerTitle", "controller_title"),
+]
+
+_MINIMAL_PRIVACY_SEED = {
+    "metaTitle": "Privacy Policy | Atelier Marie",
+    "metaDescription": "How Atelier Marie processes personal data.",
+    "eyebrow": "Legal information",
+    "title": "Privacy Policy",
+    "subtitle": "This policy explains how we use personal data when you use the store.",
+    "lastUpdated": "Last updated",
+    "controllerTitle": "Controller details",
+    "sections": [
+        {
+            "id": "data",
+            "title": "Personal data we process",
+            "nav": "Data",
+            "body": ["We process personal data needed to operate Atelier Marie."],
+        }
+    ],
+}
+
+
+def _load_privacy_seed(locale: str) -> dict:
+    """Load the current frontend Privacy copy so first DB seed matches it."""
+    path = Path(__file__).resolve().parents[1] / "frontend" / "messages" / f"{locale}.json"
+    try:
+        with path.open(encoding="utf-8") as handle:
+            privacy = json.load(handle).get("privacy", {})
+            if isinstance(privacy, dict) and privacy:
+                return privacy
+    except (OSError, json.JSONDecodeError):
+        pass
+    return _MINIMAL_PRIVACY_SEED if locale == "en" else {}
+
+
+def _migrate_privacy(conn: sqlite3.Connection) -> None:
+    """Seed the editable Privacy Policy page exactly once from existing frontend copy."""
+    if _migration_applied(conn, _PRIVACY_SEED_MARKER):
+        return
+
+    en_privacy = _load_privacy_seed("en")
+    bg_privacy = _load_privacy_seed("bg")
+    if conn.in_transaction:
+        conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if _migration_applied(conn, _PRIVACY_SEED_MARKER):
+            conn.execute("ROLLBACK")
+            return
+
+        page_columns = ["id"]
+        page_values: list[object] = ["privacy"]
+        for json_key, column_prefix in _PRIVACY_PAGE_KEY_MAP:
+            page_columns.extend([f"{column_prefix}_en", f"{column_prefix}_bg"])
+            page_values.extend(
+                [
+                    _terms_seed_string(en_privacy, json_key)
+                    or _terms_seed_string(_MINIMAL_PRIVACY_SEED, json_key),
+                    _terms_seed_string(bg_privacy, json_key),
+                ]
+            )
+        placeholders = ", ".join("?" for _ in page_columns)
+        conn.execute(
+            f"INSERT OR IGNORE INTO privacy_page ({', '.join(page_columns)}) VALUES ({placeholders})",
+            page_values,
+        )
+
+        bg_sections = {
+            section.get("id"): section
+            for section in bg_privacy.get("sections", [])
+            if isinstance(section, dict)
+        }
+        section_rows = []
+        for sort_order, en_section in enumerate(en_privacy.get("sections", [])):
+            if not isinstance(en_section, dict) or not en_section.get("id"):
+                continue
+            slug = str(en_section["id"])
+            bg_section = bg_sections.get(slug, {})
+            section_rows.append(
+                (
+                    slug,
+                    _terms_seed_string(en_section, "title") or slug,
+                    _terms_seed_string(bg_section, "title"),
+                    _terms_seed_string(en_section, "nav") or slug,
+                    _terms_seed_string(bg_section, "nav"),
+                    _terms_seed_lines(en_section.get("body")) or "[]",
+                    _terms_seed_lines(bg_section.get("body")),
+                    sort_order,
+                )
+            )
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO privacy_sections (
+                slug, title_en, title_bg, nav_en, nav_bg, body_en, body_bg, sort_order
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            section_rows,
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)",
+            (_PRIVACY_SEED_MARKER,),
         )
         conn.execute("COMMIT")
     except Exception:

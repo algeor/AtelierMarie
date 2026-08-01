@@ -878,6 +878,8 @@ def checkout(
     """
     # Serialize delivery sub-object (office or door) into JSON blob.
     # ensure_ascii=False preserves Cyrillic — see HANDOFF gotcha #5.
+    delivery_details: dict[str, Any] | None
+    delivery_courier: str | None
     if delivery.method == "office" and delivery.office is not None:
         office_delivery = delivery.office
         if not delivery_settings_service.is_delivery_method_enabled(
@@ -1314,9 +1316,11 @@ def checkout(
         accounting_readiness_status=accounting_readiness_status,
         finance_period_id=None,
         document_reference_status="not_required",
-        payment_reconciliation_status="not_applicable",
+        payment_reconciliation_status=(
+            "pending" if initial_payment_status in {"pending", "cod_pending"} else "not_applicable"
+        ),
         payout_reconciliation_status="not_applicable",
-        cod_settlement_status="not_applicable",
+        cod_settlement_status="pending" if payment_method == "cod" else "not_applicable",
         blocking_exception_count=0,
         finance_hub_links=None,
         analytics_consent=analytics_consent,

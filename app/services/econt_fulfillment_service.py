@@ -6,6 +6,7 @@ client, persists shipment metadata, and records redacted audit events.
 
 import json
 import sqlite3
+from collections.abc import Mapping
 from typing import Any
 
 from app.config import Settings, get_settings
@@ -643,7 +644,7 @@ def _raise_if_not_ready(conn: sqlite3.Connection, order_id: str, *, require_stat
         raise EcontFulfillmentValidationError("Econt order is not ready", blockers=blockers)
 
 
-def _customer_info(order: dict[str, Any], details: dict[str, Any]) -> EcontCustomerInfo:
+def _customer_info(order: Mapping[str, Any], details: dict[str, Any]) -> EcontCustomerInfo:
     name = order.get("customer_name") or order.get("customer_email") or "Atelier Marie customer"
     if order["delivery_method"] == "office":
         office = delivery_service.get_office("econt", details["office_id"], locale="bg")
