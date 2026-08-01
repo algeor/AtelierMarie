@@ -15,7 +15,9 @@ RecipeReviewState = Literal["estimate", "reviewed", "accountant_reviewed", "inva
 QuantityBasis = Literal["per_unit", "per_batch"]
 ProductionBatchStatus = Literal["draft", "produced", "cancelled"]
 ValuationMethod = Literal["weighted_average", "fifo"]
-COGSDateBasis = Literal["order_date", "payment_date", "shipment_date", "delivery_date", "period_close"]
+COGSDateBasis = Literal[
+    "order_date", "payment_date", "shipment_date", "delivery_date", "period_close"
+]
 
 
 def _blank_to_none(value: str | None) -> str | None:

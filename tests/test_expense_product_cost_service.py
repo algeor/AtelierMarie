@@ -125,9 +125,13 @@ async def test_expense_evidence_crud_payment_status_and_exception(admin_client, 
 
 
 @pytest.mark.asyncio
-async def test_product_cost_versions_effective_lookup_and_missing_diagnostics(admin_client, db, app):
+async def test_product_cost_versions_effective_lookup_and_missing_diagnostics(
+    admin_client, db, app
+):
     _seed_product_and_order(db, app, product_id="costed-candle", order_id="costed-order")
-    _seed_product_and_order(db, app, product_id="missing-cost-candle", order_id="missing-cost-order")
+    _seed_product_and_order(
+        db, app, product_id="missing-cost-candle", order_id="missing-cost-order"
+    )
 
     create_resp = await admin_client.post(
         "/v1/admin/accounting/product-costs",
@@ -201,9 +205,7 @@ async def test_product_cost_versions_effective_lookup_and_missing_diagnostics(ad
         f"/v1/admin/accounting/product-costs/missing?period_id={period_id}"
     )
     assert missing_resp.status_code == 200
-    assert {item["product_id"] for item in missing_resp.json()["items"]} == {
-        "missing-cost-candle"
-    }
+    assert {item["product_id"] for item in missing_resp.json()["items"]} == {"missing-cost-candle"}
 
     ledger_resp = await admin_client.get(
         f"/v1/admin/accounting/periods/{period_id}/ledgers/product_costs"

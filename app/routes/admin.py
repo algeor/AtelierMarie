@@ -16,13 +16,8 @@ from app.constants import MAX_CSV_ROWS, MAX_CSV_UPLOAD_BYTES, MAX_PRICE_CENTS, M
 from app.database import get_db
 from app.dependencies.auth import require_admin
 from app.middleware.request_id import request_id_var
-from app.models.admin import (
-    AdminAlertListResponse,
-    AdminAlertResponse,
-    DashboardResponse,
-    LowStockProductsResponse,
-)
 from app.models.accounting import (
+    AccountantAcceptanceRequest,
     AccountingConfigurationResponse,
     AccountingDocumentListResponse,
     AccountingDocumentRequest,
@@ -30,30 +25,29 @@ from app.models.accounting import (
     AccountingLedgerResponse,
     CategoryMappingRequest,
     CategoryMappingResponse,
-    ExpenseEvidenceSettingsRequest,
-    ExpenseEvidenceSettingsResponse,
     ExpenseEvidenceListResponse,
     ExpenseEvidenceRequest,
     ExpenseEvidenceResponse,
+    ExpenseEvidenceSettingsRequest,
+    ExpenseEvidenceSettingsResponse,
     ExpensePaymentStatusRequest,
-    AccountantAcceptanceRequest,
+    ExportSchemaSettingsRequest,
+    ExportSchemaSettingsResponse,
     FinanceExceptionActionRequest,
     FinanceExceptionListResponse,
     FinanceExceptionResponse,
+    FinanceExportPackageListResponse,
+    FinanceExportPackageResponse,
     FinancePeriodActionRequest,
     FinancePeriodCreateRequest,
     FinancePeriodListResponse,
     FinancePeriodResponse,
-    FinanceExportPackageListResponse,
-    FinanceExportPackageResponse,
-    ExportSchemaSettingsRequest,
-    ExportSchemaSettingsResponse,
+    MissingProductCostDiagnosticsResponse,
     ProductCostSettingsRequest,
     ProductCostSettingsResponse,
     ProductCostVersionListResponse,
     ProductCostVersionRequest,
     ProductCostVersionResponse,
-    MissingProductCostDiagnosticsResponse,
     SellerLegalProfileRequest,
     SellerLegalProfileResponse,
     StripeBalanceImportResponse,
@@ -61,6 +55,12 @@ from app.models.accounting import (
     StripePayoutMatchReviewRequest,
     VatFiscalSettingsRequest,
     VatFiscalSettingsResponse,
+)
+from app.models.admin import (
+    AdminAlertListResponse,
+    AdminAlertResponse,
+    DashboardResponse,
+    LowStockProductsResponse,
 )
 from app.models.analytics import (
     AnalyticsFunnelResponse,
@@ -94,16 +94,6 @@ from app.models.orders import (
     PaymentStatus,
     UpdateOrderStatusRequest,
 )
-from app.models.returns import (
-    CodSettlementResponse,
-    CreateReturnCaseRequest,
-    CreateStripeRefundRequest,
-    InspectReturnCaseRequest,
-    PaymentRefundResponse,
-    RecordCodSettlementRequest,
-    ReturnCaseResponse,
-    UpdateReturnAccountingRequest,
-)
 from app.models.products import (
     MAX_CATEGORY_LENGTH,
     MAX_DAYS_TO_CRAFT,
@@ -125,6 +115,16 @@ from app.models.products import (
     UpdateProductVideoRequest,
 )
 from app.models.promotions import BulkDiscountRequest, BulkDiscountResponse
+from app.models.returns import (
+    CodSettlementResponse,
+    CreateReturnCaseRequest,
+    CreateStripeRefundRequest,
+    InspectReturnCaseRequest,
+    PaymentRefundResponse,
+    RecordCodSettlementRequest,
+    ReturnCaseResponse,
+    UpdateReturnAccountingRequest,
+)
 from app.models.speedy import (
     SpeedyActionResponse,
     SpeedyAdminOverviewResponse,
@@ -222,18 +222,20 @@ from app.services.return_service import (
     list_refunds_for_order,
     list_return_cases_for_order,
     list_return_events_for_order,
-    record_cod_settlement,
     receive_return_case,
+    record_cod_settlement,
     update_return_accounting,
 )
+from app.services.speedy_admin_service import SpeedyAdminValidationError
 from app.services.speedy_client import (
     LabelPrintError,
     SpeedyError,
     get_speedy_circuit_breaker,
     print_label,
+)
+from app.services.speedy_client import (
     track_shipment_with_details as track_shipment,
 )
-from app.services.speedy_admin_service import SpeedyAdminValidationError
 from app.services.taxonomy_service import TaxonomyValidationError
 from app.services.video_service import (
     FfmpegUnavailableError,
@@ -2282,7 +2284,9 @@ def admin_list_orders(
     payment_status: str | None = Query(default=None, description="Filter by payment status"),
     payment_method: str | None = Query(default=None, description="Filter by payment method"),
     review_filter: str | None = Query(default=None, description="Filter operational review queues"),
-    accounting_filter: str | None = Query(default=None, description="Filter accounting readiness queues"),
+    accounting_filter: str | None = Query(
+        default=None, description="Filter accounting readiness queues"
+    ),
     finance_period_id: str | None = Query(default=None, description="Filter by finance period id"),
     page: int = Query(default=1, ge=1, description="Page number"),
     limit: int = Query(default=20, ge=1, le=100, description="Items per page"),

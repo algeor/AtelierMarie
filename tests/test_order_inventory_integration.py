@@ -83,7 +83,9 @@ def _seed_product(
     conn.commit()
 
 
-def _add_cart_item(conn: sqlite3.Connection, session_id: str, product_id: str, quantity: int) -> None:
+def _add_cart_item(
+    conn: sqlite3.Connection, session_id: str, product_id: str, quantity: int
+) -> None:
     conn.execute(
         "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, ?, ?)",
         (session_id, product_id, quantity),
@@ -118,12 +120,14 @@ def test_checkout_records_sale_issue_only_for_ledger_managed_products(ledger_con
         delivery=_delivery(),
     )
 
-    assert ledger_conn.execute(
-        "SELECT stock FROM products WHERE id = 'ledger-candle'"
-    ).fetchone()[0] == 8
-    assert ledger_conn.execute(
-        "SELECT stock FROM products WHERE id = 'legacy-candle'"
-    ).fetchone()[0] == 9
+    assert (
+        ledger_conn.execute("SELECT stock FROM products WHERE id = 'ledger-candle'").fetchone()[0]
+        == 8
+    )
+    assert (
+        ledger_conn.execute("SELECT stock FROM products WHERE id = 'legacy-candle'").fetchone()[0]
+        == 9
+    )
 
     movements = _movement_rows(ledger_conn, "ledger-candle")
     assert [(row["movement_type"], row["quantity_delta"]) for row in movements] == [
@@ -131,7 +135,9 @@ def test_checkout_records_sale_issue_only_for_ledger_managed_products(ledger_con
     ]
     assert movements[0]["order_id"] == order["id"]
     assert movements[0]["order_item_key"] == f"{order['id']}:ledger-candle"
-    order_movements, order_movement_total = inventory_service.list_inventory_movements(order_id=order["id"])
+    order_movements, order_movement_total = inventory_service.list_inventory_movements(
+        order_id=order["id"]
+    )
     assert order_movement_total == 1
     assert order_movements[0].id == movements[0]["id"]
     assert _movement_rows(ledger_conn, "legacy-candle") == []
@@ -156,9 +162,10 @@ def test_cancellation_reverses_ledger_sale_issue_movement(ledger_conn):
     reversal = next(row for row in movements if row["movement_type"] == "cancellation_reversal")
     assert reversal["quantity_delta"] == 2.0
     assert reversal["reversal_of_movement_id"] == sale["id"]
-    assert ledger_conn.execute(
-        "SELECT stock FROM products WHERE id = 'ledger-candle'"
-    ).fetchone()[0] == 10
+    assert (
+        ledger_conn.execute("SELECT stock FROM products WHERE id = 'ledger-candle'").fetchone()[0]
+        == 10
+    )
 
 
 def test_return_inspection_creates_ledger_restock_and_write_off_movements(ledger_conn):
@@ -184,9 +191,10 @@ def test_return_inspection_creates_ledger_restock_and_write_off_movements(ledger
         admin_email="owner@example.com",
     )
 
-    assert ledger_conn.execute(
-        "SELECT stock FROM products WHERE id = 'ledger-candle'"
-    ).fetchone()[0] == 9
+    assert (
+        ledger_conn.execute("SELECT stock FROM products WHERE id = 'ledger-candle'").fetchone()[0]
+        == 9
+    )
     movements = _movement_rows(ledger_conn, "ledger-candle")
     assert sorted(row["movement_type"] for row in movements) == [
         "return_restock",
@@ -203,10 +211,13 @@ def test_return_inspection_creates_ledger_restock_and_write_off_movements(ledger
         and row["id"] == write_off["reversal_of_movement_id"]
     )
     assert received_for_write_off["quantity_delta"] == 1.0
-    assert ledger_conn.execute(
-        "SELECT exception_type FROM inventory_exceptions WHERE source_id = ?",
-        (case["id"],),
-    ).fetchone()[0] == "returned_item_write_off_review"
+    assert (
+        ledger_conn.execute(
+            "SELECT exception_type FROM inventory_exceptions WHERE source_id = ?",
+            (case["id"],),
+        ).fetchone()[0]
+        == "returned_item_write_off_review"
+    )
 
 
 def test_cogs_rows_use_payment_date_source_movement_and_return_reversal(ledger_conn):

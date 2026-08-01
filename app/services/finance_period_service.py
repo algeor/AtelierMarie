@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import date
 import json
 import sqlite3
 import uuid
+from datetime import date
 from typing import Any
 
 from app.database import get_db
@@ -139,9 +139,7 @@ def _get_period_row(conn: sqlite3.Connection, period_id: str) -> sqlite3.Row:
 
 
 def _get_exception_row(conn: sqlite3.Connection, exception_id: str) -> sqlite3.Row:
-    row = conn.execute(
-        "SELECT * FROM finance_exceptions WHERE id = ?", (exception_id,)
-    ).fetchone()
+    row = conn.execute("SELECT * FROM finance_exceptions WHERE id = ?", (exception_id,)).fetchone()
     if row is None:
         raise FinancePeriodError(404, "FINANCE_EXCEPTION_NOT_FOUND", "Finance exception not found.")
     return row
@@ -261,7 +259,9 @@ def _period_order_clause() -> str:
     return "substr(o.created_at, 1, 10) BETWEEN ? AND ? AND o.status != 'cancelled'"
 
 
-def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, object]]:
+def _collect_exception_specs(
+    conn: sqlite3.Connection, period: sqlite3.Row
+) -> list[dict[str, object]]:
     period_start = period["period_start"]
     period_end = period["period_end"]
     specs = _settings_exception_specs(conn)
@@ -313,7 +313,7 @@ def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> l
             SELECT o.id, o.order_number, o.payment_method
             FROM orders o
             WHERE {_period_order_clause()}
-              AND o.payment_method IN ({','.join('?' for _ in required_document_methods)})
+              AND o.payment_method IN ({",".join("?" for _ in required_document_methods)})
               AND NOT EXISTS (
                   SELECT 1 FROM accounting_documents d
                   WHERE d.order_id = o.id
@@ -340,7 +340,7 @@ def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> l
         FROM orders o
         WHERE {_period_order_clause()}
           AND o.payment_method IN ('card', 'bank_transfer')
-          AND o.payment_status IN ({','.join('?' for _ in _PAID_PAYMENT_STATUSES)})
+          AND o.payment_status IN ({",".join("?" for _ in _PAID_PAYMENT_STATUSES)})
           AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.order_id = o.id)
         """,
         (period_start, period_end, *_PAID_PAYMENT_STATUSES),
@@ -353,7 +353,10 @@ def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> l
                 "target_type": "order",
                 "target_id": row["id"],
                 "message": f"Order {row['order_number'] or row['id']} is marked paid without payment evidence.",
-                "details": {"payment_method": row["payment_method"], "payment_status": row["payment_status"]},
+                "details": {
+                    "payment_method": row["payment_method"],
+                    "payment_status": row["payment_status"],
+                },
             }
         )
 
@@ -465,7 +468,7 @@ def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> l
             SELECT id, supplier_name, category_key, gross_amount_cents
             FROM expense_evidence
             WHERE purchase_date BETWEEN ? AND ?
-              AND category_key IN ({','.join('?' for _ in required_expense_categories)})
+              AND category_key IN ({",".join("?" for _ in required_expense_categories)})
               AND COALESCE(document_number, '') = ''
               AND COALESCE(attachment_reference, '') = ''
             """,
@@ -762,7 +765,9 @@ def _upsert_exception(
     )
 
 
-def refresh_period_exceptions(conn: sqlite3.Connection, period_id: str) -> list[FinanceExceptionResponse]:
+def refresh_period_exceptions(
+    conn: sqlite3.Connection, period_id: str
+) -> list[FinanceExceptionResponse]:
     """Recompute engine-managed exceptions for a period and return open rows."""
     period = _get_period_row(conn, period_id)
     desired_specs = _collect_exception_specs(conn, period)
@@ -779,7 +784,11 @@ def refresh_period_exceptions(conn: sqlite3.Connection, period_id: str) -> list[
     ).fetchall():
         details = _json_loads(row["details_json"], {})
         key = (row["exception_type"], row["target_type"] or "", row["target_id"] or "")
-        if isinstance(details, dict) and details.get("generated_by") == _ENGINE_MARKER and key not in desired_keys:
+        if (
+            isinstance(details, dict)
+            and details.get("generated_by") == _ENGINE_MARKER
+            and key not in desired_keys
+        ):
             conn.execute(
                 """
                 UPDATE finance_exceptions
@@ -1120,7 +1129,11 @@ def close_period(
                 409,
                 "FINANCE_PERIOD_CLOSE_BLOCKED",
                 "Cannot close finance period while blocking exceptions are open.",
-                {"blocking_exceptions": [_exception_from_row(row).model_dump() for row in blocking]},
+                {
+                    "blocking_exceptions": [
+                        _exception_from_row(row).model_dump() for row in blocking
+                    ]
+                },
             )
         summary = calculate_summary_totals(conn, period)
         now = pricing.now_utc()

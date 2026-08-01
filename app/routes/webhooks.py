@@ -16,11 +16,11 @@ from app.services.payment_service import (
     StripeWebhookVerificationError,
     _now_str,
     construct_stripe_webhook_event,
-    handle_dispute_event,
     handle_charge_refunded,
+    handle_dispute_event,
     handle_payment_failed,
-    handle_refund_updated,
     handle_payment_succeeded,
+    handle_refund_updated,
     handle_session_expired,
 )
 from app.services.webhook_service import (
@@ -164,9 +164,7 @@ async def stripe_webhook(request: Request) -> JSONResponse:
             handle_session_expired(conn, event_id, order_id, stripe_session_id, now)
         elif event_type == "payment_intent.payment_failed":
             last_error = _stripe_value(event_obj, "last_payment_error")
-            error_code = _stripe_str(last_error, "code") or _stripe_str(
-                last_error, "decline_code"
-            )
+            error_code = _stripe_str(last_error, "code") or _stripe_str(last_error, "decline_code")
             handle_payment_failed(
                 conn,
                 event_id,

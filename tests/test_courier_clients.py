@@ -685,9 +685,7 @@ class TestSpeedyTrack:
             "parcels": [
                 {
                     "id": "123",
-                    "operations": [
-                        {"description": "Returned to sender", "operationCode": 42}
-                    ],
+                    "operations": [{"description": "Returned to sender", "operationCode": 42}],
                 }
             ]
         }
@@ -762,7 +760,9 @@ class TestSpeedyOperationalClient:
     @pytest.mark.asyncio
     async def test_search_info_cancel_and_pickup_payloads_use_official_keys(self):
         captured = []
-        factory = _client_factory_for(response=_FakeResponse(200, {"barcodes": ["111"]}), captured=captured)
+        factory = _client_factory_for(
+            response=_FakeResponse(200, {"barcodes": ["111"]}), captured=captured
+        )
         assert await speedy_client.find_parcels_by_reference(
             "order-1",
             username="user",

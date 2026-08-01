@@ -40,9 +40,12 @@ def _run(label: str, recipient: dict, service_ids: list[int]) -> None:
     print(f"[{label}] {'LIVE ✅' if calcs else 'no-calc'} http={r.status_code}")
     for cc in calcs[:4]:
         print(
-            "   serviceId=", cc.get("serviceId"),
-            "deadline=", cc.get("deliveryDeadline"),
-            "price=", json.dumps(cc.get("price", {}))[:140],
+            "   serviceId=",
+            cc.get("serviceId"),
+            "deadline=",
+            cc.get("deliveryDeadline"),
+            "price=",
+            json.dumps(cc.get("price", {}))[:140],
         )
     if err:
         print("   err:", err.get("context"), "|", err.get("message", "")[:70])

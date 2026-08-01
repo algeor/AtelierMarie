@@ -313,7 +313,9 @@ def build_order_payload(conn: sqlite3.Connection, order_id: str) -> EcontOrderPa
         return_parcel_destination=(
             row["return_parcel_destination"] if order["delivery_method"] == "office" else None
         ),
-        days_until_return=row["days_until_return"] if order["delivery_method"] == "office" else None,
+        days_until_return=row["days_until_return"]
+        if order["delivery_method"] == "office"
+        else None,
         return_parcel_payment_side=(
             row["return_parcel_payment_side"] if order["delivery_method"] == "office" else None
         ),

@@ -62,9 +62,7 @@ def get_dashboard_stats() -> dict:
         ).fetchone()
 
     orders_by_status = {row["status"]: row["count"] for row in status_rows}
-    orders_by_payment_status = {
-        row["payment_status"]: row["count"] for row in payment_status_rows
-    }
+    orders_by_payment_status = {row["payment_status"]: row["count"] for row in payment_status_rows}
 
     return {
         "products": {

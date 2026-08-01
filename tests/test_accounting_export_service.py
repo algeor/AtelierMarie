@@ -1,10 +1,10 @@
 """Accounting export package builder tests."""
 
-from pathlib import Path
 import sqlite3
+from pathlib import Path
 
-from openpyxl import load_workbook
 import pytest
+from openpyxl import load_workbook
 
 
 def _seed_reviewed_settings(db: sqlite3.Connection) -> tuple[int, int]:
@@ -191,7 +191,9 @@ async def _closed_period(admin_client) -> str:
 
 
 @pytest.mark.asyncio
-async def test_export_package_generation_manifest_download_accept_and_versioning(admin_client, db, app):
+async def test_export_package_generation_manifest_download_accept_and_versioning(
+    admin_client, db, app
+):
     seller_id, vat_id = _seed_reviewed_settings(db)
     _seed_paid_order(db, app, seller_id=seller_id, vat_id=vat_id)
     _seed_inventory_export_data(db)

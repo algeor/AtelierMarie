@@ -6,7 +6,9 @@ import sqlite3
 import pytest
 
 
-def _seed_settings(db: sqlite3.Connection, *, document_rules: dict[str, object] | None = None) -> tuple[int, int]:
+def _seed_settings(
+    db: sqlite3.Connection, *, document_rules: dict[str, object] | None = None
+) -> tuple[int, int]:
     db.execute(
         """
         INSERT INTO seller_legal_profile_versions (
@@ -138,17 +140,20 @@ async def test_accounting_document_crud_credit_note_validation_and_audit(admin_c
     update_resp = await admin_client.put(
         f"/v1/admin/accounting/documents/{invoice['id']}",
         json={
-            **{key: invoice[key] for key in (
-                "document_type",
-                "source_system",
-                "issue_date",
-                "order_id",
-                "currency",
-                "net_amount_cents",
-                "tax_amount_cents",
-                "gross_amount_cents",
-                "status",
-            )},
+            **{
+                key: invoice[key]
+                for key in (
+                    "document_type",
+                    "source_system",
+                    "issue_date",
+                    "order_id",
+                    "currency",
+                    "net_amount_cents",
+                    "tax_amount_cents",
+                    "gross_amount_cents",
+                    "status",
+                )
+            },
             "document_number": "INV-100-UPDATED",
             "vat_summary": invoice["vat_summary"],
         },
@@ -162,7 +167,9 @@ async def test_accounting_document_crud_credit_note_validation_and_audit(admin_c
 
     actions = [
         row["action"]
-        for row in db.execute("SELECT action FROM finance_audit_events ORDER BY created_at").fetchall()
+        for row in db.execute(
+            "SELECT action FROM finance_audit_events ORDER BY created_at"
+        ).fetchall()
     ]
     assert actions.count("accounting_document.create") == 2
     assert "accounting_document.update" in actions

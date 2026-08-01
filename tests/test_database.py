@@ -354,9 +354,7 @@ class TestReturnRefundSettlementSchema:
                 (order_id,),
             )
 
-    def test_cod_settlement_flags_mismatch_and_is_one_per_order(
-        self, db_conn: sqlite3.Connection
-    ):
+    def test_cod_settlement_flags_mismatch_and_is_one_per_order(self, db_conn: sqlite3.Connection):
         order_id = self._insert_order(db_conn)
         db_conn.execute(
             """
@@ -406,8 +404,7 @@ class TestAccountingFinanceHubSchema:
             "finance_exceptions",
         }
         tables = {
-            row[0]
-            for row in db_conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+            row[0] for row in db_conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
         assert expected_tables.issubset(tables)
 
@@ -439,9 +436,7 @@ class TestAccountingFinanceHubSchema:
         ).fetchone()
         assert row == ("EUR", "unreviewed", "unreviewed")
 
-    def test_finance_period_status_and_dates_are_constrained(
-        self, db_conn: sqlite3.Connection
-    ):
+    def test_finance_period_status_and_dates_are_constrained(self, db_conn: sqlite3.Connection):
         db_conn.execute(
             """
             INSERT INTO finance_periods (id, period_start, period_end, currency, status)
@@ -463,9 +458,7 @@ class TestAccountingFinanceHubSchema:
                 """
             )
 
-    def test_accounting_document_and_credit_note_reference_shape(
-        self, db_conn: sqlite3.Connection
-    ):
+    def test_accounting_document_and_credit_note_reference_shape(self, db_conn: sqlite3.Connection):
         db_conn.execute(
             """
             INSERT INTO accounting_documents (
@@ -491,9 +484,7 @@ class TestAccountingFinanceHubSchema:
                 """
             )
 
-    def test_stripe_balance_transaction_provider_id_is_unique(
-        self, db_conn: sqlite3.Connection
-    ):
+    def test_stripe_balance_transaction_provider_id_is_unique(self, db_conn: sqlite3.Connection):
         for row_id in ("stripe-btxn-1", "stripe-btxn-2"):
             with pytest.raises(sqlite3.IntegrityError) if row_id.endswith("2") else nullcontext():
                 db_conn.execute(

@@ -3016,9 +3016,7 @@ def _backfill_order_payment_summary(conn: sqlite3.Connection) -> None:
     if not required.issubset(columns):
         return
 
-    sequence = conn.execute(
-        "SELECT COALESCE(MAX(internal_sequence), 0) FROM orders"
-    ).fetchone()[0]
+    sequence = conn.execute("SELECT COALESCE(MAX(internal_sequence), 0) FROM orders").fetchone()[0]
     rows = conn.execute(
         "SELECT id FROM orders WHERE internal_sequence IS NULL ORDER BY created_at, id"
     ).fetchall()
@@ -3149,7 +3147,11 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
     if _table_exists(conn, "cookies_inventory"):
         cookie_columns = _table_columns(conn, "cookies_inventory")
         _add_column_if_missing(
-            conn, "cookies_inventory", cookie_columns, "source", "source TEXT NOT NULL DEFAULT 'seed'"
+            conn,
+            "cookies_inventory",
+            cookie_columns,
+            "source",
+            "source TEXT NOT NULL DEFAULT 'seed'",
         )
         _add_column_if_missing(
             conn, "cookies_inventory", cookie_columns, "first_seen_at", "first_seen_at TEXT"

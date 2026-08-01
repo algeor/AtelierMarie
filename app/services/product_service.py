@@ -40,9 +40,7 @@ class LedgerManagedStockEditError(Exception):
 
     def __init__(self, product_id: str) -> None:
         self.product_id = product_id
-        super().__init__(
-            "Ledger-managed product stock must be changed through inventory movements"
-        )
+        super().__init__("Ledger-managed product stock must be changed through inventory movements")
 
 
 BULK_DISCOUNT_TARGET_LIMIT = 500

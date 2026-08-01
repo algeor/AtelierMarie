@@ -61,7 +61,9 @@ def _document_from_row(row: sqlite3.Row) -> AccountingDocumentResponse:
 def _get_document_row(conn: sqlite3.Connection, document_id: str) -> sqlite3.Row:
     row = conn.execute("SELECT * FROM accounting_documents WHERE id = ?", (document_id,)).fetchone()
     if row is None:
-        raise FinancePeriodError(404, "ACCOUNTING_DOCUMENT_NOT_FOUND", "Accounting document not found.")
+        raise FinancePeriodError(
+            404, "ACCOUNTING_DOCUMENT_NOT_FOUND", "Accounting document not found."
+        )
     return row
 
 
@@ -74,12 +76,25 @@ def _validate_document(conn: sqlite3.Connection, body: AccountingDocumentRequest
         )
     if body.original_document_id:
         _get_document_row(conn, body.original_document_id)
-    if body.order_id and conn.execute("SELECT 1 FROM orders WHERE id = ?", (body.order_id,)).fetchone() is None:
+    if (
+        body.order_id
+        and conn.execute("SELECT 1 FROM orders WHERE id = ?", (body.order_id,)).fetchone() is None
+    ):
         raise FinancePeriodError(404, "ORDER_NOT_FOUND", "Linked order not found.")
-    if body.refund_id and conn.execute("SELECT 1 FROM payment_refunds WHERE id = ?", (body.refund_id,)).fetchone() is None:
+    if (
+        body.refund_id
+        and conn.execute("SELECT 1 FROM payment_refunds WHERE id = ?", (body.refund_id,)).fetchone()
+        is None
+    ):
         raise FinancePeriodError(404, "REFUND_NOT_FOUND", "Linked refund not found.")
-    if body.period_id and conn.execute("SELECT 1 FROM finance_periods WHERE id = ?", (body.period_id,)).fetchone() is None:
-        raise FinancePeriodError(404, "FINANCE_PERIOD_NOT_FOUND", "Linked finance period not found.")
+    if (
+        body.period_id
+        and conn.execute("SELECT 1 FROM finance_periods WHERE id = ?", (body.period_id,)).fetchone()
+        is None
+    ):
+        raise FinancePeriodError(
+            404, "FINANCE_PERIOD_NOT_FOUND", "Linked finance period not found."
+        )
 
 
 def list_documents(

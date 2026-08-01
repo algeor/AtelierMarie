@@ -306,7 +306,9 @@ def update_return_accounting(
         payload["courier_claim_status"] = courier_claim_status
     if courier_claim_amount_cents is not None:
         if courier_claim_amount_cents < 0:
-            raise InvalidReturnValueError("courier_claim_amount_cents", str(courier_claim_amount_cents))
+            raise InvalidReturnValueError(
+                "courier_claim_amount_cents", str(courier_claim_amount_cents)
+            )
         assignments.append("courier_claim_amount_cents = ?")
         params.append(courier_claim_amount_cents)
         payload["courier_claim_amount_cents"] = courier_claim_amount_cents

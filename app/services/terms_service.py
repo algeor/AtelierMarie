@@ -235,9 +235,7 @@ def get_public_terms(locale: str | None = "en") -> dict:
                 "title": _localized_text(row, "title", resolved),
                 "nav": _localized_text(row, "nav", resolved),
                 "body": _localized_lines(row, "body", resolved),
-                "model_form_title": _localized_optional_text(
-                    row, "model_form_title", resolved
-                ),
+                "model_form_title": _localized_optional_text(row, "model_form_title", resolved),
                 "model_form_intro": _localized_optional_text(row, "model_form_intro", resolved),
                 "model_form_lines": _localized_optional_lines(row, "model_form_lines", resolved),
             }

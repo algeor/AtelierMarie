@@ -553,9 +553,9 @@ async def create_stripe_refund_async(
             (order_id,),
         ).fetchone()
         payment_id = payment["id"] if payment else None
-        payment_intent_id = (
-            payment["stripe_payment_intent_id"] if payment else None
-        ) or order["stripe_payment_intent_id"]
+        payment_intent_id = (payment["stripe_payment_intent_id"] if payment else None) or order[
+            "stripe_payment_intent_id"
+        ]
         if not payment_intent_id:
             raise StripeRefundActionError(
                 "MISSING_STRIPE_PAYMENT_INTENT",
@@ -1224,7 +1224,9 @@ def handle_refund_updated(
             refund_amount = int(refund["amount_cents"])
         else:
             resolved_order_id = _order_id_for_payment_intent(conn, payment_intent_id)
-            payment_id = _payment_id_for_order(conn, resolved_order_id) if resolved_order_id else None
+            payment_id = (
+                _payment_id_for_order(conn, resolved_order_id) if resolved_order_id else None
+            )
             refund_amount = amount_cents or 0
 
         provider_status = status or "unknown"
@@ -1251,7 +1253,9 @@ def handle_refund_updated(
                 "SELECT total_cents FROM orders WHERE id = ?",
                 (resolved_order_id,),
             ).fetchone()["total_cents"]
-            new_payment_status = "refunded" if int(total_refunded) >= int(order_total) else "partially_refunded"
+            new_payment_status = (
+                "refunded" if int(total_refunded) >= int(order_total) else "partially_refunded"
+            )
             conn.execute(
                 "UPDATE orders SET payment_status = ?, updated_at = ? WHERE id = ?",
                 (new_payment_status, now, resolved_order_id),
