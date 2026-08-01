@@ -37,6 +37,7 @@ from app.routes import (
     locale,
     orders,
     payment_settings,
+    privacy,
     products,
     promotions,
     reactions,
@@ -522,6 +523,10 @@ def create_app() -> FastAPI:
     application.include_router(faq.admin_router, prefix="/v1/admin/faq", tags=["admin-faq"])
     application.include_router(terms.public_router, prefix="/v1/terms", tags=["terms"])
     application.include_router(terms.admin_router, prefix="/v1/admin/terms", tags=["admin-terms"])
+    application.include_router(privacy.public_router, prefix="/v1/privacy", tags=["privacy"])
+    application.include_router(
+        privacy.admin_router, prefix="/v1/admin/privacy", tags=["admin-privacy"]
+    )
     application.include_router(cookies.public_router, prefix="/v1/cookies", tags=["cookies"])
     application.include_router(
         cookies.admin_router, prefix="/v1/admin/cookies", tags=["admin-cookies"]

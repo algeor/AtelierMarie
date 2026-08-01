@@ -94,6 +94,10 @@ import type {
   PatchAboutSectionRequest,
   ProductListResponse,
   ProductImage,
+  PrivacyAdminResponse,
+  PrivacyPageAdminResponse,
+  PrivacyResponse,
+  PrivacySectionAdminResponse,
   PublicPaymentSettingsResponse,
   RecordCodSettlementRequest,
   ReturnCaseResponse,
@@ -113,6 +117,8 @@ import type {
   ReorderFaqItemsRequest,
   UpdateTermsPageRequest,
   UpdateTermsSectionRequest,
+  UpdatePrivacyPageRequest,
+  UpdatePrivacySectionRequest,
   UpdateCookieInventoryRequest,
   UpdateCookieSectionRequest,
   UpdateCookiesPageRequest,
@@ -1267,6 +1273,68 @@ function cloneAdminTerms(): TermsAdminResponse {
       body_bg: section.body_bg ? [...section.body_bg] : null,
       model_form_lines_en: section.model_form_lines_en ? [...section.model_form_lines_en] : null,
       model_form_lines_bg: section.model_form_lines_bg ? [...section.model_form_lines_bg] : null,
+    })),
+  };
+}
+
+// --- Privacy Policy Mock ---
+
+type StaticPrivacy = typeof enMessages.privacy;
+type StaticPrivacySection = StaticPrivacy["sections"][number];
+
+const mockPrivacyTimestamp = "2026-07-29T00:00:00Z";
+const mockPrivacyEn = enMessages.privacy as StaticPrivacy;
+const mockPrivacyBg = bgMessages.privacy as StaticPrivacy;
+
+function findStaticBgPrivacySection(slug: string): StaticPrivacySection | undefined {
+  return mockPrivacyBg.sections.find((section) => section.id === slug);
+}
+
+let mockPrivacyPage: PrivacyPageAdminResponse = {
+  id: "privacy",
+  meta_title_en: mockPrivacyEn.metaTitle,
+  meta_title_bg: mockPrivacyBg.metaTitle,
+  meta_description_en: mockPrivacyEn.metaDescription,
+  meta_description_bg: mockPrivacyBg.metaDescription,
+  eyebrow_en: mockPrivacyEn.eyebrow,
+  eyebrow_bg: mockPrivacyBg.eyebrow,
+  title_en: mockPrivacyEn.title,
+  title_bg: mockPrivacyBg.title,
+  subtitle_en: mockPrivacyEn.subtitle,
+  subtitle_bg: mockPrivacyBg.subtitle,
+  last_updated_en: mockPrivacyEn.lastUpdated,
+  last_updated_bg: mockPrivacyBg.lastUpdated,
+  controller_title_en: mockPrivacyEn.controllerTitle,
+  controller_title_bg: mockPrivacyBg.controllerTitle,
+  created_at: mockPrivacyTimestamp,
+  updated_at: mockPrivacyTimestamp,
+};
+
+let mockPrivacySections: PrivacySectionAdminResponse[] = mockPrivacyEn.sections.map(
+  (section, index) => {
+    const bgSection = findStaticBgPrivacySection(section.id);
+    return {
+      slug: section.id,
+      title_en: section.title,
+      title_bg: bgSection?.title ?? null,
+      nav_en: section.nav,
+      nav_bg: bgSection?.nav ?? null,
+      body_en: [...section.body],
+      body_bg: bgSection ? [...bgSection.body] : null,
+      sort_order: index,
+      created_at: mockPrivacyTimestamp,
+      updated_at: mockPrivacyTimestamp,
+    };
+  }
+);
+
+function cloneAdminPrivacy(): PrivacyAdminResponse {
+  return {
+    page: { ...mockPrivacyPage },
+    sections: mockPrivacySections.map((section) => ({
+      ...section,
+      body_en: [...section.body_en],
+      body_bg: section.body_bg ? [...section.body_bg] : null,
     })),
   };
 }
@@ -4454,6 +4522,68 @@ export async function updateTermsSection(
     body_bg: section.body_bg ? [...section.body_bg] : null,
     model_form_lines_en: section.model_form_lines_en ? [...section.model_form_lines_en] : null,
     model_form_lines_bg: section.model_form_lines_bg ? [...section.model_form_lines_bg] : null,
+  };
+}
+
+export async function getPrivacy(locale?: string): Promise<PrivacyResponse> {
+  await delay();
+  return {
+    meta_title: localizedTermsValue(mockPrivacyPage.meta_title_en, mockPrivacyPage.meta_title_bg, locale),
+    meta_description: localizedTermsValue(
+      mockPrivacyPage.meta_description_en,
+      mockPrivacyPage.meta_description_bg,
+      locale
+    ),
+    eyebrow: localizedTermsValue(mockPrivacyPage.eyebrow_en, mockPrivacyPage.eyebrow_bg, locale),
+    title: localizedTermsValue(mockPrivacyPage.title_en, mockPrivacyPage.title_bg, locale),
+    subtitle: localizedTermsValue(mockPrivacyPage.subtitle_en, mockPrivacyPage.subtitle_bg, locale),
+    last_updated: localizedTermsValue(
+      mockPrivacyPage.last_updated_en,
+      mockPrivacyPage.last_updated_bg,
+      locale
+    ),
+    controller_title: localizedTermsValue(
+      mockPrivacyPage.controller_title_en,
+      mockPrivacyPage.controller_title_bg,
+      locale
+    ),
+    sections: mockPrivacySections
+      .slice()
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((section) => ({
+        id: section.slug,
+        title: localizedTermsValue(section.title_en, section.title_bg, locale),
+        nav: localizedTermsValue(section.nav_en, section.nav_bg, locale),
+        body: localizedTermsLines(section.body_en, section.body_bg, locale) ?? [],
+      })),
+  };
+}
+
+export async function getAdminPrivacy(): Promise<PrivacyAdminResponse> {
+  await delay();
+  return cloneAdminPrivacy();
+}
+
+export async function updatePrivacyPage(
+  data: UpdatePrivacyPageRequest
+): Promise<PrivacyPageAdminResponse> {
+  await delay();
+  mockPrivacyPage = { ...mockPrivacyPage, ...data, updated_at: new Date().toISOString() };
+  return { ...mockPrivacyPage };
+}
+
+export async function updatePrivacySection(
+  slug: string,
+  data: UpdatePrivacySectionRequest
+): Promise<PrivacySectionAdminResponse> {
+  await delay();
+  const section = mockPrivacySections.find((candidate) => candidate.slug === slug);
+  if (!section) mockError("privacy_section_not_found", `Privacy section ${slug} not found`);
+  Object.assign(section, data, { updated_at: new Date().toISOString() });
+  return {
+    ...section,
+    body_en: [...section.body_en],
+    body_bg: section.body_bg ? [...section.body_bg] : null,
   };
 }
 

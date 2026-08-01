@@ -42,7 +42,7 @@ def _provider_for(row: sqlite3.Row) -> str | None:
 
 def _safe_error(exc: Exception) -> dict[str, Any]:
     if hasattr(exc, "to_safe_dict"):
-        return redact_mapping(exc.to_safe_dict())  # type: ignore[no-any-return, attr-defined]
+        return redact_mapping(exc.to_safe_dict())
     validation_error = isinstance(
         exc,
         (CourierPollingValidationError, EcontFulfillmentError, SpeedyAdminError),

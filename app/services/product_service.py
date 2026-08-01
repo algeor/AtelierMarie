@@ -1085,6 +1085,8 @@ def resolve_bulk_target(
         # Preserve order, drop duplicates.
         resolved = list(dict.fromkeys(product_ids))
     else:
+        if filter is None:
+            raise ValueError("filter must be provided")
         with get_db() as conn:
             resolved = _resolve_filter_target_ids(conn, filter)
 

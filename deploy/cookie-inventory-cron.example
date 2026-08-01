@@ -1,0 +1,7 @@
+# Example host cron/post-deploy command for Cookie Policy inventory refresh.
+# Adapt /opt/atelier-marie and FRONTEND_URL for the production host.
+#
+# Preferred: run this as a post-deploy hook after `docker compose ... up -d --build` succeeds.
+# Cron fallback: run nightly to catch drift if a deploy hook is not available yet.
+
+15 3 * * * cd /opt/atelier-marie && FRONTEND_URL=https://yourdomain.com COOKIE_AUDIT_SYNC_COMMAND="docker compose --env-file .env.docker exec -T backend python scripts/sync_cookie_inventory.py" make audit-cookie-inventory >> /var/log/atelier-cookie-inventory.log 2>&1
