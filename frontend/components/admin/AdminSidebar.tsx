@@ -11,6 +11,12 @@ interface NavItem {
   labelKey: string;
   href: string;
   icon: React.ReactNode;
+  children?: Array<{
+    labelKey: string;
+    href: string;
+    activeHrefs?: string[];
+  }>;
+  activeHrefs?: string[];
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -33,11 +39,35 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    labelKey: "inventoryNav",
+    href: "/admin/inventory",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5v8.25a2.25 2.25 0 01-1.244 2.013l-6 3a2.25 2.25 0 01-2.012 0l-6-3A2.25 2.25 0 013.75 15.75V7.5m16.5 0L12 3.375 3.75 7.5m16.5 0L12 11.625 3.75 7.5M12 21V11.625" />
+      </svg>
+    ),
+    children: [
+      { labelKey: "materialsNav", href: "/admin/inventory/materials" },
+      { labelKey: "recipesNav", href: "/admin/inventory/recipes" },
+      { labelKey: "productionBatchesNav", href: "/admin/inventory/batches" },
+      { labelKey: "valuationNav", href: "/admin/inventory/valuation" },
+    ],
+  },
+  {
     labelKey: "orders",
     href: "/admin/orders",
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
+      </svg>
+    ),
+  },
+  {
+    labelKey: "accountingNav",
+    href: "/admin/accounting",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 7.5h6m-6 3h6m-6 3h3M6.75 3.75h10.5A2.25 2.25 0 0119.5 6v12A2.25 2.25 0 0117.25 20.25H6.75A2.25 2.25 0 014.5 18V6A2.25 2.25 0 016.75 3.75z" />
       </svg>
     ),
   },
@@ -59,6 +89,11 @@ const NAV_ITEMS: NavItem[] = [
         <path strokeLinecap="round" strokeLinejoin="round" d="M3 6.75h11.25v8.25H3V6.75zm11.25 3h3.57c.4 0 .78.19 1.02.51l2.16 2.88v1.86h-6.75V9.75zM5.25 18.75H3.75a.75.75 0 01-.75-.75v-3h18v3a.75.75 0 01-.75.75h-1.5m-10.5 0h7.5" />
       </svg>
     ),
+    activeHrefs: ["/admin/econt", "/admin/speedy"],
+    children: [
+      { labelKey: "econtNav", href: "/admin/delivery/econt", activeHrefs: ["/admin/econt"] },
+      { labelKey: "speedyNav", href: "/admin/delivery/speedy", activeHrefs: ["/admin/speedy"] },
+    ],
   },
   {
     labelKey: "paymentSettingsNav",
@@ -115,9 +150,12 @@ export function AdminSidebar() {
   const { user } = useAdmin();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  function isActive(href: string): boolean {
-    if (href === "/admin") return pathname === "/admin";
-    return pathname.startsWith(href);
+  function isActive(href: string, activeHrefs: string[] = []): boolean {
+    const candidates = [href, ...activeHrefs];
+    return candidates.some((candidate) => {
+      if (candidate === "/admin") return pathname === "/admin";
+      return pathname === candidate || pathname.startsWith(`${candidate}/`);
+    });
   }
 
   return (
@@ -175,23 +213,50 @@ export function AdminSidebar() {
 
         {/* Navigation */}
         <nav className="flex-1 space-y-1 px-3 py-4">
-          {NAV_ITEMS.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={() => setMobileOpen(false)}
-              className={cn(
-                "flex items-center gap-3 rounded-brand px-3 py-2.5 text-sm font-medium transition-colors duration-fast",
-                isActive(item.href)
-                  ? "bg-muted-gold/10 text-charcoal"
-                  : "text-soft-brown hover:bg-champagne-beige/50 hover:text-charcoal"
-              )}
-              aria-current={isActive(item.href) ? "page" : undefined}
-            >
-              {item.icon}
-              <span>{t(item.labelKey)}</span>
-            </Link>
-          ))}
+          {NAV_ITEMS.map((item) => {
+            const itemActive = isActive(item.href, item.activeHrefs);
+            return (
+              <div key={item.href}>
+                <Link
+                  href={item.href}
+                  onClick={() => setMobileOpen(false)}
+                  className={cn(
+                    "flex items-center gap-3 rounded-brand px-3 py-2.5 text-sm font-medium transition-colors duration-fast",
+                    itemActive
+                      ? "bg-muted-gold/10 text-charcoal"
+                      : "text-soft-brown hover:bg-champagne-beige/50 hover:text-charcoal"
+                  )}
+                  aria-current={pathname === item.href ? "page" : undefined}
+                >
+                  {item.icon}
+                  <span>{t(item.labelKey)}</span>
+                </Link>
+                {item.children && (
+                  <div className="ml-8 mt-1 space-y-1 border-l border-champagne-beige pl-3">
+                    {item.children.map((child) => {
+                      const childActive = isActive(child.href, child.activeHrefs);
+                      return (
+                        <Link
+                          key={child.href}
+                          href={child.href}
+                          onClick={() => setMobileOpen(false)}
+                          className={cn(
+                            "flex rounded-brand px-3 py-2 text-sm font-medium transition-colors duration-fast",
+                            childActive
+                              ? "bg-muted-gold/10 text-charcoal"
+                              : "text-soft-brown hover:bg-champagne-beige/50 hover:text-charcoal"
+                          )}
+                          aria-current={childActive ? "page" : undefined}
+                        >
+                          {t(child.labelKey)}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
 
         {/* User info */}

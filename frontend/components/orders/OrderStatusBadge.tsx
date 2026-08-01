@@ -9,6 +9,8 @@ const STATUS_STYLES: Record<OrderStatus, string> = {
   confirmed: "bg-blue-100 text-blue-800",
   shipped: "bg-indigo-100 text-indigo-800",
   delivered: "bg-green-100 text-green-800",
+  return_in_transit: "bg-orange-100 text-orange-800",
+  returned: "bg-slate-100 text-slate-700",
   cancelled: "bg-red-100 text-red-800",
 };
 

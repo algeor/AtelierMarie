@@ -240,8 +240,14 @@ Important local backend variables:
 
 ### Courier credentials (Speedy / Econt)
 
+- Delivery administration is grouped under `Admin -> Delivery` in the frontend sidebar:
+  - `/admin/delivery` manages enabled checkout delivery methods.
+  - `/admin/delivery/econt` opens the Econt settings surface.
+  - `/admin/delivery/speedy` opens the Speedy operations surface.
+- Legacy direct routes `/admin/econt` and `/admin/speedy` remain available for existing links, but new admin navigation should use the grouped Delivery routes.
 - `SPEEDY_API_USERNAME` / `SPEEDY_API_PASSWORD` are the API login; `SPEEDY_CLIENT_ID` is a **separate numeric** registered-client id sent as `sender.clientId` on every quote/shipment. Without it, Speedy quotes silently degrade to the flat fallback.
 - Demo and prod use the **same** host (`SPEEDY_BASE_URL=https://api.speedy.bg/v1`) — only the credentials differ.
+- Admins can verify Speedy configuration from `/admin/delivery/speedy`. The health check uses Speedy's safe Client Service (`POST /client`) and does not create a shipment.
 - To find the right `SPEEDY_CLIENT_ID` for an account, run:
 
   ```bash
@@ -254,6 +260,8 @@ Important local backend variables:
 - Econt demo vs prod differ by **both** credentials **and** the `ECONT_CALCULATE_URL` host:
   - Demo: `https://demo.econt.com/ee/services/Shipments/LabelService.createLabel.json`
   - Prod: `https://ee.econt.com/services/Shipments/LabelService.createLabel.json` (the `config.py` default — omit the override in prod, or set it explicitly).
+
+Speedy admin operations are documented in `docs/speedy-admin-operations.md`.
 
 Important frontend variables:
 

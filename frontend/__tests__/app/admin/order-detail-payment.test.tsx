@@ -18,12 +18,31 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/api", () => ({
   getAdminOrder: vi.fn(),
   applyManualPaymentAction: vi.fn(),
+  createReturnCase: vi.fn(),
+  receiveReturnCase: vi.fn(),
+  inspectReturnCase: vi.fn(),
+  closeReturnCase: vi.fn(),
+  updateReturnAccounting: vi.fn(),
+  createStripeRefund: vi.fn(),
+  recordCodSettlement: vi.fn(),
+  getEcontOrderReadiness: vi.fn(),
+  repairEcontOrder: vi.fn(),
+  syncEcontOrder: vi.fn(),
+  createEcontLabel: vi.fn(),
+  deleteEcontLabel: vi.fn(),
+  refreshEcontTrace: vi.fn(),
+  updateOrderStatus: vi.fn(),
+  listOrderAccountingDocuments: vi.fn(),
+  createAccountingDocument: vi.fn(),
+  updateAccountingDocument: vi.fn(),
 }));
 
-import { applyManualPaymentAction, getAdminOrder } from "@/lib/api";
+import { applyManualPaymentAction, getAdminOrder, getEcontOrderReadiness, listOrderAccountingDocuments } from "@/lib/api";
 
 const mockedGetAdminOrder = vi.mocked(getAdminOrder);
 const mockedApplyManualPaymentAction = vi.mocked(applyManualPaymentAction);
+const mockedGetEcontOrderReadiness = vi.mocked(getEcontOrderReadiness);
+const mockedListOrderAccountingDocuments = vi.mocked(listOrderAccountingDocuments);
 
 const ORDER: AdminOrderDetailResponse = {
   id: "order-1",
@@ -58,6 +77,19 @@ const ORDER: AdminOrderDetailResponse = {
       product_name: "Lavender Dreams",
       price_cents: 3200,
       quantity: 1,
+      inventory_mode: "ledger_managed",
+      ledger_managed: true,
+      stock_issue_status: "issued",
+      inventory_movement_ids: ["mov-sale-1"],
+      source_movement_id: "mov-sale-1",
+      finished_batch_id: "batch-1",
+      finished_batch_number: "B-001",
+      cogs_row_id: "cogs-1",
+      cogs_readiness: "estimate",
+      valuation_method: "weighted_average",
+      source_valuation_layer_id: "layer-1",
+      inventory_exception_ids: ["exc-1"],
+      inventory_exception_count: 1,
     },
   ],
   tracking_number: null,
@@ -82,13 +114,48 @@ const ORDER: AdminOrderDetailResponse = {
       created_at: "2026-07-31T12:01:00Z",
     },
   ],
+  return_cases: [],
+  return_events: [],
+  refund_records: [],
+  cod_settlement: null,
+  cod_settlement_required: false,
+  econt_cod_evidence: null,
+  inventory_context: {
+    valuation_method: "weighted_average",
+    official_cogs_required: true,
+    missing_inventory_movement_count: 0,
+    missing_cogs_count: 0,
+    inventory_exception_count: 1,
+    inventory_exception_ids: ["exc-1"],
+    links: {
+      movements_href: "/admin/inventory/movements?order_id=order-1",
+      cogs_href: "/admin/inventory/valuation/cogs?order_id=order-1",
+      exceptions_href: "/admin/inventory/valuation/exceptions?order_id=order-1",
+    },
+  },
 };
 
 describe("Admin order payment detail", () => {
   beforeEach(() => {
     mockedGetAdminOrder.mockReset();
     mockedApplyManualPaymentAction.mockReset();
+    mockedListOrderAccountingDocuments.mockReset();
     mockedGetAdminOrder.mockResolvedValue(ORDER);
+    mockedListOrderAccountingDocuments.mockResolvedValue({ items: [], total: 0 });
+    mockedGetEcontOrderReadiness.mockResolvedValue({
+      order_id: ORDER.id,
+      ready: false,
+      blockers: ["order_office_code_missing"],
+      courier_provider: null,
+      courier_order_id: null,
+      courier_shipment_number: null,
+      courier_label_url: null,
+      courier_sync_status: null,
+      courier_last_error: null,
+      courier_last_synced_at: null,
+      tracking_number: null,
+      tracking_url: null,
+    });
     mockedApplyManualPaymentAction.mockResolvedValue({
       ...ORDER,
       payment_status: "failed",
@@ -104,6 +171,25 @@ describe("Admin order payment detail", () => {
     expect(screen.getByText("Payment timeline")).toBeInTheDocument();
     expect(screen.getByText("checkout session completed")).toBeInTheDocument();
     expect(screen.getByText("evt_test_123")).toBeInTheDocument();
+  });
+
+  it("shows item inventory context and traceability links", async () => {
+    renderWithIntl(<AdminOrderDetailPage />);
+
+    expect(await screen.findByText("Stock issue: issued")).toBeInTheDocument();
+    expect(screen.getByText("Sold cost: estimate")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "B-001" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("/admin/inventory/batches")
+    );
+    expect(screen.getByRole("link", { name: "Movement" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("/admin/inventory/movements")
+    );
+    expect(screen.getByRole("link", { name: "Sold-cost row" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("/admin/inventory/valuation/cogs")
+    );
   });
 
   it("requires a note before applying manual payment action", async () => {

@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { createProduct, updateProductVideoSortOrder, uploadProductImage, uploadProductVideo } from "@/lib/api";
+import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
 import { ProductForm, type ProductFormData } from "@/components/admin/ProductForm";
 
 export default function CreateProductPage() {
@@ -44,12 +45,12 @@ export default function CreateProductPage() {
   return (
     <div>
       <div className="mb-8">
-        <h1 className="font-heading text-2xl font-semibold text-charcoal">
-          {t("createProduct")}
-        </h1>
-        <p className="mt-1 text-sm text-soft-brown">
-          {t("createProductSubtitle")}
-        </p>
+        <div className="flex items-center gap-2">
+          <h1 className="font-heading text-2xl font-semibold text-charcoal">
+            {t("createProduct")}
+          </h1>
+          <AdminInfoPopover content={t("createProductSubtitle")} />
+        </div>
       </div>
 
       <div className="max-w-3xl rounded-brand border border-champagne-beige bg-cream p-6">

@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -90,6 +91,24 @@ async def test_valid_single_event_returns_202_and_writes_jsonl(client):
     assert stored["session_id"]
 
 
+async def test_event_ingestion_storage_runs_off_loop_thread(client, monkeypatch):
+    await grant_analytics_consent(client)
+    caller_thread_id = threading.get_ident()
+    worker_thread_ids: list[int] = []
+
+    def fake_ingest(events, **_kwargs):
+        worker_thread_ids.append(threading.get_ident())
+        return {"accepted": len(events), "duplicates": 0, "disabled": False}
+
+    monkeypatch.setattr(analytics_service, "ingest_events", fake_ingest)
+
+    response = await client.post("/v1/analytics/events", json=event_payload("evt-off-loop"))
+
+    assert response.status_code == 202
+    assert response.json()["accepted"] == 1
+    assert worker_thread_ids and worker_thread_ids[0] != caller_thread_id
+
+
 async def test_valid_batch_returns_202_and_writes_all_events(client):
     await grant_analytics_consent(client)
 
@@ -161,6 +180,37 @@ async def test_admin_analytics_endpoints_require_admin(client, admin_client):
     assert denied.status_code in {401, 403}
     assert allowed.status_code == 200
     assert "backend_order_count" in allowed.json()
+
+
+async def test_admin_analytics_summary_runs_report_off_loop_thread(admin_client, monkeypatch):
+    caller_thread_id = threading.get_ident()
+    worker_thread_ids: list[int] = []
+
+    def fake_summary(_start_date=None, _end_date=None):
+        worker_thread_ids.append(threading.get_ident())
+        return {
+            "start_date": "2026-08-01",
+            "end_date": "2026-08-01",
+            "consented_sessions": 0,
+            "accepted_events": 0,
+            "conversion_rate": 0.0,
+            "backend_order_count": 0,
+            "backend_revenue_cents": 0,
+            "analytics_purchase_count": 0,
+            "analytics_purchase_revenue_cents": 0,
+            "coverage_percent": 0.0,
+            "consented_order_count": 0,
+            "consented_order_delta": 0,
+            "delivery_warning": False,
+            "health": {"retention_days": get_settings().analytics_retention_days},
+        }
+
+    monkeypatch.setattr(analytics_service, "get_summary", fake_summary)
+
+    response = await admin_client.get("/v1/admin/analytics/summary")
+
+    assert response.status_code == 200
+    assert worker_thread_ids and worker_thread_ids[0] != caller_thread_id
 
 
 async def test_health_reports_accepted_duplicate_and_validation_failure(client, admin_client):

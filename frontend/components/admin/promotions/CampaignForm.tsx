@@ -8,6 +8,7 @@ import { useLocalizedError } from "@/lib/useLocalizedError";
 import { localInputToUtcIso, storedUtcToLocalInput } from "@/lib/datetime";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
 import type {
   AdminProductResponse,
   CampaignCreateRequest,
@@ -416,7 +417,10 @@ export function CampaignForm({ campaign, onSaved, onCancel }: CampaignFormProps)
         )}
       </fieldset>
 
-      <p className="text-xs text-soft-brown/70">{t("promotions.bannerHelper")}</p>
+      <div className="flex items-center gap-2 text-sm text-soft-brown">
+        <span>{t("promotions.topBanner")}</span>
+        <AdminInfoPopover content={t("promotions.bannerHelper")} />
+      </div>
 
       <div className="flex gap-3">
         <Button type="submit" isLoading={submitting}>

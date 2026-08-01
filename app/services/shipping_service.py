@@ -83,6 +83,16 @@ def _courier_door_address(
     )
 
 
+def _courier_office_id(courier: Courier, office_id: str | None) -> str | None:
+    """Return the courier-native office identifier for price APIs."""
+    if not office_id:
+        return None
+    if courier != "econt":
+        return office_id
+    office = delivery_service.get_office("econt", office_id, locale="bg")
+    return (office or {}).get("code") or office_id
+
+
 async def calculate_quotes(
     *,
     couriers: list[Courier],
@@ -119,7 +129,7 @@ async def calculate_quotes(
             return await speedy_client.calculate(
                 client_id=settings.speedy_client_id,
                 recipient_city=delivery_service.resolve_city_bg("speedy", city),
-                recipient_office_id=office,
+                recipient_office_id=_courier_office_id("speedy", office),
                 weight_grams=weight_grams,
                 username=settings.speedy_api_username,
                 password=settings.speedy_api_password.get_secret_value(),
@@ -128,7 +138,7 @@ async def calculate_quotes(
             )
         return await econt_client.calculate(
             recipient_city=delivery_service.resolve_city_bg("econt", city),
-            recipient_office_id=office,
+            recipient_office_id=_courier_office_id("econt", office),
             weight_grams=weight_grams,
             username=settings.econt_api_username,
             password=settings.econt_api_password.get_secret_value(),

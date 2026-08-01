@@ -145,6 +145,93 @@ class TestCreateOrder:
         assert data["customer_email"] == "marie@example.com"
         assert data["total_cents"] == 2500
         assert len(data["items"]) == 1
+        assert data["accounting_currency"] == "EUR"
+        assert data["accounting_readiness_status"] == "review_required"
+
+    async def test_checkout_accepts_invoice_profile_and_snapshots_accounting_settings(
+        self, order_client, db_path
+    ):
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            """
+            INSERT INTO seller_legal_profile_versions (
+                effective_date, reviewed, legal_name, default_currency
+            ) VALUES ('2026-08-01', 1, 'Atelier Marie OOD', 'EUR')
+            """
+        )
+        seller_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.execute(
+            """
+            INSERT INTO vat_fiscal_settings_versions (
+                effective_date, reviewed, vat_mode, fiscal_document_mode
+            ) VALUES ('2026-08-01', 1, 'registered', 'external_reference')
+            """
+        )
+        vat_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.commit()
+        conn.close()
+
+        resp = await order_client.post(
+            "/v1/orders",
+            json={
+                "customer_email": "buyer@example.com",
+                "customer_name": "Business Buyer",
+                "delivery": DELIVERY_OFFICE_ECONT,
+                "invoice_profile": {
+                    "customer_type": "business",
+                    "legal_name": "Buyer OOD",
+                    "vat_identification_number": "BG987654321",
+                    "business_registration_number": "987654321",
+                    "billing_address": "1 Business Street, Sofia",
+                    "billing_country": "bg",
+                    "invoice_email": "invoice@example.com",
+                    "purchase_reference_note": "PO-42",
+                },
+            },
+        )
+
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["invoice_profile"]["legal_name"] == "Buyer OOD"
+        assert body["invoice_profile"]["billing_country"] == "BG"
+        assert body["seller_legal_profile_version_id"] == seller_id
+        assert body["vat_fiscal_settings_version_id"] == vat_id
+        assert body["accounting_classification_state"] == "business_vat_id_provided"
+        assert body["accounting_readiness_status"] == "ready"
+        assert body["accounting_snapshot"]["invoice_profile"]["invoice_email"] == (
+            "invoice@example.com"
+        )
+
+        conn = sqlite3.connect(db_path)
+        row = conn.execute(
+            """
+            SELECT invoice_profile_json, accounting_snapshot_json
+            FROM orders WHERE id = ?
+            """,
+            (body["id"],),
+        ).fetchone()
+        conn.close()
+        assert '"legal_name": "Buyer OOD"' in row[0]
+        assert '"seller_legal_profile_version_id": ' in row[1]
+
+    async def test_invalid_invoice_email_422(self, order_client):
+        resp = await order_client.post(
+            "/v1/orders",
+            json={
+                "customer_email": "marie@example.com",
+                "customer_name": "Marie",
+                "delivery": DELIVERY_OFFICE_ECONT,
+                "invoice_profile": {
+                    "customer_type": "business",
+                    "legal_name": "Buyer OOD",
+                    "billing_address": "1 Business Street, Sofia",
+                    "billing_country": "BG",
+                    "invoice_email": "not-an-email",
+                },
+            },
+        )
+
+        assert resp.status_code == 422
 
     async def test_card_unavailable_without_stripe_key(self, order_client):
         resp = await order_client.post(
@@ -214,9 +301,7 @@ class TestCreateOrder:
         assert body["error"]["code"] == "PAY_ON_DELIVERY_LIMIT_EXCEEDED"
         assert body["error"]["details"] == {"total_cents": 8500, "max_cents": 5000}
 
-    async def test_cod_disabled_by_payment_settings_rejected(
-        self, app, db_path, order_session_id
-    ):
+    async def test_cod_disabled_by_payment_settings_rejected(self, app, db_path, order_session_id):
         _set_payment_settings(db_path, pay_on_delivery_enabled=False)
 
         settings = get_settings()
@@ -671,6 +756,40 @@ class TestAdminUpdateStatus:
         assert resp.status_code == 422
         assert resp.json()["error"]["code"] == "TRACKING_REQUIRED"
 
+    async def test_payment_review_order_cannot_ship(self, admin_order_client, db_path):
+        resp = await admin_order_client.post(
+            "/v1/orders",
+            json={
+                "customer_email": "review-ship@example.com",
+                "customer_name": "Review Buyer",
+                "delivery": DELIVERY_OFFICE_ECONT,
+            },
+        )
+        order_id = resp.json()["id"]
+        await admin_order_client.patch(
+            f"/v1/admin/orders/{order_id}/status", json={"status": "confirmed"}
+        )
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "UPDATE orders SET payment_method = 'card', payment_status = 'review_required' "
+            "WHERE id = ?",
+            (order_id,),
+        )
+        conn.commit()
+        conn.close()
+
+        resp = await admin_order_client.patch(
+            f"/v1/admin/orders/{order_id}/status",
+            json={"status": "shipped", "tracking_number": "77", "tracking_carrier": "econt"},
+        )
+
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "PAYMENT_REVIEW_REQUIRED"
+        conn = sqlite3.connect(db_path)
+        row = conn.execute("SELECT status FROM orders WHERE id = ?", (order_id,)).fetchone()
+        conn.close()
+        assert row[0] == "confirmed"
+
     async def test_ship_with_tracking_autogenerates_url(self, admin_order_client):
         resp = await admin_order_client.post(
             "/v1/orders",
@@ -695,19 +814,290 @@ class TestAdminUpdateStatus:
         assert data["tracking_url"] == "https://www.econt.com/services/track-shipment/77"
 
 
+class TestAdminReturnCases:
+    """Admin return endpoints drive state deliberately and keep stock audited."""
+
+    async def _create_shipped_econt_order(self, admin_order_client) -> str:
+        resp = await admin_order_client.post(
+            "/v1/orders",
+            json={
+                "customer_email": "return-route@example.com",
+                "customer_name": "Return Route Buyer",
+                "delivery": DELIVERY_OFFICE_ECONT,
+            },
+        )
+        assert resp.status_code == 201
+        order_id = resp.json()["id"]
+        resp = await admin_order_client.patch(
+            f"/v1/admin/orders/{order_id}/status", json={"status": "confirmed"}
+        )
+        assert resp.status_code == 200
+        resp = await admin_order_client.patch(
+            f"/v1/admin/orders/{order_id}/status",
+            json={"status": "shipped", "tracking_number": "77", "tracking_carrier": "econt"},
+        )
+        assert resp.status_code == 200
+        return order_id
+
+    async def test_create_uncollected_return_moves_order_and_appears_in_detail(
+        self, admin_order_client, db_path
+    ):
+        order_id = await self._create_shipped_econt_order(admin_order_client)
+        conn = sqlite3.connect(db_path)
+        stock_after_checkout = conn.execute(
+            "SELECT stock FROM products WHERE id = 'lavender-dream'"
+        ).fetchone()[0]
+        conn.close()
+
+        resp = await admin_order_client.post(
+            f"/v1/admin/orders/{order_id}/returns",
+            json={
+                "reason": "not_picked_up",
+                "status": "return_in_transit",
+                "courier_return_fee_cents": 500,
+                "notes": "Not collected from Econt office",
+            },
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["reason"] == "not_picked_up"
+        assert body["status"] == "return_in_transit"
+        assert body["restock_decision"] == "pending"
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT status FROM orders WHERE id = ?",
+            (order_id,),
+        ).fetchone()
+        stock_now = conn.execute(
+            "SELECT stock FROM products WHERE id = 'lavender-dream'"
+        ).fetchone()[0]
+        event = conn.execute(
+            "SELECT event_type, payload_json FROM order_return_events WHERE order_return_id = ?",
+            (body["id"],),
+        ).fetchone()
+        conn.close()
+        assert row["status"] == "return_in_transit"
+        assert stock_now == stock_after_checkout
+        assert event["event_type"] == "return_created"
+        assert "not_picked_up" in event["payload_json"]
+
+        detail = await admin_order_client.get(f"/v1/admin/orders/{order_id}")
+        assert detail.status_code == 200
+        detail_body = detail.json()
+        assert detail_body["return_cases"][0]["id"] == body["id"]
+        assert detail_body["return_events"][0]["event_type"] == "return_created"
+        assert detail_body["refund_records"] == []
+        assert detail_body["cod_settlement"] is None
+
+    async def test_invalid_return_transition_rolls_back_case_creation(
+        self, admin_order_client, db_path
+    ):
+        resp = await admin_order_client.post(
+            "/v1/orders",
+            json={
+                "customer_email": "invalid-return@example.com",
+                "customer_name": "Invalid Return Buyer",
+                "delivery": DELIVERY_OFFICE_ECONT,
+            },
+        )
+        assert resp.status_code == 201
+        order_id = resp.json()["id"]
+
+        resp = await admin_order_client.post(
+            f"/v1/admin/orders/{order_id}/returns",
+            json={"reason": "not_picked_up", "status": "return_in_transit"},
+        )
+
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "INVALID_TRANSITION"
+        conn = sqlite3.connect(db_path)
+        order_status = conn.execute(
+            "SELECT status FROM orders WHERE id = ?",
+            (order_id,),
+        ).fetchone()[0]
+        return_count = conn.execute(
+            "SELECT COUNT(*) FROM order_returns WHERE order_id = ?",
+            (order_id,),
+        ).fetchone()[0]
+        event_count = conn.execute(
+            "SELECT COUNT(*) FROM order_return_events WHERE order_id = ?",
+            (order_id,),
+        ).fetchone()[0]
+        conn.close()
+        assert order_status == "pending"
+        assert return_count == 0
+        assert event_count == 0
+
+    async def test_receive_inspect_and_close_return_controls_stock_explicitly(
+        self, admin_order_client, db_path
+    ):
+        order_id = await self._create_shipped_econt_order(admin_order_client)
+        conn = sqlite3.connect(db_path)
+        stock_after_checkout = conn.execute(
+            "SELECT stock FROM products WHERE id = 'lavender-dream'"
+        ).fetchone()[0]
+        conn.close()
+        created = await admin_order_client.post(
+            f"/v1/admin/orders/{order_id}/returns",
+            json={"reason": "customer_return", "status": "return_in_transit"},
+        )
+        return_id = created.json()["id"]
+
+        received = await admin_order_client.post(
+            f"/v1/admin/orders/{order_id}/returns/{return_id}/receive"
+        )
+        assert received.status_code == 200
+        assert received.json()["status"] == "received"
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        order_row = conn.execute("SELECT status FROM orders WHERE id = ?", (order_id,)).fetchone()
+        stock_after_receive = conn.execute(
+            "SELECT stock FROM products WHERE id = 'lavender-dream'"
+        ).fetchone()[0]
+        conn.close()
+        assert order_row["status"] == "returned"
+        assert stock_after_receive == stock_after_checkout
+
+        inspected = await admin_order_client.patch(
+            f"/v1/admin/orders/{order_id}/returns/{return_id}/inspect",
+            json={"restock_decision": "restock", "notes": "Unopened return"},
+        )
+        assert inspected.status_code == 200
+        assert inspected.json()["status"] == "inspected"
+        assert inspected.json()["restock_decision"] == "restock"
+        conn = sqlite3.connect(db_path)
+        stock_after_inspect = conn.execute(
+            "SELECT stock FROM products WHERE id = 'lavender-dream'"
+        ).fetchone()[0]
+        adjustment = conn.execute(
+            "SELECT quantity, reason FROM inventory_adjustments WHERE order_return_id = ?",
+            (return_id,),
+        ).fetchone()
+        conn.close()
+        assert stock_after_inspect == stock_after_checkout + 1
+        assert adjustment == (1, "return_restock")
+
+        closed = await admin_order_client.post(
+            f"/v1/admin/orders/{order_id}/returns/{return_id}/close"
+        )
+        assert closed.status_code == 200
+        assert closed.json()["status"] == "closed"
+
+    async def test_return_action_wrong_order_id_does_not_mutate_case(
+        self, admin_order_client, db_path
+    ):
+        order_id = await self._create_shipped_econt_order(admin_order_client)
+        created = await admin_order_client.post(
+            f"/v1/admin/orders/{order_id}/returns",
+            json={"reason": "customer_return", "status": "return_in_transit"},
+        )
+        return_id = created.json()["id"]
+
+        resp = await admin_order_client.post(
+            f"/v1/admin/orders/not-the-order/returns/{return_id}/receive"
+        )
+
+        assert resp.status_code == 404
+        assert resp.json()["error"]["code"] == "RETURN_CASE_NOT_FOUND"
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        case = conn.execute(
+            "SELECT status, received_at FROM order_returns WHERE id = ?",
+            (return_id,),
+        ).fetchone()
+        order = conn.execute("SELECT status FROM orders WHERE id = ?", (order_id,)).fetchone()
+        conn.close()
+        assert case["status"] == "return_in_transit"
+        assert case["received_at"] is None
+        assert order["status"] == "return_in_transit"
+
+    async def test_update_return_accounting_fields(self, admin_order_client):
+        order_id = await self._create_shipped_econt_order(admin_order_client)
+        created = await admin_order_client.post(
+            f"/v1/admin/orders/{order_id}/returns",
+            json={"reason": "damaged_by_courier", "status": "return_in_transit"},
+        )
+        return_id = created.json()["id"]
+
+        resp = await admin_order_client.patch(
+            f"/v1/admin/orders/{order_id}/returns/{return_id}/accounting",
+            json={
+                "courier_return_fee_cents": 650,
+                "courier_claim_id": "CLM-123",
+                "courier_claim_status": "filed",
+                "courier_claim_amount_cents": 2500,
+                "notes": "Manual claim record",
+            },
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["courier_return_fee_cents"] == 650
+        assert body["courier_claim_id"] == "CLM-123"
+        assert body["courier_claim_status"] == "filed"
+
+    async def test_cod_settlement_endpoint_clears_detail_review_flag(self, admin_order_client):
+        resp = await admin_order_client.post(
+            "/v1/orders",
+            json={
+                "customer_email": "cod-settle@example.com",
+                "customer_name": "COD Buyer",
+                "delivery": DELIVERY_OFFICE_ECONT,
+            },
+        )
+        order = resp.json()
+        order_id = order["id"]
+        await admin_order_client.patch(
+            f"/v1/admin/orders/{order_id}/status", json={"status": "confirmed"}
+        )
+        await admin_order_client.patch(
+            f"/v1/admin/orders/{order_id}/status",
+            json={"status": "shipped", "tracking_number": "77", "tracking_carrier": "econt"},
+        )
+        await admin_order_client.patch(
+            f"/v1/admin/orders/{order_id}/status", json={"status": "delivered"}
+        )
+
+        detail = await admin_order_client.get(f"/v1/admin/orders/{order_id}")
+        assert detail.json()["cod_settlement_required"] is True
+
+        resp = await admin_order_client.post(
+            f"/v1/admin/orders/{order_id}/cod-settlement",
+            json={
+                "amount_cents": order["total_cents"],
+                "settlement_date": "2026-08-01",
+                "courier_reference": "COD-123",
+            },
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["mismatch_review"] is False
+        detail = await admin_order_client.get(f"/v1/admin/orders/{order_id}")
+        assert detail.json()["cod_settlement_required"] is False
+        assert detail.json()["cod_settlement"]["courier_reference"] == "COD-123"
+
+    async def test_return_action_requires_admin(self, order_client):
+        resp = await order_client.post(
+            "/v1/admin/orders/some-order/returns",
+            json={"reason": "customer_return"},
+        )
+        assert resp.status_code == 401
+
+
 class TestAdminSpeedyCourierOperations:
     """Admin Speedy endpoints use real app state with a fake courier boundary."""
 
     async def _create_shipped_speedy_order(self, admin_order_client, monkeypatch) -> str:
-        def fake_create_shipment_sync(**kwargs):
+        async def fake_create_shipment(**kwargs):
             assert kwargs["recipient_city"] == "София"
             assert kwargs["recipient_street"] == "Витоша"
             assert kwargs["recipient_phone"] == "+359888123456"
+            assert kwargs["weight_grams"] == 300
             return "63689182611"
 
-        monkeypatch.setattr(
-            "app.services.speedy_client.create_shipment_sync", fake_create_shipment_sync
-        )
+        monkeypatch.setattr("app.services.speedy_client.create_shipment", fake_create_shipment)
         resp = await admin_order_client.post(
             "/v1/orders",
             json={
@@ -885,6 +1275,230 @@ class TestAdminListOrders:
         assert body["items"][0]["payment_method"] == "card"
         assert body["items"][0]["payment_method_label"] == "Card payment"
 
+    async def test_admin_filter_abandoned_payment_review_queue(
+        self, admin_order_client, db_path, order_session_id
+    ):
+        from app.models.delivery import DeliveryInfo
+        from app.services.order_service import checkout
+
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        review_order = checkout(
+            conn,
+            session_id=order_session_id,
+            customer_email="review-card@example.com",
+            customer_name="Review Buyer",
+            delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
+            notes=None,
+            payment_method="card",
+        )
+        conn.execute(
+            "UPDATE orders SET payment_status = 'review_required' WHERE id = ?",
+            (review_order["id"],),
+        )
+        conn.execute(
+            "INSERT INTO cart_items (session_id, product_id, quantity) "
+            "VALUES (?, 'lavender-dream', 1)",
+            (order_session_id,),
+        )
+        conn.commit()
+        checkout(
+            conn,
+            session_id=order_session_id,
+            customer_email="pending-card@example.com",
+            customer_name="Pending Buyer",
+            delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
+            notes=None,
+            payment_method="card",
+        )
+        conn.close()
+
+        resp = await admin_order_client.get("/v1/admin/orders?review_filter=abandoned_payment")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["items"][0]["id"] == review_order["id"]
+        assert body["items"][0]["payment_status"] == "review_required"
+
+    async def test_admin_review_filter_uncollected_refused(self, admin_order_client, db_path):
+        conn = sqlite3.connect(db_path)
+        conn.executemany(
+            """
+            INSERT INTO orders (id, session_id, status, total_cents, customer_email)
+            VALUES (?, 'review-session', ?, 2500, ?)
+            """,
+            [
+                ("uncollected-order", "shipped", "uncollected@example.com"),
+                ("refused-order", "return_in_transit", "refused@example.com"),
+                ("closed-uncollected-order", "returned", "closed-uncollected@example.com"),
+            ],
+        )
+        conn.executemany(
+            """
+            INSERT INTO order_returns (id, order_id, reason, source, status)
+            VALUES (?, ?, ?, 'admin', ?)
+            """,
+            [
+                ("return-uncollected", "uncollected-order", "not_picked_up", "requested"),
+                ("return-refused", "refused-order", "refused_delivery", "return_in_transit"),
+                ("return-closed", "closed-uncollected-order", "not_picked_up", "closed"),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        resp = await admin_order_client.get("/v1/admin/orders?review_filter=uncollected_refused")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 2
+        assert {item["id"] for item in body["items"]} == {"uncollected-order", "refused-order"}
+
+    async def test_admin_review_filter_refund_pending(self, admin_order_client, db_path):
+        conn = sqlite3.connect(db_path)
+        conn.executemany(
+            """
+            INSERT INTO orders (
+                id, session_id, status, total_cents, customer_email,
+                payment_method, payment_status
+            ) VALUES (?, 'review-session', 'delivered', 2500, ?, 'card', ?)
+            """,
+            [
+                ("refund-status-order", "refund-status@example.com", "refund_pending"),
+                ("refund-record-order", "refund-record@example.com", "paid"),
+                ("refund-succeeded-order", "refund-succeeded@example.com", "paid"),
+            ],
+        )
+        conn.executemany(
+            """
+            INSERT INTO payment_refunds (id, order_id, provider, amount_cents, status)
+            VALUES (?, ?, 'stripe', 1000, ?)
+            """,
+            [
+                ("pending-refund", "refund-record-order", "pending"),
+                ("succeeded-refund", "refund-succeeded-order", "succeeded"),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        resp = await admin_order_client.get("/v1/admin/orders?review_filter=refund_pending")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 2
+        assert {item["id"] for item in body["items"]} == {
+            "refund-status-order",
+            "refund-record-order",
+        }
+
+    async def test_admin_review_filter_inspection_pending(self, admin_order_client, db_path):
+        conn = sqlite3.connect(db_path)
+        conn.executemany(
+            """
+            INSERT INTO orders (id, session_id, status, total_cents, customer_email)
+            VALUES (?, 'review-session', ?, 2500, ?)
+            """,
+            [
+                ("inspection-order", "returned", "inspection@example.com"),
+                ("in-transit-order", "return_in_transit", "in-transit@example.com"),
+                ("restocked-order", "returned", "restocked@example.com"),
+            ],
+        )
+        conn.executemany(
+            """
+            INSERT INTO order_returns (
+                id, order_id, reason, source, status, restock_decision
+            ) VALUES (?, ?, 'customer_return', 'admin', ?, ?)
+            """,
+            [
+                ("return-inspection", "inspection-order", "received", "pending"),
+                ("return-in-transit", "in-transit-order", "return_in_transit", "pending"),
+                ("return-restocked", "restocked-order", "inspected", "restock"),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        resp = await admin_order_client.get("/v1/admin/orders?review_filter=inspection_pending")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["items"][0]["id"] == "inspection-order"
+
+    async def test_admin_review_filter_courier_claim_follow_up(
+        self, admin_order_client, db_path
+    ):
+        conn = sqlite3.connect(db_path)
+        conn.executemany(
+            """
+            INSERT INTO orders (id, session_id, status, total_cents, customer_email)
+            VALUES (?, 'review-session', 'return_in_transit', 2500, ?)
+            """,
+            [
+                ("claim-filed-order", "claim-filed@example.com"),
+                ("claim-id-order", "claim-id@example.com"),
+                ("claim-paid-order", "claim-paid@example.com"),
+            ],
+        )
+        conn.executemany(
+            """
+            INSERT INTO order_returns (
+                id, order_id, reason, source, status,
+                courier_claim_id, courier_claim_status
+            ) VALUES (?, ?, 'damaged_by_courier', 'admin', 'return_in_transit', ?, ?)
+            """,
+            [
+                ("return-claim-filed", "claim-filed-order", "CLM-1", "filed"),
+                ("return-claim-id", "claim-id-order", "CLM-2", "none"),
+                ("return-claim-paid", "claim-paid-order", "CLM-3", "paid"),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        resp = await admin_order_client.get(
+            "/v1/admin/orders?review_filter=courier_claim_follow_up"
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 2
+        assert {item["id"] for item in body["items"]} == {"claim-filed-order", "claim-id-order"}
+
+    async def test_admin_review_filter_cod_settlement_pending(self, admin_order_client, db_path):
+        conn = sqlite3.connect(db_path)
+        conn.executemany(
+            """
+            INSERT INTO orders (
+                id, session_id, status, total_cents, customer_email,
+                payment_method, payment_status
+            ) VALUES (?, 'review-session', ?, 2500, ?, ?, ?)
+            """,
+            [
+                ("cod-pending-order", "delivered", "cod-pending@example.com", "cod", "paid"),
+                ("cod-settled-order", "delivered", "cod-settled@example.com", "cod", "paid"),
+                ("card-delivered-order", "delivered", "card-delivered@example.com", "card", "paid"),
+            ],
+        )
+        conn.execute(
+            """
+            INSERT INTO cod_settlements (id, order_id, amount_cents, settlement_date)
+            VALUES ('settled-cod', 'cod-settled-order', 2500, '2026-08-01')
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        resp = await admin_order_client.get("/v1/admin/orders?review_filter=cod_settlement_pending")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["items"][0]["id"] == "cod-pending-order"
+
     async def test_admin_filter_by_status(self, admin_order_client):
         # Create an order (status: pending)
         await admin_order_client.post(
@@ -934,6 +1548,13 @@ class TestAdminInvalidStatusFilter:
         body = resp.json()
         assert body["error"]["code"] == "INVALID_PAYMENT_STATUS"
         assert body["error"]["details"] is None
+
+    async def test_invalid_review_filter_422(self, admin_order_client):
+        resp = await admin_order_client.get("/v1/admin/orders?review_filter=bogus")
+        assert resp.status_code == 422
+        body = resp.json()
+        assert body["error"]["code"] == "INVALID_REVIEW_FILTER"
+        assert "uncollected_refused" in body["error"]["message"]
 
 
 # ===========================================================================
@@ -1209,7 +1830,7 @@ class TestAdminMarkPaymentPaid:
 
 
 class TestAdminManualPaymentActions:
-    async def test_mark_review_uses_failed_status_and_writes_event(
+    async def test_mark_review_uses_review_required_status_and_writes_event(
         self, admin_order_client, db_path, order_session_id
     ):
         from app.models.delivery import DeliveryInfo
@@ -1235,7 +1856,7 @@ class TestAdminManualPaymentActions:
 
         assert resp.status_code == 200
         body = resp.json()
-        assert body["payment_status"] == "failed"
+        assert body["payment_status"] == "review_required"
 
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
@@ -1246,7 +1867,7 @@ class TestAdminManualPaymentActions:
         ).fetchone()
         conn.close()
         assert event["event_type"] == "manual_mark_review"
-        assert event["provider_status"] == "failed"
+        assert event["provider_status"] == "review_required"
         assert event["admin_note"] == "Late Stripe success after expiry"
         assert '"current_vocabulary":true' in event["details"]
 
@@ -1287,6 +1908,82 @@ class TestAdminManualPaymentActions:
         conn.close()
         assert row[0] == "pending"
         assert event_count == 0
+
+
+class TestAdminStripeRefunds:
+    async def test_admin_creates_partial_stripe_refund(
+        self, admin_order_client, db_path, order_session_id, monkeypatch
+    ):
+        import sys
+        import types
+
+        from app.config import Settings
+        from app.models.delivery import DeliveryInfo
+        from app.services.order_service import checkout
+
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        order = checkout(
+            conn,
+            session_id=order_session_id,
+            customer_email="refund@example.com",
+            customer_name=None,
+            delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
+            notes=None,
+            payment_method="card",
+        )
+        conn.execute(
+            """
+            UPDATE orders
+            SET payment_status = 'paid', stripe_payment_intent_id = 'pi_route_refund'
+            WHERE id = ?
+            """,
+            (order["id"],),
+        )
+        conn.execute(
+            """
+            UPDATE payments
+            SET provider_status = 'paid', stripe_payment_intent_id = 'pi_route_refund'
+            WHERE order_id = ? AND provider = 'stripe'
+            """,
+            (order["id"],),
+        )
+        conn.commit()
+        conn.close()
+
+        calls: list[dict] = []
+
+        class FakeRefund:
+            id = "re_route_refund"
+            status = "pending"
+
+        class FakeRefundAPI:
+            @staticmethod
+            def create(**kwargs):
+                calls.append(kwargs)
+                return FakeRefund()
+
+        fake_stripe = types.ModuleType("stripe")
+        fake_stripe.api_key = None
+        fake_stripe.Refund = FakeRefundAPI
+        monkeypatch.setitem(sys.modules, "stripe", fake_stripe)
+        monkeypatch.setattr(
+            "app.routes.admin.get_settings",
+            lambda: Settings(stripe_secret_key="sk_test_refund"),
+        )
+
+        resp = await admin_order_client.post(
+            f"/v1/admin/orders/{order['id']}/refunds",
+            json={"amount_cents": 50, "idempotency_key": "route-refund-1"},
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["amount_cents"] == 50
+        assert body["status"] == "pending"
+        assert body["provider_refund_id"] == "re_route_refund"
+        assert calls[0]["payment_intent"] == "pi_route_refund"
+        assert calls[0]["amount"] == 50
 
 
 class TestAdminAlerts:

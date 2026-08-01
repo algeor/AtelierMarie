@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
+import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
 import {
   getAdminAnalyticsCheckout,
   getAdminAnalyticsExportUrl,
@@ -83,9 +84,9 @@ export default function AdminAnalyticsPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div>
+        <div className="flex items-center gap-2">
           <h1 className="font-heading text-3xl text-charcoal">{t("title")}</h1>
-          <p className="mt-1 text-sm text-soft-brown">{t("subtitle")}</p>
+          <AdminInfoPopover content={t("subtitle")} />
         </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
           <label className="text-sm text-soft-brown">

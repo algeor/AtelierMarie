@@ -12,14 +12,17 @@ from app.models.delivery import DeliveryInfo, DeliveryOffice
 from app.services.order_service import (
     EmptyCartError,
     InsufficientStockError,
+    InvalidDeliveryOfficeError,
     InvalidStateTransitionError,
     OrderNotFoundError,
+    PaymentReviewRequiredError,
     ProductUnavailableError,
     TrackingRequiredError,
     checkout,
     get_order,
     list_orders,
     update_status,
+    update_status_async,
 )
 
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
@@ -181,6 +184,64 @@ class TestCheckoutSuccess:
             "SELECT COUNT(*) FROM cart_items WHERE session_id = ?", (session_id,)
         ).fetchone()[0]
         assert cart_count == 0
+
+    def test_econt_office_code_is_taken_from_catalog_not_client(
+        self, conn, cart_with_items, products
+    ):
+        delivery = DeliveryInfo(
+            method="office",
+            office=DeliveryOffice(
+                courier="econt",
+                office_id="econt-1029",
+                office_code="wrong-client-code",
+                office_name="София",
+                office_type="office",
+                city="София",
+                phone="+359888123456",
+            ),
+        )
+
+        order = checkout(
+            conn=conn,
+            session_id=cart_with_items,
+            customer_email="marie@example.com",
+            customer_name="Marie",
+            delivery=delivery,
+        )
+
+        assert order["delivery_details"]["office_code"] == "1127"
+
+    def test_econt_office_checkout_rejects_catalog_office_without_native_code(
+        self, conn, cart_with_items, products, delivery, monkeypatch
+    ):
+        def fake_get_office(courier, office_id, *, locale="bg"):
+            assert courier == "econt"
+            assert office_id == "econt-1029"
+            return {
+                "id": office_id,
+                "code": None,
+                "name": "София",
+                "type": "office",
+                "city": "София",
+                "address": "ул. Тест 1",
+                "working_hours": "09:00-18:00",
+            }
+
+        monkeypatch.setattr(
+            "app.services.order_service.delivery_service.get_office",
+            fake_get_office,
+        )
+
+        with pytest.raises(InvalidDeliveryOfficeError) as exc_info:
+            checkout(
+                conn=conn,
+                session_id=cart_with_items,
+                customer_email="marie@example.com",
+                customer_name="Marie",
+                delivery=delivery,
+            )
+
+        assert exc_info.value.reason == "office_code required for Econt office delivery"
 
 
 class TestCheckoutEmptyCart:
@@ -648,6 +709,9 @@ class TestValidTransitions:
             ("confirmed", "shipped"),
             ("confirmed", "cancelled"),
             ("shipped", "delivered"),
+            ("shipped", "return_in_transit"),
+            ("delivered", "return_in_transit"),
+            ("return_in_transit", "returned"),
         ],
     )
     def test_valid_transition(self, conn, session_a, products, from_status, to_status):
@@ -685,19 +749,33 @@ class TestInvalidTransitions:
         [
             ("pending", "shipped"),
             ("pending", "delivered"),
+            ("pending", "return_in_transit"),
+            ("pending", "returned"),
             ("confirmed", "pending"),
             ("confirmed", "delivered"),
+            ("confirmed", "return_in_transit"),
+            ("confirmed", "returned"),
             ("shipped", "pending"),
             ("shipped", "confirmed"),
             ("shipped", "cancelled"),
+            ("shipped", "returned"),
             ("delivered", "pending"),
             ("delivered", "confirmed"),
             ("delivered", "shipped"),
             ("delivered", "cancelled"),
+            ("delivered", "returned"),
+            ("returned", "pending"),
+            ("returned", "confirmed"),
+            ("returned", "shipped"),
+            ("returned", "delivered"),
+            ("returned", "return_in_transit"),
+            ("returned", "cancelled"),
             ("cancelled", "pending"),
             ("cancelled", "confirmed"),
             ("cancelled", "shipped"),
             ("cancelled", "delivered"),
+            ("cancelled", "return_in_transit"),
+            ("cancelled", "returned"),
         ],
     )
     def test_invalid_transition(self, conn, session_a, products, from_status, to_status):
@@ -763,6 +841,66 @@ class TestCancellationRestoresStock:
 
         stock = conn.execute("SELECT stock FROM products WHERE id = 'midnight-amber'").fetchone()[0]
         assert stock == 5  # 3 + 2
+
+
+class TestReturnTransitionsDoNotRestoreStock:
+    """Post-shipment return statuses are physical workflow, not inventory decisions."""
+
+    def test_shipped_to_return_in_transit_keeps_stock_unchanged(
+        self, conn, session_a, products
+    ):
+        order_id = _create_order_with_status(
+            conn,
+            session_a,
+            "shipped",
+            products_in_order=[("lavender-dream", "Lavender Dream", 2500, 2)],
+        )
+        conn.execute("UPDATE products SET stock = 8 WHERE id = 'lavender-dream'")
+        conn.commit()
+
+        result = update_status(conn=conn, order_id=order_id, new_status="return_in_transit")
+        conn.commit()
+
+        stock = conn.execute("SELECT stock FROM products WHERE id = 'lavender-dream'").fetchone()[0]
+        assert result["status"] == "return_in_transit"
+        assert stock == 8
+
+    def test_return_in_transit_to_returned_keeps_stock_unchanged(
+        self, conn, session_a, products
+    ):
+        order_id = _create_order_with_status(
+            conn,
+            session_a,
+            "return_in_transit",
+            products_in_order=[("midnight-amber", "Midnight Amber", 3500, 2)],
+        )
+        conn.execute("UPDATE products SET stock = 3 WHERE id = 'midnight-amber'")
+        conn.commit()
+
+        result = update_status(conn=conn, order_id=order_id, new_status="returned")
+        conn.commit()
+
+        stock = conn.execute("SELECT stock FROM products WHERE id = 'midnight-amber'").fetchone()[0]
+        assert result["status"] == "returned"
+        assert stock == 3
+
+    def test_payment_review_order_cannot_ship(self, conn, session_a, products):
+        order_id = _create_order_with_status(conn, session_a, "confirmed")
+        conn.execute(
+            "UPDATE orders SET payment_method = 'card', payment_status = 'review_required' "
+            "WHERE id = ?",
+            (order_id,),
+        )
+        conn.commit()
+
+        with pytest.raises(PaymentReviewRequiredError):
+            update_status(
+                conn=conn,
+                order_id=order_id,
+                new_status="shipped",
+                tracking_number="1234567",
+                tracking_carrier="speedy",
+            )
 
 
 class TestDoubleCancellation:
@@ -975,7 +1113,25 @@ class TestSpeedyWaybillAutomation:
         conn.commit()
         return order_id
 
-    def test_ship_speedy_order_creates_waybill_and_tracking(
+    def test_sync_ship_speedy_without_tracking_requires_tracking(
+        self, conn, session_a, monkeypatch
+    ):
+        from app.services import speedy_client
+
+        order_id = self._speedy_order(conn, session_a)
+
+        def fail_if_called(**_kwargs):
+            raise AssertionError("sync status update must not call Speedy")
+
+        monkeypatch.setattr(speedy_client, "create_shipment_sync", fail_if_called)
+
+        with pytest.raises(TrackingRequiredError) as exc_info:
+            update_status(conn=conn, order_id=order_id, new_status="shipped")
+
+        assert "tracking_number" in exc_info.value.missing
+
+    @pytest.mark.asyncio
+    async def test_ship_speedy_order_creates_waybill_and_tracking(
         self, conn, session_a, monkeypatch
     ):
         from app.services import speedy_client
@@ -983,13 +1139,13 @@ class TestSpeedyWaybillAutomation:
         order_id = self._speedy_order(conn, session_a)
         captured: dict = {}
 
-        def fake_create_shipment_sync(**kwargs):
+        async def fake_create_shipment(**kwargs):
             captured.update(kwargs)
             return "63689182611"
 
-        monkeypatch.setattr(speedy_client, "create_shipment_sync", fake_create_shipment_sync)
+        monkeypatch.setattr(speedy_client, "create_shipment", fake_create_shipment)
 
-        result = update_status(conn=conn, order_id=order_id, new_status="shipped")
+        result = await update_status_async(conn=conn, order_id=order_id, new_status="shipped")
         conn.commit()
 
         assert result["status"] == "shipped"
@@ -1004,24 +1160,24 @@ class TestSpeedyWaybillAutomation:
         assert captured["recipient_postcode"] == "1000"
         assert captured["recipient_street"] == "Витоша"
         assert captured["recipient_building"] == "5"
+        assert captured["weight_grams"] == 600
         assert captured["cod_amount_cents"] == result["total_cents"]
 
-    def test_speedy_waybill_failure_leaves_order_confirmed(
+    @pytest.mark.asyncio
+    async def test_speedy_waybill_failure_leaves_order_confirmed(
         self, conn, session_a, monkeypatch
     ):
         from app.services import speedy_client
 
         order_id = self._speedy_order(conn, session_a)
 
-        def fail_create_shipment_sync(**kwargs):
-            raise speedy_client.ShipmentCreationError(
-                "phone required", context="recipient.phone"
-            )
+        async def fail_create_shipment(**kwargs):
+            raise speedy_client.ShipmentCreationError("phone required", context="recipient.phone")
 
-        monkeypatch.setattr(speedy_client, "create_shipment_sync", fail_create_shipment_sync)
+        monkeypatch.setattr(speedy_client, "create_shipment", fail_create_shipment)
 
         with pytest.raises(speedy_client.ShipmentCreationError) as exc_info:
-            update_status(conn=conn, order_id=order_id, new_status="shipped")
+            await update_status_async(conn=conn, order_id=order_id, new_status="shipped")
 
         assert exc_info.value.context == "recipient.phone"
         row = conn.execute(

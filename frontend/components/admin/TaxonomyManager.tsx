@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { SaveConfirmation } from "@/components/admin/SaveConfirmation";
 import { Button } from "@/components/ui/Button";
+import { DeleteIconButton } from "@/components/ui/DeleteIconButton";
 import { Input } from "@/components/ui/Input";
 import { ApiError } from "@/lib/api-client";
 import {
@@ -283,13 +284,10 @@ export function TaxonomyManager({ kind }: TaxonomyManagerProps) {
                         <span className="text-xs text-soft-brown">
                           {t("taxonomy.deleteConfirm", { name: term.name_en })}
                         </span>
-                        <Button
-                          type="button"
+                        <DeleteIconButton
+                          label={t("taxonomy.confirmDelete")}
                           onClick={() => handleDelete(term)}
-                          className="bg-red-600 text-white hover:bg-red-700"
-                        >
-                          {t("taxonomy.confirmDelete")}
-                        </Button>
+                        />
                         <Button
                           type="button"
                           variant="ghost"
@@ -326,17 +324,14 @@ export function TaxonomyManager({ kind }: TaxonomyManagerProps) {
                         >
                           {term.is_active ? t("taxonomy.deactivate") : t("taxonomy.activate")}
                         </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
+                        <DeleteIconButton
+                          label={t("taxonomy.delete")}
                           onClick={() => {
                             setEditingSlug(null);
                             setConfirmDeleteSlug(term.slug);
                           }}
                           disabled={term.product_count > 0}
-                        >
-                          {t("taxonomy.delete")}
-                        </Button>
+                        />
                       </>
                     )}
                   </td>

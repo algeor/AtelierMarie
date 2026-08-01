@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
 import { FaqManager } from "@/components/admin/FaqManager";
 
 export default function AdminFaqPage() {
@@ -8,9 +9,9 @@ export default function AdminFaqPage() {
 
   return (
     <div>
-      <div className="mb-8">
+      <div className="mb-8 flex items-center gap-2">
         <h1 className="font-heading text-2xl font-semibold text-charcoal">{t("title")}</h1>
-        <p className="mt-1 text-sm text-soft-brown">{t("subtitle")}</p>
+        <AdminInfoPopover content={t("subtitle")} />
       </div>
       <FaqManager />
     </div>

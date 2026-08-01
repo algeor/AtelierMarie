@@ -24,6 +24,7 @@ import type {
   BulkDiscountResponse,
   CalculateShippingRequest,
   CalculateShippingResponse,
+  CallbackOutcome,
   CampaignCreateRequest,
   CampaignListResponse,
   CampaignResponse,
@@ -38,8 +39,29 @@ import type {
   ContactResponse,
   CheckoutAnalyticsResponse,
   Courier,
+  CodSettlementResponse,
+  CreateStripeRefundRequest,
+  DeliveryConfigResponse,
   DeliverySettingsResponse,
   DeliverySettingsUpdate,
+  EcontConnectionTestResponse,
+  EcontFulfillmentActionResponse,
+  EcontManualStatusRequest,
+  EcontOrderFulfillmentResponse,
+  EcontOrderRepairRequest,
+  EcontSettingsResponse,
+  EcontSettingsUpdate,
+  SpeedyActionResponse,
+  SpeedyAdminOverviewResponse,
+  SpeedyCancelShipmentRequest,
+  SpeedyPickupRequest,
+  SpeedyPickupResponse,
+  SpeedyPickupTermsRequest,
+  SpeedyPickupTermsResponse,
+  SpeedyShipmentInfoRequest,
+  SpeedyShipmentInfoResponse,
+  SpeedyShipmentSearchRequest,
+  SpeedyShipmentSearchResponse,
   CreateOrderRequest,
   CreateAboutItemRequest,
   CreateProductRequest,
@@ -51,11 +73,13 @@ import type {
   FaqResponse,
   FaqSectionAdminResponse,
   ImageUploadResponse,
+  InspectReturnCaseRequest,
   OfficeResponse,
   OfficeType,
   OrderListResponse,
   OrderResponse,
   OrderStatus,
+  PaymentRefundResponse,
   PaymentMethod,
   PaymentSettingsResponse,
   PaymentSettingsUpdate,
@@ -66,8 +90,11 @@ import type {
   PublicPaymentSettingsResponse,
   ProductResponse,
   ReactionCountsResponse,
+  RecordCodSettlementRequest,
   ReactionToggleRequest,
   ReactionToggleResponse,
+  ReturnCaseResponse,
+  CreateReturnCaseRequest,
   ProductImage,
   PatchAboutItemRequest,
   PatchAboutSectionRequest,
@@ -78,9 +105,87 @@ import type {
   UpdateFaqItemRequest,
   UpdateFaqSectionRequest,
   UpdateProductRequest,
+  UpdateReturnAccountingRequest,
   UpdateTaxonomyTermRequest,
   UserResponse,
   VideoUploadResponse,
+} from "./types";
+
+import type {
+  AccountantAcceptanceRequest,
+  AccountingConfigurationResponse,
+  AccountingDocumentListResponse,
+  AccountingDocumentRequest,
+  AccountingDocumentResponse,
+  AccountingLedgerName,
+  AccountingLedgerResponse,
+  AdminOrderAccountingFilter,
+  CategoryMappingRequest,
+  CategoryMappingResponse,
+  ExportSchemaSettingsRequest,
+  ExportSchemaSettingsResponse,
+  ExpenseEvidenceListResponse,
+  ExpenseEvidenceRequest,
+  ExpenseEvidenceResponse,
+  ExpenseEvidenceSettingsRequest,
+  ExpenseEvidenceSettingsResponse,
+  ExpensePaymentStatusRequest,
+  FinanceExceptionActionRequest,
+  FinanceExceptionListResponse,
+  FinanceExceptionResponse,
+  FinanceExceptionStatus,
+  FinanceExportPackageListResponse,
+  FinanceExportPackageResponse,
+  FinancePeriodActionRequest,
+  FinancePeriodCreateRequest,
+  FinancePeriodListResponse,
+  FinancePeriodResponse,
+  CogsLedgerListResponse,
+  InventoryClosePreviewResponse,
+  InventoryExceptionResponse,
+  InventoryMovementListResponse,
+  InventoryMovementResponse,
+  InventoryValuationSettingsRequest,
+  InventoryValuationSettingsResponse,
+  MaterialAdjustmentRequest,
+  MaterialDetailResponse,
+  MaterialListResponse,
+  MaterialLotListResponse,
+  MaterialReceiptRequest,
+  MaterialReceiptResponse,
+  MaterialRequest,
+  MaterialResponse,
+  MaterialUpdateRequest,
+  MissingProductCostDiagnosticsResponse,
+  OpeningBalanceRequest,
+  ProductionBatchCorrectionRequest,
+  ProductionBatchListResponse,
+  ProductionBatchPostRequest,
+  ProductionBatchRequest,
+  ProductionBatchResponse,
+  ProductionBatchUpdateRequest,
+  ProductionTraceabilityResponse,
+  ProductCostSettingsRequest,
+  ProductCostSettingsResponse,
+  ProductCostVersionListResponse,
+  ProductCostVersionRequest,
+  ProductCostVersionResponse,
+  RecipeCostSnapshotRequest,
+  RecipeCostSnapshotResponse,
+  RecipeDiagnosticsListResponse,
+  RecipeReviewRequest,
+  RecipeVersionListResponse,
+  RecipeVersionRequest,
+  RecipeVersionResponse,
+  RecipeVersionUpdateRequest,
+  SellerLegalProfileRequest,
+  SellerLegalProfileResponse,
+  StripeBalanceImportResponse,
+  StripePayoutImportStatusResponse,
+  ValuationLayerListResponse,
+  ValuationLayerResponse,
+  VatFiscalSettingsRequest,
+  VatFiscalSettingsResponse,
 } from "./types";
 
 const USE_MOCK =
@@ -414,6 +519,11 @@ export async function createStripeRetrySession(
 
 // --- Delivery ---
 
+export async function getDeliveryConfig(): Promise<DeliveryConfigResponse> {
+  if (USE_MOCK) return (await getMock()).getDeliveryConfig();
+  return apiClient.get<DeliveryConfigResponse>("/v1/delivery/config");
+}
+
 export async function getDeliveryOffices(
   courier: Courier,
   city: string,
@@ -490,6 +600,154 @@ export async function updateAdminDeliverySettings(
 ): Promise<DeliverySettingsResponse> {
   if (USE_MOCK) return (await getMock()).updateAdminDeliverySettings(data);
   return apiClient.put<DeliverySettingsResponse>("/v1/admin/delivery-settings", data);
+}
+
+export async function getEcontSettings(): Promise<EcontSettingsResponse> {
+  if (USE_MOCK) return (await getMock()).getEcontSettings();
+  return apiClient.get<EcontSettingsResponse>("/v1/admin/econt/settings");
+}
+
+export async function updateEcontSettings(
+  data: EcontSettingsUpdate
+): Promise<EcontSettingsResponse> {
+  if (USE_MOCK) return (await getMock()).updateEcontSettings(data);
+  return apiClient.patch<EcontSettingsResponse>("/v1/admin/econt/settings", data);
+}
+
+export async function testEcontConnection(): Promise<EcontConnectionTestResponse> {
+  if (USE_MOCK) return (await getMock()).testEcontConnection();
+  return apiClient.post<EcontConnectionTestResponse>("/v1/admin/econt/test-connection");
+}
+
+export async function getEcontOrderReadiness(
+  orderId: string
+): Promise<EcontOrderFulfillmentResponse> {
+  if (USE_MOCK) return (await getMock()).getEcontOrderReadiness(orderId);
+  return apiClient.get<EcontOrderFulfillmentResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/readiness`
+  );
+}
+
+export async function repairEcontOrder(
+  orderId: string,
+  data: EcontOrderRepairRequest
+): Promise<EcontOrderFulfillmentResponse> {
+  if (USE_MOCK) return (await getMock()).repairEcontOrder(orderId, data);
+  return apiClient.patch<EcontOrderFulfillmentResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/repair`,
+    data
+  );
+}
+
+export async function syncEcontOrder(orderId: string): Promise<EcontFulfillmentActionResponse> {
+  if (USE_MOCK) return (await getMock()).syncEcontOrder(orderId);
+  return apiClient.post<EcontFulfillmentActionResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/sync`
+  );
+}
+
+export async function createEcontLabel(orderId: string): Promise<EcontFulfillmentActionResponse> {
+  if (USE_MOCK) return (await getMock()).createEcontLabel(orderId);
+  return apiClient.post<EcontFulfillmentActionResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/label`
+  );
+}
+
+export async function createAndShipEcontOrder(
+  orderId: string
+): Promise<EcontFulfillmentActionResponse> {
+  if (USE_MOCK) return (await getMock()).createAndShipEcontOrder(orderId);
+  return apiClient.post<EcontFulfillmentActionResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/ship`
+  );
+}
+
+export async function deleteEcontLabel(orderId: string): Promise<EcontFulfillmentActionResponse> {
+  if (USE_MOCK) return (await getMock()).deleteEcontLabel(orderId);
+  return apiClient.del<EcontFulfillmentActionResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/label`
+  );
+}
+
+export async function refreshEcontTrace(orderId: string): Promise<EcontFulfillmentActionResponse> {
+  if (USE_MOCK) return (await getMock()).refreshEcontTrace(orderId);
+  return apiClient.post<EcontFulfillmentActionResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/trace`
+  );
+}
+
+export async function recordEcontManualStatus(
+  orderId: string,
+  data: EcontManualStatusRequest
+): Promise<EcontFulfillmentActionResponse> {
+  if (USE_MOCK) return (await getMock()).recordEcontManualStatus(orderId, data);
+  return apiClient.post<EcontFulfillmentActionResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/manual-status`,
+    data
+  );
+}
+
+export async function getSpeedyAdminOverview(
+  orderId?: string | null
+): Promise<SpeedyAdminOverviewResponse> {
+  if (USE_MOCK) return (await getMock()).getSpeedyAdminOverview(orderId);
+  const params = new URLSearchParams();
+  if (orderId) params.set("order_id", orderId);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<SpeedyAdminOverviewResponse>(`/v1/admin/speedy${query}`);
+}
+
+export async function createSpeedyWaybill(orderId: string): Promise<SpeedyActionResponse> {
+  if (USE_MOCK) return (await getMock()).createSpeedyWaybill(orderId);
+  return apiClient.post<SpeedyActionResponse>(
+    `/v1/admin/speedy/orders/${encodeURIComponent(orderId)}/ship`
+  );
+}
+
+export async function refreshSpeedyTracking(orderId: string): Promise<SpeedyActionResponse> {
+  if (USE_MOCK) return (await getMock()).refreshSpeedyTracking(orderId);
+  return apiClient.post<SpeedyActionResponse>(
+    `/v1/admin/speedy/orders/${encodeURIComponent(orderId)}/track`
+  );
+}
+
+export async function searchSpeedyShipments(
+  data: SpeedyShipmentSearchRequest
+): Promise<SpeedyShipmentSearchResponse> {
+  if (USE_MOCK) return (await getMock()).searchSpeedyShipments(data);
+  return apiClient.post<SpeedyShipmentSearchResponse>("/v1/admin/speedy/shipments/search", data);
+}
+
+export async function getSpeedyShipmentInfo(
+  data: SpeedyShipmentInfoRequest
+): Promise<SpeedyShipmentInfoResponse> {
+  if (USE_MOCK) return (await getMock()).getSpeedyShipmentInfo(data);
+  return apiClient.post<SpeedyShipmentInfoResponse>("/v1/admin/speedy/shipments/info", data);
+}
+
+export async function cancelSpeedyShipment(
+  orderId: string,
+  data: SpeedyCancelShipmentRequest = {}
+): Promise<SpeedyActionResponse> {
+  if (USE_MOCK) return (await getMock()).cancelSpeedyShipment(orderId, data);
+  return apiClient.post<SpeedyActionResponse>(
+    `/v1/admin/speedy/orders/${encodeURIComponent(orderId)}/cancel-shipment`,
+    data
+  );
+}
+
+export async function getSpeedyPickupTerms(
+  data: SpeedyPickupTermsRequest
+): Promise<SpeedyPickupTermsResponse> {
+  if (USE_MOCK) return (await getMock()).getSpeedyPickupTerms(data);
+  return apiClient.post<SpeedyPickupTermsResponse>("/v1/admin/speedy/pickup/terms", data);
+}
+
+export async function requestSpeedyPickup(
+  data: SpeedyPickupRequest
+): Promise<SpeedyPickupResponse> {
+  if (USE_MOCK) return (await getMock()).requestSpeedyPickup(data);
+  return apiClient.post<SpeedyPickupResponse>("/v1/admin/speedy/pickup", data);
 }
 
 export async function getOrders(
@@ -768,15 +1026,27 @@ export async function getAdminOrders(
   limit = 20,
   status?: string,
   paymentStatus?: PaymentStatus | "",
-  paymentMethod?: PaymentMethod | ""
+  paymentMethod?: PaymentMethod | "",
+  accountingFilter?: AdminOrderAccountingFilter | "",
+  financePeriodId?: string
 ): Promise<OrderListResponse> {
   if (USE_MOCK) {
-    return (await getMock()).getAdminOrders(page, limit, status, paymentStatus, paymentMethod);
+    return (await getMock()).getAdminOrders(
+      page,
+      limit,
+      status,
+      paymentStatus,
+      paymentMethod,
+      accountingFilter,
+      financePeriodId
+    );
   }
   const params = new URLSearchParams({ page: String(page), limit: String(limit) });
   if (status) params.set("status", status);
   if (paymentStatus) params.set("payment_status", paymentStatus);
   if (paymentMethod) params.set("payment_method", paymentMethod);
+  if (accountingFilter) params.set("accounting_filter", accountingFilter);
+  if (financePeriodId) params.set("finance_period_id", financePeriodId);
   return apiClient.get<OrderListResponse>(`/v1/admin/orders?${params}`);
 }
 
@@ -787,15 +1057,619 @@ export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailRe
   );
 }
 
+// --- Admin Inventory ---
+
+export async function listMaterials(filters: {
+  active?: boolean;
+  category?: string;
+  needsReorder?: boolean;
+  limit?: number;
+  offset?: number;
+} = {}): Promise<MaterialListResponse> {
+  const params = new URLSearchParams();
+  if (filters.active !== undefined) params.set("active", String(filters.active));
+  if (filters.category) params.set("category", filters.category);
+  if (filters.needsReorder) params.set("needs_reorder", "true");
+  if (filters.limit) params.set("limit", String(filters.limit));
+  if (filters.offset) params.set("offset", String(filters.offset));
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<MaterialListResponse>(`/v1/admin/inventory/materials${query}`);
+}
+
+export async function getMaterial(materialId: string): Promise<MaterialDetailResponse> {
+  return apiClient.get<MaterialDetailResponse>(`/v1/admin/inventory/materials/${encodeURIComponent(materialId)}`);
+}
+
+export async function createMaterial(data: MaterialRequest): Promise<MaterialResponse> {
+  return apiClient.post<MaterialResponse>("/v1/admin/inventory/materials", data);
+}
+
+export async function updateMaterial(materialId: string, data: MaterialUpdateRequest): Promise<MaterialResponse> {
+  return apiClient.patch<MaterialResponse>(`/v1/admin/inventory/materials/${encodeURIComponent(materialId)}`, data);
+}
+
+export async function createMaterialReceipt(materialId: string, data: MaterialReceiptRequest): Promise<MaterialReceiptResponse> {
+  return apiClient.post<MaterialReceiptResponse>(`/v1/admin/inventory/materials/${encodeURIComponent(materialId)}/receipts`, data);
+}
+
+export async function createMaterialAdjustment(materialId: string, data: MaterialAdjustmentRequest): Promise<InventoryMovementResponse> {
+  return apiClient.post<InventoryMovementResponse>(`/v1/admin/inventory/materials/${encodeURIComponent(materialId)}/adjustments`, data);
+}
+
+export async function listMaterialLots(materialId: string, productionDate?: string): Promise<MaterialLotListResponse> {
+  const params = new URLSearchParams();
+  if (productionDate) params.set("production_date", productionDate);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<MaterialLotListResponse>(`/v1/admin/inventory/materials/${encodeURIComponent(materialId)}/lots${query}`);
+}
+
+export async function listMaterialMovements(materialId: string, limit = 100): Promise<InventoryMovementListResponse> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  return apiClient.get<InventoryMovementListResponse>(`/v1/admin/inventory/materials/${encodeURIComponent(materialId)}/movements?${params}`);
+}
+
+export async function listInventoryMovements(filters: {
+  itemType?: "material" | "finished_good";
+  itemId?: string;
+  sourceType?: string;
+  sourceId?: string;
+  orderId?: string;
+  movementType?: string;
+  limit?: number;
+  offset?: number;
+} = {}): Promise<InventoryMovementListResponse> {
+  const params = new URLSearchParams();
+  if (filters.itemType) params.set("item_type", filters.itemType);
+  if (filters.itemId) params.set("item_id", filters.itemId);
+  if (filters.sourceType) params.set("source_type", filters.sourceType);
+  if (filters.sourceId) params.set("source_id", filters.sourceId);
+  if (filters.orderId) params.set("order_id", filters.orderId);
+  if (filters.movementType) params.set("movement_type", filters.movementType);
+  if (filters.limit) params.set("limit", String(filters.limit));
+  if (filters.offset) params.set("offset", String(filters.offset));
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<InventoryMovementListResponse>(`/v1/admin/inventory/movements${query}`);
+}
+
+export async function listRecipes(filters: { productId?: string; status?: string } = {}): Promise<RecipeVersionListResponse> {
+  const params = new URLSearchParams();
+  if (filters.productId) params.set("product_id", filters.productId);
+  if (filters.status) params.set("status", filters.status);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<RecipeVersionListResponse>(`/v1/admin/inventory/recipes${query}`);
+}
+
+export async function getRecipe(recipeId: string): Promise<RecipeVersionResponse> {
+  return apiClient.get<RecipeVersionResponse>(`/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}`);
+}
+
+export async function createRecipe(data: RecipeVersionRequest): Promise<RecipeVersionResponse> {
+  return apiClient.post<RecipeVersionResponse>("/v1/admin/inventory/recipes", data);
+}
+
+export async function updateRecipe(recipeId: string, data: RecipeVersionUpdateRequest): Promise<RecipeVersionResponse> {
+  return apiClient.patch<RecipeVersionResponse>(`/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}`, data);
+}
+
+export async function activateRecipe(recipeId: string): Promise<RecipeVersionResponse> {
+  return apiClient.post<RecipeVersionResponse>(`/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}/activate`, {});
+}
+
+export async function archiveRecipe(recipeId: string): Promise<RecipeVersionResponse> {
+  return apiClient.post<RecipeVersionResponse>(`/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}/archive`, {});
+}
+
+export async function createRecipeCostSnapshot(recipeId: string, data: RecipeCostSnapshotRequest): Promise<RecipeCostSnapshotResponse> {
+  return apiClient.post<RecipeCostSnapshotResponse>(`/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}/cost-snapshots`, data);
+}
+
+export async function reviewRecipe(recipeId: string, data: RecipeReviewRequest): Promise<RecipeVersionResponse> {
+  return apiClient.post<RecipeVersionResponse>(`/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}/review`, data);
+}
+
+export async function getRecipeDiagnostics(recipeId: string): Promise<RecipeDiagnosticsListResponse> {
+  return apiClient.get<RecipeDiagnosticsListResponse>(`/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}/diagnostics`);
+}
+
+export async function listProductionBatches(filters: { productId?: string; status?: string } = {}): Promise<ProductionBatchListResponse> {
+  const params = new URLSearchParams();
+  if (filters.productId) params.set("product_id", filters.productId);
+  if (filters.status) params.set("status", filters.status);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<ProductionBatchListResponse>(`/v1/admin/inventory/batches${query}`);
+}
+
+export async function getProductionBatch(batchId: string): Promise<ProductionBatchResponse> {
+  return apiClient.get<ProductionBatchResponse>(`/v1/admin/inventory/batches/${encodeURIComponent(batchId)}`);
+}
+
+export async function createProductionBatch(data: ProductionBatchRequest): Promise<ProductionBatchResponse> {
+  return apiClient.post<ProductionBatchResponse>("/v1/admin/inventory/batches", data);
+}
+
+export async function updateProductionBatch(batchId: string, data: ProductionBatchUpdateRequest): Promise<ProductionBatchResponse> {
+  return apiClient.patch<ProductionBatchResponse>(`/v1/admin/inventory/batches/${encodeURIComponent(batchId)}`, data);
+}
+
+export async function postProductionBatch(batchId: string, data: ProductionBatchPostRequest): Promise<ProductionBatchResponse> {
+  return apiClient.post<ProductionBatchResponse>(`/v1/admin/inventory/batches/${encodeURIComponent(batchId)}/post`, data);
+}
+
+export async function cancelProductionBatch(batchId: string): Promise<ProductionBatchResponse> {
+  return apiClient.post<ProductionBatchResponse>(`/v1/admin/inventory/batches/${encodeURIComponent(batchId)}/cancel`, {});
+}
+
+export async function correctProductionBatch(batchId: string, data: ProductionBatchCorrectionRequest): Promise<InventoryMovementResponse> {
+  return apiClient.post<InventoryMovementResponse>(`/v1/admin/inventory/batches/${encodeURIComponent(batchId)}/correct`, data);
+}
+
+export async function getProductionTraceability(batchId: string): Promise<ProductionTraceabilityResponse> {
+  return apiClient.get<ProductionTraceabilityResponse>(`/v1/admin/inventory/batches/${encodeURIComponent(batchId)}/traceability`);
+}
+
+export async function getInventoryValuationSettings(): Promise<InventoryValuationSettingsResponse> {
+  return apiClient.get<InventoryValuationSettingsResponse>("/v1/admin/inventory/valuation/settings");
+}
+
+export async function updateInventoryValuationSettings(data: InventoryValuationSettingsRequest): Promise<InventoryValuationSettingsResponse> {
+  return apiClient.put<InventoryValuationSettingsResponse>("/v1/admin/inventory/valuation/settings", data);
+}
+
+export async function recordOpeningBalance(data: OpeningBalanceRequest): Promise<ValuationLayerResponse | null> {
+  return apiClient.post<ValuationLayerResponse | null>("/v1/admin/inventory/valuation/opening-balances", data);
+}
+
+export async function generateValuationLayers(): Promise<ValuationLayerListResponse> {
+  return apiClient.post<ValuationLayerListResponse>("/v1/admin/inventory/valuation/layers/generate", {});
+}
+
+export async function listValuationLayers(filters: { itemType?: "material" | "finished_good"; itemId?: string } = {}): Promise<ValuationLayerListResponse> {
+  const params = new URLSearchParams();
+  if (filters.itemType) params.set("item_type", filters.itemType);
+  if (filters.itemId) params.set("item_id", filters.itemId);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<ValuationLayerListResponse>(`/v1/admin/inventory/valuation/layers${query}`);
+}
+
+export async function generateCogsRows(): Promise<CogsLedgerListResponse> {
+  return apiClient.post<CogsLedgerListResponse>("/v1/admin/inventory/valuation/cogs/generate", {});
+}
+
+export async function listCogsRows(filters: { productId?: string; orderId?: string } = {}): Promise<CogsLedgerListResponse> {
+  const params = new URLSearchParams();
+  if (filters.productId) params.set("product_id", filters.productId);
+  if (filters.orderId) params.set("order_id", filters.orderId);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<CogsLedgerListResponse>(`/v1/admin/inventory/valuation/cogs${query}`);
+}
+
+export async function getInventoryClosePreview(periodStart: string, periodEnd: string): Promise<InventoryClosePreviewResponse> {
+  const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
+  return apiClient.get<InventoryClosePreviewResponse>(`/v1/admin/inventory/valuation/close-preview?${params}`);
+}
+
+export async function listInventoryExceptions(filters: {
+  targetType?: string;
+  targetId?: string;
+  sourceType?: string;
+  sourceId?: string;
+  orderId?: string;
+} = {}): Promise<InventoryExceptionResponse[]> {
+  const params = new URLSearchParams();
+  if (filters.targetType) params.set("target_type", filters.targetType);
+  if (filters.targetId) params.set("target_id", filters.targetId);
+  if (filters.sourceType) params.set("source_type", filters.sourceType);
+  if (filters.sourceId) params.set("source_id", filters.sourceId);
+  if (filters.orderId) params.set("order_id", filters.orderId);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<InventoryExceptionResponse[]>(`/v1/admin/inventory/valuation/exceptions${query}`);
+}
+
+// --- Accounting & Finance Hub ---
+
+export async function getAccountingConfig(): Promise<AccountingConfigurationResponse> {
+  if (USE_MOCK) return (await getMock()).getAccountingConfig();
+  return apiClient.get<AccountingConfigurationResponse>("/v1/admin/accounting/config");
+}
+
+export async function createSellerLegalProfile(
+  data: SellerLegalProfileRequest
+): Promise<SellerLegalProfileResponse> {
+  if (USE_MOCK) return (await getMock()).createSellerLegalProfile(data);
+  return apiClient.post<SellerLegalProfileResponse>("/v1/admin/accounting/config/seller-profile", data);
+}
+
+export async function createVatFiscalSettings(
+  data: VatFiscalSettingsRequest
+): Promise<VatFiscalSettingsResponse> {
+  if (USE_MOCK) return (await getMock()).createVatFiscalSettings(data);
+  return apiClient.post<VatFiscalSettingsResponse>("/v1/admin/accounting/config/vat-fiscal", data);
+}
+
+export async function upsertAccountingCategoryMapping(
+  mappingKey: string,
+  data: CategoryMappingRequest
+): Promise<CategoryMappingResponse> {
+  if (USE_MOCK) return (await getMock()).upsertAccountingCategoryMapping(mappingKey, data);
+  return apiClient.put<CategoryMappingResponse>(
+    `/v1/admin/accounting/config/category-mappings/${encodeURIComponent(mappingKey)}`,
+    data
+  );
+}
+
+export async function updateAccountingExportSchema(
+  data: ExportSchemaSettingsRequest
+): Promise<ExportSchemaSettingsResponse> {
+  if (USE_MOCK) return (await getMock()).updateAccountingExportSchema(data);
+  return apiClient.put<ExportSchemaSettingsResponse>("/v1/admin/accounting/config/export-schema", data);
+}
+
+export async function updateExpenseEvidenceSettings(
+  data: ExpenseEvidenceSettingsRequest
+): Promise<ExpenseEvidenceSettingsResponse> {
+  if (USE_MOCK) return (await getMock()).updateExpenseEvidenceSettings(data);
+  return apiClient.put<ExpenseEvidenceSettingsResponse>("/v1/admin/accounting/config/expense-settings", data);
+}
+
+export async function updateProductCostSettings(
+  data: ProductCostSettingsRequest
+): Promise<ProductCostSettingsResponse> {
+  if (USE_MOCK) return (await getMock()).updateProductCostSettings(data);
+  return apiClient.put<ProductCostSettingsResponse>("/v1/admin/accounting/config/product-cost-settings", data);
+}
+
+export async function listFinancePeriods(status?: string): Promise<FinancePeriodListResponse> {
+  if (USE_MOCK) return (await getMock()).listFinancePeriods(status);
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<FinancePeriodListResponse>(`/v1/admin/accounting/periods${query}`);
+}
+
+export async function createFinancePeriod(
+  data: FinancePeriodCreateRequest
+): Promise<FinancePeriodResponse> {
+  if (USE_MOCK) return (await getMock()).createFinancePeriod(data);
+  return apiClient.post<FinancePeriodResponse>("/v1/admin/accounting/periods", data);
+}
+
+export async function reviewFinancePeriod(periodId: string): Promise<FinancePeriodResponse> {
+  if (USE_MOCK) return (await getMock()).reviewFinancePeriod(periodId);
+  return apiClient.post<FinancePeriodResponse>(
+    `/v1/admin/accounting/periods/${encodeURIComponent(periodId)}/review`
+  );
+}
+
+export async function closeFinancePeriod(periodId: string): Promise<FinancePeriodResponse> {
+  if (USE_MOCK) return (await getMock()).closeFinancePeriod(periodId);
+  return apiClient.post<FinancePeriodResponse>(
+    `/v1/admin/accounting/periods/${encodeURIComponent(periodId)}/close`
+  );
+}
+
+export async function reopenFinancePeriod(
+  periodId: string,
+  data: FinancePeriodActionRequest
+): Promise<FinancePeriodResponse> {
+  if (USE_MOCK) return (await getMock()).reopenFinancePeriod(periodId, data);
+  return apiClient.post<FinancePeriodResponse>(
+    `/v1/admin/accounting/periods/${encodeURIComponent(periodId)}/reopen`,
+    data
+  );
+}
+
+export async function acceptFinancePeriod(
+  periodId: string,
+  data: FinancePeriodActionRequest
+): Promise<FinancePeriodResponse> {
+  if (USE_MOCK) return (await getMock()).acceptFinancePeriod(periodId, data);
+  return apiClient.post<FinancePeriodResponse>(
+    `/v1/admin/accounting/periods/${encodeURIComponent(periodId)}/accept`,
+    data
+  );
+}
+
+export async function listFinanceExceptions(
+  periodId: string,
+  status?: FinanceExceptionStatus | ""
+): Promise<FinanceExceptionListResponse> {
+  if (USE_MOCK) return (await getMock()).listFinanceExceptions(periodId, status);
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<FinanceExceptionListResponse>(
+    `/v1/admin/accounting/periods/${encodeURIComponent(periodId)}/exceptions${query}`
+  );
+}
+
+export async function resolveFinanceException(
+  exceptionId: string,
+  data: FinanceExceptionActionRequest
+): Promise<FinanceExceptionResponse> {
+  if (USE_MOCK) return (await getMock()).resolveFinanceException(exceptionId, data);
+  return apiClient.post<FinanceExceptionResponse>(
+    `/v1/admin/accounting/exceptions/${encodeURIComponent(exceptionId)}/resolve`,
+    data
+  );
+}
+
+export async function waiveFinanceException(
+  exceptionId: string,
+  data: FinanceExceptionActionRequest
+): Promise<FinanceExceptionResponse> {
+  if (USE_MOCK) return (await getMock()).waiveFinanceException(exceptionId, data);
+  return apiClient.post<FinanceExceptionResponse>(
+    `/v1/admin/accounting/exceptions/${encodeURIComponent(exceptionId)}/waive`,
+    data
+  );
+}
+
+export async function getAccountingLedger(
+  periodId: string,
+  ledger: AccountingLedgerName,
+  options: { dateBasis?: string; page?: number; limit?: number } = {}
+): Promise<AccountingLedgerResponse> {
+  if (USE_MOCK) return (await getMock()).getAccountingLedger(periodId, ledger, options);
+  const params = new URLSearchParams({
+    page: String(options.page ?? 1),
+    limit: String(options.limit ?? 100),
+  });
+  if (options.dateBasis) params.set("date_basis", options.dateBasis);
+  return apiClient.get<AccountingLedgerResponse>(
+    `/v1/admin/accounting/periods/${encodeURIComponent(periodId)}/ledgers/${encodeURIComponent(ledger)}?${params}`
+  );
+}
+
+export function getAccountingExportDownloadUrl(exportId: string, file = "xlsx"): string {
+  const params = new URLSearchParams({ file });
+  return `${apiClient.BASE_URL}/v1/admin/accounting/exports/${encodeURIComponent(exportId)}/download?${params}`;
+}
+
+export async function listAccountingDocuments(filters: {
+  orderId?: string;
+  refundId?: string;
+  periodId?: string;
+} = {}): Promise<AccountingDocumentListResponse> {
+  if (USE_MOCK) return (await getMock()).listAccountingDocuments(filters);
+  const params = new URLSearchParams();
+  if (filters.orderId) params.set("order_id", filters.orderId);
+  if (filters.refundId) params.set("refund_id", filters.refundId);
+  if (filters.periodId) params.set("period_id", filters.periodId);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<AccountingDocumentListResponse>(`/v1/admin/accounting/documents${query}`);
+}
+
+export async function listOrderAccountingDocuments(orderId: string): Promise<AccountingDocumentListResponse> {
+  if (USE_MOCK) return (await getMock()).listOrderAccountingDocuments(orderId);
+  return apiClient.get<AccountingDocumentListResponse>(
+    `/v1/admin/accounting/orders/${encodeURIComponent(orderId)}/documents`
+  );
+}
+
+export async function createAccountingDocument(
+  data: AccountingDocumentRequest
+): Promise<AccountingDocumentResponse> {
+  if (USE_MOCK) return (await getMock()).createAccountingDocument(data);
+  return apiClient.post<AccountingDocumentResponse>("/v1/admin/accounting/documents", data);
+}
+
+export async function updateAccountingDocument(
+  documentId: string,
+  data: AccountingDocumentRequest
+): Promise<AccountingDocumentResponse> {
+  if (USE_MOCK) return (await getMock()).updateAccountingDocument(documentId, data);
+  return apiClient.put<AccountingDocumentResponse>(
+    `/v1/admin/accounting/documents/${encodeURIComponent(documentId)}`,
+    data
+  );
+}
+
+export async function listExpenseEvidence(filters: {
+  categoryKey?: string;
+  reviewStatus?: string;
+} = {}): Promise<ExpenseEvidenceListResponse> {
+  if (USE_MOCK) return (await getMock()).listExpenseEvidence(filters);
+  const params = new URLSearchParams();
+  if (filters.categoryKey) params.set("category_key", filters.categoryKey);
+  if (filters.reviewStatus) params.set("review_status", filters.reviewStatus);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<ExpenseEvidenceListResponse>(`/v1/admin/accounting/expenses${query}`);
+}
+
+export async function createExpenseEvidence(
+  data: ExpenseEvidenceRequest
+): Promise<ExpenseEvidenceResponse> {
+  if (USE_MOCK) return (await getMock()).createExpenseEvidence(data);
+  return apiClient.post<ExpenseEvidenceResponse>("/v1/admin/accounting/expenses", data);
+}
+
+export async function updateExpenseEvidence(
+  expenseId: string,
+  data: ExpenseEvidenceRequest
+): Promise<ExpenseEvidenceResponse> {
+  if (USE_MOCK) return (await getMock()).updateExpenseEvidence(expenseId, data);
+  return apiClient.put<ExpenseEvidenceResponse>(
+    `/v1/admin/accounting/expenses/${encodeURIComponent(expenseId)}`,
+    data
+  );
+}
+
+export async function updateExpensePaymentStatus(
+  expenseId: string,
+  data: ExpensePaymentStatusRequest
+): Promise<ExpenseEvidenceResponse> {
+  if (USE_MOCK) return (await getMock()).updateExpensePaymentStatus(expenseId, data);
+  return apiClient.patch<ExpenseEvidenceResponse>(
+    `/v1/admin/accounting/expenses/${encodeURIComponent(expenseId)}/payment-status`,
+    data
+  );
+}
+
+export async function listProductCosts(productId?: string): Promise<ProductCostVersionListResponse> {
+  if (USE_MOCK) return (await getMock()).listProductCosts(productId);
+  const params = new URLSearchParams();
+  if (productId) params.set("product_id", productId);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<ProductCostVersionListResponse>(`/v1/admin/accounting/product-costs${query}`);
+}
+
+export async function createProductCost(
+  data: ProductCostVersionRequest
+): Promise<ProductCostVersionResponse> {
+  if (USE_MOCK) return (await getMock()).createProductCost(data);
+  return apiClient.post<ProductCostVersionResponse>("/v1/admin/accounting/product-costs", data);
+}
+
+export async function updateProductCost(
+  costVersionId: string,
+  data: ProductCostVersionRequest
+): Promise<ProductCostVersionResponse> {
+  if (USE_MOCK) return (await getMock()).updateProductCost(costVersionId, data);
+  return apiClient.put<ProductCostVersionResponse>(
+    `/v1/admin/accounting/product-costs/${encodeURIComponent(costVersionId)}`,
+    data
+  );
+}
+
+export async function getMissingProductCosts(periodId: string): Promise<MissingProductCostDiagnosticsResponse> {
+  if (USE_MOCK) return (await getMock()).getMissingProductCosts(periodId);
+  const params = new URLSearchParams({ period_id: periodId });
+  return apiClient.get<MissingProductCostDiagnosticsResponse>(`/v1/admin/accounting/product-costs/missing?${params}`);
+}
+
+export async function listAccountingExports(periodId?: string): Promise<FinanceExportPackageListResponse> {
+  if (USE_MOCK) return (await getMock()).listAccountingExports(periodId);
+  const params = new URLSearchParams();
+  if (periodId) params.set("period_id", periodId);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<FinanceExportPackageListResponse>(`/v1/admin/accounting/exports${query}`);
+}
+
+export async function generateAccountingExport(periodId: string): Promise<FinanceExportPackageResponse> {
+  if (USE_MOCK) return (await getMock()).generateAccountingExport(periodId);
+  return apiClient.post<FinanceExportPackageResponse>(
+    `/v1/admin/accounting/periods/${encodeURIComponent(periodId)}/exports`
+  );
+}
+
+export async function acceptAccountingExport(
+  exportId: string,
+  data: AccountantAcceptanceRequest
+): Promise<FinanceExportPackageResponse> {
+  if (USE_MOCK) return (await getMock()).acceptAccountingExport(exportId, data);
+  return apiClient.post<FinanceExportPackageResponse>(
+    `/v1/admin/accounting/exports/${encodeURIComponent(exportId)}/accept`,
+    data
+  );
+}
+
+export async function getStripePayoutImportStatus(): Promise<StripePayoutImportStatusResponse> {
+  if (USE_MOCK) return (await getMock()).getStripePayoutImportStatus();
+  return apiClient.get<StripePayoutImportStatusResponse>("/v1/admin/accounting/stripe/import-status");
+}
+
+export async function syncStripeBalanceTransactions(limit = 100): Promise<StripeBalanceImportResponse> {
+  if (USE_MOCK) return (await getMock()).syncStripeBalanceTransactions(limit);
+  const params = new URLSearchParams({ limit: String(limit) });
+  return apiClient.post<StripeBalanceImportResponse>(`/v1/admin/accounting/stripe/sync?${params}`);
+}
+
+export async function importStripeBalanceCsv(file: File): Promise<StripeBalanceImportResponse> {
+  if (USE_MOCK) return (await getMock()).importStripeBalanceCsv(file);
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiClient.postForm<StripeBalanceImportResponse>("/v1/admin/accounting/stripe/manual-import", formData);
+}
+
 export async function applyManualPaymentAction(
   orderId: string,
   action: ManualPaymentAction,
-  note: string
+  note: string,
+  callbackOutcome?: CallbackOutcome | null
 ): Promise<OrderResponse> {
-  if (USE_MOCK) return (await getMock()).applyManualPaymentAction(orderId, action, note);
+  if (USE_MOCK) {
+    return (await getMock()).applyManualPaymentAction(orderId, action, note, callbackOutcome);
+  }
   return apiClient.post<OrderResponse>(
     `/v1/admin/orders/${encodeURIComponent(orderId)}/payment-actions`,
-    { action, note }
+    { action, note, callback_outcome: callbackOutcome ?? undefined }
+  );
+}
+
+export async function createReturnCase(
+  orderId: string,
+  data: CreateReturnCaseRequest
+): Promise<ReturnCaseResponse> {
+  if (USE_MOCK) return (await getMock()).createReturnCase(orderId, data);
+  return apiClient.post<ReturnCaseResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/returns`,
+    data
+  );
+}
+
+export async function receiveReturnCase(
+  orderId: string,
+  returnId: string
+): Promise<ReturnCaseResponse> {
+  if (USE_MOCK) return (await getMock()).receiveReturnCase(orderId, returnId);
+  return apiClient.post<ReturnCaseResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/returns/${encodeURIComponent(returnId)}/receive`
+  );
+}
+
+export async function inspectReturnCase(
+  orderId: string,
+  returnId: string,
+  data: InspectReturnCaseRequest
+): Promise<ReturnCaseResponse> {
+  if (USE_MOCK) return (await getMock()).inspectReturnCase(orderId, returnId, data);
+  return apiClient.patch<ReturnCaseResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/returns/${encodeURIComponent(returnId)}/inspect`,
+    data
+  );
+}
+
+export async function closeReturnCase(
+  orderId: string,
+  returnId: string
+): Promise<ReturnCaseResponse> {
+  if (USE_MOCK) return (await getMock()).closeReturnCase(orderId, returnId);
+  return apiClient.post<ReturnCaseResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/returns/${encodeURIComponent(returnId)}/close`
+  );
+}
+
+export async function updateReturnAccounting(
+  orderId: string,
+  returnId: string,
+  data: UpdateReturnAccountingRequest
+): Promise<ReturnCaseResponse> {
+  if (USE_MOCK) return (await getMock()).updateReturnAccounting(orderId, returnId, data);
+  return apiClient.patch<ReturnCaseResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/returns/${encodeURIComponent(returnId)}/accounting`,
+    data
+  );
+}
+
+export async function createStripeRefund(
+  orderId: string,
+  data: CreateStripeRefundRequest
+): Promise<PaymentRefundResponse> {
+  if (USE_MOCK) return (await getMock()).createStripeRefund(orderId, data);
+  return apiClient.post<PaymentRefundResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/refunds`,
+    data
+  );
+}
+
+export async function recordCodSettlement(
+  orderId: string,
+  data: RecordCodSettlementRequest
+): Promise<CodSettlementResponse> {
+  if (USE_MOCK) return (await getMock()).recordCodSettlement(orderId, data);
+  return apiClient.post<CodSettlementResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/cod-settlement`,
+    data
   );
 }
 

@@ -104,6 +104,22 @@ class ProductAdminResponse(BaseModel):
     primary_image_url: str | None = None
     primary_thumbnail_url: str | None = None
     stock: int
+    inventory_mode: Literal["legacy", "fallback", "ledger_managed"] = "legacy"
+    stock_source: Literal["product_stock", "inventory_ledger", "mixed"] = "product_stock"
+    ledger_managed: bool = False
+    valuation_readiness: Literal["setup_required", "estimate_only", "ready", "blocked"] = (
+        "setup_required"
+    )
+    active_recipe_id: str | None = None
+    active_recipe_status: Literal["missing", "draft", "active", "archived"] = "missing"
+    active_recipe_review_state: str | None = None
+    latest_batch_id: str | None = None
+    latest_batch_number: str | None = None
+    latest_batch_status: str | None = None
+    latest_batch_date: str | None = None
+    inventory_exception_count: int = 0
+    inventory_exceptions: list[dict] = Field(default_factory=list)
+    inventory_links: dict[str, str | None] | None = None
     weight_grams: int
     is_active: bool
     is_featured: bool

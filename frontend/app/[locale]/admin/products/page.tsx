@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { SaveConfirmation } from "@/components/admin/SaveConfirmation";
+import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
 import { ProductBulkDiscountBar } from "@/components/admin/promotions/ProductBulkDiscountBar";
 import type { AdminProductResponse } from "@/lib/types";
 
@@ -136,12 +137,12 @@ export default function AdminProductsPage() {
     <div>
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="font-heading text-2xl font-semibold text-charcoal">
-            {t("products")}
-          </h1>
-          <p className="mt-1 text-sm text-soft-brown">
-            {t("manageProducts")}
-          </p>
+          <div className="flex items-center gap-2">
+            <h1 className="font-heading text-2xl font-semibold text-charcoal">
+              {t("products")}
+            </h1>
+            <AdminInfoPopover content={t("manageProducts")} />
+          </div>
         </div>
         <Link
           href="/admin/products/new"
@@ -192,6 +193,7 @@ export default function AdminProductsPage() {
               <th className="px-4 py-3 font-medium text-charcoal">{t("category")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("price")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("stock")}</th>
+              <th className="px-4 py-3 font-medium text-charcoal">{t("inventoryColumn")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("status")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("actions")}</th>
             </tr>
@@ -205,13 +207,14 @@ export default function AdminProductsPage() {
                   <td className="px-4 py-3"><Skeleton className="h-4 w-20" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-4 w-16" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-4 w-10" /></td>
+                  <td className="px-4 py-3"><Skeleton className="h-5 w-28" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-5 w-16" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-8 w-24" /></td>
                 </tr>
               ))
             ) : products.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-soft-brown">
+                <td colSpan={8} className="px-4 py-8 text-center text-soft-brown">
                   {t("noProducts")}
                 </td>
               </tr>
@@ -239,6 +242,25 @@ export default function AdminProductsPage() {
                     {formatPrice(product.price_cents)}
                   </td>
                   <td className="px-4 py-3 text-soft-brown">{product.stock}</td>
+                  <td className="px-4 py-3 text-xs text-soft-brown">
+                    <div className="flex flex-col gap-1">
+                      <span className="inline-flex w-fit rounded-pill bg-champagne-beige/60 px-2 py-0.5 font-medium capitalize text-soft-brown">
+                        {(product.inventory_mode ?? "legacy").replaceAll("_", " ")}
+                      </span>
+                      <span>{t("recipeStatus")}: {product.active_recipe_status ?? "missing"}</span>
+                      <span>{t("stockSource")}: {(product.stock_source ?? "product_stock").replaceAll("_", " ")}</span>
+                      {product.latest_batch_number && (
+                        <Link href={`/admin/inventory/batches?product_id=${product.id}`} className="font-medium text-charcoal underline-offset-2 hover:underline">
+                          {product.latest_batch_number}
+                        </Link>
+                      )}
+                      {Boolean(product.inventory_exception_count) && (
+                        <Link href={`/admin/inventory/valuation/exceptions?target_type=product&target_id=${product.id}`} className="font-medium text-amber-800 underline-offset-2 hover:underline">
+                          {t("inventoryExceptions", { count: product.inventory_exception_count ?? 0 })}
+                        </Link>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-4 py-3">
                     <Badge variant={product.is_active ? "success" : "warning"}>
                       {product.is_active ? t("active") : t("inactive")}

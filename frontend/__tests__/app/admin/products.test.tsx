@@ -319,7 +319,7 @@ describe("Admin Product Form Validation", () => {
 
     await waitFor(() => {
       expect(screen.getByText("English name is required")).toBeInTheDocument();
-      expect(screen.getByText("Product ID is required")).toBeInTheDocument();
+      expect(screen.getByText("Product code is required")).toBeInTheDocument();
       expect(screen.getByText("Product type is required")).toBeInTheDocument();
     });
 
@@ -344,7 +344,7 @@ describe("Admin Product Form Validation", () => {
     });
 
     // Fill required fields but leave price at 0
-    fireEvent.change(screen.getByLabelText("Product ID (slug)"), {
+    fireEvent.change(screen.getByLabelText("Product code"), {
       target: { value: "test-product" },
     });
     fireEvent.change(screen.getByLabelText("Name (English)"), {
@@ -382,7 +382,7 @@ describe("Admin Product Form Validation", () => {
     });
 
     // Fill form with valid fields but negative stock
-    fireEvent.change(screen.getByLabelText("Product ID (slug)"), {
+    fireEvent.change(screen.getByLabelText("Product code"), {
       target: { value: "test-product" },
     });
     fireEvent.change(screen.getByLabelText("Name (English)"), {
@@ -431,7 +431,7 @@ describe("Admin Product Form Validation", () => {
     });
 
     // Fill all required fields
-    fireEvent.change(screen.getByLabelText("Product ID (slug)"), {
+    fireEvent.change(screen.getByLabelText("Product code"), {
       target: { value: "test-product" },
     });
     fireEvent.change(screen.getByLabelText("Name (English)"), {
@@ -545,7 +545,7 @@ describe("Admin Product Form Validation", () => {
       expect(screen.getByText("Create Product", { selector: "h1" })).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByLabelText("Product ID (slug)"), {
+    fireEvent.change(screen.getByLabelText("Product code"), {
       target: { value: "weighted-product" },
     });
     fireEvent.change(screen.getByLabelText("Name (English)"), {
@@ -622,7 +622,7 @@ describe("Admin Product Form Validation", () => {
       expect(screen.getByText("Create Product", { selector: "h1" })).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByLabelText("Product ID (slug)"), {
+    fireEvent.change(screen.getByLabelText("Product code"), {
       target: { value: "default-active" },
     });
     fireEvent.change(screen.getByLabelText("Name (English)"), {

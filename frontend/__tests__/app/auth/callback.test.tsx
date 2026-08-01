@@ -172,10 +172,10 @@ describe("CallbackHandler", () => {
     renderWithIntl(<CallbackHandler />);
 
     await waitFor(() => {
-      expect(screen.getByText("Try Again")).toBeInTheDocument();
+      expect(screen.getByText("Try again")).toBeInTheDocument();
     });
 
-    await user.click(screen.getByText("Try Again"));
+    await user.click(screen.getByText("Try again"));
     expect(mockLogin).toHaveBeenCalled();
   });
 });

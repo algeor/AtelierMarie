@@ -9,12 +9,11 @@ import { updateLocalePreference } from "@/lib/api";
 type LocaleOption = {
   code: Locale;
   flag: string;
-  name: string;
 };
 
 const LOCALES: readonly LocaleOption[] = [
-  { code: "bg", flag: "🇧🇬", name: "Български" },
-  { code: "en", flag: "🇬🇧", name: "English" },
+  { code: "bg", flag: "🇧🇬" },
+  { code: "en", flag: "🇬🇧" },
 ] as const;
 
 /**
@@ -130,6 +129,8 @@ export function LanguageToggle() {
               option.code === "en"
                 ? t("switchToEnglish")
                 : t("switchToBulgarian");
+            const optionName =
+              option.code === "en" ? t("english") : t("bulgarian");
             return (
               <button
                 key={option.code}
@@ -145,7 +146,7 @@ export function LanguageToggle() {
                 <span aria-hidden="true" className="text-lg leading-none">
                   {option.flag}
                 </span>
-                <span className="flex-1 text-left">{option.name}</span>
+                <span className="flex-1 text-left">{optionName}</span>
                 {isActive && (
                   <span
                     aria-hidden="true"

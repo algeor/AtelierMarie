@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 import { cn, formatPrice } from "@/lib/utils";
 import { PriceDisplay } from "@/components/products/PriceDisplay";
+import { DeleteIconButton } from "@/components/ui/DeleteIconButton";
 import type { CartItemResponse } from "@/lib/types";
 
 interface CartItemProps {
@@ -73,28 +74,10 @@ export function CartItem({ item, onUpdateQuantity, onRemove }: CartItemProps) {
         <p className="text-sm font-medium text-charcoal">
           {formatPrice(lineTotal)}
         </p>
-        <button
+        <DeleteIconButton
           onClick={() => onRemove(product_id)}
-          aria-label={t("removeFromCart", { name: product.name })}
-          className={cn(
-            "text-soft-brown/70 hover:text-charcoal transition-colors duration-fast",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand",
-            "inline-flex items-center justify-center min-w-[28px] min-h-[28px]"
-          )}
-        >
-          <span className="hidden sm:inline text-xs underline">{t("remove")}</span>
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth={1.5}
-            stroke="currentColor"
-            className="w-4 h-4 sm:hidden"
-            aria-hidden="true"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
+          label={t("removeFromCart", { name: product.name })}
+        />
       </div>
     </div>
   );

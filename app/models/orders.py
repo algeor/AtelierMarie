@@ -2,13 +2,33 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field, computed_field, field_validator
+from pydantic import BaseModel, EmailStr, Field, computed_field, field_validator, model_validator
 
 from app.models.delivery import DeliveryInfo
 
-OrderStatus = Literal["pending", "confirmed", "shipped", "delivered", "cancelled"]
+OrderStatus = Literal[
+    "pending",
+    "confirmed",
+    "shipped",
+    "delivered",
+    "return_in_transit",
+    "returned",
+    "cancelled",
+]
 PaymentMethod = Literal["cod", "card", "bank_transfer"]
-PaymentStatus = Literal["pending", "paid", "cod_pending", "failed", "refunded"]
+PaymentStatus = Literal[
+    "pending",
+    "paid",
+    "cod_pending",
+    "failed",
+    "review_required",
+    "refund_pending",
+    "partially_refunded",
+    "refunded",
+    "dispute_open",
+    "dispute_won",
+    "dispute_lost",
+]
 
 PAYMENT_METHOD_LABELS: dict[str, str] = {
     "cod": "Pay on delivery",
@@ -21,7 +41,13 @@ PAYMENT_STATUS_LABELS: dict[str, str] = {
     "paid": "Paid",
     "cod_pending": "Pay on delivery",
     "failed": "Payment failed",
+    "review_required": "Review required",
+    "refund_pending": "Refund pending",
+    "partially_refunded": "Partially refunded",
     "refunded": "Refunded",
+    "dispute_open": "Dispute open",
+    "dispute_won": "Dispute won",
+    "dispute_lost": "Dispute lost",
 }
 
 
@@ -32,6 +58,57 @@ class OrderItemResponse(BaseModel):
     product_name: str
     price_cents: int
     quantity: int
+
+
+class AdminOrderItemResponse(OrderItemResponse):
+    """Admin item snapshot with inventory and valuation review context."""
+
+    inventory_mode: Literal["legacy", "fallback", "ledger_managed"] = "legacy"
+    ledger_managed: bool = False
+    stock_issue_status: Literal["legacy", "issued", "missing", "reversed"] = "legacy"
+    inventory_movement_ids: list[str] = Field(default_factory=list)
+    source_movement_id: str | None = None
+    finished_batch_id: str | None = None
+    finished_batch_number: str | None = None
+    cogs_row_id: str | None = None
+    cogs_readiness: str = "not_required"
+    valuation_method: str | None = None
+    source_valuation_layer_id: str | None = None
+    inventory_exception_ids: list[str] = Field(default_factory=list)
+    inventory_exception_count: int = 0
+
+
+class InvoiceProfile(BaseModel):
+    """Optional checkout invoice/business document profile."""
+
+    customer_type: Literal["individual", "business"] = "individual"
+    legal_name: str = Field(..., min_length=1, max_length=200)
+    vat_identification_number: str | None = Field(default=None, max_length=64)
+    business_registration_number: str | None = Field(default=None, max_length=64)
+    billing_address: str = Field(..., min_length=1, max_length=500)
+    billing_country: str = Field(default="BG", min_length=2, max_length=2)
+    invoice_email: EmailStr
+    purchase_reference_note: str | None = Field(default=None, max_length=500)
+
+    @field_validator(
+        "legal_name",
+        "vat_identification_number",
+        "business_registration_number",
+        "billing_address",
+        "purchase_reference_note",
+        mode="before",
+    )
+    @classmethod
+    def _strip_optional_strings(cls, value: str | None) -> str | None:
+        if value is None or not isinstance(value, str):
+            return value
+        stripped = value.strip()
+        return stripped or None
+
+    @field_validator("billing_country", mode="before")
+    @classmethod
+    def _normalize_country(cls, value: str) -> str:
+        return value.strip().upper()
 
 
 class OrderResponse(BaseModel):
@@ -62,6 +139,14 @@ class OrderResponse(BaseModel):
     tracking_url: str | None = None
     courier_status: str | None = None
     label_url: str | None = None
+    courier_provider: str | None = None
+    courier_order_id: str | None = None
+    courier_shipment_number: str | None = None
+    courier_label_url: str | None = None
+    courier_label_created_at: str | None = None
+    courier_sync_status: str | None = None
+    courier_last_error: str | None = None
+    courier_last_synced_at: str | None = None
     notes: str | None = None
     # Payment fields (payment-integration).
     payment_method: PaymentMethod = "cod"
@@ -72,6 +157,36 @@ class OrderResponse(BaseModel):
     payment_return_token: str | None = None
     stripe_checkout_session_id: str | None = None
     stripe_checkout_url: str | None = None
+    invoice_profile: InvoiceProfile | None = None
+    accounting_currency: str = "EUR"
+    seller_legal_profile_version_id: int | None = None
+    vat_fiscal_settings_version_id: int | None = None
+    accounting_classification_state: Literal[
+        "unreviewed",
+        "domestic_default",
+        "business_vat_id_provided",
+        "cross_border_candidate",
+        "manual_review_required",
+    ] = "unreviewed"
+    accounting_snapshot: dict | None = None
+    accounting_readiness_status: Literal["unreviewed", "ready", "review_required", "blocked"] = (
+        "unreviewed"
+    )
+    finance_period_id: str | None = None
+    document_reference_status: Literal[
+        "not_required", "missing", "recorded", "review_required"
+    ] = "not_required"
+    payment_reconciliation_status: Literal[
+        "not_applicable", "pending", "matched", "mismatch", "unmatched", "review_required"
+    ] = "not_applicable"
+    payout_reconciliation_status: Literal[
+        "not_applicable", "pending", "matched", "mismatch", "unmatched", "review_required"
+    ] = "not_applicable"
+    cod_settlement_status: Literal["not_applicable", "pending", "settled", "mismatch"] = (
+        "not_applicable"
+    )
+    blocking_exception_count: int = 0
+    finance_hub_links: dict[str, str | None] | None = None
     analytics_consent: bool = False
     items: list[OrderItemResponse]
     created_at: str
@@ -100,7 +215,15 @@ class OrderListResponse(BaseModel):
 class AdminOrderDetailResponse(OrderResponse):
     """Admin order detail with payment timeline."""
 
+    items: list[AdminOrderItemResponse]
     payment_events: list[dict] = Field(default_factory=list)
+    return_cases: list[dict] = Field(default_factory=list)
+    return_events: list[dict] = Field(default_factory=list)
+    refund_records: list[dict] = Field(default_factory=list)
+    cod_settlement: dict | None = None
+    cod_settlement_required: bool = False
+    econt_cod_evidence: dict | None = None
+    inventory_context: dict | None = None
 
 
 class CreateOrderRequest(BaseModel):
@@ -128,6 +251,7 @@ class CreateOrderRequest(BaseModel):
     shipping_price_source: Literal["live", "table", "flat"] = "live"
     shipping_is_fallback: bool = False
     shipping_quoted_at: str | None = Field(default=None, max_length=32)
+    invoice_profile: InvoiceProfile | None = None
 
     @field_validator("customer_name", mode="before")
     @classmethod
@@ -156,8 +280,11 @@ ManualPaymentAction = Literal[
     "mark_refunded",
     "mark_failed",
     "mark_review",
+    "record_callback",
+    "convert_to_cod",
     "cancel",
 ]
+CallbackOutcome = Literal["confirmed", "declined", "unreachable", "needs_follow_up"]
 
 
 class ManualPaymentActionRequest(BaseModel):
@@ -165,6 +292,7 @@ class ManualPaymentActionRequest(BaseModel):
 
     action: ManualPaymentAction
     note: str = Field(..., min_length=1, max_length=2000)
+    callback_outcome: CallbackOutcome | None = None
 
     @field_validator("note", mode="before")
     @classmethod
@@ -176,6 +304,16 @@ class ManualPaymentActionRequest(BaseModel):
             msg = "note must not be blank"
             raise ValueError(msg)
         return stripped
+
+    @model_validator(mode="after")
+    def _validate_callback_fields(self) -> "ManualPaymentActionRequest":
+        if self.action == "record_callback" and self.callback_outcome is None:
+            msg = "callback_outcome is required for record_callback"
+            raise ValueError(msg)
+        if self.action == "convert_to_cod" and self.callback_outcome not in (None, "confirmed"):
+            msg = "convert_to_cod requires callback_outcome to be confirmed"
+            raise ValueError(msg)
+        return self
 
 
 class UpdateOrderStatusRequest(BaseModel):

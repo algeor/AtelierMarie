@@ -90,6 +90,7 @@ def normalize_econt(raw: dict) -> list[dict]:
         out.append(
             {
                 "id": f"econt-{o['id']}",
+                "code": str(o.get("code")) if o.get("code") is not None else None,
                 "name": o["name"],
                 "name_en": o.get("nameEn"),
                 "type": "apt" if (o.get("isAPS") or o.get("isMPS")) else "office",

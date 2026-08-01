@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import type { FaqItemResponse } from "@/lib/types";
 
@@ -11,6 +11,8 @@ interface FaqAccordionProps {
 type AnswerBlock =
   | { type: "paragraph"; text: string }
   | { type: "list"; items: string[] };
+
+const MARKDOWN_LINK_RE = /\[([^\]]+)\]\((\/[^)\s]+)\)/g;
 
 export function parseFaqAnswer(answer: string): AnswerBlock[] {
   const blocks: AnswerBlock[] = [];
@@ -50,6 +52,37 @@ export function parseFaqAnswer(answer: string): AnswerBlock[] {
   return blocks;
 }
 
+function renderTextWithLinks(text: string) {
+  const parts: ReactNode[] = [];
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(MARKDOWN_LINK_RE)) {
+    const [fullMatch, label, href] = match;
+    const start = match.index ?? 0;
+
+    if (start > lastIndex) {
+      parts.push(text.slice(lastIndex, start));
+    }
+
+    parts.push(
+      <a
+        key={`${href}-${start}`}
+        href={href}
+        className="font-medium text-charcoal underline underline-offset-4 hover:text-soft-brown focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-muted-gold"
+      >
+        {label}
+      </a>
+    );
+    lastIndex = start + fullMatch.length;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : text;
+}
+
 function Answer({ answer }: { answer: string }) {
   const blocks = parseFaqAnswer(answer);
 
@@ -59,11 +92,11 @@ function Answer({ answer }: { answer: string }) {
         block.type === "list" ? (
           <ul key={index} className="list-disc space-y-2 pl-5">
             {block.items.map((item, itemIndex) => (
-              <li key={itemIndex}>{item}</li>
+              <li key={itemIndex}>{renderTextWithLinks(item)}</li>
             ))}
           </ul>
         ) : (
-          <p key={index}>{block.text}</p>
+          <p key={index}>{renderTextWithLinks(block.text)}</p>
         )
       )}
     </div>

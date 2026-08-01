@@ -7,6 +7,7 @@ import { Link } from "@/i18n/navigation";
 import { getOrder } from "@/lib/api";
 import { OrderStatusBadge } from "@/components/orders/OrderStatusBadge";
 import { StatusTimeline } from "@/components/orders/StatusTimeline";
+import { CourierTrackingSummary } from "@/components/orders/CourierTrackingSummary";
 import { DeliveryDetails } from "@/components/checkout/DeliveryDetails";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { formatPrice } from "@/lib/utils";
@@ -21,7 +22,13 @@ const PAYMENT_STATUS_COLORS: Record<PaymentStatus, string> = {
   paid: "bg-green-100 text-green-800",
   cod_pending: "bg-gray-100 text-gray-700",
   failed: "bg-red-100 text-red-800",
+  review_required: "bg-amber-100 text-amber-800",
+  refund_pending: "bg-blue-100 text-blue-800",
+  partially_refunded: "bg-blue-100 text-blue-800",
   refunded: "bg-blue-100 text-blue-800",
+  dispute_open: "bg-red-100 text-red-800",
+  dispute_won: "bg-green-100 text-green-800",
+  dispute_lost: "bg-red-100 text-red-800",
 };
 
 type PageState = "loading" | "success" | "not_found";
@@ -244,6 +251,7 @@ export default function OrderDetailPage() {
         </div>
 
         {/* Delivery details */}
+        <CourierTrackingSummary order={order} />
         <DeliveryDetails order={order} />
       </div>
     </div>

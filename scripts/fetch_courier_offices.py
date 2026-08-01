@@ -51,6 +51,7 @@ logger = logging.getLogger("fetch_courier_offices")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = REPO_ROOT / "data"
+REFRESH_STATUS_PATH = DATA_DIR / "courier_refresh_status.json"
 
 try:
     from scripts.normalize_econt_office_data import normalize_econt
@@ -381,6 +382,34 @@ def _atomic_write_json(path: Path, records: list[dict]) -> None:
     os.replace(tmp, path)
 
 
+def _atomic_write_mapping(path: Path, payload: dict) -> None:
+    """Write JSON object via .tmp + rename."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2, sort_keys=True)
+    os.replace(tmp, path)
+
+
+def _update_refresh_status(source_name: str, status: str, *, records: int | None = None, error: str | None = None) -> None:
+    """Persist last refresh status for admin diagnostics."""
+    try:
+        current = json.loads(REFRESH_STATUS_PATH.read_text(encoding="utf-8"))
+        if not isinstance(current, dict):
+            current = {}
+    except (OSError, json.JSONDecodeError):
+        current = {}
+    from datetime import UTC, datetime
+
+    current[source_name] = {
+        "status": status,
+        "refreshed_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+        "records": records,
+        "error": error,
+    }
+    _atomic_write_mapping(REFRESH_STATUS_PATH, current)
+
+
 @dataclass(frozen=True)
 class CourierSource:
     """Per-courier fetch + normalize wiring."""
@@ -427,6 +456,7 @@ def refresh_courier(source: CourierSource) -> int:
     if not records:
         raise RuntimeError(f"{source.name} normalized to zero records")
     _atomic_write_json(source.output_path, records)
+    _update_refresh_status(source.name, "success", records=len(records))
     logger.info("wrote %d %s records → %s", len(records), source.name, source.output_path)
     return len(records)
 
@@ -450,6 +480,7 @@ def main() -> int:
         except (urllib.error.URLError, RuntimeError, KeyError, json.JSONDecodeError) as e:
             # Per spec: one courier failing must not block the other.
             logger.error("%s refresh failed: %s", source.name, e)
+            _update_refresh_status(source.name, "failed", error=str(e))
             failed.append(source.name)
 
     if failed:
