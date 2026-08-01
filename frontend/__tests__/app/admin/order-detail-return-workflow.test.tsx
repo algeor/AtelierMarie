@@ -35,6 +35,9 @@ vi.mock("@/lib/api", () => ({
   deleteEcontLabel: vi.fn(),
   refreshEcontTrace: vi.fn(),
   updateOrderStatus: vi.fn(),
+  listOrderAccountingDocuments: vi.fn(),
+  createAccountingDocument: vi.fn(),
+  updateAccountingDocument: vi.fn(),
 }));
 
 import {
@@ -45,6 +48,7 @@ import {
   getAdminOrder,
   getEcontOrderReadiness,
   inspectReturnCase,
+  listOrderAccountingDocuments,
   receiveReturnCase,
   recordCodSettlement,
   updateReturnAccounting,
@@ -60,6 +64,7 @@ const mockedUpdateReturnAccounting = vi.mocked(updateReturnAccounting);
 const mockedCreateStripeRefund = vi.mocked(createStripeRefund);
 const mockedRecordCodSettlement = vi.mocked(recordCodSettlement);
 const mockedApplyManualPaymentAction = vi.mocked(applyManualPaymentAction);
+const mockedListOrderAccountingDocuments = vi.mocked(listOrderAccountingDocuments);
 
 function returnCase(overrides: Partial<ReturnCaseResponse> = {}): ReturnCaseResponse {
   return {
@@ -156,6 +161,7 @@ describe("Admin order return/refund workflow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockedGetAdminOrder.mockResolvedValue(order());
+    mockedListOrderAccountingDocuments.mockResolvedValue({ items: [], total: 0 });
     mockedGetEcontOrderReadiness.mockResolvedValue({
       order_id: "order-return-1",
       ready: false,

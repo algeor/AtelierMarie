@@ -7,12 +7,15 @@ import { Link } from "@/i18n/navigation";
 import {
   applyManualPaymentAction,
   closeReturnCase,
+  createAccountingDocument,
   createReturnCase,
   createStripeRefund,
   getAdminOrder,
   inspectReturnCase,
+  listOrderAccountingDocuments,
   receiveReturnCase,
   recordCodSettlement,
+  updateAccountingDocument,
   updateReturnAccounting,
 } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
@@ -27,6 +30,9 @@ import { Button } from "@/components/ui/Button";
 import { SaveConfirmation } from "@/components/admin/SaveConfirmation";
 import type {
   AdminOrderDetailResponse,
+  AccountingDocumentResponse,
+  AccountingDocumentStatus,
+  AccountingDocumentType,
   CallbackOutcome,
   CourierClaimStatus,
   CreateReturnCaseRequest,
@@ -209,6 +215,24 @@ export default function AdminOrderDetailPage() {
   const [workflowError, setWorkflowError] = useState<string | null>(null);
   const [isWorkflowSaving, setIsWorkflowSaving] = useState(false);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
+  const [accountingDocuments, setAccountingDocuments] = useState<AccountingDocumentResponse[]>([]);
+  const [documentForm, setDocumentForm] = useState<{
+    document_type: AccountingDocumentType;
+    source_system: string;
+    document_number: string;
+    issue_date: string;
+    gross_amount_cents: string;
+    status: AccountingDocumentStatus;
+    notes: string;
+  }>({
+    document_type: "invoice",
+    source_system: "external",
+    document_number: "",
+    issue_date: new Date().toISOString().slice(0, 10),
+    gross_amount_cents: "",
+    status: "recorded",
+    notes: "",
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -217,9 +241,17 @@ export default function AdminOrderDetailPage() {
       try {
         setState("loading");
         setError(null);
-        const data = await getAdminOrder(orderId);
+        const [data, documentData] = await Promise.all([
+          getAdminOrder(orderId),
+          listOrderAccountingDocuments(orderId),
+        ]);
         if (!cancelled) {
           setOrder(data);
+          setAccountingDocuments(documentData.items);
+          setDocumentForm((prev) => ({
+            ...prev,
+            gross_amount_cents: prev.gross_amount_cents || String(data.total_cents),
+          }));
           setState("success");
         }
       } catch (err) {
@@ -276,8 +308,12 @@ export default function AdminOrderDetailPage() {
   }
 
   async function refreshOrder() {
-    const refreshed = await getAdminOrder(orderId);
+    const [refreshed, documentData] = await Promise.all([
+      getAdminOrder(orderId),
+      listOrderAccountingDocuments(orderId),
+    ]);
     setOrder(refreshed);
+    setAccountingDocuments(documentData.items);
   }
 
   async function runWorkflowAction(
@@ -302,6 +338,64 @@ export default function AdminOrderDetailPage() {
     } finally {
       setIsWorkflowSaving(false);
     }
+  }
+
+  async function handleAccountingDocumentSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!order) return;
+    const number = documentForm.document_number.trim();
+    if (!number) {
+      setWorkflowError(tAdmin("accountingPanel.documentNumberRequired"));
+      return;
+    }
+    await runWorkflowAction(
+      async () => {
+        await createAccountingDocument({
+          document_type: documentForm.document_type,
+          source_system: documentForm.source_system.trim() || "external",
+          document_number: number,
+          issue_date: documentForm.issue_date,
+          order_id: order.id,
+          period_id: order.finance_period_id ?? null,
+          currency: order.accounting_currency ?? "EUR",
+          gross_amount_cents: Number.parseInt(documentForm.gross_amount_cents || "0", 10),
+          status: documentForm.status,
+          notes: documentForm.notes.trim() || null,
+        });
+      },
+      tAdmin("accountingPanel.documentSaved"),
+      event.currentTarget,
+    );
+    setDocumentForm((prev) => ({ ...prev, document_number: "", notes: "" }));
+  }
+
+  async function handleAccountingDocumentStatus(
+    document: AccountingDocumentResponse,
+    status: AccountingDocumentStatus,
+  ) {
+    await runWorkflowAction(
+      async () => {
+        await updateAccountingDocument(document.id, {
+          document_type: document.document_type,
+          source_system: document.source_system ?? "external",
+          document_number: document.document_number ?? null,
+          issue_date: document.issue_date,
+          order_id: document.order_id ?? order?.id ?? null,
+          refund_id: document.refund_id ?? null,
+          period_id: document.period_id ?? order?.finance_period_id ?? null,
+          currency: document.currency ?? order?.accounting_currency ?? "EUR",
+          net_amount_cents: document.net_amount_cents ?? null,
+          tax_amount_cents: document.tax_amount_cents ?? null,
+          gross_amount_cents: document.gross_amount_cents ?? null,
+          vat_summary: document.vat_summary ?? null,
+          original_document_id: document.original_document_id ?? null,
+          file_reference: document.file_reference ?? null,
+          status,
+          notes: document.notes ?? null,
+        });
+      },
+      tAdmin("accountingPanel.documentSaved"),
+    );
   }
 
   async function handleCreateReturnCase(event: FormEvent<HTMLFormElement>) {
@@ -805,6 +899,143 @@ export default function AdminOrderDetailPage() {
               ))}
             </ol>
           )}
+        </section>
+
+        <section className="border-t border-champagne-beige py-6">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-sm font-medium text-charcoal">
+                {tAdmin("accountingPanel.title")}
+              </h2>
+              <p className="mt-1 text-sm text-soft-brown">
+                {tAdmin("accountingPanel.subtitle")}
+              </p>
+            </div>
+            {order.finance_hub_links?.period_href && (
+              <Link
+                href={order.finance_hub_links.period_href}
+                className="inline-flex h-9 items-center justify-center rounded-brand border border-champagne-beige px-3 text-sm font-medium text-charcoal hover:bg-champagne-beige/40"
+              >
+                {tAdmin("openFinanceHub")}
+              </Link>
+            )}
+          </div>
+
+          <dl className="mb-4 grid gap-3 text-sm md:grid-cols-4">
+            <div className="rounded-brand border border-champagne-beige bg-white p-3">
+              <dt className="text-soft-brown">{tAdmin("accountingPanel.readiness")}</dt>
+              <dd className="mt-1 text-charcoal">{order.accounting_readiness_status ?? "unreviewed"}</dd>
+            </div>
+            <div className="rounded-brand border border-champagne-beige bg-white p-3">
+              <dt className="text-soft-brown">{tAdmin("accountingPanel.documentStatus")}</dt>
+              <dd className="mt-1 text-charcoal">{order.document_reference_status ?? "not_required"}</dd>
+            </div>
+            <div className="rounded-brand border border-champagne-beige bg-white p-3">
+              <dt className="text-soft-brown">{tAdmin("accountingPanel.payoutStatus")}</dt>
+              <dd className="mt-1 text-charcoal">{order.payout_reconciliation_status ?? "not_applicable"}</dd>
+            </div>
+            <div className="rounded-brand border border-champagne-beige bg-white p-3">
+              <dt className="text-soft-brown">{tAdmin("accountingPanel.codStatus")}</dt>
+              <dd className="mt-1 text-charcoal">{order.cod_settlement_status ?? "not_applicable"}</dd>
+            </div>
+          </dl>
+
+          <form onSubmit={handleAccountingDocumentSubmit} className="rounded-brand border border-champagne-beige bg-white p-4">
+            <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
+              <select
+                value={documentForm.document_type}
+                onChange={(event) => setDocumentForm((prev) => ({ ...prev, document_type: event.target.value as AccountingDocumentType }))}
+                className="h-10 rounded-brand border border-champagne-beige bg-cream px-3 text-sm text-charcoal"
+                aria-label={tAdmin("accountingPanel.documentType")}
+              >
+                <option value="invoice">invoice</option>
+                <option value="credit_note">credit note</option>
+                <option value="fiscal_receipt">fiscal receipt</option>
+                <option value="alternative_sales_document">alternative document</option>
+                <option value="external_document">external document</option>
+              </select>
+              <input
+                value={documentForm.document_number}
+                onChange={(event) => setDocumentForm((prev) => ({ ...prev, document_number: event.target.value }))}
+                className="h-10 rounded-brand border border-champagne-beige bg-cream px-3 text-sm text-charcoal"
+                placeholder={tAdmin("accountingPanel.documentNumber")}
+              />
+              <input
+                value={documentForm.source_system}
+                onChange={(event) => setDocumentForm((prev) => ({ ...prev, source_system: event.target.value }))}
+                className="h-10 rounded-brand border border-champagne-beige bg-cream px-3 text-sm text-charcoal"
+                placeholder={tAdmin("accountingPanel.sourceSystem")}
+              />
+              <input
+                type="date"
+                value={documentForm.issue_date}
+                onChange={(event) => setDocumentForm((prev) => ({ ...prev, issue_date: event.target.value }))}
+                className="h-10 rounded-brand border border-champagne-beige bg-cream px-3 text-sm text-charcoal"
+                aria-label={tAdmin("accountingPanel.issueDate")}
+              />
+              <input
+                value={documentForm.gross_amount_cents}
+                onChange={(event) => setDocumentForm((prev) => ({ ...prev, gross_amount_cents: event.target.value }))}
+                className="h-10 rounded-brand border border-champagne-beige bg-cream px-3 text-sm text-charcoal"
+                placeholder={tAdmin("accountingPanel.grossCents")}
+              />
+              <button
+                type="submit"
+                disabled={isWorkflowSaving}
+                className="rounded-brand bg-muted-gold px-3 py-2 text-sm font-medium text-charcoal disabled:opacity-50"
+              >
+                {tAdmin("accountingPanel.addDocument")}
+              </button>
+            </div>
+          </form>
+
+          <div className="mt-4 overflow-x-auto rounded-brand border border-champagne-beige bg-white">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-champagne-beige bg-champagne-beige/30">
+                  <th className="px-4 py-3 font-medium text-charcoal">{tAdmin("accountingPanel.documentType")}</th>
+                  <th className="px-4 py-3 font-medium text-charcoal">{tAdmin("accountingPanel.documentNumber")}</th>
+                  <th className="px-4 py-3 font-medium text-charcoal">{tAdmin("accountingPanel.issueDate")}</th>
+                  <th className="px-4 py-3 font-medium text-charcoal">{tAdmin("status")}</th>
+                  <th className="px-4 py-3 font-medium text-charcoal">{tAdmin("actions")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {accountingDocuments.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-soft-brown">
+                      {tAdmin("accountingPanel.noDocuments")}
+                    </td>
+                  </tr>
+                ) : accountingDocuments.map((document) => (
+                  <tr key={document.id} className="border-b border-champagne-beige/50 last:border-0">
+                    <td className="px-4 py-3 text-soft-brown">{document.document_type}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-charcoal">{document.document_number ?? tAdmin("notProvided")}</td>
+                    <td className="px-4 py-3 text-soft-brown">{formatDateTime(document.issue_date, locale)}</td>
+                    <td className="px-4 py-3 text-soft-brown">{document.status}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleAccountingDocumentStatus(document, "recorded")}
+                          className="rounded-brand border border-champagne-beige px-3 py-1.5 text-xs font-medium text-charcoal hover:bg-champagne-beige/40"
+                        >
+                          {tAdmin("accountingPanel.markRecorded")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleAccountingDocumentStatus(document, "review_required")}
+                          className="rounded-brand border border-champagne-beige px-3 py-1.5 text-xs font-medium text-charcoal hover:bg-champagne-beige/40"
+                        >
+                          {tAdmin("accountingPanel.markReview")}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
 
         <DeliveryDetails order={order} />

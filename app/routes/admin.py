@@ -9,7 +9,7 @@ from typing import Annotated, get_args
 
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from app.config import get_settings
 from app.constants import MAX_CSV_ROWS, MAX_CSV_UPLOAD_BYTES, MAX_PRICE_CENTS, MAX_STOCK
@@ -21,6 +21,46 @@ from app.models.admin import (
     AdminAlertResponse,
     DashboardResponse,
     LowStockProductsResponse,
+)
+from app.models.accounting import (
+    AccountingConfigurationResponse,
+    AccountingDocumentListResponse,
+    AccountingDocumentRequest,
+    AccountingDocumentResponse,
+    AccountingLedgerResponse,
+    CategoryMappingRequest,
+    CategoryMappingResponse,
+    ExpenseEvidenceSettingsRequest,
+    ExpenseEvidenceSettingsResponse,
+    ExpenseEvidenceListResponse,
+    ExpenseEvidenceRequest,
+    ExpenseEvidenceResponse,
+    ExpensePaymentStatusRequest,
+    AccountantAcceptanceRequest,
+    FinanceExceptionActionRequest,
+    FinanceExceptionListResponse,
+    FinanceExceptionResponse,
+    FinancePeriodActionRequest,
+    FinancePeriodCreateRequest,
+    FinancePeriodListResponse,
+    FinancePeriodResponse,
+    FinanceExportPackageListResponse,
+    FinanceExportPackageResponse,
+    ExportSchemaSettingsRequest,
+    ExportSchemaSettingsResponse,
+    ProductCostSettingsRequest,
+    ProductCostSettingsResponse,
+    ProductCostVersionListResponse,
+    ProductCostVersionRequest,
+    ProductCostVersionResponse,
+    MissingProductCostDiagnosticsResponse,
+    SellerLegalProfileRequest,
+    SellerLegalProfileResponse,
+    StripeBalanceImportResponse,
+    StripePayoutImportStatusResponse,
+    StripePayoutMatchReviewRequest,
+    VatFiscalSettingsRequest,
+    VatFiscalSettingsResponse,
 )
 from app.models.analytics import (
     AnalyticsFunnelResponse,
@@ -106,6 +146,10 @@ from app.models.speedy import (
 from app.models.users import UserResponse
 from app.responses import error_response
 from app.services import (
+    accounting_config_service,
+    accounting_document_service,
+    accounting_export_service,
+    accounting_ledger_service,
     accounting_report_service,
     admin_alert_service,
     admin_service,
@@ -114,10 +158,13 @@ from app.services import (
     delivery_settings_service,
     econt_fulfillment_service,
     econt_settings_service,
+    expense_product_cost_service,
+    finance_period_service,
     product_image_service,
     product_service,
     product_video_service,
     speedy_admin_service,
+    stripe_reconciliation_service,
     video_service,
 )
 from app.services.auth_service import get_oauth_circuit_breaker
@@ -137,6 +184,7 @@ from app.services.image_service import (
     FileTooLargeError as ImageFileTooLargeError,
 )
 from app.services.order_service import (
+    ADMIN_ACCOUNTING_FILTERS,
     ADMIN_REVIEW_FILTERS,
     InvalidStateTransitionError,
     ManualPaymentActionError,
@@ -242,6 +290,874 @@ async def admin_update_delivery_settings(
     """Persist admin-managed Speedy/Econt office/door availability switches."""
     settings = delivery_settings_service.update_delivery_settings(body.model_dump())
     return DeliverySettingsResponse(**settings)
+
+
+@router.get(
+    "/accounting/config",
+    response_model=AccountingConfigurationResponse,
+    summary="Get Accounting & Finance Hub configuration",
+)
+def admin_get_accounting_config(response: Response) -> AccountingConfigurationResponse:
+    """Return accounting settings, reviewed state, and setup exceptions."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return accounting_config_service.get_accounting_configuration()
+
+
+@router.post(
+    "/accounting/config/seller-profile",
+    response_model=SellerLegalProfileResponse,
+    summary="Create seller legal profile version",
+)
+def admin_create_seller_profile(
+    body: SellerLegalProfileRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> SellerLegalProfileResponse:
+    """Create an audited seller legal profile settings version."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return accounting_config_service.create_seller_legal_profile(
+        body,
+        actor_user_id=_admin_actor_id(current_admin),
+        actor_email=current_admin.email if current_admin else None,
+        request_id=request_id_var.get() or request.headers.get("x-request-id"),
+    )
+
+
+@router.post(
+    "/accounting/config/vat-fiscal",
+    response_model=VatFiscalSettingsResponse,
+    summary="Create VAT/fiscal settings version",
+)
+def admin_create_vat_fiscal_settings(
+    body: VatFiscalSettingsRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> VatFiscalSettingsResponse:
+    """Create an audited accountant-reviewed VAT/fiscal settings version."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return accounting_config_service.create_vat_fiscal_settings(
+        body,
+        actor_user_id=_admin_actor_id(current_admin),
+        actor_email=current_admin.email if current_admin else None,
+        request_id=request_id_var.get() or request.headers.get("x-request-id"),
+    )
+
+
+@router.put(
+    "/accounting/config/category-mappings/{mapping_key}",
+    response_model=CategoryMappingResponse,
+    summary="Upsert accounting category mapping",
+)
+def admin_upsert_accounting_category_mapping(
+    mapping_key: str,
+    body: CategoryMappingRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> CategoryMappingResponse | JSONResponse:
+    """Create or update an audited accountant category mapping."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return accounting_config_service.upsert_category_mapping(
+            mapping_key,
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except ValueError as exc:
+        return error_response(422, "INVALID_MAPPING_KEY", str(exc))
+
+
+@router.put(
+    "/accounting/config/export-schema",
+    response_model=ExportSchemaSettingsResponse,
+    summary="Update accounting export schema settings",
+)
+def admin_update_accounting_export_schema(
+    body: ExportSchemaSettingsRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ExportSchemaSettingsResponse:
+    """Update audited export schema settings for future packages."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return accounting_config_service.update_export_schema_settings(
+        body,
+        actor_user_id=_admin_actor_id(current_admin),
+        actor_email=current_admin.email if current_admin else None,
+        request_id=request_id_var.get() or request.headers.get("x-request-id"),
+    )
+
+
+@router.put(
+    "/accounting/config/expense-settings",
+    response_model=ExpenseEvidenceSettingsResponse,
+    summary="Update expense evidence settings",
+)
+def admin_update_expense_evidence_settings(
+    body: ExpenseEvidenceSettingsRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ExpenseEvidenceSettingsResponse:
+    """Update audited expense evidence close/review settings."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return accounting_config_service.update_expense_evidence_settings(
+        body,
+        actor_user_id=_admin_actor_id(current_admin),
+        actor_email=current_admin.email if current_admin else None,
+        request_id=request_id_var.get() or request.headers.get("x-request-id"),
+    )
+
+
+@router.put(
+    "/accounting/config/product-cost-settings",
+    response_model=ProductCostSettingsResponse,
+    summary="Update product-cost estimate settings",
+)
+def admin_update_product_cost_settings(
+    body: ProductCostSettingsRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ProductCostSettingsResponse:
+    """Update audited optional product-cost estimate settings."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return accounting_config_service.update_product_cost_settings(
+        body,
+        actor_user_id=_admin_actor_id(current_admin),
+        actor_email=current_admin.email if current_admin else None,
+        request_id=request_id_var.get() or request.headers.get("x-request-id"),
+    )
+
+
+def _finance_error_response(exc: finance_period_service.FinancePeriodError) -> JSONResponse:
+    return error_response(exc.status_code, exc.code, str(exc), exc.details)
+
+
+@router.get(
+    "/accounting/periods",
+    response_model=FinancePeriodListResponse,
+    summary="List finance periods",
+)
+def admin_list_finance_periods(
+    response: Response,
+    status: str | None = Query(default=None, description="Optional finance period status"),
+) -> FinancePeriodListResponse:
+    """Return finance periods for the Accounting & Finance Hub."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return finance_period_service.list_periods(status=status)
+
+
+@router.post(
+    "/accounting/periods",
+    response_model=FinancePeriodResponse,
+    summary="Create finance period",
+)
+def admin_create_finance_period(
+    body: FinancePeriodCreateRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> FinancePeriodResponse | JSONResponse:
+    """Create an audited open finance period."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return finance_period_service.create_period(
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.get(
+    "/accounting/periods/{period_id}",
+    response_model=FinancePeriodResponse,
+    summary="Get finance period",
+)
+def admin_get_finance_period(
+    period_id: str,
+    response: Response,
+) -> FinancePeriodResponse | JSONResponse:
+    """Return one finance period."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return finance_period_service.get_period(period_id)
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.post(
+    "/accounting/periods/{period_id}/review",
+    response_model=FinancePeriodResponse,
+    summary="Start finance period review",
+)
+def admin_review_finance_period(
+    period_id: str,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> FinancePeriodResponse | JSONResponse:
+    """Move a period into review, refresh exceptions, and compute totals."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return finance_period_service.start_review(
+            period_id,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.post(
+    "/accounting/periods/{period_id}/close",
+    response_model=FinancePeriodResponse,
+    summary="Close finance period",
+)
+def admin_close_finance_period(
+    period_id: str,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> FinancePeriodResponse | JSONResponse:
+    """Close a finance period when no blocking exceptions are open."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return finance_period_service.close_period(
+            period_id,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.post(
+    "/accounting/periods/{period_id}/mark-exported",
+    response_model=FinancePeriodResponse,
+    summary="Mark finance period exported",
+)
+def admin_mark_finance_period_exported(
+    period_id: str,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> FinancePeriodResponse | JSONResponse:
+    """Move a closed period to exported after package generation."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return finance_period_service.mark_exported(
+            period_id,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.post(
+    "/accounting/periods/{period_id}/accept",
+    response_model=FinancePeriodResponse,
+    summary="Accept finance period",
+)
+def admin_accept_finance_period(
+    period_id: str,
+    body: FinancePeriodActionRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> FinancePeriodResponse | JSONResponse:
+    """Record accountant acceptance for an exported period."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return finance_period_service.accept_period(
+            period_id,
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.post(
+    "/accounting/periods/{period_id}/reopen",
+    response_model=FinancePeriodResponse,
+    summary="Reopen finance period",
+)
+def admin_reopen_finance_period(
+    period_id: str,
+    body: FinancePeriodActionRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> FinancePeriodResponse | JSONResponse:
+    """Reopen a period with a required reason and preserved export history."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return finance_period_service.reopen_period(
+            period_id,
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.get(
+    "/accounting/periods/{period_id}/exceptions",
+    response_model=FinanceExceptionListResponse,
+    summary="List finance period exceptions",
+)
+def admin_list_finance_exceptions(
+    period_id: str,
+    response: Response,
+    status: str | None = Query(default=None, description="Optional exception status"),
+) -> FinanceExceptionListResponse | JSONResponse:
+    """Return period exceptions after refreshing engine-managed rows."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return finance_period_service.list_exceptions(period_id, status=status)
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.get(
+    "/accounting/periods/{period_id}/ledgers/{ledger_name}",
+    response_model=AccountingLedgerResponse,
+    summary="Get accounting ledger",
+)
+def admin_get_accounting_ledger(
+    period_id: str,
+    ledger_name: str,
+    response: Response,
+    date_basis: str | None = Query(default=None, description="Ledger-specific date basis"),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=100, ge=1, le=500),
+) -> AccountingLedgerResponse | JSONResponse:
+    """Return paginated accounting ledger rows and cent totals."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return accounting_ledger_service.get_ledger(
+            period_id,
+            ledger_name,  # type: ignore[arg-type]
+            date_basis=date_basis,
+            page=page,
+            limit=limit,
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.get(
+    "/accounting/documents",
+    response_model=AccountingDocumentListResponse,
+    summary="List accounting documents",
+)
+def admin_list_accounting_documents(
+    response: Response,
+    order_id: str | None = Query(default=None),
+    refund_id: str | None = Query(default=None),
+    period_id: str | None = Query(default=None),
+) -> AccountingDocumentListResponse:
+    """List accounting document references with optional linked-object filters."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return accounting_document_service.list_documents(
+        order_id=order_id,
+        refund_id=refund_id,
+        period_id=period_id,
+    )
+
+
+@router.get(
+    "/accounting/orders/{order_id}/documents",
+    response_model=AccountingDocumentListResponse,
+    summary="List accounting documents for order",
+)
+def admin_list_order_accounting_documents(
+    order_id: str,
+    response: Response,
+) -> AccountingDocumentListResponse:
+    """List invoice/fiscal/external document references linked to an order."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return accounting_document_service.list_documents(order_id=order_id)
+
+
+@router.post(
+    "/accounting/documents",
+    response_model=AccountingDocumentResponse,
+    summary="Create accounting document reference",
+)
+def admin_create_accounting_document(
+    body: AccountingDocumentRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> AccountingDocumentResponse | JSONResponse:
+    """Create an audited accounting document reference."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return accounting_document_service.create_document(
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.put(
+    "/accounting/documents/{document_id}",
+    response_model=AccountingDocumentResponse,
+    summary="Update accounting document reference",
+)
+def admin_update_accounting_document(
+    document_id: str,
+    body: AccountingDocumentRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> AccountingDocumentResponse | JSONResponse:
+    """Replace an audited accounting document reference."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return accounting_document_service.update_document(
+            document_id,
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.get(
+    "/accounting/expenses",
+    response_model=ExpenseEvidenceListResponse,
+    summary="List expense evidence",
+)
+def admin_list_expense_evidence(
+    response: Response,
+    category_key: str | None = Query(default=None),
+    review_status: str | None = Query(default=None),
+) -> ExpenseEvidenceListResponse:
+    """List supplier invoice/receipt evidence records."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return expense_product_cost_service.list_expenses(
+        category_key=category_key,
+        review_status=review_status,
+    )
+
+
+@router.post(
+    "/accounting/expenses",
+    response_model=ExpenseEvidenceResponse,
+    summary="Create expense evidence",
+)
+def admin_create_expense_evidence(
+    body: ExpenseEvidenceRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ExpenseEvidenceResponse | JSONResponse:
+    """Create audited supplier purchase/expense evidence."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return expense_product_cost_service.create_expense(
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.put(
+    "/accounting/expenses/{expense_id}",
+    response_model=ExpenseEvidenceResponse,
+    summary="Update expense evidence",
+)
+def admin_update_expense_evidence(
+    expense_id: str,
+    body: ExpenseEvidenceRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ExpenseEvidenceResponse | JSONResponse:
+    """Replace audited supplier purchase/expense evidence."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return expense_product_cost_service.update_expense(
+            expense_id,
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.patch(
+    "/accounting/expenses/{expense_id}/payment-status",
+    response_model=ExpenseEvidenceResponse,
+    summary="Update expense payment status",
+)
+def admin_update_expense_payment_status(
+    expense_id: str,
+    body: ExpensePaymentStatusRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ExpenseEvidenceResponse | JSONResponse:
+    """Update an expense payment status with an audited reason."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return expense_product_cost_service.update_expense_payment_status(
+            expense_id,
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.get(
+    "/accounting/product-costs",
+    response_model=ProductCostVersionListResponse,
+    summary="List product-cost versions",
+)
+def admin_list_product_cost_versions(
+    response: Response,
+    product_id: str | None = Query(default=None),
+) -> ProductCostVersionListResponse:
+    """List manual/recipe/imported product-cost estimate versions."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return expense_product_cost_service.list_product_costs(product_id=product_id)
+
+
+@router.post(
+    "/accounting/product-costs",
+    response_model=ProductCostVersionResponse,
+    summary="Create product-cost version",
+)
+def admin_create_product_cost_version(
+    body: ProductCostVersionRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ProductCostVersionResponse:
+    """Create audited product-cost estimate version."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return expense_product_cost_service.create_product_cost(
+        body,
+        actor_user_id=_admin_actor_id(current_admin),
+        actor_email=current_admin.email if current_admin else None,
+        request_id=request_id_var.get() or request.headers.get("x-request-id"),
+    )
+
+
+@router.put(
+    "/accounting/product-costs/{cost_version_id}",
+    response_model=ProductCostVersionResponse,
+    summary="Update product-cost version",
+)
+def admin_update_product_cost_version(
+    cost_version_id: str,
+    body: ProductCostVersionRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> ProductCostVersionResponse | JSONResponse:
+    """Replace audited product-cost estimate version and components."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return expense_product_cost_service.update_product_cost(
+            cost_version_id,
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.get(
+    "/accounting/product-costs/effective",
+    response_model=ProductCostVersionResponse | None,
+    summary="Lookup effective product-cost version",
+)
+def admin_get_effective_product_cost(
+    response: Response,
+    product_id: str = Query(...),
+    effective_date: str = Query(...),
+) -> ProductCostVersionResponse | None:
+    """Return the latest product-cost version effective on a date."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return expense_product_cost_service.effective_product_cost(product_id, effective_date)
+
+
+@router.get(
+    "/accounting/product-costs/missing",
+    response_model=MissingProductCostDiagnosticsResponse,
+    summary="Get missing product-cost diagnostics",
+)
+def admin_get_missing_product_costs(
+    response: Response,
+    period_id: str = Query(...),
+) -> MissingProductCostDiagnosticsResponse | JSONResponse:
+    """List sold products in a period without an effective cost version."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return expense_product_cost_service.missing_product_costs(period_id)
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.get(
+    "/accounting/exports",
+    response_model=FinanceExportPackageListResponse,
+    summary="List accounting export packages",
+)
+def admin_list_accounting_exports(
+    response: Response,
+    period_id: str | None = Query(default=None),
+) -> FinanceExportPackageListResponse:
+    """List generated accountant export packages."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return accounting_export_service.list_export_packages(period_id=period_id)
+
+
+@router.post(
+    "/accounting/periods/{period_id}/exports",
+    response_model=FinanceExportPackageResponse,
+    summary="Generate accounting export package",
+)
+def admin_generate_accounting_export(
+    period_id: str,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> FinanceExportPackageResponse | JSONResponse:
+    """Generate immutable XLSX/CSV/manifest package for a closed period."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return accounting_export_service.generate_export_package(
+            period_id,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.get(
+    "/accounting/exports/{export_id}/download",
+    response_model=None,
+    summary="Download accounting export package file",
+)
+def admin_download_accounting_export(
+    export_id: str,
+    response: Response,
+    file: str = Query(default="xlsx", description="xlsx, manifest, or a CSV file name"),
+) -> FileResponse | JSONResponse:
+    """Download one file from an export package by export id."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        path = accounting_export_service.resolve_download_path(export_id, file)
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+    return FileResponse(
+        path,
+        filename=path.name,
+        headers={"Cache-Control": "no-store, no-cache"},
+    )
+
+
+@router.post(
+    "/accounting/exports/{export_id}/accept",
+    response_model=FinanceExportPackageResponse,
+    summary="Accept accounting export package",
+)
+def admin_accept_accounting_export(
+    export_id: str,
+    body: AccountantAcceptanceRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> FinanceExportPackageResponse | JSONResponse:
+    """Record accountant acceptance for the current export package."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return accounting_export_service.accept_export_package(
+            export_id,
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.get(
+    "/accounting/stripe/import-status",
+    response_model=StripePayoutImportStatusResponse,
+    summary="Get Stripe payout import status",
+)
+def admin_get_stripe_import_status(response: Response) -> StripePayoutImportStatusResponse:
+    """Return aggregate Stripe balance transaction reconciliation status."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    return stripe_reconciliation_service.import_status()
+
+
+@router.post(
+    "/accounting/stripe/sync",
+    response_model=StripeBalanceImportResponse,
+    summary="Sync Stripe balance transactions",
+)
+async def admin_sync_stripe_balance_transactions(
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+    limit: int = Query(default=100, ge=1, le=500),
+) -> StripeBalanceImportResponse | JSONResponse:
+    """Import Stripe balance transactions through the Stripe SDK when configured."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return await run_in_threadpool(
+            stripe_reconciliation_service.sync_from_stripe,
+            limit=limit,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.post(
+    "/accounting/stripe/manual-import",
+    response_model=StripeBalanceImportResponse,
+    summary="Import Stripe balance transactions from CSV",
+)
+async def admin_import_stripe_balance_csv(
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+    file: UploadFile = File(...),
+) -> StripeBalanceImportResponse | JSONResponse:
+    """Import Stripe balance/payout rows from an admin-uploaded CSV file."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    content = await file.read()
+    try:
+        return await run_in_threadpool(
+            stripe_reconciliation_service.import_balance_csv,
+            content,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.post(
+    "/accounting/stripe/matches/{balance_transaction_id}/review",
+    response_model=None,
+    summary="Review Stripe balance transaction match",
+)
+def admin_review_stripe_balance_match(
+    balance_transaction_id: str,
+    body: StripePayoutMatchReviewRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> dict[str, object] | JSONResponse:
+    """Manually update reconciliation status for one Stripe balance transaction."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return stripe_reconciliation_service.review_match(
+            balance_transaction_id,
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.post(
+    "/accounting/exceptions/{exception_id}/resolve",
+    response_model=FinanceExceptionResponse,
+    summary="Resolve finance exception",
+)
+def admin_resolve_finance_exception(
+    exception_id: str,
+    body: FinanceExceptionActionRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> FinanceExceptionResponse | JSONResponse:
+    """Resolve an exception with an audited admin reason."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return finance_period_service.resolve_exception(
+            exception_id,
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
+
+
+@router.post(
+    "/accounting/exceptions/{exception_id}/waive",
+    response_model=FinanceExceptionResponse,
+    summary="Waive finance exception",
+)
+def admin_waive_finance_exception(
+    exception_id: str,
+    body: FinanceExceptionActionRequest,
+    request: Request,
+    response: Response,
+    current_admin: Annotated[UserResponse | None, Depends(require_admin)],
+) -> FinanceExceptionResponse | JSONResponse:
+    """Waive an exception with an audited admin reason."""
+    response.headers["Cache-Control"] = "no-store, no-cache"
+    try:
+        return finance_period_service.waive_exception(
+            exception_id,
+            body,
+            actor_user_id=_admin_actor_id(current_admin),
+            actor_email=current_admin.email if current_admin else None,
+            request_id=request_id_var.get() or request.headers.get("x-request-id"),
+        )
+    except finance_period_service.FinancePeriodError as exc:
+        return _finance_error_response(exc)
 
 
 @router.get(
@@ -1351,6 +2267,8 @@ def admin_list_orders(
     payment_status: str | None = Query(default=None, description="Filter by payment status"),
     payment_method: str | None = Query(default=None, description="Filter by payment method"),
     review_filter: str | None = Query(default=None, description="Filter operational review queues"),
+    accounting_filter: str | None = Query(default=None, description="Filter accounting readiness queues"),
+    finance_period_id: str | None = Query(default=None, description="Filter by finance period id"),
     page: int = Query(default=1, ge=1, description="Page number"),
     limit: int = Query(default=20, ge=1, le=100, description="Items per page"),
 ) -> OrderListResponse | JSONResponse:
@@ -1388,6 +2306,14 @@ def admin_list_orders(
             "Invalid review_filter "
             f"'{review_filter}'. Must be one of: {', '.join(sorted(ADMIN_REVIEW_FILTERS))}",
         )
+    if accounting_filter is not None and accounting_filter not in ADMIN_ACCOUNTING_FILTERS:
+        return error_response(
+            422,
+            "INVALID_ACCOUNTING_FILTER",
+            "Invalid accounting_filter "
+            f"'{accounting_filter}'. Must be one of: "
+            f"{', '.join(sorted(ADMIN_ACCOUNTING_FILTERS))}",
+        )
 
     with get_db() as conn:
         result = list_orders_admin(
@@ -1396,6 +2322,8 @@ def admin_list_orders(
             payment_status=payment_status,
             payment_method=payment_method,
             review_filter=review_filter,
+            accounting_filter=accounting_filter,
+            finance_period_id=finance_period_id,
             page=page,
             limit=limit,
         )

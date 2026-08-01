@@ -23,8 +23,8 @@ from app.constants import (
     tracking_url_for,
 )
 from app.models.delivery import DeliveryInfo
-from app.models.orders import OrderStatus
-from app.services import delivery_service, delivery_settings_service, pricing
+from app.models.orders import InvoiceProfile, OrderStatus
+from app.services import accounting_config_service, delivery_service, delivery_settings_service, pricing
 
 logger = structlog.get_logger(__name__)
 
@@ -85,6 +85,19 @@ ADMIN_REVIEW_FILTERS = frozenset(
     }
 )
 
+ADMIN_ACCOUNTING_FILTERS = frozenset(
+    {
+        "missing_document_reference",
+        "unresolved_exception",
+        "payout_mismatch",
+        "cod_settlement_pending",
+        "refund_document_missing",
+        "vat_review_required",
+    }
+)
+
+_PAID_ACCOUNTING_STATUSES = {"paid", "partially_refunded", "refunded"}
+
 Locale = Literal["en", "bg"]
 
 
@@ -109,6 +122,157 @@ def _normalize_quoted_at(value: str | None) -> str | None:
     except ValueError:
         return None
     return value
+
+
+def _decode_json_dict(value: str | None, *, order_id: str, field: str) -> dict | None:
+    if not value:
+        return None
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError:
+        logger.warning("order_json_field_invalid", order_id=order_id, field=field)
+        return None
+    return decoded if isinstance(decoded, dict) else None
+
+
+def _accounting_admin_fields(
+    conn: sqlite3.Connection,
+    *,
+    order_id: str,
+    total_cents: int,
+    payment_method: str,
+    payment_status: str,
+    finance_period_id: str | None,
+    stripe_payment_intent_id: str | None,
+    fallback_readiness_status: str,
+) -> dict[str, object]:
+    """Compute admin display flags from accounting evidence without guessing policy."""
+
+    exception_rows = conn.execute(
+        """
+        SELECT period_id, exception_type, severity
+        FROM finance_exceptions
+        WHERE target_type = 'order'
+          AND target_id = ?
+          AND status = 'open'
+        """,
+        (order_id,),
+    ).fetchall()
+    blocking_exception_count = sum(1 for row in exception_rows if row["severity"] == "blocking")
+    exception_period_id = next((row["period_id"] for row in exception_rows if row["period_id"]), None)
+    linked_period_id = finance_period_id or exception_period_id
+
+    document_rows = conn.execute(
+        "SELECT status FROM accounting_documents WHERE order_id = ?",
+        (order_id,),
+    ).fetchall()
+    exception_types = {row["exception_type"] for row in exception_rows}
+    if "missing_document_reference" in exception_types:
+        document_reference_status = "missing"
+    elif any(row["status"] == "missing" for row in document_rows):
+        document_reference_status = "missing"
+    elif any(row["status"] == "review_required" for row in document_rows):
+        document_reference_status = "review_required"
+    elif document_rows:
+        document_reference_status = "recorded"
+    else:
+        document_reference_status = "not_required"
+
+    if payment_status in {"review_required", "failed", "dispute_open"}:
+        payment_reconciliation_status = "review_required"
+    elif payment_status in _PAID_ACCOUNTING_STATUSES:
+        has_payment_evidence = conn.execute(
+            """
+            SELECT 1 FROM payments WHERE order_id = ?
+            UNION
+            SELECT 1 FROM payment_events WHERE order_id = ?
+            LIMIT 1
+            """,
+            (order_id, order_id),
+        ).fetchone()
+        payment_reconciliation_status = "matched" if has_payment_evidence else "pending"
+    elif payment_status in {"pending", "cod_pending", "refund_pending"}:
+        payment_reconciliation_status = "pending"
+    else:
+        payment_reconciliation_status = "not_applicable"
+
+    if payment_method != "card":
+        payout_reconciliation_status = "not_applicable"
+    elif not stripe_payment_intent_id:
+        payout_reconciliation_status = "pending"
+    else:
+        payout_row = conn.execute(
+            """
+            SELECT match_status
+            FROM stripe_balance_transactions
+            WHERE payment_intent_id = ?
+            ORDER BY imported_at DESC
+            LIMIT 1
+            """,
+            (stripe_payment_intent_id,),
+        ).fetchone()
+        if payout_row is None:
+            payout_reconciliation_status = "pending"
+        elif payout_row["match_status"] in {"matched", "mismatch", "unmatched"}:
+            payout_reconciliation_status = payout_row["match_status"]
+        else:
+            payout_reconciliation_status = "review_required"
+
+    if payment_method != "cod":
+        cod_settlement_status = "not_applicable"
+    else:
+        settlement_row = conn.execute(
+            """
+            SELECT amount_cents, mismatch_review
+            FROM cod_settlements
+            WHERE order_id = ?
+            """,
+            (order_id,),
+        ).fetchone()
+        if settlement_row is None:
+            cod_settlement_status = "pending"
+        elif bool(settlement_row["mismatch_review"]) or settlement_row["amount_cents"] != total_cents:
+            cod_settlement_status = "mismatch"
+        else:
+            cod_settlement_status = "settled"
+
+    readiness_status = "blocked" if blocking_exception_count else fallback_readiness_status
+    if document_reference_status in {"missing", "review_required"} and readiness_status == "ready":
+        readiness_status = "review_required"
+
+    finance_hub_links = None
+    if linked_period_id:
+        finance_hub_links = {
+            "period_id": linked_period_id,
+            "period_href": f"/admin/accounting?period={linked_period_id}",
+            "exceptions_href": f"/admin/accounting?period={linked_period_id}&tab=exceptions",
+            "ledger_href": f"/admin/accounting?period={linked_period_id}&tab=ledgers",
+            "documents_href": f"/admin/accounting?period={linked_period_id}&tab=documents",
+        }
+
+    return {
+        "accounting_readiness_status": readiness_status,
+        "document_reference_status": document_reference_status,
+        "payment_reconciliation_status": payment_reconciliation_status,
+        "payout_reconciliation_status": payout_reconciliation_status,
+        "cod_settlement_status": cod_settlement_status,
+        "blocking_exception_count": blocking_exception_count,
+        "finance_hub_links": finance_hub_links,
+    }
+
+
+def _initial_accounting_classification(
+    *,
+    invoice_profile: dict | None,
+    delivery_country: str,
+    seller_country: str = "BG",
+) -> str:
+    """Assign a conservative initial accounting classification, not tax advice."""
+    if invoice_profile and invoice_profile.get("vat_identification_number"):
+        return "business_vat_id_provided"
+    if delivery_country and delivery_country != seller_country:
+        return "cross_border_candidate"
+    return "domestic_default"
 
 
 def _payment_provider_for_method(payment_method: str) -> str:
@@ -465,6 +629,14 @@ class OrderData(TypedDict):
     payment_return_token: str | None
     stripe_checkout_session_id: str | None
     stripe_payment_intent_id: str | None
+    invoice_profile: dict | None
+    accounting_currency: str
+    seller_legal_profile_version_id: int | None
+    vat_fiscal_settings_version_id: int | None
+    accounting_classification_state: str
+    accounting_snapshot: dict | None
+    accounting_readiness_status: str
+    finance_period_id: str | None
     analytics_consent: bool
     created_at: str
     updated_at: str
@@ -499,6 +671,7 @@ def checkout(
     shipping_price_source: str = "live",
     shipping_is_fallback: bool = False,
     shipping_quoted_at: str | None = None,
+    invoice_profile: InvoiceProfile | None = None,
     pay_on_delivery_max_cents: int | None = None,
 ) -> OrderData:
     """Convert cart to an order atomically.
@@ -679,6 +852,52 @@ def checkout(
 
         # Initial payment_status depends on payment method.
         initial_payment_status = "cod_pending" if payment_method == "cod" else "pending"
+        invoice_profile_payload = (
+            invoice_profile.model_dump(mode="json") if invoice_profile is not None else None
+        )
+        customer_country = (
+            invoice_profile_payload.get("billing_country") if invoice_profile_payload else None
+        )
+        # Current checkout only collects Bulgarian courier addresses. Keep the
+        # explicit country in the accounting snapshot so future cross-border
+        # checkout can replace this without changing export contracts.
+        delivery_country = "BG"
+        seller_profile_version_id = accounting_config_service.current_seller_profile_version_id(
+            conn
+        )
+        vat_fiscal_settings_version_id = (
+            accounting_config_service.current_vat_fiscal_settings_version_id(conn)
+        )
+        accounting_classification_state = _initial_accounting_classification(
+            invoice_profile=invoice_profile_payload,
+            delivery_country=delivery_country,
+        )
+        accounting_readiness_status = (
+            "ready"
+            if seller_profile_version_id is not None and vat_fiscal_settings_version_id is not None
+            else "review_required"
+        )
+        accounting_snapshot = {
+            "currency": "EUR",
+            "seller_legal_profile_version_id": seller_profile_version_id,
+            "vat_fiscal_settings_version_id": vat_fiscal_settings_version_id,
+            "payment_method": payment_method,
+            "delivery_country": delivery_country,
+            "customer_country": customer_country,
+            "shipping_cents": shipping_cents,
+            "shipping_price_source": shipping_price_source,
+            "discounts_captured_in_effective_prices": True,
+            "invoice_profile": invoice_profile_payload,
+            "items": [
+                {
+                    "product_id": row["product_id"],
+                    "product_name": row["name"],
+                    "quantity": row["quantity"],
+                    "unit_price_cents": effective_prices[row["product_id"]],
+                }
+                for row in cart_rows
+            ],
+        }
 
         conn.execute(
             """
@@ -691,11 +910,18 @@ def checkout(
                                locale, notes,
                                payment_method, payment_status, reserved_until,
                                payment_return_token,
+                               invoice_profile_json, accounting_currency,
+                               seller_legal_profile_version_id,
+                               vat_fiscal_settings_version_id,
+                               accounting_classification_state,
+                               accounting_snapshot_json,
+                               accounting_readiness_status,
                                analytics_consent, created_at, updated_at)
             VALUES (
                 ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?
             )
             """,
             (
@@ -720,6 +946,15 @@ def checkout(
                 initial_payment_status,
                 reserved_until,
                 payment_return_token,
+                json.dumps(invoice_profile_payload, ensure_ascii=False)
+                if invoice_profile_payload is not None
+                else None,
+                "EUR",
+                seller_profile_version_id,
+                vat_fiscal_settings_version_id,
+                accounting_classification_state,
+                json.dumps(accounting_snapshot, ensure_ascii=False),
+                accounting_readiness_status,
                 1 if analytics_consent else 0,
                 now,
                 now,
@@ -859,6 +1094,14 @@ def checkout(
         payment_return_token=payment_return_token,
         stripe_checkout_session_id=None,
         stripe_payment_intent_id=None,
+        invoice_profile=invoice_profile_payload,
+        accounting_currency="EUR",
+        seller_legal_profile_version_id=seller_profile_version_id,
+        vat_fiscal_settings_version_id=vat_fiscal_settings_version_id,
+        accounting_classification_state=accounting_classification_state,
+        accounting_snapshot=accounting_snapshot,
+        accounting_readiness_status=accounting_readiness_status,
+        finance_period_id=None,
         analytics_consent=analytics_consent,
         created_at=now,
         updated_at=now,
@@ -890,18 +1133,11 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
 
     # Delivery details JSON blob → dict (or None for legacy rows).
     delivery_details_raw = row["delivery_details"] if "delivery_details" in row.keys() else None
-    delivery_details: dict | None
-    if delivery_details_raw:
-        try:
-            delivery_details = json.loads(delivery_details_raw)
-        except json.JSONDecodeError:
-            logger.warning(
-                "order_delivery_details_invalid_json",
-                order_id=order_id,
-            )
-            delivery_details = None
-    else:
-        delivery_details = None
+    delivery_details = _decode_json_dict(
+        delivery_details_raw,
+        order_id=order_id,
+        field="delivery_details",
+    )
 
     # shipping_cents column is added by shipping-pricing; safe-default to 0.
     row_keys = row.keys()
@@ -918,6 +1154,37 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
         row["shipping_is_fallback"] if "shipping_is_fallback" in row_keys else 0
     )
     shipping_quoted_at = row["shipping_quoted_at"] if "shipping_quoted_at" in row_keys else None
+    invoice_profile = _decode_json_dict(
+        row["invoice_profile_json"] if "invoice_profile_json" in row_keys else None,
+        order_id=order_id,
+        field="invoice_profile_json",
+    )
+    accounting_snapshot = _decode_json_dict(
+        row["accounting_snapshot_json"] if "accounting_snapshot_json" in row_keys else None,
+        order_id=order_id,
+        field="accounting_snapshot_json",
+    )
+    payment_method = row["payment_method"] if "payment_method" in row_keys else "cod"
+    payment_status = row["payment_status"] if "payment_status" in row_keys else "cod_pending"
+    stripe_payment_intent_id = (
+        row["stripe_payment_intent_id"] if "stripe_payment_intent_id" in row_keys else None
+    )
+    finance_period_id = row["finance_period_id"] if "finance_period_id" in row_keys else None
+    accounting_readiness_status = (
+        row["accounting_readiness_status"]
+        if "accounting_readiness_status" in row_keys and row["accounting_readiness_status"]
+        else "unreviewed"
+    )
+    accounting_admin_fields = _accounting_admin_fields(
+        conn,
+        order_id=order_id,
+        total_cents=total_cents,
+        payment_method=payment_method,
+        payment_status=payment_status,
+        finance_period_id=finance_period_id,
+        stripe_payment_intent_id=stripe_payment_intent_id,
+        fallback_readiness_status=accounting_readiness_status,
+    )
 
     return OrderData(
         id=row["id"],
@@ -962,8 +1229,8 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
         ),
         locale=(row["locale"] if "locale" in row_keys and row["locale"] else "en"),
         notes=row["notes"],
-        payment_method=row["payment_method"] if "payment_method" in row_keys else "cod",
-        payment_status=row["payment_status"] if "payment_status" in row_keys else "cod_pending",
+        payment_method=payment_method,
+        payment_status=payment_status,
         reserved_until=row["reserved_until"] if "reserved_until" in row_keys else None,
         paid_at=row["paid_at"] if "paid_at" in row_keys else None,
         collected_at=row["collected_at"] if "collected_at" in row_keys else None,
@@ -973,9 +1240,42 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
         stripe_checkout_session_id=(
             row["stripe_checkout_session_id"] if "stripe_checkout_session_id" in row_keys else None
         ),
-        stripe_payment_intent_id=(
-            row["stripe_payment_intent_id"] if "stripe_payment_intent_id" in row_keys else None
+        stripe_payment_intent_id=stripe_payment_intent_id,
+        invoice_profile=invoice_profile,
+        accounting_currency=(
+            row["accounting_currency"]
+            if "accounting_currency" in row_keys and row["accounting_currency"]
+            else "EUR"
         ),
+        seller_legal_profile_version_id=(
+            row["seller_legal_profile_version_id"]
+            if "seller_legal_profile_version_id" in row_keys
+            else None
+        ),
+        vat_fiscal_settings_version_id=(
+            row["vat_fiscal_settings_version_id"]
+            if "vat_fiscal_settings_version_id" in row_keys
+            else None
+        ),
+        accounting_classification_state=(
+            row["accounting_classification_state"]
+            if "accounting_classification_state" in row_keys
+            and row["accounting_classification_state"]
+            else "unreviewed"
+        ),
+        accounting_snapshot=accounting_snapshot,
+        accounting_readiness_status=accounting_admin_fields["accounting_readiness_status"],
+        finance_period_id=finance_period_id,
+        document_reference_status=accounting_admin_fields["document_reference_status"],
+        payment_reconciliation_status=accounting_admin_fields[
+            "payment_reconciliation_status"
+        ],
+        payout_reconciliation_status=accounting_admin_fields[
+            "payout_reconciliation_status"
+        ],
+        cod_settlement_status=accounting_admin_fields["cod_settlement_status"],
+        blocking_exception_count=accounting_admin_fields["blocking_exception_count"],
+        finance_hub_links=accounting_admin_fields["finance_hub_links"],
         analytics_consent=bool(row["analytics_consent"] if "analytics_consent" in row_keys else 0),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
@@ -1066,6 +1366,8 @@ def list_orders_admin(
     payment_status: str | None = None,
     payment_method: str | None = None,
     review_filter: str | None = None,
+    accounting_filter: str | None = None,
+    finance_period_id: str | None = None,
     page: int = 1,
     limit: int = 20,
 ) -> OrderListData:
@@ -1093,6 +1395,9 @@ def list_orders_admin(
     if payment_method is not None:
         conditions.append("payment_method = ?")
         params.append(payment_method)
+    if finance_period_id is not None:
+        conditions.append("finance_period_id = ?")
+        params.append(finance_period_id)
     if review_filter == "abandoned_payment":
         conditions.append("payment_method = 'card'")
         conditions.append("payment_status = 'review_required'")
@@ -1160,6 +1465,67 @@ def list_orders_admin(
         conditions.append("status = 'delivered'")
         conditions.append(
             "NOT EXISTS (SELECT 1 FROM cod_settlements cs WHERE cs.order_id = orders.id)"
+        )
+
+    if accounting_filter == "missing_document_reference":
+        conditions.append(
+            """
+            EXISTS (
+                SELECT 1
+                FROM finance_exceptions fe
+                WHERE fe.target_type = 'order'
+                  AND fe.target_id = orders.id
+                  AND fe.status = 'open'
+                  AND fe.exception_type = 'missing_document_reference'
+            )
+            """
+        )
+    elif accounting_filter == "unresolved_exception":
+        conditions.append(
+            """
+            EXISTS (
+                SELECT 1
+                FROM finance_exceptions fe
+                WHERE fe.target_type = 'order'
+                  AND fe.target_id = orders.id
+                  AND fe.status = 'open'
+            )
+            """
+        )
+    elif accounting_filter == "payout_mismatch":
+        conditions.append("payment_method = 'card'")
+        conditions.append(
+            """
+            EXISTS (
+                SELECT 1
+                FROM stripe_balance_transactions sbt
+                WHERE sbt.payment_intent_id = orders.stripe_payment_intent_id
+                  AND sbt.match_status = 'mismatch'
+            )
+            """
+        )
+    elif accounting_filter == "cod_settlement_pending":
+        conditions.append("payment_method = 'cod'")
+        conditions.append("status = 'delivered'")
+        conditions.append(
+            "NOT EXISTS (SELECT 1 FROM cod_settlements cs WHERE cs.order_id = orders.id)"
+        )
+    elif accounting_filter == "refund_document_missing":
+        conditions.append(
+            """
+            EXISTS (
+                SELECT 1
+                FROM finance_exceptions fe
+                WHERE fe.target_type = 'order'
+                  AND fe.target_id = orders.id
+                  AND fe.status = 'open'
+                  AND fe.exception_type = 'refund_document_missing'
+            )
+            """
+        )
+    elif accounting_filter == "vat_review_required":
+        conditions.append(
+            "accounting_classification_state IN ('cross_border_candidate', 'manual_review_required')"
         )
 
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""

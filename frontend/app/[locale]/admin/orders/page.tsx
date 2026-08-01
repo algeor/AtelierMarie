@@ -16,7 +16,13 @@ import {
   ShipOrderModal,
   type ShipTrackingInput,
 } from "@/components/admin/ShipOrderModal";
-import type { OrderResponse, OrderStatus, PaymentMethod, PaymentStatus } from "@/lib/types";
+import type {
+  AdminOrderAccountingFilter,
+  OrderResponse,
+  OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
+} from "@/lib/types";
 
 const STATUS_FILTERS: (OrderStatus | "")[] = [
   "",
@@ -43,6 +49,16 @@ const PAYMENT_METHOD_FILTERS: (PaymentMethod | "")[] = [
   "card",
   "cod",
   "bank_transfer",
+];
+
+const ACCOUNTING_FILTERS: (AdminOrderAccountingFilter | "")[] = [
+  "",
+  "missing_document_reference",
+  "unresolved_exception",
+  "payout_mismatch",
+  "cod_settlement_pending",
+  "refund_document_missing",
+  "vat_review_required",
 ];
 
 const STATUS_COLORS: Record<OrderStatus, string> = {
@@ -110,6 +126,7 @@ export default function AdminOrdersPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<PaymentStatus | "">("");
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<PaymentMethod | "">("");
+  const [accountingFilter, setAccountingFilter] = useState<AdminOrderAccountingFilter | "">("");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   // Order awaiting the shipping form (tracking is required before we ship).
   const [shippingOrder, setShippingOrder] = useState<OrderResponse | null>(null);
@@ -126,10 +143,11 @@ export default function AdminOrdersPage() {
         setError(null);
         const args: Parameters<typeof getAdminOrders> = [1, 100];
         if (statusFilter) args[2] = statusFilter;
-        if (paymentStatusFilter || paymentMethodFilter) {
+        if (paymentStatusFilter || paymentMethodFilter || accountingFilter) {
           args[2] = statusFilter || undefined;
           args[3] = paymentStatusFilter || undefined;
           args[4] = paymentMethodFilter || undefined;
+          args[5] = accountingFilter || undefined;
         }
         const data = await getAdminOrders(...args);
         setOrders(data.items);
@@ -142,7 +160,7 @@ export default function AdminOrdersPage() {
       }
     }
     loadOrders();
-  }, [statusFilter, paymentStatusFilter, paymentMethodFilter, getLocalizedError, t]);
+  }, [statusFilter, paymentStatusFilter, paymentMethodFilter, accountingFilter, getLocalizedError, t]);
 
   async function handleStatusChange(
     order: OrderResponse,
@@ -325,6 +343,29 @@ export default function AdminOrdersPage() {
             ))}
           </div>
         </div>
+
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase text-soft-brown">
+            {t("accountingFilter")}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {ACCOUNTING_FILTERS.map((filter) => (
+              <button
+                key={filter || "all-accounting"}
+                onClick={() => setAccountingFilter(filter)}
+                className={cn(
+                  "rounded-pill px-4 py-1.5 text-sm font-medium transition-colors duration-fast",
+                  accountingFilter === filter
+                    ? "bg-muted-gold text-charcoal"
+                    : "bg-champagne-beige/50 text-soft-brown hover:bg-champagne-beige"
+                )}
+                aria-pressed={accountingFilter === filter}
+              >
+                {filter ? t(`accountingFilters.${filter}` as Parameters<typeof t>[0]) : t("all")}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {error && (
@@ -349,6 +390,7 @@ export default function AdminOrdersPage() {
               <th className="px-4 py-3 font-medium text-charcoal">{t("total")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("status")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{tPayment("sectionTitle")}</th>
+              <th className="px-4 py-3 font-medium text-charcoal">{t("accountingColumn")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("date")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("actions")}</th>
             </tr>
@@ -363,13 +405,14 @@ export default function AdminOrdersPage() {
                   <td className="px-4 py-3"><Skeleton className="h-4 w-16" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-5 w-20" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-5 w-20" /></td>
+                  <td className="px-4 py-3"><Skeleton className="h-5 w-24" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-4 w-24" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-8 w-28" /></td>
                 </tr>
               ))
             ) : orders.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-soft-brown">
+                <td colSpan={9} className="px-4 py-8 text-center text-soft-brown">
                   {t("noOrders")}
                 </td>
               </tr>
@@ -450,6 +493,29 @@ export default function AdminOrdersPage() {
                         )}>
                           {tPayment(`status.${order.payment_status}` as Parameters<typeof tPayment>[0])}
                         </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-soft-brown">
+                    <div className="flex flex-col gap-1">
+                      <span className={cn(
+                        "inline-flex w-fit rounded-pill px-2 py-0.5 font-medium",
+                        order.accounting_readiness_status === "blocked"
+                          ? "bg-red-100 text-red-800"
+                          : order.accounting_readiness_status === "ready"
+                            ? "bg-green-100 text-green-800"
+                            : "bg-amber-100 text-amber-800"
+                      )}>
+                        {order.accounting_readiness_status ?? "unreviewed"}
+                      </span>
+                      <span>{order.document_reference_status ?? "not_required"}</span>
+                      {Boolean(order.blocking_exception_count) && (
+                        <span>{t("blockingExceptions", { count: order.blocking_exception_count ?? 0 })}</span>
+                      )}
+                      {order.finance_hub_links?.period_href && (
+                        <Link href={order.finance_hub_links.period_href} className="font-medium text-charcoal underline-offset-2 hover:underline">
+                          {t("openFinanceHub")}
+                        </Link>
                       )}
                     </div>
                   </td>

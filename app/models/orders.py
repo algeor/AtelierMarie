@@ -60,6 +60,39 @@ class OrderItemResponse(BaseModel):
     quantity: int
 
 
+class InvoiceProfile(BaseModel):
+    """Optional checkout invoice/business document profile."""
+
+    customer_type: Literal["individual", "business"] = "individual"
+    legal_name: str = Field(..., min_length=1, max_length=200)
+    vat_identification_number: str | None = Field(default=None, max_length=64)
+    business_registration_number: str | None = Field(default=None, max_length=64)
+    billing_address: str = Field(..., min_length=1, max_length=500)
+    billing_country: str = Field(default="BG", min_length=2, max_length=2)
+    invoice_email: EmailStr
+    purchase_reference_note: str | None = Field(default=None, max_length=500)
+
+    @field_validator(
+        "legal_name",
+        "vat_identification_number",
+        "business_registration_number",
+        "billing_address",
+        "purchase_reference_note",
+        mode="before",
+    )
+    @classmethod
+    def _strip_optional_strings(cls, value: str | None) -> str | None:
+        if value is None or not isinstance(value, str):
+            return value
+        stripped = value.strip()
+        return stripped or None
+
+    @field_validator("billing_country", mode="before")
+    @classmethod
+    def _normalize_country(cls, value: str) -> str:
+        return value.strip().upper()
+
+
 class OrderResponse(BaseModel):
     """Public order representation.
 
@@ -106,6 +139,36 @@ class OrderResponse(BaseModel):
     payment_return_token: str | None = None
     stripe_checkout_session_id: str | None = None
     stripe_checkout_url: str | None = None
+    invoice_profile: InvoiceProfile | None = None
+    accounting_currency: str = "EUR"
+    seller_legal_profile_version_id: int | None = None
+    vat_fiscal_settings_version_id: int | None = None
+    accounting_classification_state: Literal[
+        "unreviewed",
+        "domestic_default",
+        "business_vat_id_provided",
+        "cross_border_candidate",
+        "manual_review_required",
+    ] = "unreviewed"
+    accounting_snapshot: dict | None = None
+    accounting_readiness_status: Literal["unreviewed", "ready", "review_required", "blocked"] = (
+        "unreviewed"
+    )
+    finance_period_id: str | None = None
+    document_reference_status: Literal[
+        "not_required", "missing", "recorded", "review_required"
+    ] = "not_required"
+    payment_reconciliation_status: Literal[
+        "not_applicable", "pending", "matched", "mismatch", "unmatched", "review_required"
+    ] = "not_applicable"
+    payout_reconciliation_status: Literal[
+        "not_applicable", "pending", "matched", "mismatch", "unmatched", "review_required"
+    ] = "not_applicable"
+    cod_settlement_status: Literal["not_applicable", "pending", "settled", "mismatch"] = (
+        "not_applicable"
+    )
+    blocking_exception_count: int = 0
+    finance_hub_links: dict[str, str | None] | None = None
     analytics_consent: bool = False
     items: list[OrderItemResponse]
     created_at: str
@@ -168,6 +231,7 @@ class CreateOrderRequest(BaseModel):
     shipping_price_source: Literal["live", "table", "flat"] = "live"
     shipping_is_fallback: bool = False
     shipping_quoted_at: str | None = Field(default=None, max_length=32)
+    invoice_profile: InvoiceProfile | None = None
 
     @field_validator("customer_name", mode="before")
     @classmethod

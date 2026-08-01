@@ -48,6 +48,15 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    labelKey: "accountingNav",
+    href: "/admin/accounting",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 7.5h6m-6 3h6m-6 3h3M6.75 3.75h10.5A2.25 2.25 0 0119.5 6v12A2.25 2.25 0 0117.25 20.25H6.75A2.25 2.25 0 014.5 18V6A2.25 2.25 0 016.75 3.75z" />
+      </svg>
+    ),
+  },
+  {
     labelKey: "analytics.navLabel",
     href: "/admin/analytics",
     icon: (

@@ -368,6 +368,54 @@ export interface OrderItemResponse {
   quantity: number;
 }
 
+export interface InvoiceProfile {
+  customer_type: "individual" | "business";
+  legal_name: string;
+  vat_identification_number?: string | null;
+  business_registration_number?: string | null;
+  billing_address: string;
+  billing_country: string;
+  invoice_email: string;
+  purchase_reference_note?: string | null;
+}
+
+export type AccountingClassificationState =
+  | "unreviewed"
+  | "domestic_default"
+  | "business_vat_id_provided"
+  | "cross_border_candidate"
+  | "manual_review_required";
+
+export type AccountingReadinessStatus =
+  | "unreviewed"
+  | "ready"
+  | "review_required"
+  | "blocked";
+
+export type AccountingDocumentReferenceStatus =
+  | "not_required"
+  | "missing"
+  | "recorded"
+  | "review_required";
+
+export type AccountingReconciliationStatus =
+  | "not_applicable"
+  | "pending"
+  | "matched"
+  | "mismatch"
+  | "unmatched"
+  | "review_required";
+
+export type CodSettlementStatus = "not_applicable" | "pending" | "settled" | "mismatch";
+
+export interface AccountingFinanceHubLinks {
+  period_id?: string | null;
+  period_href?: string | null;
+  exceptions_href?: string | null;
+  ledger_href?: string | null;
+  documents_href?: string | null;
+}
+
 export interface OrderResponse {
   id: string;
   internal_sequence?: number | null;
@@ -381,6 +429,20 @@ export interface OrderResponse {
   payment_return_token?: string | null;
   stripe_checkout_session_id?: string | null;
   stripe_checkout_url: string | null;
+  invoice_profile?: InvoiceProfile | null;
+  accounting_currency?: string;
+  seller_legal_profile_version_id?: number | null;
+  vat_fiscal_settings_version_id?: number | null;
+  accounting_classification_state?: AccountingClassificationState;
+  accounting_snapshot?: Record<string, unknown> | null;
+  accounting_readiness_status?: AccountingReadinessStatus;
+  finance_period_id?: string | null;
+  document_reference_status?: AccountingDocumentReferenceStatus;
+  payment_reconciliation_status?: AccountingReconciliationStatus;
+  payout_reconciliation_status?: AccountingReconciliationStatus;
+  cod_settlement_status?: CodSettlementStatus;
+  blocking_exception_count?: number;
+  finance_hub_links?: AccountingFinanceHubLinks | null;
   analytics_consent?: boolean;
   items_total_cents: number;
   shipping_cents: number;
@@ -416,6 +478,478 @@ export interface OrderListResponse {
   total: number;
   page: number;
   limit: number;
+}
+
+// --- Accounting & Finance Hub ---
+
+export type VatMode = "unknown" | "not_registered" | "registered" | "oss_registered";
+export type OssMode = "not_applicable" | "not_registered" | "registered" | "review_required";
+export type FiscalDocumentMode =
+  | "external_reference"
+  | "app_invoice_reference"
+  | "fiscal_device_reference"
+  | "alternative_sales_document"
+  | "not_configured";
+export type CloseBehavior = "warn" | "block";
+export type CostingBasis = "manual_snapshot" | "recipe_bom" | "imported_estimate";
+export type MissingCostPolicy = "none" | "warning" | "blocking";
+export type FinancePeriodStatus = "open" | "review" | "closed" | "exported" | "accepted" | "reopened";
+export type FinanceExceptionStatus = "open" | "resolved" | "waived";
+export type FinanceExceptionSeverity = "blocking" | "warning";
+export type AccountingLedgerName =
+  | "sales"
+  | "payments"
+  | "stripe_payouts"
+  | "cod_settlements"
+  | "refunds"
+  | "courier_claims"
+  | "return_reasons"
+  | "inventory_adjustments"
+  | "documents"
+  | "expenses"
+  | "product_costs";
+export type AccountingDocumentType =
+  | "invoice"
+  | "credit_note"
+  | "fiscal_receipt"
+  | "alternative_sales_document"
+  | "external_document";
+export type AccountingDocumentStatus =
+  | "draft"
+  | "recorded"
+  | "void"
+  | "corrected"
+  | "missing"
+  | "review_required";
+export type ExpensePaymentStatus = "unpaid" | "paid" | "partially_paid" | "reimbursed" | "cancelled";
+export type ExpenseReviewStatus = "unreviewed" | "reviewed" | "missing_document" | "waived" | "rejected";
+export type ProductCostReviewStatus = "estimate" | "reviewed" | "accountant_reviewed" | "archived";
+export type ProductCostComponentType = "material" | "packaging" | "labor" | "overhead" | "waste" | "other";
+export type AdminOrderAccountingFilter =
+  | "missing_document_reference"
+  | "unresolved_exception"
+  | "payout_mismatch"
+  | "cod_settlement_pending"
+  | "refund_document_missing"
+  | "vat_review_required";
+
+export interface SellerLegalProfileRequest {
+  effective_date: string;
+  reviewed?: boolean;
+  company_display_name?: string | null;
+  legal_name?: string | null;
+  uic_eik?: string | null;
+  vat_identification_number?: string | null;
+  registered_address?: Record<string, unknown> | null;
+  contact_email?: string | null;
+  bank_details?: Record<string, unknown> | null;
+  default_currency?: string;
+}
+
+export interface SellerLegalProfileResponse extends SellerLegalProfileRequest {
+  id: number;
+  reviewed: boolean;
+  default_currency: string;
+  bank_details_configured: boolean;
+  created_by_admin_id?: string | null;
+  created_at: string;
+}
+
+export interface VatFiscalSettingsRequest {
+  effective_date: string;
+  reviewed?: boolean;
+  vat_mode?: VatMode;
+  oss_mode?: OssMode;
+  default_domestic_vat_treatment?: string | null;
+  fiscal_document_mode?: FiscalDocumentMode;
+  document_rules?: Record<string, unknown> | null;
+  threshold_warnings?: Record<string, unknown> | null;
+  tolerance_cents?: number;
+  warning_text?: string | null;
+}
+
+export interface VatFiscalSettingsResponse extends VatFiscalSettingsRequest {
+  id: number;
+  reviewed: boolean;
+  vat_mode: VatMode;
+  oss_mode: OssMode;
+  fiscal_document_mode: FiscalDocumentMode;
+  tolerance_cents: number;
+  created_by_admin_id?: string | null;
+  created_at: string;
+}
+
+export interface CategoryMappingRequest {
+  category_code?: string | null;
+  category_label: string;
+  is_required?: boolean;
+  reviewed?: boolean;
+}
+
+export interface CategoryMappingResponse extends CategoryMappingRequest {
+  id: number;
+  mapping_key: string;
+  is_required: boolean;
+  reviewed: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExportSchemaSettingsRequest {
+  workbook_language?: "en" | "bg";
+  date_format?: string;
+  decimal_separator?: "." | ",";
+  default_period_range?: string;
+  included_tabs?: string[];
+  custom_columns?: Record<string, unknown> | null;
+  reviewed?: boolean;
+}
+
+export interface ExportSchemaSettingsResponse extends ExportSchemaSettingsRequest {
+  id: string;
+  workbook_language: "en" | "bg";
+  date_format: string;
+  decimal_separator: "." | ",";
+  default_period_range: string;
+  included_tabs: string[];
+  reviewed: boolean;
+  updated_at: string;
+}
+
+export interface ExpenseEvidenceSettingsRequest {
+  required_document_categories?: string[];
+  allowed_payment_statuses?: string[];
+  default_category_mappings?: Record<string, string>;
+  close_behavior?: CloseBehavior;
+  reviewed?: boolean;
+}
+
+export interface ExpenseEvidenceSettingsResponse extends ExpenseEvidenceSettingsRequest {
+  id: string;
+  required_document_categories: string[];
+  allowed_payment_statuses: string[];
+  default_category_mappings: Record<string, string>;
+  close_behavior: CloseBehavior;
+  reviewed: boolean;
+  updated_at: string;
+}
+
+export interface ProductCostSettingsRequest {
+  enabled?: boolean;
+  costing_basis?: CostingBasis;
+  include_labor?: boolean;
+  include_overhead?: boolean;
+  missing_cost_policy?: MissingCostPolicy;
+  reviewed?: boolean;
+  estimate_label?: string;
+}
+
+export interface ProductCostSettingsResponse extends ProductCostSettingsRequest {
+  id: string;
+  enabled: boolean;
+  costing_basis: CostingBasis;
+  include_labor: boolean;
+  include_overhead: boolean;
+  missing_cost_policy: MissingCostPolicy;
+  reviewed: boolean;
+  estimate_label: string;
+  updated_at: string;
+}
+
+export interface AccountingSetupException {
+  code: string;
+  severity: FinanceExceptionSeverity;
+  message: string;
+}
+
+export interface AccountingConfigurationResponse {
+  seller_profile: SellerLegalProfileResponse | null;
+  vat_fiscal_settings: VatFiscalSettingsResponse | null;
+  category_mappings: CategoryMappingResponse[];
+  export_schema: ExportSchemaSettingsResponse;
+  expense_settings: ExpenseEvidenceSettingsResponse;
+  product_cost_settings: ProductCostSettingsResponse;
+  setup_exceptions: AccountingSetupException[];
+}
+
+export interface FinancePeriodCreateRequest {
+  period_start: string;
+  period_end: string;
+  currency?: string;
+}
+
+export interface FinancePeriodActionRequest {
+  reason?: string | null;
+  accountant_name?: string | null;
+  accountant_reference?: string | null;
+}
+
+export interface FinancePeriodResponse {
+  id: string;
+  period_start: string;
+  period_end: string;
+  currency: string;
+  status: FinancePeriodStatus;
+  summary_totals: Record<string, unknown> | null;
+  open_exception_count: number;
+  blocking_exception_count: number;
+  created_by_admin_id?: string | null;
+  updated_by_admin_id?: string | null;
+  closed_by_admin_id?: string | null;
+  closed_at?: string | null;
+  accepted_at?: string | null;
+  reopened_from_export_id?: string | null;
+  reopen_reason?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FinancePeriodListResponse {
+  items: FinancePeriodResponse[];
+  total: number;
+}
+
+export interface FinanceExceptionResponse {
+  id: string;
+  period_id?: string | null;
+  exception_type: string;
+  severity: FinanceExceptionSeverity;
+  target_type?: string | null;
+  target_id?: string | null;
+  status: FinanceExceptionStatus;
+  message: string;
+  details?: Record<string, unknown> | null;
+  waived_by_admin_id?: string | null;
+  waiver_reason?: string | null;
+  waived_at?: string | null;
+  resolved_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FinanceExceptionActionRequest {
+  reason: string;
+}
+
+export interface FinanceExceptionListResponse {
+  items: FinanceExceptionResponse[];
+  total: number;
+}
+
+export interface AccountingLedgerResponse {
+  period_id: string;
+  ledger: AccountingLedgerName;
+  date_basis: string;
+  rows: Record<string, unknown>[];
+  totals: Record<string, number>;
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface StripePayoutImportStatusResponse {
+  total_rows: number;
+  matched: number;
+  unmatched: number;
+  mismatched: number;
+  duplicate: number;
+  ignored: number;
+  latest_imported_at?: string | null;
+}
+
+export interface StripeBalanceImportResponse {
+  imported: number;
+  updated: number;
+  duplicate_provider_ids: number;
+  matched: number;
+  unmatched: number;
+  mismatched: number;
+  ignored: number;
+  errors: string[];
+}
+
+export interface AccountingDocumentRequest {
+  document_type: AccountingDocumentType;
+  source_system?: string;
+  document_number?: string | null;
+  issue_date: string;
+  order_id?: string | null;
+  refund_id?: string | null;
+  period_id?: string | null;
+  currency?: string;
+  net_amount_cents?: number | null;
+  tax_amount_cents?: number | null;
+  gross_amount_cents?: number | null;
+  vat_summary?: Record<string, unknown> | null;
+  original_document_id?: string | null;
+  file_reference?: string | null;
+  status?: AccountingDocumentStatus;
+  notes?: string | null;
+}
+
+export interface AccountingDocumentResponse extends AccountingDocumentRequest {
+  id: string;
+  source_system: string;
+  currency: string;
+  status: AccountingDocumentStatus;
+  created_by_admin_id?: string | null;
+  updated_by_admin_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AccountingDocumentListResponse {
+  items: AccountingDocumentResponse[];
+  total: number;
+}
+
+export interface ExpenseEvidenceRequest {
+  supplier_name: string;
+  supplier_identifier?: string | null;
+  document_number?: string | null;
+  document_date?: string | null;
+  purchase_date: string;
+  payment_date?: string | null;
+  payment_status?: ExpensePaymentStatus;
+  category_key?: string | null;
+  net_amount_cents?: number | null;
+  tax_amount_cents?: number;
+  gross_amount_cents: number;
+  currency?: string;
+  attachment_reference?: string | null;
+  linked_product_id?: string | null;
+  linked_material_name?: string | null;
+  linked_courier?: "speedy" | "econt" | null;
+  linked_order_id?: string | null;
+  review_status?: ExpenseReviewStatus;
+  notes?: string | null;
+}
+
+export interface ExpenseEvidenceResponse extends ExpenseEvidenceRequest {
+  id: string;
+  payment_status: ExpensePaymentStatus;
+  tax_amount_cents: number;
+  currency: string;
+  review_status: ExpenseReviewStatus;
+  created_by_admin_id?: string | null;
+  updated_by_admin_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExpenseEvidenceListResponse {
+  items: ExpenseEvidenceResponse[];
+  total: number;
+}
+
+export interface ExpensePaymentStatusRequest {
+  payment_status: ExpensePaymentStatus;
+  payment_date?: string | null;
+  reason: string;
+}
+
+export interface ProductCostComponentRequest {
+  component_type: ProductCostComponentType;
+  description: string;
+  quantity?: number | null;
+  unit?: string | null;
+  unit_cost_cents?: number | null;
+  total_cost_cents: number;
+  source_expense_id?: string | null;
+}
+
+export interface ProductCostComponentResponse extends ProductCostComponentRequest {
+  id: string;
+  cost_version_id: string;
+  created_at: string;
+}
+
+export interface ProductCostVersionRequest {
+  product_id?: string | null;
+  sku?: string | null;
+  product_name: string;
+  effective_date: string;
+  costing_basis?: CostingBasis;
+  material_cost_cents?: number;
+  packaging_cost_cents?: number;
+  labor_cost_cents?: number;
+  overhead_cost_cents?: number;
+  estimated_unit_cost_cents?: number | null;
+  currency?: string;
+  reviewed?: boolean;
+  accountant_reviewed?: boolean;
+  review_status?: ProductCostReviewStatus;
+  source_expense_ids?: string[];
+  notes?: string | null;
+  components?: ProductCostComponentRequest[];
+}
+
+export interface ProductCostVersionResponse extends ProductCostVersionRequest {
+  id: string;
+  estimated_unit_cost_cents: number;
+  costing_basis: CostingBasis;
+  material_cost_cents: number;
+  packaging_cost_cents: number;
+  labor_cost_cents: number;
+  overhead_cost_cents: number;
+  currency: string;
+  reviewed: boolean;
+  accountant_reviewed: boolean;
+  review_status: ProductCostReviewStatus;
+  source_expense_ids: string[];
+  components: ProductCostComponentResponse[];
+  created_by_admin_id?: string | null;
+  updated_by_admin_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductCostVersionListResponse {
+  items: ProductCostVersionResponse[];
+  total: number;
+}
+
+export interface MissingProductCostDiagnostic {
+  order_id: string;
+  order_number?: string | null;
+  order_date: string;
+  product_id: string;
+  product_name: string;
+}
+
+export interface MissingProductCostDiagnosticsResponse {
+  items: MissingProductCostDiagnostic[];
+  total: number;
+}
+
+export interface FinanceExportPackageResponse {
+  id: string;
+  period_id: string;
+  version: number;
+  schema_version: string;
+  xlsx_path?: string | null;
+  csv_dir_path?: string | null;
+  manifest_path?: string | null;
+  manifest?: Record<string, unknown> | null;
+  generated_by_admin_id?: string | null;
+  generated_at: string;
+  accepted_by_admin_id?: string | null;
+  accepted_at?: string | null;
+  accountant_name?: string | null;
+  accountant_reference?: string | null;
+  acceptance_note?: string | null;
+  current_final: boolean;
+}
+
+export interface FinanceExportPackageListResponse {
+  items: FinanceExportPackageResponse[];
+  total: number;
+}
+
+export interface AccountantAcceptanceRequest {
+  accountant_name?: string | null;
+  accountant_reference?: string | null;
+  note?: string | null;
 }
 
 // --- Econt admin settings ---
@@ -1044,6 +1578,7 @@ export interface CreateOrderRequest {
   shipping_price_source?: ShippingPriceSource;
   shipping_is_fallback?: boolean;
   shipping_quoted_at?: string | null;
+  invoice_profile?: InvoiceProfile | null;
 }
 
 // --- Analytics ---

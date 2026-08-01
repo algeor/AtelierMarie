@@ -109,6 +109,48 @@ import type {
   UserResponse,
   VideoUploadResponse,
 } from "./types";
+import type {
+  AccountantAcceptanceRequest,
+  AccountingConfigurationResponse,
+  AccountingDocumentListResponse,
+  AccountingDocumentRequest,
+  AccountingDocumentResponse,
+  AccountingLedgerName,
+  AccountingLedgerResponse,
+  AdminOrderAccountingFilter,
+  CategoryMappingRequest,
+  CategoryMappingResponse,
+  ExportSchemaSettingsRequest,
+  ExportSchemaSettingsResponse,
+  ExpenseEvidenceListResponse,
+  ExpenseEvidenceRequest,
+  ExpenseEvidenceResponse,
+  ExpenseEvidenceSettingsRequest,
+  ExpenseEvidenceSettingsResponse,
+  ExpensePaymentStatusRequest,
+  FinanceExceptionActionRequest,
+  FinanceExceptionListResponse,
+  FinanceExceptionResponse,
+  FinanceExceptionStatus,
+  FinanceExportPackageListResponse,
+  FinanceExportPackageResponse,
+  FinancePeriodActionRequest,
+  FinancePeriodCreateRequest,
+  FinancePeriodListResponse,
+  FinancePeriodResponse,
+  MissingProductCostDiagnosticsResponse,
+  ProductCostSettingsRequest,
+  ProductCostSettingsResponse,
+  ProductCostVersionListResponse,
+  ProductCostVersionRequest,
+  ProductCostVersionResponse,
+  SellerLegalProfileRequest,
+  SellerLegalProfileResponse,
+  StripeBalanceImportResponse,
+  StripePayoutImportStatusResponse,
+  VatFiscalSettingsRequest,
+  VatFiscalSettingsResponse,
+} from "./types";
 import { ApiError } from "./api-client";
 import { buildTrackingUrl } from "./tracking";
 
@@ -116,6 +158,10 @@ import { buildTrackingUrl } from "./tracking";
 
 function mockError(code: string, message: string): never {
   throw new ApiError({ error: { code, message, details: null } });
+}
+
+function cloneMock<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 /** Simulate network latency (50–150ms). */
@@ -132,6 +178,422 @@ function generateOrderId(): string {
 }
 
 // --- Mock Data ---
+
+const MOCK_NOW = "2026-08-01T10:00:00Z";
+
+let mockAccountingConfig: AccountingConfigurationResponse = {
+  seller_profile: {
+    id: 1,
+    effective_date: "2026-08-01",
+    reviewed: true,
+    company_display_name: "Atelier Marie",
+    legal_name: "Atelier Marie EOOD",
+    uic_eik: "000000000",
+    vat_identification_number: null,
+    registered_address: { country: "BG", city: "Sofia" },
+    contact_email: "accounting@theateliermarie.com",
+    bank_details: { iban: "REDACTED" },
+    default_currency: "EUR",
+    bank_details_configured: true,
+    created_by_admin_id: "mock-admin",
+    created_at: MOCK_NOW,
+  },
+  vat_fiscal_settings: {
+    id: 1,
+    effective_date: "2026-08-01",
+    reviewed: true,
+    vat_mode: "not_registered",
+    oss_mode: "not_applicable",
+    default_domestic_vat_treatment: "BG domestic review",
+    fiscal_document_mode: "external_reference",
+    document_rules: { cod: "fiscal_receipt_required", card: "invoice_reference_optional" },
+    threshold_warnings: { review_before_registration_threshold: true },
+    tolerance_cents: 1,
+    warning_text: "Configuration must be reviewed by the accountant.",
+    created_by_admin_id: "mock-admin",
+    created_at: MOCK_NOW,
+  },
+  category_mappings: [
+    {
+      id: 1,
+      mapping_key: "sales_revenue",
+      category_code: "701",
+      category_label: "Sales revenue",
+      is_required: true,
+      reviewed: true,
+      created_at: MOCK_NOW,
+      updated_at: MOCK_NOW,
+    },
+    {
+      id: 2,
+      mapping_key: "materials",
+      category_code: "601",
+      category_label: "Materials and wax",
+      is_required: true,
+      reviewed: false,
+      created_at: MOCK_NOW,
+      updated_at: MOCK_NOW,
+    },
+  ],
+  export_schema: {
+    id: "default",
+    workbook_language: "en",
+    date_format: "yyyy-mm-dd",
+    decimal_separator: ".",
+    default_period_range: "monthly",
+    included_tabs: ["summary", "sales", "payments", "expenses", "product_costs", "exceptions"],
+    custom_columns: null,
+    reviewed: true,
+    updated_at: MOCK_NOW,
+  },
+  expense_settings: {
+    id: "default",
+    required_document_categories: ["materials", "packaging"],
+    allowed_payment_statuses: ["unpaid", "paid", "partially_paid", "reimbursed"],
+    default_category_mappings: { materials: "601", packaging: "602" },
+    close_behavior: "block",
+    reviewed: true,
+    updated_at: MOCK_NOW,
+  },
+  product_cost_settings: {
+    id: "default",
+    enabled: true,
+    costing_basis: "recipe_bom",
+    include_labor: true,
+    include_overhead: false,
+    missing_cost_policy: "warning",
+    reviewed: false,
+    estimate_label: "management_estimate",
+    updated_at: MOCK_NOW,
+  },
+  setup_exceptions: [],
+};
+
+const mockFinancePeriods: FinancePeriodResponse[] = [
+  {
+    id: "period-2026-08",
+    period_start: "2026-08-01",
+    period_end: "2026-08-31",
+    currency: "EUR",
+    status: "review",
+    summary_totals: {
+      gross_sales_cents: 17800,
+      discounts_cents: 1200,
+      returns_cents: 2800,
+      net_sales_cents: 13800,
+      shipping_charged_cents: 0,
+      tax_amount_cents: 0,
+      total_customer_payments_cents: 14600,
+      stripe_fees_cents: 420,
+      courier_cod_fees_cents: 310,
+      net_provider_payouts_cents: 9300,
+      cod_receivable_cents: 5600,
+      refunds_pending_cents: 1200,
+      recorded_expenses_cents: 4600,
+      material_packaging_expenses_cents: 3800,
+      estimated_product_cost_cents: 6200,
+      estimated_gross_margin_cents: 7600,
+      review_required_item_count: 3,
+    },
+    open_exception_count: 3,
+    blocking_exception_count: 2,
+    created_by_admin_id: "mock-admin",
+    updated_by_admin_id: "mock-admin",
+    closed_by_admin_id: null,
+    closed_at: null,
+    accepted_at: null,
+    reopened_from_export_id: null,
+    reopen_reason: null,
+    created_at: MOCK_NOW,
+    updated_at: MOCK_NOW,
+  },
+];
+
+const mockFinanceExceptions: FinanceExceptionResponse[] = [
+  {
+    id: "exception-missing-doc",
+    period_id: "period-2026-08",
+    exception_type: "missing_document_reference",
+    severity: "blocking",
+    target_type: "order",
+    target_id: "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+    status: "open",
+    message: "COD order needs fiscal receipt or external document reference.",
+    details: { order_number: "AM-COD01", payment_method: "cod" },
+    created_at: MOCK_NOW,
+    updated_at: MOCK_NOW,
+  },
+  {
+    id: "exception-stripe-payout",
+    period_id: "period-2026-08",
+    exception_type: "stripe_payout_mismatch",
+    severity: "warning",
+    target_type: "payout",
+    target_id: "po_mock_001",
+    status: "open",
+    message: "Stripe payout differs from matched payments by EUR 4.20.",
+    details: { tolerance_cents: 1, difference_cents: 420 },
+    created_at: MOCK_NOW,
+    updated_at: MOCK_NOW,
+  },
+  {
+    id: "exception-expense-receipt",
+    period_id: "period-2026-08",
+    exception_type: "expense_document_missing",
+    severity: "blocking",
+    target_type: "expense",
+    target_id: "expense-wax-001",
+    status: "open",
+    message: "Material expense is missing supplier invoice or receipt evidence.",
+    details: { category_key: "materials" },
+    created_at: MOCK_NOW,
+    updated_at: MOCK_NOW,
+  },
+];
+
+const mockAccountingDocuments: AccountingDocumentResponse[] = [
+  {
+    id: "doc-invoice-001",
+    document_type: "invoice",
+    source_system: "external_accountant",
+    document_number: "INV-2026-0001",
+    issue_date: "2026-08-01",
+    order_id: "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f",
+    refund_id: null,
+    period_id: "period-2026-08",
+    currency: "EUR",
+    net_amount_cents: 3200,
+    tax_amount_cents: 0,
+    gross_amount_cents: 3200,
+    vat_summary: null,
+    original_document_id: null,
+    file_reference: "accountant-drive/INV-2026-0001.pdf",
+    status: "recorded",
+    notes: "External accountant invoice reference.",
+    created_by_admin_id: "mock-admin",
+    updated_by_admin_id: "mock-admin",
+    created_at: MOCK_NOW,
+    updated_at: MOCK_NOW,
+  },
+];
+
+const mockExpenseEvidence: ExpenseEvidenceResponse[] = [
+  {
+    id: "expense-wax-001",
+    supplier_name: "Wax Supplier Ltd",
+    supplier_identifier: "BG123456789",
+    document_number: null,
+    document_date: null,
+    purchase_date: "2026-08-01",
+    payment_date: null,
+    payment_status: "unpaid",
+    category_key: "materials",
+    net_amount_cents: 3200,
+    tax_amount_cents: 640,
+    gross_amount_cents: 3840,
+    currency: "EUR",
+    attachment_reference: null,
+    linked_product_id: "lavender-dreams-300ml",
+    linked_material_name: "Soy wax and fragrance oil",
+    linked_courier: null,
+    linked_order_id: null,
+    review_status: "missing_document",
+    notes: "Awaiting supplier invoice upload.",
+    created_by_admin_id: "mock-admin",
+    updated_by_admin_id: "mock-admin",
+    created_at: MOCK_NOW,
+    updated_at: MOCK_NOW,
+  },
+  {
+    id: "expense-packaging-001",
+    supplier_name: "Packaging Studio",
+    supplier_identifier: null,
+    document_number: "PKG-778",
+    document_date: "2026-08-01",
+    purchase_date: "2026-08-01",
+    payment_date: "2026-08-01",
+    payment_status: "paid",
+    category_key: "packaging",
+    net_amount_cents: 760,
+    tax_amount_cents: 0,
+    gross_amount_cents: 760,
+    currency: "EUR",
+    attachment_reference: "receipts/pkg-778.pdf",
+    linked_product_id: null,
+    linked_material_name: "Gift boxes",
+    linked_courier: null,
+    linked_order_id: null,
+    review_status: "reviewed",
+    notes: null,
+    created_by_admin_id: "mock-admin",
+    updated_by_admin_id: "mock-admin",
+    created_at: MOCK_NOW,
+    updated_at: MOCK_NOW,
+  },
+];
+
+const mockProductCosts: ProductCostVersionResponse[] = [
+  {
+    id: "cost-lavender-001",
+    product_id: "lavender-dreams-300ml",
+    sku: "LAV-300",
+    product_name: "Lavender Dreams",
+    effective_date: "2026-08-01",
+    costing_basis: "recipe_bom",
+    material_cost_cents: 620,
+    packaging_cost_cents: 180,
+    labor_cost_cents: 240,
+    overhead_cost_cents: 0,
+    estimated_unit_cost_cents: 1040,
+    currency: "EUR",
+    reviewed: true,
+    accountant_reviewed: false,
+    review_status: "reviewed",
+    source_expense_ids: ["expense-wax-001", "expense-packaging-001"],
+    notes: "Management estimate; accountant review pending.",
+    components: [
+      {
+        id: "component-wax-001",
+        cost_version_id: "cost-lavender-001",
+        component_type: "material",
+        description: "Wax and fragrance",
+        quantity: 0.28,
+        unit: "kg",
+        unit_cost_cents: 1800,
+        total_cost_cents: 620,
+        source_expense_id: "expense-wax-001",
+        created_at: MOCK_NOW,
+      },
+      {
+        id: "component-packaging-001",
+        cost_version_id: "cost-lavender-001",
+        component_type: "packaging",
+        description: "Gift box and label",
+        quantity: 1,
+        unit: "set",
+        unit_cost_cents: 180,
+        total_cost_cents: 180,
+        source_expense_id: "expense-packaging-001",
+        created_at: MOCK_NOW,
+      },
+    ],
+    created_by_admin_id: "mock-admin",
+    updated_by_admin_id: "mock-admin",
+    created_at: MOCK_NOW,
+    updated_at: MOCK_NOW,
+  },
+];
+
+const mockAccountingExports: FinanceExportPackageResponse[] = [
+  {
+    id: "export-2026-08-v1",
+    period_id: "period-2026-08",
+    version: 1,
+    schema_version: "accounting-finance-hub.v1",
+    xlsx_path: "private-exports/accounting/period-2026-08/v1/accounting.xlsx",
+    csv_dir_path: "private-exports/accounting/period-2026-08/v1/csv",
+    manifest_path: "private-exports/accounting/period-2026-08/v1/manifest.json",
+    manifest: {
+      row_counts: { sales: 4, payments: 3, expenses: 2, product_costs: 1, exceptions: 3 },
+      totals: { net_sales_cents: 13800, recorded_expenses_cents: 4600 },
+      files: ["accounting.xlsx", "sales.csv", "payments.csv", "expenses.csv", "manifest.json"],
+    },
+    generated_by_admin_id: "mock-admin",
+    generated_at: MOCK_NOW,
+    accepted_by_admin_id: null,
+    accepted_at: null,
+    accountant_name: null,
+    accountant_reference: null,
+    acceptance_note: null,
+    current_final: true,
+  },
+];
+
+const mockLedgerRows: Record<AccountingLedgerName, Record<string, unknown>[]> = {
+  sales: [
+    { order_number: "AM-1001", order_date: "2026-08-01", product_name: "Lavender Dreams", quantity: 1, gross_amount_cents: 3200, document_reference_status: "recorded" },
+    { order_number: "AM-COD01", order_date: "2026-08-01", product_name: "Citrus Garden", quantity: 2, gross_amount_cents: 5600, document_reference_status: "missing" },
+  ],
+  payments: [
+    { order_number: "AM-1001", event_date: "2026-08-01", provider: "stripe", gross_amount_cents: 3200, reconciliation_status: "matched" },
+    { order_number: "AM-COD01", event_date: "2026-08-01", provider: "cod", gross_amount_cents: 5600, reconciliation_status: "pending" },
+  ],
+  stripe_payouts: [
+    { balance_transaction_id: "txn_mock_001", payout_id: "po_mock_001", gross_amount_cents: 3200, fee_amount_cents: 120, net_amount_cents: 3080, match_status: "mismatch" },
+  ],
+  cod_settlements: [
+    { order_number: "AM-COD01", state: "unsettled", cod_amount_cents: 5600, courier_reference: null },
+  ],
+  refunds: [
+    { order_number: "AM-1002", refund_date: "2026-08-01", refund_amount_cents: -1200, document_reference_status: "review_required" },
+  ],
+  courier_claims: [
+    { claim_id: "claim-001", order_number: "AM-1002", claim_status: "filed", claim_amount_cents: 600 },
+  ],
+  return_reasons: [
+    { order_number: "AM-1002", reason: "customer_return", status: "received" },
+  ],
+  inventory_adjustments: [
+    { order_number: "AM-1002", product_id: "lavender-dreams-300ml", restock_decision: "partial", quantity: 1 },
+  ],
+  documents: mockAccountingDocuments as unknown as Record<string, unknown>[],
+  expenses: mockExpenseEvidence as unknown as Record<string, unknown>[],
+  product_costs: mockProductCosts as unknown as Record<string, unknown>[],
+};
+
+function withMockAccountingFlags(order: OrderResponse): OrderResponse {
+  if (order.id === "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e") {
+    return {
+      ...order,
+      order_number: order.order_number ?? "AM-COD01",
+      finance_period_id: "period-2026-08",
+      accounting_readiness_status: "blocked",
+      accounting_classification_state: "manual_review_required",
+      document_reference_status: "missing",
+      payment_reconciliation_status: "pending",
+      payout_reconciliation_status: "not_applicable",
+      cod_settlement_status: "pending",
+      blocking_exception_count: 1,
+      finance_hub_links: {
+        period_id: "period-2026-08",
+        period_href: "/admin/accounting?period=period-2026-08",
+        exceptions_href: "/admin/accounting?period=period-2026-08&tab=exceptions",
+        ledger_href: "/admin/accounting?period=period-2026-08&tab=ledgers&ledger=cod_settlements",
+        documents_href: "/admin/accounting?period=period-2026-08&tab=documents",
+      },
+    };
+  }
+  if (order.id === "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f") {
+    return {
+      ...order,
+      order_number: order.order_number ?? "AM-1001",
+      finance_period_id: "period-2026-08",
+      accounting_readiness_status: "review_required",
+      document_reference_status: "recorded",
+      payment_reconciliation_status: "matched",
+      payout_reconciliation_status: "mismatch",
+      cod_settlement_status: "not_applicable",
+      blocking_exception_count: 0,
+      finance_hub_links: {
+        period_id: "period-2026-08",
+        period_href: "/admin/accounting?period=period-2026-08",
+        exceptions_href: "/admin/accounting?period=period-2026-08&tab=exceptions",
+        ledger_href: "/admin/accounting?period=period-2026-08&tab=ledgers&ledger=stripe_payouts",
+        documents_href: "/admin/accounting?period=period-2026-08&tab=documents",
+      },
+    };
+  }
+  return {
+    ...order,
+    accounting_readiness_status: order.accounting_readiness_status ?? "unreviewed",
+    document_reference_status: order.document_reference_status ?? "not_required",
+    payment_reconciliation_status: order.payment_reconciliation_status ?? "not_applicable",
+    payout_reconciliation_status: order.payout_reconciliation_status ?? "not_applicable",
+    cod_settlement_status: order.cod_settlement_status ?? "not_applicable",
+    blocking_exception_count: order.blocking_exception_count ?? 0,
+    finance_hub_links: order.finance_hub_links ?? null,
+  };
+}
 
 // The mock store carries admin-only fields even though ProductResponse omits them.
 type MockProduct = ProductResponse & {
@@ -1179,16 +1641,50 @@ export async function createOrder(
   const shipping_cents = freeShipping ? 0 : data.shipping_cents ?? 0;
   const shipping_price_source = freeShipping ? "live" : data.shipping_price_source ?? "live";
   const shipping_is_fallback = freeShipping ? false : data.shipping_is_fallback ?? false;
+  const paymentMethod =
+    data.payment_method === "card"
+      ? "card"
+      : data.payment_method === "bank_transfer"
+        ? "bank_transfer"
+        : "cod";
+  const invoiceProfile = data.invoice_profile ?? null;
+  const accountingClassificationState = invoiceProfile?.vat_identification_number
+    ? "business_vat_id_provided"
+    : invoiceProfile?.billing_country && invoiceProfile.billing_country.toUpperCase() !== "BG"
+      ? "cross_border_candidate"
+      : "domestic_default";
 
   const order: OrderResponse = {
     id: generateOrderId(),
     status: "pending",
-    payment_method: (data as { payment_method?: string }).payment_method === "card" ? "card"
-      : (data as { payment_method?: string }).payment_method === "bank_transfer" ? "bank_transfer"
-      : "cod",
-    payment_status: (data as { payment_method?: string }).payment_method === "cod" || !(data as { payment_method?: string }).payment_method
-      ? "cod_pending" : "pending",
+    payment_method: paymentMethod,
+    payment_status: paymentMethod === "cod" ? "cod_pending" : "pending",
     stripe_checkout_url: null,
+    invoice_profile: invoiceProfile,
+    accounting_currency: "EUR",
+    seller_legal_profile_version_id: null,
+    vat_fiscal_settings_version_id: null,
+    accounting_classification_state: accountingClassificationState,
+    accounting_snapshot: {
+      currency: "EUR",
+      seller_legal_profile_version_id: null,
+      vat_fiscal_settings_version_id: null,
+      payment_method: paymentMethod,
+      delivery_country: "BG",
+      customer_country: invoiceProfile?.billing_country ?? null,
+      shipping_cents,
+      shipping_price_source,
+      discounts_captured_in_effective_prices: true,
+      invoice_profile: invoiceProfile,
+      items: cart.items.map((item) => ({
+        product_id: item.product_id,
+        product_name: item.product.name,
+        quantity: item.quantity,
+        unit_price_cents: item.product.effective_price_cents,
+      })),
+    },
+    accounting_readiness_status: "review_required",
+    finance_period_id: null,
     analytics_consent: data.analytics_consent ?? false,
     items_total_cents: cart.total_cents,
     shipping_cents,
@@ -1603,7 +2099,7 @@ export async function getSpeedyAdminOverview(
   orderId?: string | null
 ): Promise<SpeedyAdminOverviewResponse> {
   await delay();
-  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders];
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders].map(withMockAccountingFlags);
   const scoped = orderId ? allOrders.filter((order) => order.id === orderId) : allOrders;
   const ready = scoped.filter(
     (order) =>
@@ -1722,7 +2218,7 @@ export async function searchSpeedyShipments(
   await delay();
   const ref = data.reference.trim();
   if (!ref) mockError("SPEEDY_VALIDATION", "reference is required");
-  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders];
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders].map(withMockAccountingFlags);
   const matches = allOrders
     .filter((order) => order.id === ref || order.order_number === ref)
     .map((order) => order.tracking_number ?? order.courier_shipment_number)
@@ -1999,7 +2495,7 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
 export async function getAdminStats(): Promise<AdminStats> {
   await delay();
   const today = new Date().toISOString().split("T")[0]!;
-  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders];
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders].map(withMockAccountingFlags);
   const ordersToday = allOrders.filter(
     (o) => o.created_at.startsWith(today)
   ).length;
@@ -2324,14 +2820,23 @@ export async function getAdminOrders(
   limit = 20,
   status?: string,
   paymentStatus?: PaymentStatus | "",
-  paymentMethod?: PaymentMethod | ""
+  paymentMethod?: PaymentMethod | "",
+  accountingFilter?: AdminOrderAccountingFilter | "",
+  financePeriodId?: string
 ): Promise<OrderListResponse> {
   await delay();
-  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders];
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders].map(withMockAccountingFlags);
   const filtered = allOrders.filter((order) => {
     if (status && order.status !== status) return false;
     if (paymentStatus && order.payment_status !== paymentStatus) return false;
     if (paymentMethod && order.payment_method !== paymentMethod) return false;
+    if (financePeriodId && order.finance_period_id !== financePeriodId) return false;
+    if (accountingFilter === "missing_document_reference" && order.document_reference_status !== "missing") return false;
+    if (accountingFilter === "unresolved_exception" && !order.blocking_exception_count) return false;
+    if (accountingFilter === "payout_mismatch" && order.payout_reconciliation_status !== "mismatch") return false;
+    if (accountingFilter === "cod_settlement_pending" && order.cod_settlement_status !== "pending") return false;
+    if (accountingFilter === "refund_document_missing" && order.document_reference_status !== "review_required") return false;
+    if (accountingFilter === "vat_review_required" && order.accounting_classification_state !== "manual_review_required") return false;
     return true;
   });
   const start = (page - 1) * limit;
@@ -2346,7 +2851,7 @@ export async function getAdminOrders(
 
 export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailResponse> {
   await delay();
-  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders];
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders].map(withMockAccountingFlags);
   const order = allOrders.find((o) => o.id === orderId);
   if (!order) mockError("NOT_FOUND", `Order ${orderId} not found`);
   return {
@@ -2377,6 +2882,595 @@ export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailRe
       order.status === "delivered" &&
       !mockCodSettlements.some((settlement) => settlement.order_id === order.id),
     econt_cod_evidence: null,
+  };
+}
+
+export async function getAccountingConfig(): Promise<AccountingConfigurationResponse> {
+  await delay();
+  return cloneMock(mockAccountingConfig);
+}
+
+export async function createSellerLegalProfile(
+  data: SellerLegalProfileRequest
+): Promise<SellerLegalProfileResponse> {
+  await delay();
+  const profile: SellerLegalProfileResponse = {
+    ...data,
+    id: Date.now(),
+    reviewed: Boolean(data.reviewed),
+    default_currency: data.default_currency ?? "EUR",
+    bank_details_configured: Boolean(data.bank_details),
+    created_by_admin_id: "mock-admin",
+    created_at: new Date().toISOString(),
+  };
+  mockAccountingConfig = { ...mockAccountingConfig, seller_profile: profile };
+  return cloneMock(profile);
+}
+
+export async function createVatFiscalSettings(
+  data: VatFiscalSettingsRequest
+): Promise<VatFiscalSettingsResponse> {
+  await delay();
+  const settings: VatFiscalSettingsResponse = {
+    ...data,
+    id: Date.now(),
+    reviewed: Boolean(data.reviewed),
+    vat_mode: data.vat_mode ?? "unknown",
+    oss_mode: data.oss_mode ?? "not_applicable",
+    fiscal_document_mode: data.fiscal_document_mode ?? "external_reference",
+    tolerance_cents: data.tolerance_cents ?? 1,
+    created_by_admin_id: "mock-admin",
+    created_at: new Date().toISOString(),
+  };
+  mockAccountingConfig = { ...mockAccountingConfig, vat_fiscal_settings: settings };
+  return cloneMock(settings);
+}
+
+export async function upsertAccountingCategoryMapping(
+  mappingKey: string,
+  data: CategoryMappingRequest
+): Promise<CategoryMappingResponse> {
+  await delay();
+  const now = new Date().toISOString();
+  const existing = mockAccountingConfig.category_mappings.find((item) => item.mapping_key === mappingKey);
+  const mapping: CategoryMappingResponse = {
+    id: existing?.id ?? Date.now(),
+    mapping_key: mappingKey,
+    category_code: data.category_code ?? null,
+    category_label: data.category_label,
+    is_required: Boolean(data.is_required),
+    reviewed: Boolean(data.reviewed),
+    created_at: existing?.created_at ?? now,
+    updated_at: now,
+  };
+  mockAccountingConfig = {
+    ...mockAccountingConfig,
+    category_mappings: [
+      ...mockAccountingConfig.category_mappings.filter((item) => item.mapping_key !== mappingKey),
+      mapping,
+    ],
+  };
+  return cloneMock(mapping);
+}
+
+export async function updateAccountingExportSchema(
+  data: ExportSchemaSettingsRequest
+): Promise<ExportSchemaSettingsResponse> {
+  await delay();
+  const next: ExportSchemaSettingsResponse = {
+    ...mockAccountingConfig.export_schema,
+    ...data,
+    updated_at: new Date().toISOString(),
+  };
+  mockAccountingConfig = { ...mockAccountingConfig, export_schema: next };
+  return cloneMock(next);
+}
+
+export async function updateExpenseEvidenceSettings(
+  data: ExpenseEvidenceSettingsRequest
+): Promise<ExpenseEvidenceSettingsResponse> {
+  await delay();
+  const next: ExpenseEvidenceSettingsResponse = {
+    ...mockAccountingConfig.expense_settings,
+    ...data,
+    updated_at: new Date().toISOString(),
+  };
+  mockAccountingConfig = { ...mockAccountingConfig, expense_settings: next };
+  return cloneMock(next);
+}
+
+export async function updateProductCostSettings(
+  data: ProductCostSettingsRequest
+): Promise<ProductCostSettingsResponse> {
+  await delay();
+  const next: ProductCostSettingsResponse = {
+    ...mockAccountingConfig.product_cost_settings,
+    ...data,
+    updated_at: new Date().toISOString(),
+  };
+  mockAccountingConfig = { ...mockAccountingConfig, product_cost_settings: next };
+  return cloneMock(next);
+}
+
+export async function listFinancePeriods(status?: string): Promise<FinancePeriodListResponse> {
+  await delay();
+  const items = status ? mockFinancePeriods.filter((period) => period.status === status) : mockFinancePeriods;
+  return { items: cloneMock(items), total: items.length };
+}
+
+export async function createFinancePeriod(
+  data: FinancePeriodCreateRequest
+): Promise<FinancePeriodResponse> {
+  await delay();
+  const now = new Date().toISOString();
+  const period: FinancePeriodResponse = {
+    id: `period-${data.period_start}`,
+    period_start: data.period_start,
+    period_end: data.period_end,
+    currency: data.currency ?? "EUR",
+    status: "open",
+    summary_totals: null,
+    open_exception_count: 0,
+    blocking_exception_count: 0,
+    created_by_admin_id: "mock-admin",
+    updated_by_admin_id: "mock-admin",
+    closed_by_admin_id: null,
+    closed_at: null,
+    accepted_at: null,
+    reopened_from_export_id: null,
+    reopen_reason: null,
+    created_at: now,
+    updated_at: now,
+  };
+  mockFinancePeriods.unshift(period);
+  return cloneMock(period);
+}
+
+function findMockPeriod(periodId: string): FinancePeriodResponse {
+  const period = mockFinancePeriods.find((item) => item.id === periodId);
+  if (!period) mockError("FINANCE_PERIOD_NOT_FOUND", "Finance period not found");
+  return period;
+}
+
+export async function reviewFinancePeriod(periodId: string): Promise<FinancePeriodResponse> {
+  await delay();
+  const period = findMockPeriod(periodId);
+  period.status = "review";
+  period.updated_at = new Date().toISOString();
+  return cloneMock(period);
+}
+
+export async function closeFinancePeriod(periodId: string): Promise<FinancePeriodResponse> {
+  await delay();
+  const period = findMockPeriod(periodId);
+  if (period.blocking_exception_count > 0) {
+    mockError("FINANCE_PERIOD_CLOSE_BLOCKED", "Blocking accounting exceptions remain open");
+  }
+  period.status = "closed";
+  period.closed_at = new Date().toISOString();
+  period.updated_at = period.closed_at;
+  return cloneMock(period);
+}
+
+export async function reopenFinancePeriod(
+  periodId: string,
+  data: FinancePeriodActionRequest
+): Promise<FinancePeriodResponse> {
+  await delay();
+  if (!data.reason?.trim()) mockError("REASON_REQUIRED", "A reopen reason is required");
+  const period = findMockPeriod(periodId);
+  period.status = "reopened";
+  period.reopen_reason = data.reason;
+  period.updated_at = new Date().toISOString();
+  return cloneMock(period);
+}
+
+export async function acceptFinancePeriod(
+  periodId: string,
+  data: FinancePeriodActionRequest
+): Promise<FinancePeriodResponse> {
+  await delay();
+  const period = findMockPeriod(periodId);
+  period.status = "accepted";
+  period.accepted_at = new Date().toISOString();
+  period.updated_at = period.accepted_at;
+  void data;
+  return cloneMock(period);
+}
+
+export async function listFinanceExceptions(
+  periodId: string,
+  status?: FinanceExceptionStatus | ""
+): Promise<FinanceExceptionListResponse> {
+  await delay();
+  const items = mockFinanceExceptions.filter(
+    (item) => item.period_id === periodId && (!status || item.status === status)
+  );
+  return { items: cloneMock(items), total: items.length };
+}
+
+function applyExceptionAction(
+  exceptionId: string,
+  data: FinanceExceptionActionRequest,
+  status: "resolved" | "waived"
+): FinanceExceptionResponse {
+  if (!data.reason.trim()) mockError("REASON_REQUIRED", "A reason is required");
+  const item = mockFinanceExceptions.find((exception) => exception.id === exceptionId);
+  if (!item) mockError("FINANCE_EXCEPTION_NOT_FOUND", "Finance exception not found");
+  item.status = status;
+  item.updated_at = new Date().toISOString();
+  if (status === "resolved") item.resolved_at = item.updated_at;
+  if (status === "waived") {
+    item.waiver_reason = data.reason;
+    item.waived_at = item.updated_at;
+    item.waived_by_admin_id = "mock-admin";
+  }
+  const period = item.period_id ? mockFinancePeriods.find((periodItem) => periodItem.id === item.period_id) : null;
+  if (period) {
+    const open = mockFinanceExceptions.filter((exception) => exception.period_id === period.id && exception.status === "open");
+    period.open_exception_count = open.length;
+    period.blocking_exception_count = open.filter((exception) => exception.severity === "blocking").length;
+  }
+  return item;
+}
+
+export async function resolveFinanceException(
+  exceptionId: string,
+  data: FinanceExceptionActionRequest
+): Promise<FinanceExceptionResponse> {
+  await delay();
+  return cloneMock(applyExceptionAction(exceptionId, data, "resolved"));
+}
+
+export async function waiveFinanceException(
+  exceptionId: string,
+  data: FinanceExceptionActionRequest
+): Promise<FinanceExceptionResponse> {
+  await delay();
+  return cloneMock(applyExceptionAction(exceptionId, data, "waived"));
+}
+
+export async function getAccountingLedger(
+  periodId: string,
+  ledger: AccountingLedgerName,
+  options: { dateBasis?: string; page?: number; limit?: number } = {}
+): Promise<AccountingLedgerResponse> {
+  await delay();
+  findMockPeriod(periodId);
+  const rows = mockLedgerRows[ledger] ?? [];
+  const page = options.page ?? 1;
+  const limit = options.limit ?? 100;
+  const start = (page - 1) * limit;
+  const slice = rows.slice(start, start + limit);
+  return {
+    period_id: periodId,
+    ledger,
+    date_basis: options.dateBasis ?? "default",
+    rows: cloneMock(slice),
+    totals: { row_count: rows.length },
+    total: rows.length,
+    page,
+    limit,
+  };
+}
+
+export async function listAccountingDocuments(filters: {
+  orderId?: string;
+  refundId?: string;
+  periodId?: string;
+} = {}): Promise<AccountingDocumentListResponse> {
+  await delay();
+  const items = mockAccountingDocuments.filter((document) => {
+    if (filters.orderId && document.order_id !== filters.orderId) return false;
+    if (filters.refundId && document.refund_id !== filters.refundId) return false;
+    if (filters.periodId && document.period_id !== filters.periodId) return false;
+    return true;
+  });
+  return { items: cloneMock(items), total: items.length };
+}
+
+export async function listOrderAccountingDocuments(orderId: string): Promise<AccountingDocumentListResponse> {
+  return listAccountingDocuments({ orderId });
+}
+
+export async function createAccountingDocument(
+  data: AccountingDocumentRequest
+): Promise<AccountingDocumentResponse> {
+  await delay();
+  const now = new Date().toISOString();
+  const document: AccountingDocumentResponse = {
+    ...data,
+    id: `doc-${Date.now()}`,
+    source_system: data.source_system ?? "external",
+    currency: data.currency ?? "EUR",
+    status: data.status ?? "recorded",
+    created_by_admin_id: "mock-admin",
+    updated_by_admin_id: "mock-admin",
+    created_at: now,
+    updated_at: now,
+  };
+  mockAccountingDocuments.unshift(document);
+  mockLedgerRows.documents = mockAccountingDocuments as unknown as Record<string, unknown>[];
+  return cloneMock(document);
+}
+
+export async function updateAccountingDocument(
+  documentId: string,
+  data: AccountingDocumentRequest
+): Promise<AccountingDocumentResponse> {
+  await delay();
+  const index = mockAccountingDocuments.findIndex((document) => document.id === documentId);
+  if (index < 0) mockError("ACCOUNTING_DOCUMENT_NOT_FOUND", "Accounting document not found");
+  const next: AccountingDocumentResponse = {
+    ...mockAccountingDocuments[index]!,
+    ...data,
+    source_system: data.source_system ?? mockAccountingDocuments[index]!.source_system,
+    currency: data.currency ?? mockAccountingDocuments[index]!.currency,
+    status: data.status ?? mockAccountingDocuments[index]!.status,
+    updated_by_admin_id: "mock-admin",
+    updated_at: new Date().toISOString(),
+  };
+  mockAccountingDocuments[index] = next;
+  mockLedgerRows.documents = mockAccountingDocuments as unknown as Record<string, unknown>[];
+  return cloneMock(next);
+}
+
+export async function listExpenseEvidence(filters: {
+  categoryKey?: string;
+  reviewStatus?: string;
+} = {}): Promise<ExpenseEvidenceListResponse> {
+  await delay();
+  const items = mockExpenseEvidence.filter((expense) => {
+    if (filters.categoryKey && expense.category_key !== filters.categoryKey) return false;
+    if (filters.reviewStatus && expense.review_status !== filters.reviewStatus) return false;
+    return true;
+  });
+  return { items: cloneMock(items), total: items.length };
+}
+
+export async function createExpenseEvidence(
+  data: ExpenseEvidenceRequest
+): Promise<ExpenseEvidenceResponse> {
+  await delay();
+  const now = new Date().toISOString();
+  const expense: ExpenseEvidenceResponse = {
+    ...data,
+    id: `expense-${Date.now()}`,
+    payment_status: data.payment_status ?? "unpaid",
+    tax_amount_cents: data.tax_amount_cents ?? 0,
+    currency: data.currency ?? "EUR",
+    review_status: data.review_status ?? "unreviewed",
+    created_by_admin_id: "mock-admin",
+    updated_by_admin_id: "mock-admin",
+    created_at: now,
+    updated_at: now,
+  };
+  mockExpenseEvidence.unshift(expense);
+  mockLedgerRows.expenses = mockExpenseEvidence as unknown as Record<string, unknown>[];
+  return cloneMock(expense);
+}
+
+export async function updateExpenseEvidence(
+  expenseId: string,
+  data: ExpenseEvidenceRequest
+): Promise<ExpenseEvidenceResponse> {
+  await delay();
+  const index = mockExpenseEvidence.findIndex((expense) => expense.id === expenseId);
+  if (index < 0) mockError("EXPENSE_EVIDENCE_NOT_FOUND", "Expense evidence not found");
+  const next: ExpenseEvidenceResponse = {
+    ...mockExpenseEvidence[index]!,
+    ...data,
+    payment_status: data.payment_status ?? mockExpenseEvidence[index]!.payment_status,
+    tax_amount_cents: data.tax_amount_cents ?? mockExpenseEvidence[index]!.tax_amount_cents,
+    currency: data.currency ?? mockExpenseEvidence[index]!.currency,
+    review_status: data.review_status ?? mockExpenseEvidence[index]!.review_status,
+    updated_by_admin_id: "mock-admin",
+    updated_at: new Date().toISOString(),
+  };
+  mockExpenseEvidence[index] = next;
+  mockLedgerRows.expenses = mockExpenseEvidence as unknown as Record<string, unknown>[];
+  return cloneMock(next);
+}
+
+export async function updateExpensePaymentStatus(
+  expenseId: string,
+  data: ExpensePaymentStatusRequest
+): Promise<ExpenseEvidenceResponse> {
+  await delay();
+  if (!data.reason.trim()) mockError("REASON_REQUIRED", "A reason is required");
+  const expense = mockExpenseEvidence.find((item) => item.id === expenseId);
+  if (!expense) mockError("EXPENSE_EVIDENCE_NOT_FOUND", "Expense evidence not found");
+  expense.payment_status = data.payment_status;
+  expense.payment_date = data.payment_date ?? expense.payment_date;
+  expense.updated_at = new Date().toISOString();
+  return cloneMock(expense);
+}
+
+export async function listProductCosts(productId?: string): Promise<ProductCostVersionListResponse> {
+  await delay();
+  const items = productId ? mockProductCosts.filter((cost) => cost.product_id === productId) : mockProductCosts;
+  return { items: cloneMock(items), total: items.length };
+}
+
+export async function createProductCost(
+  data: ProductCostVersionRequest
+): Promise<ProductCostVersionResponse> {
+  await delay();
+  const now = new Date().toISOString();
+  const estimated = data.estimated_unit_cost_cents ??
+    (data.material_cost_cents ?? 0) + (data.packaging_cost_cents ?? 0) + (data.labor_cost_cents ?? 0) + (data.overhead_cost_cents ?? 0);
+  const cost: ProductCostVersionResponse = {
+    ...data,
+    id: `cost-${Date.now()}`,
+    costing_basis: data.costing_basis ?? "manual_snapshot",
+    material_cost_cents: data.material_cost_cents ?? 0,
+    packaging_cost_cents: data.packaging_cost_cents ?? 0,
+    labor_cost_cents: data.labor_cost_cents ?? 0,
+    overhead_cost_cents: data.overhead_cost_cents ?? 0,
+    estimated_unit_cost_cents: estimated,
+    currency: data.currency ?? "EUR",
+    reviewed: Boolean(data.reviewed),
+    accountant_reviewed: Boolean(data.accountant_reviewed),
+    review_status: data.review_status ?? "estimate",
+    source_expense_ids: data.source_expense_ids ?? [],
+    components: [],
+    created_by_admin_id: "mock-admin",
+    updated_by_admin_id: "mock-admin",
+    created_at: now,
+    updated_at: now,
+  };
+  mockProductCosts.unshift(cost);
+  mockLedgerRows.product_costs = mockProductCosts as unknown as Record<string, unknown>[];
+  return cloneMock(cost);
+}
+
+export async function updateProductCost(
+  costVersionId: string,
+  data: ProductCostVersionRequest
+): Promise<ProductCostVersionResponse> {
+  await delay();
+  const index = mockProductCosts.findIndex((cost) => cost.id === costVersionId);
+  if (index < 0) mockError("PRODUCT_COST_NOT_FOUND", "Product cost version not found");
+  const previous = mockProductCosts[index]!;
+  const next: ProductCostVersionResponse = {
+    ...previous,
+    ...data,
+    estimated_unit_cost_cents: data.estimated_unit_cost_cents ?? previous.estimated_unit_cost_cents,
+    costing_basis: data.costing_basis ?? previous.costing_basis,
+    material_cost_cents: data.material_cost_cents ?? previous.material_cost_cents,
+    packaging_cost_cents: data.packaging_cost_cents ?? previous.packaging_cost_cents,
+    labor_cost_cents: data.labor_cost_cents ?? previous.labor_cost_cents,
+    overhead_cost_cents: data.overhead_cost_cents ?? previous.overhead_cost_cents,
+    currency: data.currency ?? previous.currency,
+    reviewed: data.reviewed ?? previous.reviewed,
+    accountant_reviewed: data.accountant_reviewed ?? previous.accountant_reviewed,
+    review_status: data.review_status ?? previous.review_status,
+    source_expense_ids: data.source_expense_ids ?? previous.source_expense_ids,
+    components: previous.components,
+    updated_by_admin_id: "mock-admin",
+    updated_at: new Date().toISOString(),
+  };
+  mockProductCosts[index] = next;
+  mockLedgerRows.product_costs = mockProductCosts as unknown as Record<string, unknown>[];
+  return cloneMock(next);
+}
+
+export async function getMissingProductCosts(periodId: string): Promise<MissingProductCostDiagnosticsResponse> {
+  await delay();
+  findMockPeriod(periodId);
+  return {
+    items: [
+      {
+        order_id: "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+        order_number: "AM-COD01",
+        order_date: "2026-08-01",
+        product_id: "citrus-garden-200ml",
+        product_name: "Citrus Garden",
+      },
+    ],
+    total: 1,
+  };
+}
+
+export async function listAccountingExports(periodId?: string): Promise<FinanceExportPackageListResponse> {
+  await delay();
+  const items = periodId ? mockAccountingExports.filter((item) => item.period_id === periodId) : mockAccountingExports;
+  return { items: cloneMock(items), total: items.length };
+}
+
+export async function generateAccountingExport(periodId: string): Promise<FinanceExportPackageResponse> {
+  await delay();
+  const period = findMockPeriod(periodId);
+  if (period.status !== "closed" && period.status !== "exported" && period.status !== "accepted") {
+    mockError("FINANCE_PERIOD_NOT_CLOSED", "Period must be closed before final export");
+  }
+  const version = mockAccountingExports.filter((item) => item.period_id === periodId).length + 1;
+  const exportPackage: FinanceExportPackageResponse = {
+    id: `export-${periodId}-v${version}`,
+    period_id: periodId,
+    version,
+    schema_version: "accounting-finance-hub.v1",
+    xlsx_path: `private-exports/accounting/${periodId}/v${version}/accounting.xlsx`,
+    csv_dir_path: `private-exports/accounting/${periodId}/v${version}/csv`,
+    manifest_path: `private-exports/accounting/${periodId}/v${version}/manifest.json`,
+    manifest: { row_counts: { sales: 2, expenses: mockExpenseEvidence.length }, totals: period.summary_totals },
+    generated_by_admin_id: "mock-admin",
+    generated_at: new Date().toISOString(),
+    accepted_by_admin_id: null,
+    accepted_at: null,
+    accountant_name: null,
+    accountant_reference: null,
+    acceptance_note: null,
+    current_final: true,
+  };
+  mockAccountingExports.forEach((item) => {
+    if (item.period_id === periodId) item.current_final = false;
+  });
+  mockAccountingExports.unshift(exportPackage);
+  period.status = "exported";
+  return cloneMock(exportPackage);
+}
+
+export async function acceptAccountingExport(
+  exportId: string,
+  data: AccountantAcceptanceRequest
+): Promise<FinanceExportPackageResponse> {
+  await delay();
+  const exportPackage = mockAccountingExports.find((item) => item.id === exportId);
+  if (!exportPackage) mockError("EXPORT_PACKAGE_NOT_FOUND", "Export package not found");
+  exportPackage.accountant_name = data.accountant_name ?? null;
+  exportPackage.accountant_reference = data.accountant_reference ?? null;
+  exportPackage.acceptance_note = data.note ?? null;
+  exportPackage.accepted_by_admin_id = "mock-admin";
+  exportPackage.accepted_at = new Date().toISOString();
+  const period = mockFinancePeriods.find((item) => item.id === exportPackage.period_id);
+  if (period && exportPackage.current_final) {
+    period.status = "accepted";
+    period.accepted_at = exportPackage.accepted_at;
+  }
+  return cloneMock(exportPackage);
+}
+
+export async function getStripePayoutImportStatus(): Promise<StripePayoutImportStatusResponse> {
+  await delay();
+  return {
+    total_rows: 3,
+    matched: 1,
+    unmatched: 1,
+    mismatched: 1,
+    duplicate: 0,
+    ignored: 0,
+    latest_imported_at: MOCK_NOW,
+  };
+}
+
+export async function syncStripeBalanceTransactions(limit = 100): Promise<StripeBalanceImportResponse> {
+  await delay();
+  void limit;
+  return {
+    imported: 0,
+    updated: 1,
+    duplicate_provider_ids: 0,
+    matched: 1,
+    unmatched: 1,
+    mismatched: 1,
+    ignored: 0,
+    errors: [],
+  };
+}
+
+export async function importStripeBalanceCsv(file: File): Promise<StripeBalanceImportResponse> {
+  await delay();
+  void file;
+  return {
+    imported: 2,
+    updated: 0,
+    duplicate_provider_ids: 0,
+    matched: 1,
+    unmatched: 1,
+    mismatched: 0,
+    ignored: 0,
+    errors: [],
   };
 }
 

@@ -145,6 +145,93 @@ class TestCreateOrder:
         assert data["customer_email"] == "marie@example.com"
         assert data["total_cents"] == 2500
         assert len(data["items"]) == 1
+        assert data["accounting_currency"] == "EUR"
+        assert data["accounting_readiness_status"] == "review_required"
+
+    async def test_checkout_accepts_invoice_profile_and_snapshots_accounting_settings(
+        self, order_client, db_path
+    ):
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            """
+            INSERT INTO seller_legal_profile_versions (
+                effective_date, reviewed, legal_name, default_currency
+            ) VALUES ('2026-08-01', 1, 'Atelier Marie OOD', 'EUR')
+            """
+        )
+        seller_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.execute(
+            """
+            INSERT INTO vat_fiscal_settings_versions (
+                effective_date, reviewed, vat_mode, fiscal_document_mode
+            ) VALUES ('2026-08-01', 1, 'registered', 'external_reference')
+            """
+        )
+        vat_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.commit()
+        conn.close()
+
+        resp = await order_client.post(
+            "/v1/orders",
+            json={
+                "customer_email": "buyer@example.com",
+                "customer_name": "Business Buyer",
+                "delivery": DELIVERY_OFFICE_ECONT,
+                "invoice_profile": {
+                    "customer_type": "business",
+                    "legal_name": "Buyer OOD",
+                    "vat_identification_number": "BG987654321",
+                    "business_registration_number": "987654321",
+                    "billing_address": "1 Business Street, Sofia",
+                    "billing_country": "bg",
+                    "invoice_email": "invoice@example.com",
+                    "purchase_reference_note": "PO-42",
+                },
+            },
+        )
+
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["invoice_profile"]["legal_name"] == "Buyer OOD"
+        assert body["invoice_profile"]["billing_country"] == "BG"
+        assert body["seller_legal_profile_version_id"] == seller_id
+        assert body["vat_fiscal_settings_version_id"] == vat_id
+        assert body["accounting_classification_state"] == "business_vat_id_provided"
+        assert body["accounting_readiness_status"] == "ready"
+        assert body["accounting_snapshot"]["invoice_profile"]["invoice_email"] == (
+            "invoice@example.com"
+        )
+
+        conn = sqlite3.connect(db_path)
+        row = conn.execute(
+            """
+            SELECT invoice_profile_json, accounting_snapshot_json
+            FROM orders WHERE id = ?
+            """,
+            (body["id"],),
+        ).fetchone()
+        conn.close()
+        assert '"legal_name": "Buyer OOD"' in row[0]
+        assert '"seller_legal_profile_version_id": ' in row[1]
+
+    async def test_invalid_invoice_email_422(self, order_client):
+        resp = await order_client.post(
+            "/v1/orders",
+            json={
+                "customer_email": "marie@example.com",
+                "customer_name": "Marie",
+                "delivery": DELIVERY_OFFICE_ECONT,
+                "invoice_profile": {
+                    "customer_type": "business",
+                    "legal_name": "Buyer OOD",
+                    "billing_address": "1 Business Street, Sofia",
+                    "billing_country": "BG",
+                    "invoice_email": "not-an-email",
+                },
+            },
+        )
+
+        assert resp.status_code == 422
 
     async def test_card_unavailable_without_stripe_key(self, order_client):
         resp = await order_client.post(

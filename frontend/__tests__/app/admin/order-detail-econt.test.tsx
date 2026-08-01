@@ -35,6 +35,9 @@ vi.mock("@/lib/api", () => ({
   deleteEcontLabel: vi.fn(),
   refreshEcontTrace: vi.fn(),
   updateOrderStatus: vi.fn(),
+  listOrderAccountingDocuments: vi.fn(),
+  createAccountingDocument: vi.fn(),
+  updateAccountingDocument: vi.fn(),
 }));
 
 import {
@@ -42,6 +45,7 @@ import {
   createEcontLabel,
   getAdminOrder,
   getEcontOrderReadiness,
+  listOrderAccountingDocuments,
   repairEcontOrder,
   refreshEcontTrace,
 } from "@/lib/api";
@@ -52,6 +56,7 @@ const mockedRepairEcontOrder = vi.mocked(repairEcontOrder);
 const mockedCreateEcontLabel = vi.mocked(createEcontLabel);
 const mockedCreateAndShipEcontOrder = vi.mocked(createAndShipEcontOrder);
 const mockedRefreshEcontTrace = vi.mocked(refreshEcontTrace);
+const mockedListOrderAccountingDocuments = vi.mocked(listOrderAccountingDocuments);
 
 const econtOrder: AdminOrderDetailResponse = {
   id: "order-econt-1",
@@ -130,6 +135,7 @@ describe("Admin order Econt fulfillment", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockedGetAdminOrder.mockResolvedValue(econtOrder);
+    mockedListOrderAccountingDocuments.mockResolvedValue({ items: [], total: 0 });
     mockedGetEcontOrderReadiness.mockResolvedValue(readiness());
   });
 

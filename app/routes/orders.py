@@ -219,6 +219,7 @@ async def create_order(
                 shipping_price_source=body.shipping_price_source,
                 shipping_is_fallback=body.shipping_is_fallback,
                 shipping_quoted_at=body.shipping_quoted_at,
+                invoice_profile=body.invoice_profile,
                 pay_on_delivery_max_cents=pay_on_delivery_max_cents,
             )
 

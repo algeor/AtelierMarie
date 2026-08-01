@@ -32,13 +32,17 @@ vi.mock("@/lib/api", () => ({
   deleteEcontLabel: vi.fn(),
   refreshEcontTrace: vi.fn(),
   updateOrderStatus: vi.fn(),
+  listOrderAccountingDocuments: vi.fn(),
+  createAccountingDocument: vi.fn(),
+  updateAccountingDocument: vi.fn(),
 }));
 
-import { applyManualPaymentAction, getAdminOrder, getEcontOrderReadiness } from "@/lib/api";
+import { applyManualPaymentAction, getAdminOrder, getEcontOrderReadiness, listOrderAccountingDocuments } from "@/lib/api";
 
 const mockedGetAdminOrder = vi.mocked(getAdminOrder);
 const mockedApplyManualPaymentAction = vi.mocked(applyManualPaymentAction);
 const mockedGetEcontOrderReadiness = vi.mocked(getEcontOrderReadiness);
+const mockedListOrderAccountingDocuments = vi.mocked(listOrderAccountingDocuments);
 
 const ORDER: AdminOrderDetailResponse = {
   id: "order-1",
@@ -109,7 +113,9 @@ describe("Admin order payment detail", () => {
   beforeEach(() => {
     mockedGetAdminOrder.mockReset();
     mockedApplyManualPaymentAction.mockReset();
+    mockedListOrderAccountingDocuments.mockReset();
     mockedGetAdminOrder.mockResolvedValue(ORDER);
+    mockedListOrderAccountingDocuments.mockResolvedValue({ items: [], total: 0 });
     mockedGetEcontOrderReadiness.mockResolvedValue({
       order_id: ORDER.id,
       ready: false,
