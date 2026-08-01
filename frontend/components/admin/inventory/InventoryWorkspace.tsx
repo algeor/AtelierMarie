@@ -1,9 +1,10 @@
 "use client";
 
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
+import { AdminFieldLabel } from "@/components/admin/AdminFieldLabel";
 import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
 import {
   activateRecipe,
@@ -207,12 +208,34 @@ function EmptyState({ label }: { label: string }) {
   return <div className="rounded-brand border border-champagne-beige bg-cream p-6 text-sm text-soft-brown">{label}</div>;
 }
 
-function Field({ label, value }: { label: string; value: React.ReactNode }) {
+function Field({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>
       <dt className="text-xs font-semibold uppercase text-soft-brown">{label}</dt>
       <dd className="mt-1 text-sm text-charcoal">{value}</dd>
     </div>
+  );
+}
+
+function FormField({ label, info, help, children, className }: { label: string; info?: string; help?: string; children: ReactNode; className?: string }) {
+  const content = info ?? help;
+  return (
+    <div className={className}>
+      <AdminFieldLabel info={content}>{label}</AdminFieldLabel>
+      {children}
+    </div>
+  );
+}
+
+function CheckboxField({ name, label, info, defaultChecked }: { name: string; label: string; info: string; defaultChecked?: boolean }) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <label className="inline-flex items-center gap-2">
+        <input name={name} type="checkbox" defaultChecked={defaultChecked} />
+        {label}
+      </label>
+      <AdminInfoPopover content={info} />
+    </span>
   );
 }
 
@@ -285,6 +308,11 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
       if (!value) return "-";
       return INVENTORY_LABEL_KEYS.has(value) ? t(`labels.${value}`) : statusText(value);
     },
+    [t],
+  );
+
+  const fieldInfo = useCallback(
+    (key: string): string => t(`fieldHelp.${key}` as Parameters<typeof t>[0]),
     [t],
   );
 
@@ -598,28 +626,48 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
         <form onSubmit={handleCreateMaterial} className="rounded-brand border border-champagne-beige bg-cream p-4">
           <SectionTitle title={t("materials.createTitle")} info={t("materials.createSubtitle")} />
           <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <input name="name" required className={inputClass()} placeholder={t("materials.name")} />
-            <input name="sku" className={inputClass()} placeholder={t("materials.sku")} />
-            <input name="category" className={inputClass()} placeholder={t("materials.category")} defaultValue={labelFor("material")} />
-            <select name="stock_uom" className={inputClass()} defaultValue="g">
-              {uomOptions}
-            </select>
-            <select name="purchase_uom" className={inputClass()} defaultValue="">
-              <option value="">{t("materials.purchaseUom")}</option>
-              {uomOptions}
-            </select>
-            <input name="purchase_to_stock_factor" type="number" min="0" step="0.000001" className={inputClass()} placeholder={t("materials.conversion")} />
-            <input name="preferred_supplier_name" className={inputClass()} placeholder={t("materials.supplier")} />
-            <input name="preferred_supplier_sku" className={inputClass()} placeholder={t("materials.supplierSku")} />
-            <input name="reorder_threshold" type="number" min="0" step="0.001" className={inputClass()} placeholder={t("materials.reorderThreshold")} />
+            <FormField label={t("materials.name")} help={t("materials.nameHelp")}>
+              <input name="name" required className={inputClass()} placeholder={t("materials.name")} />
+            </FormField>
+            <FormField label={t("materials.sku")} help={t("materials.skuHelp")}>
+              <input name="sku" className={inputClass()} placeholder={t("materials.sku")} />
+            </FormField>
+            <FormField label={t("materials.category")} help={t("materials.categoryHelp")}>
+              <input name="category" className={inputClass()} placeholder={t("materials.category")} defaultValue={labelFor("material")} />
+            </FormField>
+            <FormField label={t("materials.stockUom")} help={t("materials.stockUomHelp")}>
+              <select name="stock_uom" className={inputClass()} defaultValue="g">
+                {uomOptions}
+              </select>
+            </FormField>
+            <FormField label={t("materials.purchaseUomLabel")} help={t("materials.purchaseUomHelp")}>
+              <select name="purchase_uom" className={inputClass()} defaultValue="" aria-label={t("materials.purchaseUomLabel")}>
+                <option value="" disabled hidden>{t("materials.purchaseUom")}</option>
+                {uomOptions}
+              </select>
+            </FormField>
+            <FormField label={t("materials.conversion")} help={t("materials.conversionHelp")}>
+              <input name="purchase_to_stock_factor" type="number" min="0" step="0.000001" className={inputClass()} placeholder={t("materials.conversion")} />
+            </FormField>
+            <FormField label={t("materials.supplier")} help={t("materials.supplierHelp")}>
+              <input name="preferred_supplier_name" className={inputClass()} placeholder={t("materials.supplier")} />
+            </FormField>
+            <FormField label={t("materials.supplierSku")} help={t("materials.supplierSkuHelp")}>
+              <input name="preferred_supplier_sku" className={inputClass()} placeholder={t("materials.supplierSku")} />
+            </FormField>
+            <FormField label={t("materials.reorderThreshold")} help={t("materials.reorderThresholdHelp")}>
+              <input name="reorder_threshold" type="number" min="0" step="0.001" className={inputClass()} placeholder={t("materials.reorderThreshold")} />
+            </FormField>
           </div>
           <div className="mt-4 flex flex-wrap gap-4 text-sm text-soft-brown">
-            <label className="inline-flex items-center gap-2"><input name="active" type="checkbox" defaultChecked /> {t("materials.active")}</label>
-            <label className="inline-flex items-center gap-2"><input name="lot_tracked" type="checkbox" /> {t("materials.lotTracked")}</label>
-            <label className="inline-flex items-center gap-2"><input name="expiry_tracked" type="checkbox" /> {t("materials.expiryTracked")}</label>
-            <label className="inline-flex items-center gap-2"><input name="evidence_required" type="checkbox" /> {t("materials.evidenceRequired")}</label>
+            <CheckboxField name="active" label={t("materials.active")} info={fieldInfo("materialActive")} defaultChecked />
+            <CheckboxField name="lot_tracked" label={t("materials.lotTracked")} info={fieldInfo("lotTracked")} />
+            <CheckboxField name="expiry_tracked" label={t("materials.expiryTracked")} info={fieldInfo("expiryTracked")} />
+            <CheckboxField name="evidence_required" label={t("materials.evidenceRequired")} info={fieldInfo("evidenceRequired")} />
           </div>
-          <textarea name="notes" className={cn(textareaClass(), "mt-4")} placeholder={t("notes")} />
+          <FormField label={t("notes")} info={fieldInfo("notes")} className="mt-4">
+            <textarea name="notes" className={textareaClass()} placeholder={t("notes")} />
+          </FormField>
           <Button className="mt-4" type="submit" isLoading={busyAction === "create-material"}>{t("materials.create")}</Button>
         </form>
 
@@ -676,30 +724,62 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
                 <form onSubmit={handleReceipt} className="rounded-brand border border-champagne-beige bg-cream p-4">
                   <SectionTitle title={t("materials.receiptTitle")} />
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    <input name="receipt_date" type="date" className={inputClass()} defaultValue={today()} />
-                    <input name="quantity" required type="number" min="0" step="0.001" className={inputClass()} placeholder={t("quantity")} />
-                    <select name="uom" className={inputClass()} defaultValue={materialDetail.stock_uom}>{uomOptions}</select>
-                    <input name="unit_cost_amount" className={inputClass()} placeholder={t("materials.unitCost")} />
-                    <input name="total_cost_cents" type="number" min="0" step="1" className={inputClass()} placeholder={t("materials.totalCostCents")} />
-                    <input name="currency" className={inputClass()} defaultValue="EUR" placeholder={t("currency")} />
-                    <input name="supplier_name" className={inputClass()} placeholder={t("materials.supplier")} />
-                    <input name="supplier_lot" className={inputClass()} placeholder={t("materials.supplierLot")} />
-                    <input name="expiry_date" type="date" className={inputClass()} aria-label={t("materials.expiryDate")} />
-                    <input name="document_reference" className={inputClass()} placeholder={t("materials.documentReference")} />
+                    <FormField label={t("date")} info={fieldInfo("receiptDate")}>
+                      <input name="receipt_date" type="date" className={inputClass()} defaultValue={today()} />
+                    </FormField>
+                    <FormField label={t("quantity")} info={fieldInfo("receiptQuantity")}>
+                      <input name="quantity" required type="number" min="0" step="0.001" className={inputClass()} placeholder={t("quantity")} />
+                    </FormField>
+                    <FormField label={t("materials.stockUom")} info={fieldInfo("receiptUom")}>
+                      <select name="uom" className={inputClass()} defaultValue={materialDetail.stock_uom}>{uomOptions}</select>
+                    </FormField>
+                    <FormField label={t("materials.unitCost")} info={fieldInfo("unitCost")}>
+                      <input name="unit_cost_amount" className={inputClass()} placeholder={t("materials.unitCost")} />
+                    </FormField>
+                    <FormField label={t("materials.totalCostCents")} info={fieldInfo("totalCostCents")}>
+                      <input name="total_cost_cents" type="number" min="0" step="1" className={inputClass()} placeholder={t("materials.totalCostCents")} />
+                    </FormField>
+                    <FormField label={t("currency")} info={fieldInfo("currency")}>
+                      <input name="currency" className={inputClass()} defaultValue="EUR" placeholder={t("currency")} />
+                    </FormField>
+                    <FormField label={t("materials.supplier")} info={fieldInfo("receiptSupplier")}>
+                      <input name="supplier_name" className={inputClass()} placeholder={t("materials.supplier")} />
+                    </FormField>
+                    <FormField label={t("materials.supplierLot")} info={fieldInfo("supplierLot")}>
+                      <input name="supplier_lot" className={inputClass()} placeholder={t("materials.supplierLot")} />
+                    </FormField>
+                    <FormField label={t("materials.expiryDate")} info={fieldInfo("expiryDate")}>
+                      <input name="expiry_date" type="date" className={inputClass()} aria-label={t("materials.expiryDate")} />
+                    </FormField>
+                    <FormField label={t("materials.documentReference")} info={fieldInfo("documentReference")}>
+                      <input name="document_reference" className={inputClass()} placeholder={t("materials.documentReference")} />
+                    </FormField>
                   </div>
-                  <textarea name="notes" className={cn(textareaClass(), "mt-3")} placeholder={t("notes")} />
+                  <FormField label={t("notes")} info={fieldInfo("receiptNotes")} className="mt-3">
+                    <textarea name="notes" className={textareaClass()} placeholder={t("notes")} />
+                  </FormField>
                   <Button className="mt-3" type="submit" isLoading={busyAction === "receipt"}>{t("materials.recordReceipt")}</Button>
                 </form>
 
                 <form onSubmit={handleAdjustment} className="rounded-brand border border-champagne-beige bg-cream p-4">
                   <SectionTitle title={t("materials.adjustmentTitle")} />
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    <select name="movement_type" className={inputClass()}>{MATERIAL_MOVEMENTS.map((type) => <option key={type} value={type}>{labelFor(type)}</option>)}</select>
-                    <input name="quantity_delta" required type="number" step="0.001" className={inputClass()} placeholder={t("materials.quantityDelta")} />
-                    <select name="uom" className={inputClass()} defaultValue={materialDetail.stock_uom}>{uomOptions}</select>
-                    <input name="reason" required className={inputClass()} placeholder={t("reason")} />
+                    <FormField label={t("movements.movementType")} info={fieldInfo("adjustmentType")}>
+                      <select name="movement_type" className={inputClass()}>{MATERIAL_MOVEMENTS.map((type) => <option key={type} value={type}>{labelFor(type)}</option>)}</select>
+                    </FormField>
+                    <FormField label={t("materials.quantityDelta")} info={fieldInfo("quantityDelta")}>
+                      <input name="quantity_delta" required type="number" step="0.001" className={inputClass()} placeholder={t("materials.quantityDelta")} />
+                    </FormField>
+                    <FormField label={t("materials.stockUom")} info={fieldInfo("adjustmentUom")}>
+                      <select name="uom" className={inputClass()} defaultValue={materialDetail.stock_uom}>{uomOptions}</select>
+                    </FormField>
+                    <FormField label={t("reason")} info={fieldInfo("reason")}>
+                      <input name="reason" required className={inputClass()} placeholder={t("reason")} />
+                    </FormField>
                   </div>
-                  <textarea name="notes" className={cn(textareaClass(), "mt-3")} placeholder={t("notes")} />
+                  <FormField label={t("notes")} info={fieldInfo("adjustmentNotes")} className="mt-3">
+                    <textarea name="notes" className={textareaClass()} placeholder={t("notes")} />
+                  </FormField>
                   <Button className="mt-3" type="submit" isLoading={busyAction === "adjustment"}>{t("materials.recordAdjustment")}</Button>
                 </form>
 
@@ -721,14 +801,28 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
         <form onSubmit={handleCreateRecipe} className="rounded-brand border border-champagne-beige bg-cream p-4">
           <SectionTitle title={t("recipes.createTitle")} info={t("recipes.componentHelp")} />
           <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <input name="product_id" required className={inputClass()} placeholder={t("productId")} />
-            <input name="version_label" required className={inputClass()} placeholder={t("recipes.versionLabel")} />
-            <input name="effective_date" type="date" className={inputClass()} defaultValue={today()} />
-            <input name="output_quantity" required type="number" min="0" step="0.001" className={inputClass()} placeholder={t("recipes.outputQuantity")} />
-            <select name="output_uom" className={inputClass()} defaultValue="unit">{uomOptions}</select>
-            <input name="notes" className={inputClass()} placeholder={t("notes")} />
+            <FormField label={t("productId")} info={fieldInfo("recipeProductId")}>
+              <input name="product_id" required className={inputClass()} placeholder={t("productId")} />
+            </FormField>
+            <FormField label={t("recipes.versionLabel")} info={fieldInfo("recipeVersionLabel")}>
+              <input name="version_label" required className={inputClass()} placeholder={t("recipes.versionLabel")} />
+            </FormField>
+            <FormField label={t("recipes.effectiveDate")} info={fieldInfo("effectiveDate")}>
+              <input name="effective_date" type="date" className={inputClass()} defaultValue={today()} />
+            </FormField>
+            <FormField label={t("recipes.outputQuantity")} info={fieldInfo("outputQuantity")}>
+              <input name="output_quantity" required type="number" min="0" step="0.001" className={inputClass()} placeholder={t("recipes.outputQuantity")} />
+            </FormField>
+            <FormField label={t("recipes.outputUom")} info={fieldInfo("outputUom")}>
+              <select name="output_uom" className={inputClass()} defaultValue="unit">{uomOptions}</select>
+            </FormField>
+            <FormField label={t("notes")} info={fieldInfo("recipeNotes")}>
+              <input name="notes" className={inputClass()} placeholder={t("notes")} />
+            </FormField>
           </div>
-          <textarea name="components" className={cn(textareaClass(), "mt-3")} placeholder="soy-wax,500,g,per_batch,3" />
+          <FormField label={t("recipes.componentsLabel")} info={fieldInfo("recipeComponents")} className="mt-3">
+            <textarea name="components" className={textareaClass()} placeholder="soy-wax,500,g,per_batch,3" />
+          </FormField>
           <Button className="mt-3" type="submit" isLoading={busyAction === "create-recipe"}>{t("recipes.create")}</Button>
         </form>
 
@@ -770,14 +864,30 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
         <form onSubmit={handleCreateBatch} className="rounded-brand border border-champagne-beige bg-cream p-4">
           <SectionTitle title={t("batches.createTitle")} />
           <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <input name="batch_number" required className={inputClass()} placeholder={t("batches.batchNumber")} />
-            <input name="product_id" required className={inputClass()} placeholder={t("productId")} />
-            <input name="recipe_version_id" className={inputClass()} placeholder={t("recipes.recipeId")} />
-            <input name="planned_output_quantity" required type="number" min="0" step="0.001" className={inputClass()} placeholder={t("batches.plannedOutput")} />
-            <select name="output_uom" className={inputClass()} defaultValue="unit">{uomOptions}</select>
-            <input name="production_date" type="date" className={inputClass()} defaultValue={today()} />
-            <input name="ready_date" type="date" className={inputClass()} aria-label={t("batches.readyDate")} />
-            <input name="notes" className={inputClass()} placeholder={t("notes")} />
+            <FormField label={t("batches.batchNumber")} info={fieldInfo("batchNumber")}>
+              <input name="batch_number" required className={inputClass()} placeholder={t("batches.batchNumber")} />
+            </FormField>
+            <FormField label={t("productId")} info={fieldInfo("batchProductId")}>
+              <input name="product_id" required className={inputClass()} placeholder={t("productId")} />
+            </FormField>
+            <FormField label={t("recipes.recipeId")} info={fieldInfo("recipeVersionId")}>
+              <input name="recipe_version_id" className={inputClass()} placeholder={t("recipes.recipeId")} />
+            </FormField>
+            <FormField label={t("batches.plannedOutput")} info={fieldInfo("plannedOutput")}>
+              <input name="planned_output_quantity" required type="number" min="0" step="0.001" className={inputClass()} placeholder={t("batches.plannedOutput")} />
+            </FormField>
+            <FormField label={t("recipes.outputUom")} info={fieldInfo("batchOutputUom")}>
+              <select name="output_uom" className={inputClass()} defaultValue="unit">{uomOptions}</select>
+            </FormField>
+            <FormField label={t("batches.productionDate")} info={fieldInfo("productionDate")}>
+              <input name="production_date" type="date" className={inputClass()} defaultValue={today()} />
+            </FormField>
+            <FormField label={t("batches.readyDate")} info={fieldInfo("readyDate")}>
+              <input name="ready_date" type="date" className={inputClass()} aria-label={t("batches.readyDate")} />
+            </FormField>
+            <FormField label={t("notes")} info={fieldInfo("batchNotes")}>
+              <input name="notes" className={inputClass()} placeholder={t("notes")} />
+            </FormField>
           </div>
           <Button className="mt-3" type="submit" isLoading={busyAction === "create-batch"}>{t("batches.create")}</Button>
         </form>
@@ -813,14 +923,28 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
         <form onSubmit={handleBatchCorrection} className="rounded-brand border border-champagne-beige bg-cream p-4">
           <SectionTitle title={t("batches.correctionTitle")} />
           <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <input name="batch_id" required className={inputClass()} placeholder={t("batches.batchId")} />
-            <select name="item_type" className={inputClass()}><option value="material">{labelFor("material")}</option><option value="finished_good">{labelFor("finished_good")}</option></select>
-            <input name="item_id" required className={inputClass()} placeholder={t("batches.itemId")} />
-            <input name="quantity_delta" required type="number" step="0.001" className={inputClass()} placeholder={t("materials.quantityDelta")} />
-            <select name="uom" required className={inputClass()} defaultValue="unit">{uomOptions}</select>
-            <input name="reason" required className={inputClass()} placeholder={t("reason")} />
+            <FormField label={t("batches.batchId")} info={fieldInfo("correctionBatchId")}>
+              <input name="batch_id" required className={inputClass()} placeholder={t("batches.batchId")} />
+            </FormField>
+            <FormField label={t("valuation.itemType")} info={fieldInfo("correctionItemType")}>
+              <select name="item_type" className={inputClass()}><option value="material">{labelFor("material")}</option><option value="finished_good">{labelFor("finished_good")}</option></select>
+            </FormField>
+            <FormField label={t("batches.itemId")} info={fieldInfo("correctionItemId")}>
+              <input name="item_id" required className={inputClass()} placeholder={t("batches.itemId")} />
+            </FormField>
+            <FormField label={t("materials.quantityDelta")} info={fieldInfo("correctionQuantityDelta")}>
+              <input name="quantity_delta" required type="number" step="0.001" className={inputClass()} placeholder={t("materials.quantityDelta")} />
+            </FormField>
+            <FormField label={t("materials.stockUom")} info={fieldInfo("correctionUom")}>
+              <select name="uom" required className={inputClass()} defaultValue="unit">{uomOptions}</select>
+            </FormField>
+            <FormField label={t("reason")} info={fieldInfo("correctionReason")}>
+              <input name="reason" required className={inputClass()} placeholder={t("reason")} />
+            </FormField>
           </div>
-          <textarea name="notes" className={cn(textareaClass(), "mt-3")} placeholder={t("notes")} />
+          <FormField label={t("notes")} info={fieldInfo("correctionNotes")} className="mt-3">
+            <textarea name="notes" className={textareaClass()} placeholder={t("notes")} />
+          </FormField>
           <Button className="mt-3" type="submit" isLoading={busyAction === "batch-correction"}>{t("batches.recordCorrection")}</Button>
         </form>
       </div>
@@ -833,20 +957,38 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
         <form key={settings?.settings_version ?? "settings"} onSubmit={handleSettings} className="rounded-brand border border-champagne-beige bg-cream p-4">
           <SectionTitle title={t("valuation.settingsTitle")} info={t("valuation.settingsSubtitle")} />
           <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <select name="ledger_mode" className={inputClass()} defaultValue={settings?.ledger_mode ?? "setup"}><option value="legacy">{labelFor("legacy")}</option><option value="setup">{labelFor("setup")}</option><option value="ledger_managed">{labelFor("ledger_managed")}</option></select>
-            <select name="valuation_method" className={inputClass()} defaultValue={settings?.valuation_method ?? "weighted_average"}><option value="weighted_average">{labelFor("weighted_average")}</option><option value="fifo">{labelFor("fifo")}</option></select>
-            <input name="effective_date" type="date" className={inputClass()} defaultValue={settings?.effective_date ?? today()} />
-            <select name="cogs_date_basis" className={inputClass()} defaultValue={settings?.cogs_date_basis ?? "order_date"}><option value="order_date">{labelFor("order_date")}</option><option value="payment_date">{labelFor("payment_date")}</option><option value="shipment_date">{labelFor("shipment_date")}</option><option value="delivery_date">{labelFor("delivery_date")}</option><option value="period_close">{labelFor("period_close")}</option></select>
-            <select name="rounding_policy" className={inputClass()} defaultValue={settings?.rounding_policy ?? "half_up_2dp"}><option value="half_up_2dp">{labelFor("half_up_2dp")}</option><option value="half_up_4dp">{labelFor("half_up_4dp")}</option></select>
-            <select name="missing_cost_behavior" className={inputClass()} defaultValue={settings?.missing_cost_behavior ?? "block_official"}><option value="allow_estimate">{labelFor("allow_estimate")}</option><option value="warn">{labelFor("warn")}</option><option value="block_official">{labelFor("block_official")}</option></select>
-            <input name="currency" className={inputClass()} defaultValue={settings?.currency ?? "EUR"} />
-            <input name="reviewed_by_name" className={inputClass()} defaultValue={settings?.reviewed_by_name ?? ""} placeholder={t("valuation.reviewer")} />
+            <FormField label={t("valuation.ledgerMode")} info={fieldInfo("ledgerMode")}>
+              <select name="ledger_mode" className={inputClass()} defaultValue={settings?.ledger_mode ?? "setup"}><option value="legacy">{labelFor("legacy")}</option><option value="setup">{labelFor("setup")}</option><option value="ledger_managed">{labelFor("ledger_managed")}</option></select>
+            </FormField>
+            <FormField label={t("valuation.valuationMethod")} info={fieldInfo("valuationMethod")}>
+              <select name="valuation_method" className={inputClass()} defaultValue={settings?.valuation_method ?? "weighted_average"}><option value="weighted_average">{labelFor("weighted_average")}</option><option value="fifo">{labelFor("fifo")}</option></select>
+            </FormField>
+            <FormField label={t("valuation.effectiveDate")} info={fieldInfo("settingsEffectiveDate")}>
+              <input name="effective_date" type="date" className={inputClass()} defaultValue={settings?.effective_date ?? today()} />
+            </FormField>
+            <FormField label={t("valuation.cogsDateBasis")} info={fieldInfo("cogsDateBasis")}>
+              <select name="cogs_date_basis" className={inputClass()} defaultValue={settings?.cogs_date_basis ?? "order_date"}><option value="order_date">{labelFor("order_date")}</option><option value="payment_date">{labelFor("payment_date")}</option><option value="shipment_date">{labelFor("shipment_date")}</option><option value="delivery_date">{labelFor("delivery_date")}</option><option value="period_close">{labelFor("period_close")}</option></select>
+            </FormField>
+            <FormField label={t("valuation.roundingPolicy")} info={fieldInfo("roundingPolicy")}>
+              <select name="rounding_policy" className={inputClass()} defaultValue={settings?.rounding_policy ?? "half_up_2dp"}><option value="half_up_2dp">{labelFor("half_up_2dp")}</option><option value="half_up_4dp">{labelFor("half_up_4dp")}</option></select>
+            </FormField>
+            <FormField label={t("valuation.missingCostBehavior")} info={fieldInfo("missingCostBehavior")}>
+              <select name="missing_cost_behavior" className={inputClass()} defaultValue={settings?.missing_cost_behavior ?? "block_official"}><option value="allow_estimate">{labelFor("allow_estimate")}</option><option value="warn">{labelFor("warn")}</option><option value="block_official">{labelFor("block_official")}</option></select>
+            </FormField>
+            <FormField label={t("currency")} info={fieldInfo("settingsCurrency")}>
+              <input name="currency" className={inputClass()} defaultValue={settings?.currency ?? "EUR"} />
+            </FormField>
+            <FormField label={t("valuation.reviewer")} info={fieldInfo("reviewer")}>
+              <input name="reviewed_by_name" className={inputClass()} defaultValue={settings?.reviewed_by_name ?? ""} placeholder={t("valuation.reviewer")} />
+            </FormField>
           </div>
           <div className="mt-4 flex flex-wrap gap-4 text-sm text-soft-brown">
-            <label className="inline-flex items-center gap-2"><input name="valuation_enabled" type="checkbox" defaultChecked={settings?.valuation_enabled ?? false} /> {t("valuation.enabled")}</label>
-            <label className="inline-flex items-center gap-2"><input name="accountant_reviewed" type="checkbox" defaultChecked={settings?.accountant_reviewed ?? false} /> {t("valuation.accountantReviewed")}</label>
+            <CheckboxField name="valuation_enabled" label={t("valuation.enabled")} info={fieldInfo("valuationEnabled")} defaultChecked={settings?.valuation_enabled ?? false} />
+            <CheckboxField name="accountant_reviewed" label={t("valuation.accountantReviewed")} info={fieldInfo("accountantReviewed")} defaultChecked={settings?.accountant_reviewed ?? false} />
           </div>
-          <textarea name="review_notes" className={cn(textareaClass(), "mt-3")} defaultValue={settings?.review_notes ?? ""} placeholder={t("valuation.reviewNotes")} />
+          <FormField label={t("valuation.reviewNotes")} info={fieldInfo("reviewNotes")} className="mt-3">
+            <textarea name="review_notes" className={textareaClass()} defaultValue={settings?.review_notes ?? ""} placeholder={t("valuation.reviewNotes")} />
+          </FormField>
           <Button className="mt-3" type="submit" isLoading={busyAction === "settings"}>{t("valuation.saveSettings")}</Button>
         </form>
 
@@ -854,23 +996,43 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
           <form onSubmit={handleOpeningBalance} className="rounded-brand border border-champagne-beige bg-cream p-4">
             <SectionTitle title={t("valuation.openingTitle")} />
             <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <select name="item_type" className={inputClass()}><option value="material">{labelFor("material")}</option><option value="finished_good">{labelFor("finished_good")}</option></select>
-              <input name="item_id" required className={inputClass()} placeholder={t("valuation.itemId")} />
-              <input name="quantity" required type="number" min="0" step="0.001" className={inputClass()} placeholder={t("quantity")} />
-              <select name="uom" required className={inputClass()} defaultValue="unit">{uomOptions}</select>
-              <input name="unit_value_amount" className={inputClass()} placeholder={t("valuation.unitValue")} />
-              <input name="total_value_cents" type="number" min="0" step="1" className={inputClass()} placeholder={t("valuation.totalValueCents")} />
+              <FormField label={t("valuation.itemType")} info={fieldInfo("openingItemType")}>
+                <select name="item_type" className={inputClass()}><option value="material">{labelFor("material")}</option><option value="finished_good">{labelFor("finished_good")}</option></select>
+              </FormField>
+              <FormField label={t("valuation.itemId")} info={fieldInfo("openingItemId")}>
+                <input name="item_id" required className={inputClass()} placeholder={t("valuation.itemId")} />
+              </FormField>
+              <FormField label={t("quantity")} info={fieldInfo("openingQuantity")}>
+                <input name="quantity" required type="number" min="0" step="0.001" className={inputClass()} placeholder={t("quantity")} />
+              </FormField>
+              <FormField label={t("materials.stockUom")} info={fieldInfo("openingUom")}>
+                <select name="uom" required className={inputClass()} defaultValue="unit">{uomOptions}</select>
+              </FormField>
+              <FormField label={t("valuation.unitValue")} info={fieldInfo("unitValue")}>
+                <input name="unit_value_amount" className={inputClass()} placeholder={t("valuation.unitValue")} />
+              </FormField>
+              <FormField label={t("valuation.totalValueCents")} info={fieldInfo("openingTotalValueCents")}>
+                <input name="total_value_cents" type="number" min="0" step="1" className={inputClass()} placeholder={t("valuation.totalValueCents")} />
+              </FormField>
             </div>
-            <label className="mt-4 inline-flex items-center gap-2 text-sm text-soft-brown"><input name="reviewed" type="checkbox" /> {t("valuation.reviewed")}</label>
-            <textarea name="notes" className={cn(textareaClass(), "mt-3")} placeholder={t("notes")} />
+            <div className="mt-4 text-sm text-soft-brown">
+              <CheckboxField name="reviewed" label={t("valuation.reviewed")} info={fieldInfo("openingReviewed")} />
+            </div>
+            <FormField label={t("notes")} info={fieldInfo("openingNotes")} className="mt-3">
+              <textarea name="notes" className={textareaClass()} placeholder={t("notes")} />
+            </FormField>
             <Button className="mt-3" type="submit" isLoading={busyAction === "opening-balance"}>{t("valuation.recordOpening")}</Button>
           </form>
 
           <form onSubmit={handleClosePreview} className="rounded-brand border border-champagne-beige bg-cream p-4">
             <SectionTitle title={t("valuation.closePreview")} />
             <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <input name="period_start" type="date" className={inputClass()} defaultValue={monthStart()} />
-              <input name="period_end" type="date" className={inputClass()} defaultValue={today()} />
+              <FormField label={t("valuation.periodStart")} info={fieldInfo("periodStart")}>
+                <input name="period_start" type="date" className={inputClass()} defaultValue={monthStart()} />
+              </FormField>
+              <FormField label={t("valuation.periodEnd")} info={fieldInfo("periodEnd")}>
+                <input name="period_end" type="date" className={inputClass()} defaultValue={today()} />
+              </FormField>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               <Button type="submit" isLoading={busyAction === "close-preview"}>{t("valuation.preview")}</Button>
@@ -896,12 +1058,24 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
         <form onSubmit={handleMovementFilter} className="rounded-brand border border-champagne-beige bg-cream p-4">
           <SectionTitle title={t("movements.filters")} />
           <div className="mt-4 grid gap-3 md:grid-cols-6">
-            <select name="item_type" className={inputClass()} defaultValue={movementFilters.itemType}><option value="">{tAdmin("all")}</option><option value="material">{labelFor("material")}</option><option value="finished_good">{labelFor("finished_good")}</option></select>
-            <input name="item_id" className={inputClass()} defaultValue={movementFilters.itemId} placeholder={t("movements.itemId")} />
-            <input name="source_type" className={inputClass()} defaultValue={movementFilters.sourceType} placeholder={t("movements.sourceType")} />
-            <input name="source_id" className={inputClass()} defaultValue={movementFilters.sourceId} placeholder={t("movements.sourceId")} />
-            <input name="order_id" className={inputClass()} defaultValue={movementFilters.orderId} placeholder={t("orderId")} />
-            <input name="movement_type" className={inputClass()} defaultValue={movementFilters.movementType} placeholder={t("movements.movementType")} />
+            <FormField label={t("valuation.itemType")} info={fieldInfo("movementItemType")}>
+              <select name="item_type" className={inputClass()} defaultValue={movementFilters.itemType}><option value="">{tAdmin("all")}</option><option value="material">{labelFor("material")}</option><option value="finished_good">{labelFor("finished_good")}</option></select>
+            </FormField>
+            <FormField label={t("movements.itemId")} info={fieldInfo("movementItemId")}>
+              <input name="item_id" className={inputClass()} defaultValue={movementFilters.itemId} placeholder={t("movements.itemId")} />
+            </FormField>
+            <FormField label={t("movements.sourceType")} info={fieldInfo("sourceType")}>
+              <input name="source_type" className={inputClass()} defaultValue={movementFilters.sourceType} placeholder={t("movements.sourceType")} />
+            </FormField>
+            <FormField label={t("movements.sourceId")} info={fieldInfo("sourceId")}>
+              <input name="source_id" className={inputClass()} defaultValue={movementFilters.sourceId} placeholder={t("movements.sourceId")} />
+            </FormField>
+            <FormField label={t("orderId")} info={fieldInfo("orderId")}>
+              <input name="order_id" className={inputClass()} defaultValue={movementFilters.orderId} placeholder={t("orderId")} />
+            </FormField>
+            <FormField label={t("movements.movementType")} info={fieldInfo("movementType")}>
+              <input name="movement_type" className={inputClass()} defaultValue={movementFilters.movementType} placeholder={t("movements.movementType")} />
+            </FormField>
           </div>
           <Button className="mt-3" type="submit">{t("movements.apply")}</Button>
         </form>
@@ -918,7 +1092,6 @@ export function InventoryWorkspace({ initialTab = "materials" }: InventoryWorksp
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex items-center gap-2">
           <h1 className="font-heading text-2xl font-semibold text-charcoal">{t("title")}</h1>
-          <AdminInfoPopover content={t("subtitle")} />
         </div>
         {isRefreshing && <span className="text-sm text-soft-brown">{t("refreshing")}</span>}
       </div>

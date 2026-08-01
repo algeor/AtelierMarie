@@ -2,13 +2,9 @@ import { NextIntlClientProvider } from "next-intl";
 import { getMessages } from "next-intl/server";
 import { redirect } from "next/navigation";
 import { routing } from "@/i18n/routing";
-import { AnnouncementBar } from "@/components/layout/AnnouncementBar";
-import { Header } from "@/components/layout/Header";
-import { Footer } from "@/components/layout/Footer";
 import { AuthProvider } from "@/contexts/AuthContext";
-import { CartProvider } from "@/contexts/CartContext";
 import { CookieConsentProvider } from "@/contexts/CookieConsentContext";
-import { CartDrawer } from "@/components/cart/CartDrawer";
+import { LocaleChrome } from "@/components/layout/LocaleChrome";
 
 type Props = {
   children: React.ReactNode;
@@ -30,13 +26,7 @@ export default async function LocaleLayout({ children, params }: Props) {
     <NextIntlClientProvider messages={messages}>
       <AuthProvider>
         <CookieConsentProvider>
-          <CartProvider>
-            <AnnouncementBar />
-            <Header />
-            <CartDrawer />
-            <main>{children}</main>
-            <Footer />
-          </CartProvider>
+          <LocaleChrome>{children}</LocaleChrome>
         </CookieConsentProvider>
       </AuthProvider>
     </NextIntlClientProvider>

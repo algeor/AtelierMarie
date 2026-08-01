@@ -1,52 +1,176 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
-import { usePathname } from "@/i18n/navigation";
-import { Link } from "@/i18n/navigation";
-import { cn } from "@/lib/utils";
+import { Link, usePathname } from "@/i18n/navigation";
 import { useAdmin } from "@/contexts/AdminContext";
+import { cn } from "@/lib/utils";
+
+interface NavChild {
+  labelKey: string;
+  href: string;
+  activeHrefs?: string[];
+}
 
 interface NavItem {
   labelKey: string;
   href: string;
-  icon: React.ReactNode;
-  children?: Array<{
-    labelKey: string;
-    href: string;
-    activeHrefs?: string[];
-  }>;
+  icon?: ReactNode;
   activeHrefs?: string[];
+  children?: NavChild[];
 }
 
-const NAV_ITEMS: NavItem[] = [
+interface NavGroup {
+  key: string;
+  labelKey: string;
+  icon: ReactNode;
+  activeHrefs?: string[];
+  items: NavItem[];
+}
+
+function GridIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+    </svg>
+  );
+}
+
+function ProductIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+    </svg>
+  );
+}
+
+function InventoryIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5v8.25a2.25 2.25 0 01-1.244 2.013l-6 3a2.25 2.25 0 01-2.012 0l-6-3A2.25 2.25 0 013.75 15.75V7.5m16.5 0L12 3.375 3.75 7.5m16.5 0L12 11.625 3.75 7.5M12 21V11.625" />
+    </svg>
+  );
+}
+
+function OrdersIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" />
+    </svg>
+  );
+}
+
+function AccountingIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 7.5h6m-6 3h6m-6 3h3M6.75 3.75h10.5A2.25 2.25 0 0119.5 6v12A2.25 2.25 0 0117.25 20.25H6.75A2.25 2.25 0 014.5 18V6A2.25 2.25 0 016.75 3.75z" />
+    </svg>
+  );
+}
+
+function AnalyticsIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.5h4.5v6H3v-6zm6.75-9h4.5v15h-4.5v-15zm6.75 5.25H21v9.75h-4.5V9.75z" />
+    </svg>
+  );
+}
+
+function DeliveryIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm10.5 0a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 6.75h11.25v8.25H3V6.75zm11.25 3h3.57c.4 0 .78.19 1.02.51l2.16 2.88v1.86h-6.75V9.75zM5.25 18.75H3.75a.75.75 0 01-.75-.75v-3h18v3a.75.75 0 01-.75.75h-1.5m-10.5 0h7.5" />
+    </svg>
+  );
+}
+
+function PaymentIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5m-18 3.75h16.5m-14.25 4.5h3.75m3 0h4.5M4.5 6h15a1.5 1.5 0 011.5 1.5v9A1.5 1.5 0 0119.5 18h-15A1.5 1.5 0 013 16.5v-9A1.5 1.5 0 014.5 6z" />
+    </svg>
+  );
+}
+
+function TagIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6z" />
+    </svg>
+  );
+}
+
+function PagesIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75c-2.7-1.8-5.25-1.8-7.5-.45v11.4c2.25-1.35 4.8-1.35 7.5.45m0-11.4c2.7-1.8 5.25-1.8 7.5-.45v11.4c-2.25-1.35-4.8-1.35-7.5.45m0-11.4v11.4" />
+    </svg>
+  );
+}
+
+function HelpIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.178-.43.326-.67.442-.745.361-1.451.999-1.451 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
+    </svg>
+  );
+}
+
+function ChevronIcon({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth={1.5}
+      stroke="currentColor"
+      className={cn("h-4 w-4 transition-transform", expanded && "rotate-180")}
+      aria-hidden="true"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+    </svg>
+  );
+}
+
+const NAV_GROUPS: NavGroup[] = [
   {
-    labelKey: "dashboard",
-    href: "/admin",
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
-      </svg>
-    ),
+    key: "work",
+    labelKey: "workNav",
+    icon: <GridIcon />,
+    items: [
+      { labelKey: "dashboard", href: "/admin", icon: <GridIcon /> },
+      { labelKey: "orders", href: "/admin/orders", icon: <OrdersIcon /> },
+      { labelKey: "analytics.navLabel", href: "/admin/analytics", icon: <AnalyticsIcon /> },
+      {
+        labelKey: "deliveryNav",
+        href: "/admin/delivery",
+        icon: <DeliveryIcon />,
+        activeHrefs: ["/admin/econt", "/admin/speedy"],
+        children: [
+          { labelKey: "econtNav", href: "/admin/delivery/econt", activeHrefs: ["/admin/econt"] },
+          { labelKey: "speedyNav", href: "/admin/delivery/speedy", activeHrefs: ["/admin/speedy"] },
+        ],
+      },
+    ],
   },
   {
-    labelKey: "products",
-    href: "/admin/products",
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
-      </svg>
-    ),
+    key: "catalog",
+    labelKey: "catalogNav",
+    icon: <ProductIcon />,
+    items: [
+      { labelKey: "products", href: "/admin/products", icon: <ProductIcon /> },
+      { labelKey: "taxonomy.navLabel", href: "/admin/taxonomy", icon: <TagIcon /> },
+      { labelKey: "promotionsNav", href: "/admin/promotions", icon: <TagIcon /> },
+    ],
   },
   {
-    labelKey: "inventoryNav",
-    href: "/admin/inventory",
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5v8.25a2.25 2.25 0 01-1.244 2.013l-6 3a2.25 2.25 0 01-2.012 0l-6-3A2.25 2.25 0 013.75 15.75V7.5m16.5 0L12 3.375 3.75 7.5m16.5 0L12 11.625 3.75 7.5M12 21V11.625" />
-      </svg>
-    ),
-    children: [
+    key: "inventoryProduction",
+    labelKey: "inventoryProductionNav",
+    icon: <InventoryIcon />,
+    activeHrefs: ["/admin/inventory"],
+    items: [
       { labelKey: "materialsNav", href: "/admin/inventory/materials" },
       { labelKey: "recipesNav", href: "/admin/inventory/recipes" },
       { labelKey: "productionBatchesNav", href: "/admin/inventory/batches" },
@@ -54,101 +178,53 @@ const NAV_ITEMS: NavItem[] = [
     ],
   },
   {
-    labelKey: "orders",
-    href: "/admin/orders",
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
-      </svg>
-    ),
-  },
-  {
-    labelKey: "accountingNav",
-    href: "/admin/accounting",
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 7.5h6m-6 3h6m-6 3h3M6.75 3.75h10.5A2.25 2.25 0 0119.5 6v12A2.25 2.25 0 0117.25 20.25H6.75A2.25 2.25 0 014.5 18V6A2.25 2.25 0 016.75 3.75z" />
-      </svg>
-    ),
-  },
-  {
-    labelKey: "analytics.navLabel",
-    href: "/admin/analytics",
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.5h4.5v6H3v-6zm6.75-9h4.5v15h-4.5v-15zm6.75 5.25H21v9.75h-4.5V9.75z" />
-      </svg>
-    ),
-  },
-  {
-    labelKey: "deliveryNav",
-    href: "/admin/delivery",
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm10.5 0a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3 6.75h11.25v8.25H3V6.75zm11.25 3h3.57c.4 0 .78.19 1.02.51l2.16 2.88v1.86h-6.75V9.75zM5.25 18.75H3.75a.75.75 0 01-.75-.75v-3h18v3a.75.75 0 01-.75.75h-1.5m-10.5 0h7.5" />
-      </svg>
-    ),
-    activeHrefs: ["/admin/econt", "/admin/speedy"],
-    children: [
-      { labelKey: "econtNav", href: "/admin/delivery/econt", activeHrefs: ["/admin/econt"] },
-      { labelKey: "speedyNav", href: "/admin/delivery/speedy", activeHrefs: ["/admin/speedy"] },
+    key: "finance",
+    labelKey: "financeNav",
+    icon: <AccountingIcon />,
+    items: [
+      { labelKey: "accountingNav", href: "/admin/accounting", icon: <AccountingIcon /> },
+      { labelKey: "paymentSettingsNav", href: "/admin/settings/payments", icon: <PaymentIcon /> },
     ],
   },
   {
-    labelKey: "paymentSettingsNav",
-    href: "/admin/settings/payments",
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5m-18 3.75h16.5m-14.25 4.5h3.75m3 0h4.5M4.5 6h15a1.5 1.5 0 011.5 1.5v9A1.5 1.5 0 0119.5 18h-15A1.5 1.5 0 013 16.5v-9A1.5 1.5 0 014.5 6z" />
-      </svg>
-    ),
-  },
-  {
-    labelKey: "taxonomy.navLabel",
-    href: "/admin/taxonomy",
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6z" />
-      </svg>
-    ),
-  },
-  {
-    labelKey: "atelierNav",
-    href: "/admin/atelier",
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75c-2.7-1.8-5.25-1.8-7.5-.45v11.4c2.25-1.35 4.8-1.35 7.5.45m0-11.4c2.7-1.8 5.25-1.8 7.5-.45v11.4c-2.25-1.35-4.8-1.35-7.5.45m0-11.4v11.4" />
-      </svg>
-    ),
-  },
-  {
-    labelKey: "faqNav",
-    href: "/admin/faq",
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.178-.43.326-.67.442-.745.361-1.451.999-1.451 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
-      </svg>
-    ),
-  },
-  {
-    labelKey: "promotionsNav",
-    href: "/admin/promotions",
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6z" />
-      </svg>
-    ),
+    key: "pages",
+    labelKey: "pagesNav",
+    icon: <PagesIcon />,
+    items: [
+      { labelKey: "atelierNav", href: "/admin/atelier", icon: <PagesIcon /> },
+      { labelKey: "faqNav", href: "/admin/faq", icon: <HelpIcon /> },
+    ],
   },
 ];
 
-export function AdminSidebar() {
+const DEFAULT_EXPANDED_GROUPS = {
+  work: true,
+  catalog: true,
+  inventoryProduction: true,
+  finance: true,
+  pages: true,
+};
+
+interface AdminSidebarProps {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}
+
+export function AdminSidebar({ open, onOpenChange }: AdminSidebarProps = {}) {
   const t = useTranslations("admin");
   const pathname = usePathname();
   const { user } = useAdmin();
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(true);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(DEFAULT_EXPANDED_GROUPS);
+  const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
+  const sidebarOpen = open ?? internalOpen;
+  const setSidebarOpen = onOpenChange ?? setInternalOpen;
+
+  function closeOnMobile() {
+    if (typeof window === "undefined" || window.innerWidth < 1024) {
+      setSidebarOpen(false);
+    }
+  }
 
   function isActive(href: string, activeHrefs: string[] = []): boolean {
     const candidates = [href, ...activeHrefs];
@@ -158,13 +234,96 @@ export function AdminSidebar() {
     });
   }
 
+  function isCurrentLink(href: string, activeHrefs: string[] = []): boolean {
+    return pathname === href || activeHrefs.includes(pathname);
+  }
+
+  function isItemActive(item: NavItem): boolean {
+    return isActive(item.href, item.activeHrefs) || (item.children?.some((child) => isActive(child.href, child.activeHrefs)) ?? false);
+  }
+
+  function isGroupActive(group: NavGroup): boolean {
+    return (group.activeHrefs?.some((href) => isActive(href)) ?? false) || group.items.some(isItemActive);
+  }
+
+  function toggleGroup(groupKey: string) {
+    setExpandedGroups((current) => ({ ...current, [groupKey]: !current[groupKey] }));
+  }
+
+  function toggleItem(itemKey: string) {
+    setExpandedItems((current) => ({ ...current, [itemKey]: !current[itemKey] }));
+  }
+
+  function renderItem(item: NavItem) {
+    const itemActive = isItemActive(item);
+    const itemExpanded = Boolean(expandedItems[item.href] || itemActive);
+    const linkClassName = cn(
+      "flex min-h-10 w-full items-center rounded-brand px-3 py-2.5 text-left text-sm font-medium transition-colors duration-fast",
+      itemActive ? "bg-muted-gold/10 text-charcoal" : "text-soft-brown hover:bg-champagne-beige/50 hover:text-charcoal"
+    );
+
+    if (!item.children) {
+      return (
+        <Link
+          key={item.href}
+          href={item.href}
+          onClick={closeOnMobile}
+          className={linkClassName}
+          aria-current={isCurrentLink(item.href, item.activeHrefs) ? "page" : undefined}
+        >
+          <span>{t(item.labelKey)}</span>
+        </Link>
+      );
+    }
+
+    const itemLabel = t(item.labelKey);
+
+    return (
+      <div key={item.href}>
+        <button
+          type="button"
+          onClick={() => toggleItem(item.href)}
+          className={linkClassName}
+          aria-label={t(itemExpanded ? "collapseNavGroup" : "expandNavGroup", { group: itemLabel })}
+          aria-expanded={itemExpanded}
+        >
+          <span className="flex-1">{itemLabel}</span>
+          <ChevronIcon expanded={itemExpanded} />
+        </button>
+        {itemExpanded && (
+          <div className="ml-4 mt-1 space-y-1 border-l border-champagne-beige pl-3">
+            {item.children.map((child) => {
+              const childActive = isActive(child.href, child.activeHrefs);
+              return (
+                <Link
+                  key={child.href}
+                  href={child.href}
+                  onClick={closeOnMobile}
+                  className={cn(
+                    "flex min-h-9 items-center rounded-brand px-3 py-2 text-sm font-medium transition-colors duration-fast",
+                    childActive ? "bg-muted-gold/10 text-charcoal" : "text-soft-brown hover:bg-champagne-beige/50 hover:text-charcoal"
+                  )}
+                  aria-current={childActive ? "page" : undefined}
+                >
+                  {t(child.labelKey)}
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <>
-      {/* Mobile hamburger button */}
       <button
         type="button"
-        onClick={() => setMobileOpen(true)}
-        className="fixed left-4 top-4 z-50 rounded-brand border border-champagne-beige bg-cream p-2 text-soft-brown shadow-sm lg:hidden"
+        onClick={() => setSidebarOpen(true)}
+        className={cn(
+          "fixed left-4 top-4 z-50 inline-flex h-11 w-11 items-center justify-center rounded-brand border border-champagne-beige bg-cream text-soft-brown shadow-sm transition-colors hover:bg-champagne-beige/50 hover:text-charcoal",
+          sidebarOpen && "hidden"
+        )}
         aria-label={t("openNavMenu")}
       >
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
@@ -172,94 +331,67 @@ export function AdminSidebar() {
         </svg>
       </button>
 
-      {/* Mobile overlay */}
-      {mobileOpen && (
+      {sidebarOpen && (
         <div
           className="fixed inset-0 z-40 bg-charcoal/30 lg:hidden"
-          onClick={() => setMobileOpen(false)}
+          onClick={() => setSidebarOpen(false)}
           aria-hidden="true"
         />
       )}
 
-      {/* Sidebar */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-champagne-beige bg-cream transition-transform duration-200",
-          mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+          "fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-champagne-beige bg-cream transition-transform duration-200",
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        {/* Logo / Brand */}
-        <div className="flex h-16 items-center justify-between border-b border-champagne-beige px-6">
-          <Link href="/admin" className="flex items-center gap-2">
-            <span className="font-heading text-lg font-semibold text-charcoal">
-              Atelier Marie
-            </span>
-            <span className="rounded-pill bg-muted-gold/20 px-2 py-0.5 text-xs font-medium text-muted-gold">
-              {t("title")}
-            </span>
-          </Link>
-          {/* Mobile close button */}
-          <button
-            type="button"
-            onClick={() => setMobileOpen(false)}
-            className="rounded-brand p-1 text-soft-brown hover:bg-champagne-beige/50 lg:hidden"
-            aria-label={t("closeNavMenu")}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+        <div className="border-b border-champagne-beige p-3">
+          <div className="mb-3 flex items-center justify-end">
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(false)}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-brand text-soft-brown transition-colors hover:bg-champagne-beige/50 hover:text-charcoal"
+              aria-label={t("closeNavMenu")}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+              </svg>
+            </button>
+          </div>
         </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 space-y-1 px-3 py-4">
-          {NAV_ITEMS.map((item) => {
-            const itemActive = isActive(item.href, item.activeHrefs);
+        <nav className="flex-1 space-y-2 overflow-y-auto px-3 py-4">
+          {NAV_GROUPS.map((group) => {
+            const groupActive = isGroupActive(group);
+            const groupExpanded = Boolean(expandedGroups[group.key] || groupActive);
+            const groupLabel = t(group.labelKey);
+
             return (
-              <div key={item.href}>
-                <Link
-                  href={item.href}
-                  onClick={() => setMobileOpen(false)}
+              <section key={group.key} aria-label={groupLabel}>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group.key)}
                   className={cn(
-                    "flex items-center gap-3 rounded-brand px-3 py-2.5 text-sm font-medium transition-colors duration-fast",
-                    itemActive
-                      ? "bg-muted-gold/10 text-charcoal"
-                      : "text-soft-brown hover:bg-champagne-beige/50 hover:text-charcoal"
+                    "flex w-full items-center gap-3 rounded-brand px-3 py-2 text-xs font-semibold uppercase tracking-wide transition-colors duration-fast",
+                    groupActive ? "bg-muted-gold/15 text-charcoal" : "text-soft-brown hover:bg-champagne-beige/50 hover:text-charcoal"
                   )}
-                  aria-current={pathname === item.href ? "page" : undefined}
+                  aria-expanded={groupExpanded}
+                  aria-label={t(groupExpanded ? "collapseNavGroup" : "expandNavGroup", { group: groupLabel })}
                 >
-                  {item.icon}
-                  <span>{t(item.labelKey)}</span>
-                </Link>
-                {item.children && (
-                  <div className="ml-8 mt-1 space-y-1 border-l border-champagne-beige pl-3">
-                    {item.children.map((child) => {
-                      const childActive = isActive(child.href, child.activeHrefs);
-                      return (
-                        <Link
-                          key={child.href}
-                          href={child.href}
-                          onClick={() => setMobileOpen(false)}
-                          className={cn(
-                            "flex rounded-brand px-3 py-2 text-sm font-medium transition-colors duration-fast",
-                            childActive
-                              ? "bg-muted-gold/10 text-charcoal"
-                              : "text-soft-brown hover:bg-champagne-beige/50 hover:text-charcoal"
-                          )}
-                          aria-current={childActive ? "page" : undefined}
-                        >
-                          {t(child.labelKey)}
-                        </Link>
-                      );
-                    })}
+                  {group.icon}
+                  <span className="flex-1 text-left">{groupLabel}</span>
+                  <ChevronIcon expanded={groupExpanded} />
+                </button>
+                {groupExpanded && (
+                  <div className="ml-4 mt-1 space-y-1 border-l border-champagne-beige pl-3">
+                    {group.items.map(renderItem)}
                   </div>
                 )}
-              </div>
+              </section>
             );
           })}
         </nav>
 
-        {/* User info */}
         <div className="border-t border-champagne-beige p-4">
           <div className="flex items-center gap-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted-gold/20 text-sm font-medium text-muted-gold">
@@ -274,15 +406,6 @@ export function AdminSidebar() {
               </p>
             </div>
           </div>
-          <Link
-            href="/"
-            className="mt-3 flex w-full items-center gap-2 rounded-brand px-3 py-2 text-sm text-soft-brown hover:bg-champagne-beige/50 hover:text-charcoal"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
-            </svg>
-            {t("backToStore")}
-          </Link>
         </div>
       </aside>
     </>

@@ -275,7 +275,6 @@ export default function AdminOrdersPage() {
           <h1 className="font-heading text-2xl font-semibold text-charcoal">
             {t("orders")}
           </h1>
-          <AdminInfoPopover content={t("ordersHelp.page")} />
         </div>
       </div>
 

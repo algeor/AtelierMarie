@@ -6,7 +6,6 @@ import { getAdminStats } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
 import { formatPrice } from "@/lib/utils";
-import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
 import { StatsCard, StatsCardSkeleton } from "@/components/admin/StatsCard";
 import type { AdminStats } from "@/lib/types";
 
@@ -33,7 +32,6 @@ export default function AdminDashboardPage() {
           <h1 className="font-heading text-2xl font-semibold text-charcoal">
             {t("dashboard")}
           </h1>
-          <AdminInfoPopover content={t("storeOverview")} />
         </div>
       </div>
 
