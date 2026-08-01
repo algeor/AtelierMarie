@@ -197,6 +197,29 @@ categories: sales revenue, shipping revenue, discounts/contra-revenue, refunds,
 VAT payable, processor fees, courier fees, COD receivable, Stripe clearing,
 bank deposits, and unresolved differences.
 
+### Expense evidence and practical product costing
+
+- Supplier invoices and receipts are accounting evidence, not just admin notes.
+  The hub should track material purchases, jars, labels, packaging, tools,
+  subscriptions, ads, courier/provider costs, and owner reimbursements.
+- Expense records should preserve supplier, document number/date, purchase date,
+  payment status/date, category, net/tax/gross amounts, currency, attachment
+  reference, and review state.
+- This should not become full accounts payable in MVP. It should give the
+  accountant the purchase evidence and let the owner see real monthly spending.
+- Product costing should start as management reporting: product cost snapshots or
+  recipe/BOM-style estimates for wax, fragrance oil, jars, labels, packaging,
+  optional labor, and optional overhead.
+- Estimated COGS/gross margin can be useful, but it must be labeled as an
+  estimate unless the accountant reviews the costing method. Official inventory
+  valuation, FIFO/weighted-average costing, waste accounting, and stock
+  capitalization should be separate later work.
+
+Implementation implication: include an Expense Evidence Register in the first
+Accounting & Finance Hub, and add optional product-cost estimate hooks. Export
+expense evidence to the accountant. Export product cost/margin sheets only when
+enabled and clearly labeled as estimate/accountant-reviewed status.
+
 ## Gold-Standard Functionality Ideas
 
 ### Core finance dashboard
@@ -282,6 +305,10 @@ Keep for implementation proposal:
 - COD/courier settlement tracking because Atelier Marie uses pay on delivery and
   courier integrations.
 - Stripe fee/payout reconciliation because card payments are in scope.
+- Expense evidence register for supplier invoices/receipts, material purchases,
+  packaging, tools, subscriptions, ads, payment status, and attachment references.
+- Optional product-cost estimates for practical margin reporting, clearly labeled
+  as estimates unless accountant-reviewed.
 - Immutable export versions, audit trail, and manual notes.
 - Configurable legal/tax settings reviewed by accountant; no hard-coded legal
   thresholds beyond stable constants such as ISO currency codes.
@@ -295,8 +322,9 @@ Defer or avoid:
   uncertain cases, but accountant remains final reviewer.
 - Direct QuickBooks/Xero API integration in MVP. Export files are more reliable
   and cheaper to validate first.
-- Inventory valuation/COGS unless product cost snapshots already exist and the
-  accountant asks for it. Keep hooks for later.
+- Official inventory valuation/accounting-grade COGS postings. Keep practical
+  cost estimates, but do not claim FIFO, weighted-average costing, stock
+  capitalization, or official tax/accounting treatment in MVP.
 
 ## Current Atelier Marie Fit
 
@@ -315,8 +343,9 @@ Existing/recently changed code already contains a narrow accounting report base:
 Proposal implication: the new change should not replace these report endpoints.
 It should turn them into part of a broader finance close/export system:
 
-- Add missing ledgers: sales lines, payments, Stripe payouts/fees, tax/fiscal
-  documents, export packages, and exceptions.
+- Add missing ledgers: sales lines, payments, Stripe payouts/fees, expense
+  evidence, optional product-cost estimates, tax/fiscal documents, export
+  packages, and exceptions.
 - Keep the existing return/refund/COD/courier reports as package tabs/files.
 - Add period close/export metadata and immutable export versions.
 - Add UI workflow for owner/accountant handoff instead of only ad hoc CSV links.
@@ -324,10 +353,11 @@ It should turn them into part of a broader finance close/export system:
 ## Proposed Website Prompt / Product Brief
 
 Build an admin-only Accounting & Finance Hub for Atelier Marie that turns order,
-payment, courier, refund, return, and document data into a monthly
-accountant-ready export package. The feature must keep sales, payments, payouts,
-tax/fiscal documents, and operational exceptions separate, because revenue,
-cash received, and processor/courier settlements happen on different timelines.
+payment, courier, refund, return, expense, product-cost estimate, and document
+data into a monthly accountant-ready export package. The feature must keep
+sales, payments, payouts, expenses, product-cost estimates, tax/fiscal documents,
+and operational exceptions separate, because revenue, cash received, supplier
+purchases, and processor/courier settlements happen on different timelines.
 
 The first version should not be a full accounting system and should not provide
 legal/tax advice. It should be a reliable source-data and reconciliation layer:
@@ -335,10 +365,12 @@ capture immutable order/payment snapshots, classify rows using accountant-review
 settings, flag missing or inconsistent evidence, and export XLSX/CSV/JSON packages
 with totals, row counts, hashes, and change history. It should support domestic
 Bulgarian e-commerce first, Stripe card payments, pay-on-delivery/COD courier
-settlement, refunds/returns, courier fees/claims, and future EU cross-border VAT
-data capture without hard-coding tax thresholds.
+settlement, refunds/returns, courier fees/claims, supplier invoices/receipts,
+materials/packaging expense tracking, optional product-cost estimates, and future
+EU cross-border VAT data capture without hard-coding tax thresholds.
 
 Primary user outcome: at month end, the owner opens one screen, resolves review
 items, generates a versioned export, and sends the accountant a package that
 contains all sales, VAT/fiscal document references, payments, payouts, fees,
-refunds, COD/courier settlements, and exception notes needed to book the month.
+refunds, COD/courier settlements, expenses, optional estimated margin data, and
+exception notes needed to book the month.

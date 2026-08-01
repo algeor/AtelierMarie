@@ -257,6 +257,21 @@ def _clean_tables(db_path, app):
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA foreign_keys=ON")
     for table in (
+        "product_cost_components",
+        "product_cost_versions",
+        "finance_exceptions",
+        "finance_export_packages",
+        "stripe_balance_transactions",
+        "accounting_documents",
+        "expense_evidence",
+        "finance_audit_events",
+        "finance_periods",
+        "accounting_category_mappings",
+        "product_cost_settings",
+        "expense_evidence_settings",
+        "accounting_export_schema_settings",
+        "vat_fiscal_settings_versions",
+        "seller_legal_profile_versions",
         "order_email_send_claims",
         "order_emails",
         "contact_messages",

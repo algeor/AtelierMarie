@@ -44,6 +44,28 @@ The system SHALL provide COD and courier settlement ledger rows for delivered pa
 - **WHEN** Econt trace evidence contains collected or paid COD amounts
 - **THEN** the COD ledger displays the evidence fields separately from the explicit admin settlement record
 
+### Requirement: Expense evidence ledger
+The system SHALL provide an admin-only expense evidence ledger for supplier invoices, receipts, material purchases, packaging, tools/equipment, subscriptions, ads, courier/provider charges, owner reimbursements, and other accountant-relevant expenses. Rows SHALL include expense id, supplier name, supplier identifier when available, document number/reference, document date, purchase date, payment date when paid, payment status, category mapping, net amount, tax/VAT amount, gross amount, currency, attachment/file reference when available, linked product/material/courier/order context when available, review status, and audit metadata.
+
+#### Scenario: Material purchase appears in expense ledger
+- **WHEN** an admin records a wax supplier invoice with purchase date, gross amount, VAT amount, category, and file reference
+- **THEN** the expense ledger includes the supplier, document reference, amounts, currency, category mapping, file reference status, and review status for the selected period
+
+#### Scenario: Unpaid expense remains separate from cash movement
+- **WHEN** an expense is recorded for a supplier invoice but payment status is `unpaid`
+- **THEN** the expense ledger includes the purchase evidence while payment/cash summaries do not treat it as paid until a payment date or payment evidence is recorded
+
+### Requirement: Product cost estimate ledger
+The system SHALL provide optional product-cost estimate rows for management reporting when costing is enabled. Rows SHALL include product id/SKU, product name snapshot, effective cost version, costing basis (`manual_snapshot`, `recipe_bom`, or `imported_estimate`), material cost, packaging cost, optional labor estimate, optional overhead estimate, estimated unit cost, currency, review status, source expense/material references when available, and a flag showing whether the value is accountant-reviewed. The system SHALL label these rows as estimates and SHALL NOT treat them as official inventory valuation or accounting-grade COGS postings.
+
+#### Scenario: Sold product receives estimated cost
+- **WHEN** a sold candle has an effective reviewed product-cost snapshot for the order date
+- **THEN** the product cost estimate ledger includes the estimated unit cost, quantity sold, estimated total cost, and estimated gross margin linked to the sales ledger row
+
+#### Scenario: Missing product cost creates review warning
+- **WHEN** product-cost estimates are enabled and a sold product has no effective cost snapshot
+- **THEN** the ledger marks the product cost as missing and creates a review warning according to the configured costing policy
+
 ### Requirement: Accounting document ledger
 The system SHALL provide an accounting document ledger for invoices, credit notes, fiscal receipt references, alternative sales-registration document references, accountant-supplied documents, and external fiscal/accounting system documents. Rows SHALL include document type, document number, source system, issue date, linked order/refund/period, currency, net amount, tax amount, gross amount, status, file reference when available, and notes.
 
@@ -56,7 +78,7 @@ The system SHALL provide an accounting document ledger for invoices, credit note
 - **THEN** the document ledger requires and stores an unambiguous reference to the original invoice or fiscal document being corrected
 
 ### Requirement: Ledger date basis
-The system SHALL allow admins to filter ledger views by the appropriate date basis for each ledger: order date for sales, payment/refund event date for payments, payout effective/arrival date for provider payouts, settlement date for COD/courier settlements, and issue date for documents.
+The system SHALL allow admins to filter ledger views by the appropriate date basis for each ledger: order date for sales, payment/refund event date for payments, payout effective/arrival date for provider payouts, settlement date for COD/courier settlements, purchase/document/payment date for expenses, order date or costing effective date for product-cost estimates, and issue date for documents.
 
 #### Scenario: Payment date differs from order date
 - **WHEN** an order is placed in one month and paid in the next month

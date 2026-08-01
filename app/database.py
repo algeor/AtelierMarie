@@ -281,6 +281,21 @@ CREATE TABLE IF NOT EXISTS orders (
     payment_return_token TEXT UNIQUE,
     stripe_checkout_session_id TEXT,
     stripe_payment_intent_id   TEXT,
+    invoice_profile_json TEXT,
+    accounting_currency TEXT NOT NULL DEFAULT 'EUR',
+    seller_legal_profile_version_id INTEGER REFERENCES seller_legal_profile_versions(id),
+    vat_fiscal_settings_version_id INTEGER REFERENCES vat_fiscal_settings_versions(id),
+    accounting_classification_state TEXT NOT NULL DEFAULT 'unreviewed'
+                    CHECK (accounting_classification_state IN (
+                        'unreviewed', 'domestic_default', 'business_vat_id_provided',
+                        'cross_border_candidate', 'manual_review_required'
+                    )),
+    accounting_snapshot_json TEXT,
+    accounting_readiness_status TEXT NOT NULL DEFAULT 'unreviewed'
+                    CHECK (accounting_readiness_status IN (
+                        'unreviewed', 'ready', 'review_required', 'blocked'
+                    )),
+    finance_period_id TEXT REFERENCES finance_periods(id) ON DELETE SET NULL,
     analytics_consent INTEGER NOT NULL DEFAULT 0 CHECK (analytics_consent IN (0, 1)),
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
@@ -470,6 +485,306 @@ CREATE TABLE IF NOT EXISTS admin_alerts (
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS finance_periods (
+    id          TEXT PRIMARY KEY,
+    period_start TEXT NOT NULL,
+    period_end   TEXT NOT NULL,
+    currency     TEXT NOT NULL DEFAULT 'EUR',
+    status       TEXT NOT NULL DEFAULT 'open' CHECK (status IN (
+                    'open', 'review', 'closed', 'exported', 'accepted', 'reopened'
+                 )),
+    summary_totals_json TEXT,
+    created_by_admin_id TEXT,
+    updated_by_admin_id TEXT,
+    closed_by_admin_id TEXT,
+    closed_at TEXT,
+    accepted_at TEXT,
+    reopened_from_export_id TEXT,
+    reopen_reason TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK (period_start <= period_end)
+);
+
+CREATE TABLE IF NOT EXISTS finance_audit_events (
+    id          TEXT PRIMARY KEY,
+    actor_user_id TEXT,
+    actor_email TEXT,
+    action      TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_id   TEXT,
+    request_id  TEXT,
+    before_json TEXT,
+    after_json  TEXT,
+    reason      TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS seller_legal_profile_versions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    effective_date TEXT NOT NULL,
+    reviewed    INTEGER NOT NULL DEFAULT 0 CHECK (reviewed IN (0, 1)),
+    company_display_name TEXT,
+    legal_name TEXT,
+    uic_eik    TEXT,
+    vat_identification_number TEXT,
+    registered_address_json TEXT,
+    contact_email TEXT,
+    bank_details_json TEXT,
+    default_currency TEXT NOT NULL DEFAULT 'EUR',
+    created_by_admin_id TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS vat_fiscal_settings_versions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    effective_date TEXT NOT NULL,
+    reviewed    INTEGER NOT NULL DEFAULT 0 CHECK (reviewed IN (0, 1)),
+    vat_mode    TEXT NOT NULL DEFAULT 'unknown' CHECK (vat_mode IN (
+                    'unknown', 'not_registered', 'registered', 'oss_registered'
+                )),
+    oss_mode    TEXT NOT NULL DEFAULT 'not_applicable' CHECK (oss_mode IN (
+                    'not_applicable', 'not_registered', 'registered', 'review_required'
+                )),
+    default_domestic_vat_treatment TEXT,
+    fiscal_document_mode TEXT NOT NULL DEFAULT 'external_reference' CHECK (
+                    fiscal_document_mode IN (
+                        'external_reference', 'app_invoice_reference',
+                        'fiscal_device_reference', 'alternative_sales_document',
+                        'not_configured'
+                    )
+                ),
+    document_rules_json TEXT,
+    threshold_warnings_json TEXT,
+    tolerance_cents INTEGER NOT NULL DEFAULT 1 CHECK (tolerance_cents >= 0),
+    warning_text TEXT,
+    created_by_admin_id TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS accounting_category_mappings (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    mapping_key TEXT NOT NULL UNIQUE,
+    category_code TEXT,
+    category_label TEXT NOT NULL,
+    is_required INTEGER NOT NULL DEFAULT 0 CHECK (is_required IN (0, 1)),
+    reviewed    INTEGER NOT NULL DEFAULT 0 CHECK (reviewed IN (0, 1)),
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS accounting_export_schema_settings (
+    id          TEXT PRIMARY KEY DEFAULT 'default' CHECK (id = 'default'),
+    workbook_language TEXT NOT NULL DEFAULT 'en' CHECK (workbook_language IN ('en', 'bg')),
+    date_format TEXT NOT NULL DEFAULT 'yyyy-mm-dd',
+    decimal_separator TEXT NOT NULL DEFAULT '.' CHECK (decimal_separator IN ('.', ',')),
+    default_period_range TEXT NOT NULL DEFAULT 'monthly',
+    included_tabs_json TEXT,
+    custom_columns_json TEXT,
+    reviewed    INTEGER NOT NULL DEFAULT 0 CHECK (reviewed IN (0, 1)),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS expense_evidence_settings (
+    id          TEXT PRIMARY KEY DEFAULT 'default' CHECK (id = 'default'),
+    required_document_categories_json TEXT,
+    allowed_payment_statuses_json TEXT,
+    default_category_mappings_json TEXT,
+    close_behavior TEXT NOT NULL DEFAULT 'warn' CHECK (close_behavior IN ('warn', 'block')),
+    reviewed    INTEGER NOT NULL DEFAULT 0 CHECK (reviewed IN (0, 1)),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS product_cost_settings (
+    id          TEXT PRIMARY KEY DEFAULT 'default' CHECK (id = 'default'),
+    enabled     INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+    costing_basis TEXT NOT NULL DEFAULT 'manual_snapshot' CHECK (costing_basis IN (
+                    'manual_snapshot', 'recipe_bom', 'imported_estimate'
+                )),
+    include_labor INTEGER NOT NULL DEFAULT 0 CHECK (include_labor IN (0, 1)),
+    include_overhead INTEGER NOT NULL DEFAULT 0 CHECK (include_overhead IN (0, 1)),
+    missing_cost_policy TEXT NOT NULL DEFAULT 'warning' CHECK (missing_cost_policy IN (
+                    'none', 'warning', 'blocking'
+                )),
+    reviewed    INTEGER NOT NULL DEFAULT 0 CHECK (reviewed IN (0, 1)),
+    estimate_label TEXT NOT NULL DEFAULT 'management_estimate',
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS accounting_documents (
+    id          TEXT PRIMARY KEY,
+    document_type TEXT NOT NULL CHECK (document_type IN (
+                    'invoice', 'credit_note', 'fiscal_receipt',
+                    'alternative_sales_document', 'external_document'
+                )),
+    source_system TEXT NOT NULL DEFAULT 'external',
+    document_number TEXT,
+    issue_date TEXT NOT NULL,
+    order_id TEXT REFERENCES orders(id) ON DELETE SET NULL,
+    refund_id TEXT REFERENCES payment_refunds(id) ON DELETE SET NULL,
+    period_id TEXT REFERENCES finance_periods(id) ON DELETE SET NULL,
+    currency TEXT NOT NULL DEFAULT 'EUR',
+    net_amount_cents INTEGER CHECK (net_amount_cents IS NULL OR net_amount_cents >= 0),
+    tax_amount_cents INTEGER CHECK (tax_amount_cents IS NULL OR tax_amount_cents >= 0),
+    gross_amount_cents INTEGER CHECK (gross_amount_cents IS NULL OR gross_amount_cents >= 0),
+    vat_summary_json TEXT,
+    original_document_id TEXT REFERENCES accounting_documents(id) ON DELETE SET NULL,
+    file_reference TEXT,
+    status TEXT NOT NULL DEFAULT 'recorded' CHECK (status IN (
+                    'draft', 'recorded', 'void', 'corrected', 'missing', 'review_required'
+                )),
+    notes TEXT,
+    created_by_admin_id TEXT,
+    updated_by_admin_id TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS stripe_balance_transactions (
+    id          TEXT PRIMARY KEY,
+    provider    TEXT NOT NULL DEFAULT 'stripe' CHECK (provider = 'stripe'),
+    balance_transaction_id TEXT NOT NULL UNIQUE,
+    reporting_category TEXT,
+    transaction_type TEXT,
+    provider_created_at TEXT,
+    available_on TEXT,
+    gross_amount_cents INTEGER NOT NULL,
+    fee_amount_cents INTEGER NOT NULL DEFAULT 0,
+    net_amount_cents INTEGER NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'EUR',
+    payment_intent_id TEXT,
+    charge_id TEXT,
+    provider_refund_id TEXT,
+    dispute_id TEXT,
+    payout_id TEXT,
+    payout_effective_at TEXT,
+    payout_arrival_at TEXT,
+    payout_status TEXT,
+    trace_id TEXT,
+    status TEXT NOT NULL DEFAULT 'imported' CHECK (status IN (
+                    'imported', 'matched', 'unmatched', 'duplicate', 'ignored'
+                )),
+    match_status TEXT NOT NULL DEFAULT 'unmatched' CHECK (match_status IN (
+                    'unmatched', 'matched', 'mismatch', 'duplicate', 'ignored'
+                )),
+    raw_row_json TEXT,
+    imported_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS finance_export_packages (
+    id          TEXT PRIMARY KEY,
+    period_id   TEXT NOT NULL REFERENCES finance_periods(id) ON DELETE CASCADE,
+    version     INTEGER NOT NULL CHECK (version >= 1),
+    schema_version TEXT NOT NULL DEFAULT 'accounting-finance-hub.v1',
+    xlsx_path TEXT,
+    csv_dir_path TEXT,
+    manifest_path TEXT,
+    manifest_json TEXT,
+    generated_by_admin_id TEXT,
+    generated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    accepted_by_admin_id TEXT,
+    accepted_at TEXT,
+    accountant_name TEXT,
+    accountant_reference TEXT,
+    acceptance_note TEXT,
+    current_final INTEGER NOT NULL DEFAULT 1 CHECK (current_final IN (0, 1)),
+    UNIQUE (period_id, version)
+);
+
+CREATE TABLE IF NOT EXISTS expense_evidence (
+    id          TEXT PRIMARY KEY,
+    supplier_name TEXT NOT NULL,
+    supplier_identifier TEXT,
+    document_number TEXT,
+    document_date TEXT,
+    purchase_date TEXT NOT NULL,
+    payment_date TEXT,
+    payment_status TEXT NOT NULL DEFAULT 'unpaid' CHECK (payment_status IN (
+                    'unpaid', 'paid', 'partially_paid', 'reimbursed', 'cancelled'
+                )),
+    category_key TEXT,
+    net_amount_cents INTEGER CHECK (net_amount_cents IS NULL OR net_amount_cents >= 0),
+    tax_amount_cents INTEGER NOT NULL DEFAULT 0 CHECK (tax_amount_cents >= 0),
+    gross_amount_cents INTEGER NOT NULL CHECK (gross_amount_cents >= 0),
+    currency TEXT NOT NULL DEFAULT 'EUR',
+    attachment_reference TEXT,
+    linked_product_id TEXT REFERENCES products(id) ON DELETE SET NULL,
+    linked_material_name TEXT,
+    linked_courier TEXT CHECK (linked_courier IS NULL OR linked_courier IN ('speedy', 'econt')),
+    linked_order_id TEXT REFERENCES orders(id) ON DELETE SET NULL,
+    review_status TEXT NOT NULL DEFAULT 'unreviewed' CHECK (review_status IN (
+                    'unreviewed', 'reviewed', 'missing_document', 'waived', 'rejected'
+                )),
+    notes TEXT,
+    created_by_admin_id TEXT,
+    updated_by_admin_id TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS product_cost_versions (
+    id          TEXT PRIMARY KEY,
+    product_id  TEXT REFERENCES products(id) ON DELETE SET NULL,
+    sku         TEXT,
+    product_name TEXT NOT NULL,
+    effective_date TEXT NOT NULL,
+    costing_basis TEXT NOT NULL DEFAULT 'manual_snapshot' CHECK (costing_basis IN (
+                    'manual_snapshot', 'recipe_bom', 'imported_estimate'
+                )),
+    material_cost_cents INTEGER NOT NULL DEFAULT 0 CHECK (material_cost_cents >= 0),
+    packaging_cost_cents INTEGER NOT NULL DEFAULT 0 CHECK (packaging_cost_cents >= 0),
+    labor_cost_cents INTEGER NOT NULL DEFAULT 0 CHECK (labor_cost_cents >= 0),
+    overhead_cost_cents INTEGER NOT NULL DEFAULT 0 CHECK (overhead_cost_cents >= 0),
+    estimated_unit_cost_cents INTEGER NOT NULL CHECK (estimated_unit_cost_cents >= 0),
+    currency TEXT NOT NULL DEFAULT 'EUR',
+    reviewed INTEGER NOT NULL DEFAULT 0 CHECK (reviewed IN (0, 1)),
+    accountant_reviewed INTEGER NOT NULL DEFAULT 0 CHECK (accountant_reviewed IN (0, 1)),
+    review_status TEXT NOT NULL DEFAULT 'estimate' CHECK (review_status IN (
+                    'estimate', 'reviewed', 'accountant_reviewed', 'archived'
+                )),
+    source_expense_ids_json TEXT,
+    notes TEXT,
+    created_by_admin_id TEXT,
+    updated_by_admin_id TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS product_cost_components (
+    id          TEXT PRIMARY KEY,
+    cost_version_id TEXT NOT NULL REFERENCES product_cost_versions(id) ON DELETE CASCADE,
+    component_type TEXT NOT NULL CHECK (component_type IN (
+                    'material', 'packaging', 'labor', 'overhead', 'waste', 'other'
+                )),
+    description TEXT NOT NULL,
+    quantity REAL CHECK (quantity IS NULL OR quantity >= 0),
+    unit TEXT,
+    unit_cost_cents INTEGER CHECK (unit_cost_cents IS NULL OR unit_cost_cents >= 0),
+    total_cost_cents INTEGER NOT NULL CHECK (total_cost_cents >= 0),
+    source_expense_id TEXT REFERENCES expense_evidence(id) ON DELETE SET NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS finance_exceptions (
+    id          TEXT PRIMARY KEY,
+    period_id   TEXT REFERENCES finance_periods(id) ON DELETE CASCADE,
+    exception_type TEXT NOT NULL,
+    severity    TEXT NOT NULL DEFAULT 'blocking' CHECK (severity IN ('blocking', 'warning')),
+    target_type TEXT,
+    target_id   TEXT,
+    status      TEXT NOT NULL DEFAULT 'open' CHECK (status IN (
+                    'open', 'resolved', 'waived'
+                )),
+    message     TEXT NOT NULL,
+    details_json TEXT,
+    waived_by_admin_id TEXT,
+    waiver_reason TEXT,
+    waived_at TEXT,
+    resolved_at TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_orders_session_id ON orders(session_id);
 CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
@@ -539,6 +854,40 @@ CREATE INDEX IF NOT EXISTS idx_admin_alerts_unread_created
     ON admin_alerts(is_read, created_at);
 CREATE INDEX IF NOT EXISTS idx_admin_alerts_order_id
     ON admin_alerts(order_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_orders_finance_period_id
+    ON orders(finance_period_id);
+CREATE INDEX IF NOT EXISTS idx_orders_accounting_classification
+    ON orders(accounting_classification_state, created_at);
+CREATE INDEX IF NOT EXISTS idx_finance_periods_status_dates
+    ON finance_periods(status, period_start, period_end);
+CREATE INDEX IF NOT EXISTS idx_finance_audit_events_target_created
+    ON finance_audit_events(target_type, target_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_seller_legal_profile_reviewed_effective
+    ON seller_legal_profile_versions(reviewed, effective_date);
+CREATE INDEX IF NOT EXISTS idx_vat_fiscal_settings_reviewed_effective
+    ON vat_fiscal_settings_versions(reviewed, effective_date);
+CREATE INDEX IF NOT EXISTS idx_accounting_documents_order_issue
+    ON accounting_documents(order_id, issue_date);
+CREATE INDEX IF NOT EXISTS idx_accounting_documents_period_issue
+    ON accounting_documents(period_id, issue_date);
+CREATE INDEX IF NOT EXISTS idx_stripe_balance_transactions_payout
+    ON stripe_balance_transactions(payout_id, provider_created_at);
+CREATE INDEX IF NOT EXISTS idx_stripe_balance_transactions_match
+    ON stripe_balance_transactions(match_status, imported_at);
+CREATE INDEX IF NOT EXISTS idx_finance_export_packages_period_version
+    ON finance_export_packages(period_id, version);
+CREATE INDEX IF NOT EXISTS idx_expense_evidence_purchase_category
+    ON expense_evidence(purchase_date, category_key);
+CREATE INDEX IF NOT EXISTS idx_expense_evidence_review_status
+    ON expense_evidence(review_status, purchase_date);
+CREATE INDEX IF NOT EXISTS idx_product_cost_versions_product_effective
+    ON product_cost_versions(product_id, effective_date);
+CREATE INDEX IF NOT EXISTS idx_product_cost_components_version
+    ON product_cost_components(cost_version_id);
+CREATE INDEX IF NOT EXISTS idx_finance_exceptions_period_status
+    ON finance_exceptions(period_id, status, severity);
+CREATE INDEX IF NOT EXISTS idx_finance_exceptions_target
+    ON finance_exceptions(target_type, target_id);
 CREATE INDEX IF NOT EXISTS idx_site_setting_events_key_created
     ON site_setting_events(setting_key, created_at);
 
@@ -885,6 +1234,55 @@ BEGIN
     UPDATE econt_settings SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
 END;
 
+CREATE TRIGGER IF NOT EXISTS finance_periods_updated_at AFTER UPDATE ON finance_periods
+BEGIN
+    UPDATE finance_periods SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS accounting_category_mappings_updated_at
+AFTER UPDATE ON accounting_category_mappings
+BEGIN
+    UPDATE accounting_category_mappings SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS accounting_export_schema_settings_updated_at
+AFTER UPDATE ON accounting_export_schema_settings
+BEGIN
+    UPDATE accounting_export_schema_settings SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS expense_evidence_settings_updated_at
+AFTER UPDATE ON expense_evidence_settings
+BEGIN
+    UPDATE expense_evidence_settings SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS product_cost_settings_updated_at
+AFTER UPDATE ON product_cost_settings
+BEGIN
+    UPDATE product_cost_settings SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS accounting_documents_updated_at AFTER UPDATE ON accounting_documents
+BEGIN
+    UPDATE accounting_documents SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS expense_evidence_updated_at AFTER UPDATE ON expense_evidence
+BEGIN
+    UPDATE expense_evidence SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS product_cost_versions_updated_at AFTER UPDATE ON product_cost_versions
+BEGIN
+    UPDATE product_cost_versions SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS finance_exceptions_updated_at AFTER UPDATE ON finance_exceptions
+BEGIN
+    UPDATE finance_exceptions SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
+END;
+
 CREATE TRIGGER IF NOT EXISTS faq_sections_updated_at AFTER UPDATE ON faq_sections
 BEGIN
     UPDATE faq_sections SET updated_at = datetime('now') WHERE rowid = NEW.rowid;
@@ -1062,6 +1460,21 @@ CREATE TABLE orders_new (
     payment_return_token TEXT UNIQUE,
     stripe_checkout_session_id TEXT,
     stripe_payment_intent_id   TEXT,
+    invoice_profile_json TEXT,
+    accounting_currency TEXT NOT NULL DEFAULT 'EUR',
+    seller_legal_profile_version_id INTEGER REFERENCES seller_legal_profile_versions(id),
+    vat_fiscal_settings_version_id INTEGER REFERENCES vat_fiscal_settings_versions(id),
+    accounting_classification_state TEXT NOT NULL DEFAULT 'unreviewed'
+                    CHECK (accounting_classification_state IN (
+                        'unreviewed', 'domestic_default', 'business_vat_id_provided',
+                        'cross_border_candidate', 'manual_review_required'
+                    )),
+    accounting_snapshot_json TEXT,
+    accounting_readiness_status TEXT NOT NULL DEFAULT 'unreviewed'
+                    CHECK (accounting_readiness_status IN (
+                        'unreviewed', 'ready', 'review_required', 'blocked'
+                    )),
+    finance_period_id TEXT REFERENCES finance_periods(id) ON DELETE SET NULL,
     analytics_consent INTEGER NOT NULL DEFAULT 0 CHECK (analytics_consent IN (0, 1)),
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
@@ -1113,6 +1526,14 @@ _ORDER_COLUMNS = (
     "payment_return_token",
     "stripe_checkout_session_id",
     "stripe_payment_intent_id",
+    "invoice_profile_json",
+    "accounting_currency",
+    "seller_legal_profile_version_id",
+    "vat_fiscal_settings_version_id",
+    "accounting_classification_state",
+    "accounting_snapshot_json",
+    "accounting_readiness_status",
+    "finance_period_id",
     "analytics_consent",
     "created_at",
     "updated_at",
@@ -1158,6 +1579,14 @@ _ORDER_COLUMN_DEFAULTS = {
     "payment_return_token": "NULL",
     "stripe_checkout_session_id": "NULL",
     "stripe_payment_intent_id": "NULL",
+    "invoice_profile_json": "NULL",
+    "accounting_currency": "'EUR'",
+    "seller_legal_profile_version_id": "NULL",
+    "vat_fiscal_settings_version_id": "NULL",
+    "accounting_classification_state": "'unreviewed'",
+    "accounting_snapshot_json": "NULL",
+    "accounting_readiness_status": "'unreviewed'",
+    "finance_period_id": "NULL",
     "analytics_consent": "0",
     "created_at": "datetime('now')",
     "updated_at": "datetime('now')",
@@ -2119,6 +2548,64 @@ def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
             order_columns,
             "stripe_payment_intent_id",
             "stripe_payment_intent_id TEXT",
+        )
+        # Accounting & Finance Hub checkout snapshots. CHECK constraints are
+        # omitted on ALTER ADD COLUMN; model/service validation owns values.
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "invoice_profile_json",
+            "invoice_profile_json TEXT",
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "accounting_currency",
+            "accounting_currency TEXT NOT NULL DEFAULT 'EUR'",
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "seller_legal_profile_version_id",
+            "seller_legal_profile_version_id INTEGER",
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "vat_fiscal_settings_version_id",
+            "vat_fiscal_settings_version_id INTEGER",
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "accounting_classification_state",
+            "accounting_classification_state TEXT NOT NULL DEFAULT 'unreviewed'",
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "accounting_snapshot_json",
+            "accounting_snapshot_json TEXT",
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "accounting_readiness_status",
+            "accounting_readiness_status TEXT NOT NULL DEFAULT 'unreviewed'",
+        )
+        _add_column_if_missing(
+            conn,
+            "orders",
+            order_columns,
+            "finance_period_id",
+            "finance_period_id TEXT",
         )
         # Shipping price + provenance (shipping-pricing — Phase A).
         _add_column_if_missing(

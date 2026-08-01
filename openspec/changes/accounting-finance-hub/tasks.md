@@ -1,15 +1,17 @@
 ## 1. Dependencies And Schema
 
-- [ ] 1.1 Add XLSX generation dependency (`openpyxl`) to backend project dependencies.
-- [ ] 1.2 Add finance period table with period dates, currency, status, snapshot totals, actor fields, and timestamps.
-- [ ] 1.3 Add finance audit event table with actor, action, target, request id, redacted before/after payload, reason, and timestamp.
-- [ ] 1.4 Add seller legal profile version table with effective date, reviewed flag, company identifiers, address, contact, bank details, and default currency.
-- [ ] 1.5 Add VAT/fiscal settings version table with reviewed flag, VAT mode, OSS mode, document reference requirements, thresholds, tolerances, and warning metadata.
-- [ ] 1.6 Add accounting category mapping and export schema settings tables.
-- [ ] 1.7 Add accounting document registry table for invoice, credit note, fiscal receipt, alternative document, and external accountant/fiscal-system references.
-- [ ] 1.8 Add Stripe payout/balance transaction tables with provider ids, reporting category, dates, gross/fee/net amounts, currency, payout id, trace id, status, and match status.
-- [ ] 1.9 Add export package table with period id, version, file paths, manifest metadata, acceptance metadata, actor fields, and timestamps.
-- [ ] 1.10 Add order/accounting snapshot fields needed for invoice profile, settings version references, accounting classification, and readiness status.
+- [x] 1.1 Add XLSX generation dependency (`openpyxl`) to backend project dependencies.
+- [x] 1.2 Add finance period table with period dates, currency, status, snapshot totals, actor fields, and timestamps.
+- [x] 1.3 Add finance audit event table with actor, action, target, request id, redacted before/after payload, reason, and timestamp.
+- [x] 1.4 Add seller legal profile version table with effective date, reviewed flag, company identifiers, address, contact, bank details, and default currency.
+- [x] 1.5 Add VAT/fiscal settings version table with reviewed flag, VAT mode, OSS mode, document reference requirements, thresholds, tolerances, and warning metadata.
+- [x] 1.6 Add accounting category mapping and export schema settings tables.
+- [x] 1.7 Add accounting document registry table for invoice, credit note, fiscal receipt, alternative document, and external accountant/fiscal-system references.
+- [x] 1.8 Add Stripe payout/balance transaction tables with provider ids, reporting category, dates, gross/fee/net amounts, currency, payout id, trace id, status, and match status.
+- [x] 1.9 Add export package table with period id, version, file paths, manifest metadata, acceptance metadata, actor fields, and timestamps.
+- [x] 1.10 Add order/accounting snapshot fields needed for invoice profile, settings version references, accounting classification, and readiness status.
+- [x] 1.11 Add expense evidence tables with supplier, document reference, dates, payment status, category mapping, net/tax/gross amounts, currency, attachment reference, review status, and audit fields.
+- [x] 1.12 Add optional product-cost estimate tables for product cost versions, costing basis, material/packaging/labor/overhead components, effective dates, source expense/material links, reviewed state, and audit fields.
 
 ## 2. Configuration Services
 
@@ -19,6 +21,8 @@
 - [ ] 2.4 Implement export schema settings service for workbook language, date format, decimal separator, included tabs, and custom column names.
 - [ ] 2.5 Add admin API endpoints for accounting configuration read/update/review actions.
 - [ ] 2.6 Add setup-required exceptions when seller profile or VAT/fiscal settings are missing or unreviewed.
+- [ ] 2.7 Implement expense evidence settings for categories that require document evidence, allowed payment statuses, default mappings, and close behavior.
+- [ ] 2.8 Implement product-cost settings for enabled state, costing basis, labor/overhead inclusion, missing-cost policy, reviewed state, and estimate labeling.
 
 ## 3. Checkout And Order Accounting Capture
 
@@ -33,7 +37,7 @@
 
 - [ ] 4.1 Implement finance period CRUD and lifecycle transitions: open, review, closed, exported, accepted, reopened.
 - [ ] 4.2 Implement finance audit event writer and integrate it with period actions.
-- [ ] 4.3 Implement exception engine for missing settings, missing document reference, payment/order mismatch, payout mismatch, COD settlement gaps, refund document gaps, duplicate provider ids, and rounding differences.
+- [ ] 4.3 Implement exception engine for missing settings, missing document reference, payment/order mismatch, payout mismatch, COD settlement gaps, refund document gaps, expense document gaps, duplicate provider ids, missing product costs when configured, and rounding differences.
 - [ ] 4.4 Add exception resolution and waiver actions requiring admin actor and reason.
 - [ ] 4.5 Block period close when blocking exceptions are unresolved or unwaived.
 - [ ] 4.6 Snapshot summary totals when a period closes.
@@ -47,8 +51,10 @@
 - [ ] 5.4 Implement COD/courier settlement ledger service reusing current COD settlement and Econt COD evidence report logic.
 - [ ] 5.5 Implement refund/return/courier claim/inventory adjustment ledger adapters reusing existing accounting report service rows.
 - [ ] 5.6 Implement accounting document ledger service for invoices, credit notes, fiscal receipt references, and external documents.
-- [ ] 5.7 Add date-basis filtering for sales/order date, payment date, payout date, settlement date, and document issue date.
-- [ ] 5.8 Add admin ledger API endpoints with pagination, totals, filters, and no-store cache headers.
+- [ ] 5.7 Implement expense evidence ledger service for supplier invoices/receipts, materials, packaging, tools, subscriptions, ads, courier/provider charges, owner reimbursements, payment status, and attachment references.
+- [ ] 5.8 Implement optional product-cost estimate ledger service with effective cost versions, costing basis, estimated unit cost, estimated total cost, estimated gross margin, and missing-cost warnings.
+- [ ] 5.9 Add date-basis filtering for sales/order date, payment date, payout date, settlement date, expense purchase/document/payment date, product-cost effective date, and document issue date.
+- [ ] 5.10 Add admin ledger API endpoints with pagination, totals, filters, and no-store cache headers.
 
 ## 6. Stripe Payout Reconciliation
 
@@ -68,9 +74,18 @@
 - [ ] 7.5 Add admin API endpoints for order document references and document ledger operations.
 - [ ] 7.6 Add missing-document exceptions based on configured payment method and fiscal mode rules.
 
+## 7A. Expense Evidence And Product Costing
+
+- [ ] 7A.1 Implement expense evidence CRUD service with validation, attachment reference support, payment status changes, category mapping, redaction, and audit events.
+- [ ] 7A.2 Add admin API endpoints for expense list/create/update/review, attachment reference metadata, and payment status updates.
+- [ ] 7A.3 Implement product-cost version CRUD service with manual cost snapshots and recipe/BOM-style component inputs.
+- [ ] 7A.4 Add admin API endpoints for product-cost versions, review state, effective-date lookup, and missing-cost diagnostics.
+- [ ] 7A.5 Link product-cost estimates to sales ledger rows by product id/SKU and order date when costing is enabled.
+- [ ] 7A.6 Ensure product-cost outputs are labeled as estimates unless the costing settings and effective cost version are accountant-reviewed.
+
 ## 8. Export Package Builder
 
-- [ ] 8.1 Implement XLSX workbook builder with summary, ledgers, existing reports, exceptions, settings snapshot, and source metadata sheets.
+- [ ] 8.1 Implement XLSX workbook builder with summary, ledgers, expense evidence, optional product-cost estimates, existing reports, exceptions, settings snapshot, and source metadata sheets.
 - [ ] 8.2 Implement component CSV generation for every export workbook tab.
 - [ ] 8.3 Implement JSON manifest generation with schema version, filters, row counts, totals, file list, and SHA-256 hashes.
 - [ ] 8.4 Store export package files in a deterministic private exports directory outside public static assets.
@@ -78,17 +93,20 @@
 - [ ] 8.6 Preserve immutable package versions and create new versions after reopen/reclose.
 - [ ] 8.7 Add admin package download endpoint with no-store cache headers and admin authentication.
 - [ ] 8.8 Add accountant acceptance action that records acceptance metadata and moves current period to accepted.
+- [ ] 8.9 Include expense evidence CSV/XLSX tabs and optional product-cost estimate/margin CSV/XLSX tabs with estimate/review labels in export packages.
 
 ## 9. Admin Finance Hub Frontend
 
 - [ ] 9.1 Add `/admin/accounting` route with period selector, status banner, summary cards, exception count, and export status.
 - [ ] 9.2 Add finance period create/review/close/reopen/accept controls with required reason fields where applicable.
 - [ ] 9.3 Add exception queue UI with filters, linked order/document/payout context, resolve, and waive actions.
-- [ ] 9.4 Add ledger tabs or subpages for sales, payments/refunds, Stripe payouts/fees, COD/courier settlements, documents, and existing return/refund reports.
+- [ ] 9.4 Add ledger tabs or subpages for sales, payments/refunds, Stripe payouts/fees, COD/courier settlements, expenses, product-cost estimates, documents, and existing return/refund reports.
 - [ ] 9.5 Add export history UI with package versions, manifest summary, download actions, and acceptance metadata.
 - [ ] 9.6 Add accounting settings UI for seller profile, VAT/fiscal mode, category mappings, export schema, reviewed state, and redacted bank details.
 - [ ] 9.7 Add i18n strings for English and Bulgarian admin accounting UI.
 - [ ] 9.8 Add Accounting sidebar/navigation entry consistent with the existing admin layout.
+- [ ] 9.9 Add expense evidence UI for supplier invoice/receipt records, payment status, category mapping, attachment reference status, review state, and filters.
+- [ ] 9.10 Add product-cost estimate UI for manual cost snapshots or recipe/BOM-style inputs, effective dates, reviewed state, and missing-cost diagnostics.
 
 ## 10. Admin Orders Integration
 
@@ -105,6 +123,8 @@
 - [ ] 11.3 Add role/actor checks for close, reopen, waive exception, export, and acceptance actions using existing admin identity.
 - [ ] 11.4 Add operational documentation for accountant validation of VAT/fiscal settings and export workflow.
 - [ ] 11.5 Document that certified fiscal-device behavior, NRA filing, and official tax advice are out of scope for this change.
+- [ ] 11.6 Document that product-cost estimates are management reporting unless accountant-reviewed, and official inventory valuation/accounting-grade COGS postings are out of scope.
+- [ ] 11.7 Redact or avoid logging expense attachment contents and supplier bank/payment details unless explicitly included in export rows.
 
 ## 12. Backend Tests
 
@@ -118,6 +138,8 @@
 - [ ] 12.8 Add document registry tests for invoice/fiscal reference CRUD, credit note original-reference validation, and audit events.
 - [ ] 12.9 Add export builder tests for XLSX tabs, CSV components, JSON manifest, hashes, immutable versions, and no overwrite after reopen.
 - [ ] 12.10 Add admin API access-control tests for finance hub, ledgers, settings, export download, and package generation endpoints.
+- [ ] 12.11 Add expense evidence tests for CRUD, required document exceptions, payment status, category mapping, attachment references, redaction, and audit events.
+- [ ] 12.12 Add product-cost estimate tests for effective-date lookup, manual snapshots, recipe/BOM components, missing-cost warnings, estimate labeling, and reviewed state.
 
 ## 13. Frontend Tests And Verification
 
@@ -131,3 +153,5 @@
 - [ ] 13.8 Run backend tests for accounting-related suites.
 - [ ] 13.9 Run frontend tests and typecheck.
 - [ ] 13.10 Manually inspect a generated XLSX/CSV/JSON export package for one seeded period with card, COD, refund, return, courier fee, and document-reference examples.
+- [ ] 13.11 Add frontend tests for expense evidence forms, filters, required-document warnings, payment status changes, and export visibility.
+- [ ] 13.12 Add frontend tests for product-cost estimate forms, missing-cost diagnostics, estimate labels, and margin summary visibility.

@@ -1,18 +1,26 @@
 ## Why
 
 Atelier Marie now has real e-commerce operations: card payments, payment on
-delivery, couriers, refunds, returns, COD settlement, and narrow accounting CSVs.
-The owner needs one month-end finance workflow that turns those operational facts
-into accountant-ready evidence without pretending the website is a full accounting
-or fiscalization system.
+delivery, couriers, refunds, returns, COD settlement, materials/supplier
+purchases, and narrow accounting CSVs. The owner needs one month-end finance
+workflow that turns those operational facts into accountant-ready evidence and
+basic profitability insight without pretending the website is a full accounting,
+inventory valuation, or fiscalization system.
 
 ## What Changes
 
 - Add an admin-only Accounting & Finance Hub for monthly review, close, and
   accountant handoff.
 - Add accounting-oriented ledgers for sales lines, orders, payments, refunds,
-  Stripe payouts/fees, COD/courier settlements, fiscal document references, and
-  review exceptions.
+  Stripe payouts/fees, COD/courier settlements, expense evidence, practical
+  product-cost estimates, fiscal document references, and review exceptions.
+- Add an expense evidence register for supplier invoices/receipts, material
+  purchases, packaging, tools, subscriptions, ads, courier/provider fees, payment
+  status, attachment references, and accountant category mapping.
+- Add optional product-cost estimate support for management reporting: material
+  cost snapshots, recipe/BOM-style inputs, packaging cost, optional labor/overhead
+  estimates, and margin exports clearly labeled as estimates unless reviewed by
+  the accountant.
 - Add accountant-reviewed finance settings: seller legal profile, VAT mode,
   document-numbering mode, fiscal-document mode, export schema settings, and
   account/category mappings.
@@ -38,7 +46,8 @@ or fiscalization system.
 - `accounting-finance-hub`: Admin finance dashboard, monthly period close workflow,
   exception review, and accountant acceptance/reopen states.
 - `accounting-ledgers`: Sales, payment, payout, COD/courier, refund/return, fee,
-  and fiscal-document source ledgers used for accounting exports.
+  expense, product-cost estimate, and fiscal-document source ledgers used for
+  accounting exports.
 - `accountant-export-package`: Versioned accountant handoff packages in XLSX, CSV,
   and JSON manifest formats with totals, row counts, hashes, and audit metadata.
 - `accounting-configuration`: Seller legal profile, VAT/fiscal mode, document
@@ -55,13 +64,14 @@ or fiscalization system.
 ## Impact
 
 - Backend: new accounting services, export package builder, period close records,
-  document registry, settings/audit tables, Stripe payout import/sync, admin
-  finance routes, and reuse of existing refund/COD/courier report services.
+  document registry, expense evidence register, optional product-cost estimate
+  services, settings/audit tables, Stripe payout import/sync, admin finance
+  routes, and reuse of existing refund/COD/courier report services.
 - Frontend: new `/admin/accounting` finance hub, period close/review screens,
   export history, settings page, exception queue, and order-detail finance links.
 - Data: additive SQLite migrations for finance periods, ledger snapshots,
-  document references, payout records, export manifests, category mappings, and
-  audit events.
+  document references, expense records, product-cost snapshots, payout records,
+  export manifests, category mappings, and audit events.
 - Exports: XLSX workbook plus CSV files and JSON manifest; no direct QuickBooks,
   Xero, NRA filing, or fiscal-device integration in MVP.
 - Operations: accountant validates VAT/fiscal settings before production use;

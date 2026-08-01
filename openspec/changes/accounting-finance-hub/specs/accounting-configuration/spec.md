@@ -23,11 +23,26 @@ The system SHALL provide accountant-reviewed VAT/fiscal settings, including VAT 
 - **THEN** the system stores the configured value with effective date and audit event rather than relying on a hard-coded threshold
 
 ### Requirement: Accounting category mappings
-The system SHALL provide configurable category mappings for export rows, including sales revenue, shipping revenue, discounts/contra-revenue, VAT payable, Stripe clearing, Stripe fees, courier fees, COD receivable, refunds, disputes, bank payouts, and unresolved differences.
+The system SHALL provide configurable category mappings for export rows, including sales revenue, shipping revenue, discounts/contra-revenue, VAT payable, Stripe clearing, Stripe fees, courier fees, COD receivable, refunds, disputes, bank payouts, material purchases, packaging purchases, tools/equipment, subscriptions, ads/marketing, owner reimbursement, input VAT evidence, product-cost estimates, missing product cost, and unresolved differences.
 
 #### Scenario: Missing mapping creates warning
 - **WHEN** a ledger row has no configured accounting category mapping
 - **THEN** the export package includes the row but the exception queue flags the missing mapping for accountant review
+
+### Requirement: Expense evidence and product-cost settings
+The system SHALL provide admin-managed settings for expense evidence and optional product-cost estimates, including expense categories that require invoice/receipt evidence, allowed payment statuses, product costing enabled flag, costing basis, whether labor/overhead estimates are included, whether missing product costs block close or create warnings, and reviewed state for accountant-approved costing configuration.
+
+#### Scenario: Expense category requires receipt evidence
+- **WHEN** an admin marks `materials` as requiring invoice or receipt evidence
+- **THEN** expenses in that category without a document reference or file reference create review exceptions before close
+
+#### Scenario: Product costing disabled
+- **WHEN** product-cost estimates are disabled in accounting settings
+- **THEN** sales, period close, and accountant exports do not require product-cost snapshots and do not create missing-cost exceptions
+
+#### Scenario: Product costing enabled as estimate-only
+- **WHEN** product-cost estimates are enabled but not accountant-reviewed
+- **THEN** exports may include estimate sheets only when enabled in export schema settings, and those sheets are labeled as management estimates
 
 ### Requirement: Export schema settings
 The system SHALL provide export schema settings for workbook language, date format, decimal separator, default period range, included tabs/files, and optional accountant-specific column names. Changes SHALL apply only to new export packages.

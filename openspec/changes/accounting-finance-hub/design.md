@@ -17,8 +17,12 @@ The important accounting conclusions are:
 - Bulgaria's e-shop fiscalization rules around VAT Act Art. 118 and Ordinance
   N-18 are payment-method-sensitive and can require fiscal receipts, e-receipts,
   or standardized monthly audit files in specific setups.
+- Supplier purchases, materials, packaging, tools, ads, subscriptions, and other
+  expenses are accounting evidence too. Capturing them in the same hub gives the
+  accountant a fuller monthly handoff and gives the owner useful margin signals.
 - The website should preserve fiscal/accounting evidence and export it clearly,
-  but should not claim to be a certified fiscal device or legal tax engine.
+  but should not claim to be a certified fiscal device, legal tax engine, or
+  official inventory valuation system.
 
 Stakeholders are the owner/admin, the accountant, and future implementers. The
 primary workflow is month end: resolve review items, close a period, generate a
@@ -40,6 +44,12 @@ the month.
   and external accountant/fiscal-system document numbers.
 - Add Stripe payout reconciliation so payment processor fees and payouts are not
   confused with order revenue.
+- Add an expense evidence register for supplier invoices/receipts, materials,
+  packaging, tools, subscriptions, ads, payment status, attachment references,
+  and accountant category mappings.
+- Add optional product-cost estimate support for practical margin reporting using
+  reviewed cost snapshots or recipe/BOM-style inputs, without treating it as
+  official COGS or inventory valuation.
 - Make exports repeatable, versioned, auditable, and human-friendly.
 
 **Non-Goals:**
@@ -50,8 +60,9 @@ the month.
 - No automated tax/legal advice. The app stores configured treatment and flags
   uncertain cases; the accountant remains final reviewer.
 - No direct QuickBooks/Xero API integration in MVP.
-- No inventory valuation or COGS reporting unless a later change adds product cost
-  snapshots.
+- No official inventory valuation, stock capitalization, or accounting-grade COGS
+  postings in MVP. Product-cost output is management reporting unless the
+  accountant explicitly reviews and accepts the costing method.
 
 ## Decisions
 
@@ -192,6 +203,30 @@ grow without a clear accounting reason.
 Alternative considered: dump full order JSON. Rejected because it would include
 unnecessary addresses, notes, and phone data.
 
+### 11. Add expense evidence now, and product costing as estimates
+
+Add expense records for supplier invoices/receipts, material purchases,
+packaging, tools/equipment, subscriptions, ads, courier/provider charges, and
+owner reimbursements. Each expense stores supplier, document number/date,
+purchase date, payment date/status, category mapping, currency, net/tax/gross
+amounts, file reference, notes, and audit metadata.
+
+For product costing, support simple cost snapshots and optional recipe/BOM-style
+inputs: material quantity, unit cost, packaging cost, optional labor estimate,
+optional overhead estimate, effective date, source expense/material link, and
+review status. Sales exports can include estimated unit cost and estimated gross
+margin when costing is enabled, but this must be labeled as estimate data.
+
+Rationale: the accountant needs purchase evidence, and the owner needs to know
+whether products are profitable. A lightweight evidence register solves both
+without introducing a full inventory accounting system.
+
+Alternative considered: defer all expense tracking. Rejected because sales-only
+exports do not tell the accountant or owner enough about the month. Alternative
+considered: implement full inventory costing. Rejected because weighted-average,
+FIFO, waste, labor capitalization, and stock valuation require accountant policy
+and a separate inventory design.
+
 ## Risks / Trade-offs
 
 - Legal/fiscal misconfiguration -> require accountant-reviewed settings and keep
@@ -204,6 +239,11 @@ unnecessary addresses, notes, and phone data.
   exceptions when provider data is missing.
 - Dirty operational data from old orders -> include backfill defaults and mark
   legacy rows as `legacy_incomplete` exceptions instead of silently guessing.
+- Missing supplier documents -> allow draft expense records, but flag missing
+  invoice/receipt references before close when the category requires evidence.
+- Misleading margin data -> label product-cost outputs as estimates, store
+  costing basis/effective date, and require review before including them as
+  accountant-facing cost fields.
 - Large export packages -> build ledgers with paginated queries and stream ZIP
   output where practical; enforce date range limits if needed.
 - PII leakage -> redact audit logs and limit export fields to accountant-useful
@@ -211,16 +251,19 @@ unnecessary addresses, notes, and phone data.
 
 ## Migration Plan
 
-1. Add finance settings, document registry, payout/import, period, export package,
-   and audit tables with additive migrations.
+1. Add finance settings, document registry, expense, product-cost snapshot,
+   payout/import, period, export package, and audit tables with additive
+   migrations.
 2. Backfill seller settings as incomplete defaults and create a setup-required
    exception until reviewed.
 3. Add ledger services and tests over existing orders/payments/refunds/COD data.
 4. Add Stripe payout import/sync and manual import fallback.
-5. Add finance hub APIs and admin UI for periods, exceptions, ledgers, settings,
-   and exports.
-6. Add export package generation using XLSX/CSV/JSON and archive file storage.
-7. Add checkout/admin order extensions for optional business invoice fields,
+5. Add expense evidence and product-cost estimate services, ledgers, and review
+   exceptions.
+6. Add finance hub APIs and admin UI for periods, exceptions, ledgers, expenses,
+   product-cost settings, and exports.
+7. Add export package generation using XLSX/CSV/JSON and archive file storage.
+8. Add checkout/admin order extensions for optional business invoice fields,
    document references, and accounting readiness.
 
 Rollback: all schema changes are additive. If the UI is disabled, existing orders,
@@ -239,3 +282,7 @@ already generated remain static artifacts.
   only by admin after order placement in the first implementation?
 - Should historic BGN-era orders be migrated with dual currency display, or are
   all production accounting periods EUR-only?
+- Which expense categories should require an attached invoice/receipt before
+  period close?
+- Should product-cost estimates include labor and overhead now, or only direct
+  materials and packaging for the first implementation?

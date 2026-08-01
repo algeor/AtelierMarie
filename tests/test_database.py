@@ -1,6 +1,7 @@
 """Tests for database layer — schema constraints and utility functions."""
 
 import sqlite3
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -378,6 +379,184 @@ class TestReturnRefundSettlementSchema:
                 VALUES ('cod-settlement-2', ?, 4800, '2026-08-02')
                 """,
                 (order_id,),
+            )
+
+
+class TestAccountingFinanceHubSchema:
+    """Accounting & Finance Hub tables enforce the core evidence model."""
+
+    def test_fresh_db_has_finance_tables_and_order_snapshot_columns(
+        self, db_conn: sqlite3.Connection
+    ):
+        expected_tables = {
+            "finance_periods",
+            "finance_audit_events",
+            "seller_legal_profile_versions",
+            "vat_fiscal_settings_versions",
+            "accounting_category_mappings",
+            "accounting_export_schema_settings",
+            "expense_evidence_settings",
+            "product_cost_settings",
+            "accounting_documents",
+            "stripe_balance_transactions",
+            "finance_export_packages",
+            "expense_evidence",
+            "product_cost_versions",
+            "product_cost_components",
+            "finance_exceptions",
+        }
+        tables = {
+            row[0]
+            for row in db_conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        assert expected_tables.issubset(tables)
+
+        order_columns = {row[1] for row in db_conn.execute("PRAGMA table_info(orders)")}
+        assert {
+            "invoice_profile_json",
+            "accounting_currency",
+            "seller_legal_profile_version_id",
+            "vat_fiscal_settings_version_id",
+            "accounting_classification_state",
+            "accounting_snapshot_json",
+            "accounting_readiness_status",
+            "finance_period_id",
+        }.issubset(order_columns)
+
+    def test_order_accounting_snapshot_defaults(self, db_conn: sqlite3.Connection):
+        db_conn.execute(
+            """
+            INSERT INTO orders (id, session_id, status, total_cents, customer_email)
+            VALUES ('acct-order-defaults', 'acct-session', 'pending', 1000, 'acct@example.com')
+            """
+        )
+        row = db_conn.execute(
+            """
+            SELECT accounting_currency, accounting_classification_state,
+                   accounting_readiness_status
+            FROM orders WHERE id = 'acct-order-defaults'
+            """
+        ).fetchone()
+        assert row == ("EUR", "unreviewed", "unreviewed")
+
+    def test_finance_period_status_and_dates_are_constrained(
+        self, db_conn: sqlite3.Connection
+    ):
+        db_conn.execute(
+            """
+            INSERT INTO finance_periods (id, period_start, period_end, currency, status)
+            VALUES ('period-2026-08', '2026-08-01', '2026-08-31', 'EUR', 'open')
+            """
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            db_conn.execute(
+                """
+                INSERT INTO finance_periods (id, period_start, period_end, status)
+                VALUES ('period-bad-status', '2026-08-01', '2026-08-31', 'draft')
+                """
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            db_conn.execute(
+                """
+                INSERT INTO finance_periods (id, period_start, period_end)
+                VALUES ('period-bad-dates', '2026-09-01', '2026-08-31')
+                """
+            )
+
+    def test_accounting_document_and_credit_note_reference_shape(
+        self, db_conn: sqlite3.Connection
+    ):
+        db_conn.execute(
+            """
+            INSERT INTO accounting_documents (
+                id, document_type, document_number, issue_date, gross_amount_cents
+            ) VALUES ('doc-invoice-1', 'invoice', 'INV-1', '2026-08-03', 2400)
+            """
+        )
+        db_conn.execute(
+            """
+            INSERT INTO accounting_documents (
+                id, document_type, document_number, issue_date,
+                gross_amount_cents, original_document_id
+            ) VALUES ('doc-credit-1', 'credit_note', 'CN-1', '2026-08-04', 1200,
+                      'doc-invoice-1')
+            """
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            db_conn.execute(
+                """
+                INSERT INTO accounting_documents (
+                    id, document_type, issue_date, gross_amount_cents
+                ) VALUES ('doc-bad-type', 'receiptish', '2026-08-03', 2400)
+                """
+            )
+
+    def test_stripe_balance_transaction_provider_id_is_unique(
+        self, db_conn: sqlite3.Connection
+    ):
+        for row_id in ("stripe-btxn-1", "stripe-btxn-2"):
+            with pytest.raises(sqlite3.IntegrityError) if row_id.endswith("2") else nullcontext():
+                db_conn.execute(
+                    """
+                    INSERT INTO stripe_balance_transactions (
+                        id, balance_transaction_id, gross_amount_cents,
+                        fee_amount_cents, net_amount_cents, currency
+                    ) VALUES (?, 'txn_same', 1000, 50, 950, 'EUR')
+                    """,
+                    (row_id,),
+                )
+
+    def test_expense_and_product_cost_constraints(self, db_conn: sqlite3.Connection):
+        db_conn.execute(
+            """
+            INSERT INTO products (id, name_en, price_cents, stock)
+            VALUES ('costed-candle', 'Costed Candle', 3000, 5)
+            """
+        )
+        db_conn.execute(
+            """
+            INSERT INTO expense_evidence (
+                id, supplier_name, purchase_date, payment_status, category_key,
+                gross_amount_cents, tax_amount_cents, linked_product_id
+            ) VALUES ('expense-1', 'Wax Supplier', '2026-08-02', 'unpaid',
+                      'materials', 12000, 2000, 'costed-candle')
+            """
+        )
+        db_conn.execute(
+            """
+            INSERT INTO product_cost_versions (
+                id, product_id, product_name, effective_date, costing_basis,
+                material_cost_cents, packaging_cost_cents, estimated_unit_cost_cents
+            ) VALUES ('cost-version-1', 'costed-candle', 'Costed Candle',
+                      '2026-08-01', 'recipe_bom', 400, 150, 550)
+            """
+        )
+        db_conn.execute(
+            """
+            INSERT INTO product_cost_components (
+                id, cost_version_id, component_type, description, quantity, unit,
+                unit_cost_cents, total_cost_cents, source_expense_id
+            ) VALUES ('cost-component-1', 'cost-version-1', 'material', 'Wax',
+                      0.18, 'kg', 2000, 360, 'expense-1')
+            """
+        )
+
+        with pytest.raises(sqlite3.IntegrityError):
+            db_conn.execute(
+                """
+                INSERT INTO expense_evidence (
+                    id, supplier_name, purchase_date, payment_status, gross_amount_cents
+                ) VALUES ('expense-bad-status', 'Supplier', '2026-08-02', 'waiting', 100)
+                """
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            db_conn.execute(
+                """
+                INSERT INTO product_cost_versions (
+                    id, product_name, effective_date, costing_basis,
+                    estimated_unit_cost_cents
+                ) VALUES ('cost-version-bad', 'Bad', '2026-08-01', 'fifo', 100)
+                """
             )
 
 

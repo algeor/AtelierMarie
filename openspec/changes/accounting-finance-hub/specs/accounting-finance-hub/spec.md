@@ -27,7 +27,7 @@ The system SHALL manage accounting periods with explicit lifecycle states: `open
 - **THEN** the system requires a reopen action with a reason and records the period as `reopened` before any new export version can be created
 
 ### Requirement: Finance summary totals
-The system SHALL show period summary totals for gross sales, discounts, returns/sales reversals, net sales, shipping charged, VAT/tax amount, total customer payments, Stripe fees, courier/COD fees, net provider payouts, COD receivable, refunds pending, and review-required item count. Totals SHALL be calculated from accounting ledgers, not from a single order total field.
+The system SHALL show period summary totals for gross sales, discounts, returns/sales reversals, net sales, shipping charged, VAT/tax amount, total customer payments, Stripe fees, courier/COD fees, net provider payouts, COD receivable, refunds pending, recorded expenses, material/packaging expenses, estimated product cost when enabled, estimated gross margin when enabled, and review-required item count. Totals SHALL be calculated from accounting ledgers, not from a single order total field.
 
 #### Scenario: Summary separates revenue and cash
 - **WHEN** a period contains card orders paid in August but paid out by Stripe in September
@@ -37,8 +37,12 @@ The system SHALL show period summary totals for gross sales, discounts, returns/
 - **WHEN** a delivered payment-on-delivery order has no matching COD settlement record
 - **THEN** the period summary includes the order amount in COD receivable and increments review-required item count
 
+#### Scenario: Summary includes expense and estimated margin totals
+- **WHEN** a period has recorded material purchases and product-cost estimates are enabled
+- **THEN** the period summary shows expenses separately from sales and labels product cost/gross margin totals as estimates unless the costing method is accountant-reviewed
+
 ### Requirement: Accounting exception queue
-The system SHALL compute review exceptions for accounting risks including missing seller legal profile, missing VAT/fiscal classification, missing document reference when required, paid order without payment evidence, provider payment without order match, Stripe payout mismatch, delivered COD order without settlement, COD amount mismatch, refund without document reference when required, duplicate provider ID, and rounding differences above configured tolerance.
+The system SHALL compute review exceptions for accounting risks including missing seller legal profile, missing VAT/fiscal classification, missing document reference when required, paid order without payment evidence, provider payment without order match, Stripe payout mismatch, delivered COD order without settlement, COD amount mismatch, refund without document reference when required, expense missing required supplier document evidence, duplicate provider ID, missing product cost when product costing is configured as required, and rounding differences above configured tolerance.
 
 #### Scenario: Missing fiscal document blocks close
 - **WHEN** a period contains an order that requires a fiscal or invoice document reference but none is recorded
@@ -47,6 +51,10 @@ The system SHALL compute review exceptions for accounting risks including missin
 #### Scenario: Admin waives an exception with reason
 - **WHEN** an admin waives a blocking exception with a reason
 - **THEN** the system records the waiver actor, timestamp, reason, and previous exception state in the finance audit log
+
+#### Scenario: Expense missing receipt is flagged
+- **WHEN** an expense category requires invoice or receipt evidence and a period contains an expense without that reference
+- **THEN** the exception queue shows an expense evidence exception linked to the expense record before period close
 
 ### Requirement: Period close validation
 The system SHALL prevent closing a finance period while blocking exceptions remain unresolved or unwaived. Closing a period SHALL snapshot summary totals and record the close actor and timestamp.

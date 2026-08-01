@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Accountant export package generation
-The system SHALL generate accountant export packages for closed finance periods. Each package SHALL include an XLSX workbook, component CSV files, and a JSON manifest. The package SHALL include summary, sales ledger, payment ledger, payout/fee ledger, COD/courier settlement ledger, refunds/returns, courier claims, inventory adjustments, accounting documents, exceptions, settings snapshot, and source metadata.
+The system SHALL generate accountant export packages for closed finance periods. Each package SHALL include an XLSX workbook, component CSV files, and a JSON manifest. The package SHALL include summary, sales ledger, payment ledger, payout/fee ledger, COD/courier settlement ledger, expense evidence ledger, product-cost estimate ledger when enabled, refunds/returns, courier claims, inventory adjustments, accounting documents, exceptions, settings snapshot, and source metadata.
 
 #### Scenario: Admin generates package for closed period
 - **WHEN** an admin generates an export package for a closed finance period
@@ -31,6 +31,17 @@ The export package SHALL include the existing accounting report outputs for Stri
 #### Scenario: COD report included in export package
 - **WHEN** a package is generated for a period containing COD orders
 - **THEN** the package includes the COD settlement report data with unsettled, settled, mismatch, and Econt evidence fields
+
+### Requirement: Expense and product-cost export sheets
+The export package SHALL include expense evidence rows as XLSX tabs and CSV components when expenses exist in the selected period. The package SHALL include product-cost estimate and estimated margin sheets only when product costing is enabled. Product-cost sheets SHALL clearly identify costing basis, effective cost version, review status, and whether the values are accountant-reviewed or management estimates.
+
+#### Scenario: Expense evidence included in package
+- **WHEN** a closed period contains material and packaging expenses
+- **THEN** the export package includes expense evidence rows with supplier, document reference, date, category, net amount, VAT/tax amount, gross amount, payment status, attachment reference status, and audit metadata
+
+#### Scenario: Product-cost estimates are labeled
+- **WHEN** product-cost estimates are enabled for a closed period
+- **THEN** the export package includes estimated product cost and estimated margin sheets that label the values as estimates unless the costing configuration and cost snapshots are accountant-reviewed
 
 ### Requirement: Export download security
 Export package download endpoints SHALL require admin authentication, use no-store cache headers, and expose files only by export id. Download responses SHALL NOT log file contents or raw customer notes.
