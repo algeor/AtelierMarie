@@ -60,6 +60,24 @@ class OrderItemResponse(BaseModel):
     quantity: int
 
 
+class AdminOrderItemResponse(OrderItemResponse):
+    """Admin item snapshot with inventory and valuation review context."""
+
+    inventory_mode: Literal["legacy", "fallback", "ledger_managed"] = "legacy"
+    ledger_managed: bool = False
+    stock_issue_status: Literal["legacy", "issued", "missing", "reversed"] = "legacy"
+    inventory_movement_ids: list[str] = Field(default_factory=list)
+    source_movement_id: str | None = None
+    finished_batch_id: str | None = None
+    finished_batch_number: str | None = None
+    cogs_row_id: str | None = None
+    cogs_readiness: str = "not_required"
+    valuation_method: str | None = None
+    source_valuation_layer_id: str | None = None
+    inventory_exception_ids: list[str] = Field(default_factory=list)
+    inventory_exception_count: int = 0
+
+
 class InvoiceProfile(BaseModel):
     """Optional checkout invoice/business document profile."""
 
@@ -197,6 +215,7 @@ class OrderListResponse(BaseModel):
 class AdminOrderDetailResponse(OrderResponse):
     """Admin order detail with payment timeline."""
 
+    items: list[AdminOrderItemResponse]
     payment_events: list[dict] = Field(default_factory=list)
     return_cases: list[dict] = Field(default_factory=list)
     return_events: list[dict] = Field(default_factory=list)
@@ -204,6 +223,7 @@ class AdminOrderDetailResponse(OrderResponse):
     cod_settlement: dict | None = None
     cod_settlement_required: bool = False
     econt_cod_evidence: dict | None = None
+    inventory_context: dict | None = None
 
 
 class CreateOrderRequest(BaseModel):

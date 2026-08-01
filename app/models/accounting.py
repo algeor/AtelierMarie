@@ -28,6 +28,7 @@ AccountingLedgerName = Literal[
     "courier_claims",
     "return_reasons",
     "inventory_adjustments",
+    "inventory_movements",
     "documents",
     "expenses",
     "product_costs",

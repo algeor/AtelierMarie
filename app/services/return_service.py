@@ -8,6 +8,14 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
 
+from app.services.order_service import (
+    _insert_inventory_exception,
+    _is_ledger_managed_mode,
+    _order_item_key,
+    _product_inventory_mode,
+    _record_finished_good_movement,
+)
+
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
 
 ReturnReason = Literal[
@@ -515,32 +523,105 @@ def inspect_return_case(
 
     ordered = _ordered_quantities(conn, row["order_id"])
     quantities = _restock_quantities_for_decision(ordered, restock_decision, restock_quantities)
+    non_restock_quantities = {
+        product_id: ordered_quantity - quantities.get(product_id, 0)
+        for product_id, ordered_quantity in ordered.items()
+        if ordered_quantity - quantities.get(product_id, 0) > 0
+    }
     now = _now()
     reason = "return_restock" if restock_decision == "restock" else "return_partial_restock"
     for product_id, quantity in quantities.items():
-        cursor = conn.execute(
-            "UPDATE products SET stock = stock + ? WHERE id = ?",
-            (quantity, product_id),
+        if _is_ledger_managed_mode(_product_inventory_mode(conn, product_id)):
+            _record_finished_good_movement(
+                conn,
+                product_id=product_id,
+                movement_type="return_restock",
+                quantity_delta=quantity,
+                source_type="order_return",
+                source_id=return_id,
+                order_id=row["order_id"],
+                order_item_key=_order_item_key(row["order_id"], product_id),
+                actor_user_id=admin_id,
+                actor_email=admin_email,
+                reason=reason,
+                notes=notes,
+                review_state="reviewed",
+                occurred_at=now,
+                metadata={"restock_decision": restock_decision},
+            )
+        else:
+            cursor = conn.execute(
+                "UPDATE products SET stock = stock + ? WHERE id = ?",
+                (quantity, product_id),
+            )
+            if cursor.rowcount == 0:
+                raise InvalidReturnValueError("product_id", product_id)
+            conn.execute(
+                """
+                INSERT INTO inventory_adjustments (
+                    id, order_id, order_return_id, product_id, quantity, reason,
+                    source, notes, created_by_admin_id
+                ) VALUES (?, ?, ?, ?, ?, ?, 'admin', ?, ?)
+                """,
+                (
+                    str(uuid.uuid4()),
+                    row["order_id"],
+                    return_id,
+                    product_id,
+                    quantity,
+                    reason,
+                    notes,
+                    admin_id,
+                ),
+            )
+
+    for product_id, quantity in non_restock_quantities.items():
+        if not _is_ledger_managed_mode(_product_inventory_mode(conn, product_id)):
+            continue
+        key = _order_item_key(row["order_id"], product_id)
+        received_movement_id = _record_finished_good_movement(
+            conn,
+            product_id=product_id,
+            movement_type="return_restock",
+            quantity_delta=quantity,
+            source_type="order_return",
+            source_id=return_id,
+            order_id=row["order_id"],
+            order_item_key=key,
+            actor_user_id=admin_id,
+            actor_email=admin_email,
+            reason="return_received_for_write_off",
+            notes=notes,
+            review_state="unreviewed",
+            occurred_at=now,
+            metadata={"restock_decision": restock_decision, "write_off_pending": True},
         )
-        if cursor.rowcount == 0:
-            raise InvalidReturnValueError("product_id", product_id)
-        conn.execute(
-            """
-            INSERT INTO inventory_adjustments (
-                id, order_id, order_return_id, product_id, quantity, reason,
-                source, notes, created_by_admin_id
-            ) VALUES (?, ?, ?, ?, ?, ?, 'admin', ?, ?)
-            """,
-            (
-                str(uuid.uuid4()),
-                row["order_id"],
-                return_id,
-                product_id,
-                quantity,
-                reason,
-                notes,
-                admin_id,
-            ),
+        _record_finished_good_movement(
+            conn,
+            product_id=product_id,
+            movement_type="return_write_off",
+            quantity_delta=-quantity,
+            source_type="order_return",
+            source_id=return_id,
+            order_id=row["order_id"],
+            order_item_key=key,
+            actor_user_id=admin_id,
+            actor_email=admin_email,
+            reason="return_not_restocked",
+            notes=notes,
+            reversal_of_movement_id=received_movement_id,
+            review_state="unreviewed",
+            occurred_at=now,
+            metadata={"restock_decision": restock_decision},
+        )
+        _insert_inventory_exception(
+            conn,
+            exception_type="returned_item_write_off_review",
+            message="Returned ledger-managed item was not restocked and needs write-off review.",
+            target_type="product",
+            target_id=product_id,
+            source_type="order_return",
+            source_id=return_id,
         )
 
     conn.execute(

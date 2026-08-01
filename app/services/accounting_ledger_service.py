@@ -20,6 +20,7 @@ _LEDGER_DEFAULT_DATE_BASIS: dict[str, str] = {
     "courier_claims": "created_date",
     "return_reasons": "last_created_date",
     "inventory_adjustments": "created_date",
+    "inventory_movements": "occurred_date",
     "documents": "issue_date",
     "expenses": "purchase_date",
     "product_costs": "order_date",
@@ -34,6 +35,7 @@ _LEDGER_ALLOWED_DATE_BASIS: dict[str, set[str]] = {
     "courier_claims": {"created_date", "updated_date"},
     "return_reasons": {"first_created_date", "last_created_date"},
     "inventory_adjustments": {"created_date"},
+    "inventory_movements": {"occurred_date", "created_date"},
     "documents": {"issue_date"},
     "expenses": {"purchase_date", "document_date", "payment_date"},
     "product_costs": {"order_date", "effective_date"},
@@ -434,6 +436,42 @@ def _product_cost_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[di
     return ledger
 
 
+def _inventory_movement_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, object]]:
+    settings = conn.execute("SELECT * FROM inventory_settings WHERE id = 'default'").fetchone()
+    official = bool(settings and settings["valuation_enabled"] and settings["accountant_reviewed"])
+    rows = conn.execute(
+        """
+        SELECT im.id AS movement_id, substr(im.occurred_at, 1, 10) AS occurred_date,
+               substr(im.created_at, 1, 10) AS created_date,
+               im.item_type, im.item_id,
+               COALESCE(m.name, p.name_en, im.item_id) AS item_name,
+               im.movement_type, im.quantity_delta, im.uom,
+               im.source_type, im.source_id, im.product_id, im.order_id,
+               im.order_item_key, im.material_lot_id, im.reversal_of_movement_id,
+               im.review_state, vl.id AS valuation_layer_id,
+               vl.unit_value_amount, vl.total_value_cents,
+               vl.review_state AS valuation_review_state
+        FROM inventory_movements im
+        LEFT JOIN materials m ON im.item_type = 'material' AND m.id = im.item_id
+        LEFT JOIN products p ON im.item_type = 'finished_good' AND p.id = im.item_id
+        LEFT JOIN inventory_valuation_layers vl ON vl.movement_id = im.id
+        WHERE substr(im.occurred_at, 1, 10) BETWEEN ? AND ?
+        ORDER BY im.occurred_at, im.created_at, im.id
+        """,
+        (period["period_start"], period["period_end"]),
+    ).fetchall()
+    return [
+        {
+            **_row_to_dict(row),
+            "currency": period["currency"],
+            "valuation_method": settings["valuation_method"] if settings else None,
+            "export_label": "official" if official else "estimate_only",
+            "official_inventory_value": official,
+        }
+        for row in rows
+    ]
+
+
 _LEDGER_BUILDERS: dict[str, Callable[[sqlite3.Connection, sqlite3.Row], list[dict[str, object]]]] = {
     "sales": _sales_rows,
     "payments": _payment_rows,
@@ -443,6 +481,7 @@ _LEDGER_BUILDERS: dict[str, Callable[[sqlite3.Connection, sqlite3.Row], list[dic
     "courier_claims": _report_rows(accounting_report_service.courier_fee_claim_rows),
     "return_reasons": _report_rows(accounting_report_service.return_reason_rows),
     "inventory_adjustments": _report_rows(accounting_report_service.inventory_adjustment_rows),
+    "inventory_movements": _inventory_movement_rows,
     "documents": _document_rows,
     "expenses": _expense_rows,
     "product_costs": _product_cost_rows,

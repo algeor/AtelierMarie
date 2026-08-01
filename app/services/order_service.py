@@ -9,7 +9,7 @@ import secrets
 import sqlite3
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Literal, TypedDict, get_args
+from typing import Any, Literal, TypedDict, get_args
 
 import structlog
 
@@ -93,10 +93,18 @@ ADMIN_ACCOUNTING_FILTERS = frozenset(
         "cod_settlement_pending",
         "refund_document_missing",
         "vat_review_required",
+        "missing_batch_assignment",
+        "missing_inventory_movement",
+        "missing_cogs_row",
+        "valuation_exception",
+        "return_inventory_review_pending",
     }
 )
 
 _PAID_ACCOUNTING_STATUSES = {"paid", "partially_refunded", "refunded"}
+
+_LEDGER_MANAGED_MODE = "ledger_managed"
+_FINISHED_GOOD_UOM = "unit"
 
 Locale = Literal["en", "bg"]
 
@@ -133,6 +141,171 @@ def _decode_json_dict(value: str | None, *, order_id: str, field: str) -> dict |
         logger.warning("order_json_field_invalid", order_id=order_id, field=field)
         return None
     return decoded if isinstance(decoded, dict) else None
+
+
+def _order_item_key(order_id: str, product_id: str) -> str:
+    return f"{order_id}:{product_id}"
+
+
+def _ledger_modes_for_products(
+    conn: sqlite3.Connection, product_ids: list[str]
+) -> dict[str, str]:
+    if not product_ids:
+        return {}
+    placeholders = ",".join("?" for _ in product_ids)
+    rows = conn.execute(
+        f"""
+        SELECT product_id, inventory_mode
+        FROM product_inventory_profiles
+        WHERE product_id IN ({placeholders})
+        """,  # noqa: S608 - placeholders are generated from product_ids length.
+        product_ids,
+    ).fetchall()
+    return {row["product_id"]: row["inventory_mode"] for row in rows}
+
+
+def _product_inventory_mode(conn: sqlite3.Connection, product_id: str) -> str:
+    row = conn.execute(
+        "SELECT inventory_mode FROM product_inventory_profiles WHERE product_id = ?",
+        (product_id,),
+    ).fetchone()
+    return row["inventory_mode"] if row is not None else "legacy"
+
+
+def _is_ledger_managed_mode(mode: str | None) -> bool:
+    return mode == _LEDGER_MANAGED_MODE
+
+
+def _insert_inventory_exception(
+    conn: sqlite3.Connection,
+    *,
+    exception_type: str,
+    message: str,
+    target_type: str,
+    target_id: str,
+    source_type: str,
+    source_id: str,
+    severity: str = "warning",
+) -> None:
+    exists = conn.execute(
+        """
+        SELECT 1
+        FROM inventory_exceptions
+        WHERE exception_type = ?
+          AND target_type = ?
+          AND target_id = ?
+          AND source_type = ?
+          AND source_id = ?
+          AND status = 'open'
+        """,
+        (exception_type, target_type, target_id, source_type, source_id),
+    ).fetchone()
+    if exists is not None:
+        return
+    conn.execute(
+        """
+        INSERT INTO inventory_exceptions (
+            id, exception_type, severity, target_type, target_id,
+            source_type, source_id, message
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            str(uuid.uuid4()),
+            exception_type,
+            severity,
+            target_type,
+            target_id,
+            source_type,
+            source_id,
+            message,
+        ),
+    )
+
+
+def _record_finished_good_movement(
+    conn: sqlite3.Connection,
+    *,
+    product_id: str,
+    movement_type: str,
+    quantity_delta: int | float,
+    source_type: str,
+    source_id: str,
+    order_id: str | None = None,
+    order_item_key: str | None = None,
+    actor_user_id: str | None = None,
+    actor_email: str | None = None,
+    reason: str | None = None,
+    notes: str | None = None,
+    reversal_of_movement_id: str | None = None,
+    review_state: str = "reviewed",
+    occurred_at: str | None = None,
+    metadata: dict[str, Any] | None = None,
+    update_stock_cache: bool = True,
+) -> str:
+    if float(quantity_delta) == 0:
+        raise OrderServiceError("Inventory movement quantity must not be zero")
+    movement_id = str(uuid.uuid4())
+    conn.execute(
+        """
+        INSERT INTO inventory_movements (
+            id, item_type, item_id, movement_type, quantity_delta, uom,
+            source_type, source_id, product_id, order_id, order_item_key,
+            actor_user_id, actor_email, reason, notes, reversal_of_movement_id,
+            review_state, occurred_at, metadata_json
+        ) VALUES (?, 'finished_good', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            movement_id,
+            product_id,
+            movement_type,
+            quantity_delta,
+            _FINISHED_GOOD_UOM,
+            source_type,
+            source_id,
+            product_id,
+            order_id,
+            order_item_key,
+            actor_user_id,
+            actor_email,
+            reason,
+            notes,
+            reversal_of_movement_id,
+            review_state,
+            occurred_at or datetime.now(UTC).strftime(_DT_FMT),
+            json.dumps(metadata, separators=(",", ":")) if metadata else None,
+        ),
+    )
+    if update_stock_cache:
+        cursor = conn.execute(
+            "UPDATE products SET stock = stock + ? WHERE id = ?",
+            (quantity_delta, product_id),
+        )
+        if cursor.rowcount == 0:
+            raise ProductUnavailableError(
+                [{"product_id": product_id, "product_name": product_id}]
+            )
+    return movement_id
+
+
+def _sale_issue_movement(
+    conn: sqlite3.Connection,
+    *,
+    order_id: str,
+    product_id: str,
+) -> sqlite3.Row | None:
+    return conn.execute(
+        """
+        SELECT *
+        FROM inventory_movements
+        WHERE order_id = ?
+          AND product_id = ?
+          AND order_item_key = ?
+          AND movement_type = 'sale_issue'
+        ORDER BY occurred_at DESC, created_at DESC, id DESC
+        LIMIT 1
+        """,
+        (order_id, product_id, _order_item_key(order_id, product_id)),
+    ).fetchone()
 
 
 def _accounting_admin_fields(
@@ -753,6 +926,9 @@ def checkout(
         if not cart_rows:
             raise EmptyCartError("Cart is empty")
 
+        cart_product_ids = [row["product_id"] for row in cart_rows]
+        inventory_modes = _ledger_modes_for_products(conn, cart_product_ids)
+
         # 2. Batch-validate all items (collect ALL failures)
         unavailable_failures: list[dict] = []
         stock_failures: list[dict] = []
@@ -1004,10 +1180,29 @@ def checkout(
         # 5. Decrement stock
         for row in cart_rows:
             try:
-                conn.execute(
-                    "UPDATE products SET stock = stock - ? WHERE id = ?",
-                    (row["quantity"], row["product_id"]),
-                )
+                if _is_ledger_managed_mode(inventory_modes.get(row["product_id"], "legacy")):
+                    key = _order_item_key(order_id, row["product_id"])
+                    _record_finished_good_movement(
+                        conn,
+                        product_id=row["product_id"],
+                        movement_type="sale_issue",
+                        quantity_delta=-row["quantity"],
+                        source_type="order_item",
+                        source_id=key,
+                        order_id=order_id,
+                        order_item_key=key,
+                        actor_user_id=user_id,
+                        actor_email=customer_email,
+                        notes="Checkout stock issue",
+                        review_state="reviewed",
+                        occurred_at=now,
+                        metadata={"inventory_mode": _LEDGER_MANAGED_MODE},
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE products SET stock = stock - ? WHERE id = ?",
+                        (row["quantity"], row["product_id"]),
+                    )
             except sqlite3.IntegrityError as e:
                 # CHECK (stock >= 0) constraint violated — race condition.
                 raise InsufficientStockError(
@@ -1021,7 +1216,7 @@ def checkout(
                 ) from e
 
         # 6. Clear cart items for products included in this order
-        product_ids = [row["product_id"] for row in cart_rows]
+        product_ids = cart_product_ids
         placeholders = ",".join("?" * len(product_ids))
         conn.execute(
             f"DELETE FROM cart_items WHERE session_id = ? AND product_id IN ({placeholders})",
@@ -1283,6 +1478,165 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
     )
 
 
+def get_order_inventory_context(conn: sqlite3.Connection, order_id: str) -> dict[str, object]:
+    """Return admin-only inventory context for one order."""
+    item_rows = conn.execute(
+        "SELECT product_id, quantity FROM order_items WHERE order_id = ? ORDER BY product_id",
+        (order_id,),
+    ).fetchall()
+    product_ids = [row["product_id"] for row in item_rows]
+    inventory_modes = _ledger_modes_for_products(conn, product_ids)
+    settings = conn.execute(
+        """
+        SELECT valuation_enabled, valuation_method, accountant_reviewed
+        FROM inventory_settings
+        WHERE id = 'default'
+        """
+    ).fetchone()
+    valuation_method = settings["valuation_method"] if settings else "weighted_average"
+    official_cogs_required = bool(
+        settings and settings["valuation_enabled"] and settings["accountant_reviewed"]
+    )
+
+    movement_rows = conn.execute(
+        """
+        SELECT id, product_id, movement_type, order_item_key, reversal_of_movement_id,
+               source_type, source_id, review_state
+        FROM inventory_movements
+        WHERE order_id = ?
+        ORDER BY occurred_at, created_at, id
+        """,
+        (order_id,),
+    ).fetchall()
+    movements_by_product: dict[str, list[sqlite3.Row]] = {}
+    for movement in movement_rows:
+        if movement["product_id"]:
+            movements_by_product.setdefault(movement["product_id"], []).append(movement)
+
+    cogs_rows = conn.execute(
+        """
+        SELECT id, product_id, source_movement_id, source_valuation_layer_id,
+               source_finished_batch_id, review_state
+        FROM cogs_ledger
+        WHERE order_id = ?
+          AND review_state != 'reversed'
+        ORDER BY created_at, id
+        """,
+        (order_id,),
+    ).fetchall()
+    cogs_by_product: dict[str, sqlite3.Row] = {}
+    for row in cogs_rows:
+        if row["product_id"] and row["product_id"] not in cogs_by_product:
+            cogs_by_product[row["product_id"]] = row
+
+    latest_batches: dict[str, sqlite3.Row] = {}
+    if product_ids:
+        placeholders = ",".join("?" for _ in product_ids)
+        for row in conn.execute(
+            f"""
+            SELECT pip.product_id, pb.id, pb.batch_number
+            FROM product_inventory_profiles pip
+            LEFT JOIN production_batches pb ON pb.id = pip.latest_batch_id
+            WHERE pip.product_id IN ({placeholders})
+            """,  # noqa: S608
+            product_ids,
+        ).fetchall():
+            latest_batches[row["product_id"]] = row
+
+    exception_rows = conn.execute(
+        """
+        SELECT id, exception_type, severity, target_type, target_id, source_type, source_id
+        FROM inventory_exceptions
+        WHERE status = 'open'
+          AND (
+            (target_type = 'order' AND target_id = ?)
+            OR (source_type = 'order' AND source_id = ?)
+            OR (source_type = 'order_item' AND source_id LIKE ?)
+            OR (target_type = 'product' AND target_id IN (
+                SELECT product_id FROM order_items WHERE order_id = ?
+            ))
+          )
+        ORDER BY created_at DESC, id DESC
+        """,
+        (order_id, order_id, f"{order_id}:%", order_id),
+    ).fetchall()
+    exception_ids_by_product: dict[str, list[str]] = {pid: [] for pid in product_ids}
+    order_exception_ids: list[str] = []
+    for exc in exception_rows:
+        order_exception_ids.append(exc["id"])
+        if exc["target_type"] == "product" and exc["target_id"] in exception_ids_by_product:
+            exception_ids_by_product[exc["target_id"]].append(exc["id"])
+        elif exc["source_type"] == "order_item" and exc["source_id"]:
+            product_id = str(exc["source_id"]).split(":", 1)[-1]
+            if product_id in exception_ids_by_product:
+                exception_ids_by_product[product_id].append(exc["id"])
+
+    item_contexts: dict[str, dict[str, object]] = {}
+    missing_movement_count = 0
+    missing_cogs_count = 0
+    for item in item_rows:
+        product_id = item["product_id"]
+        inventory_mode = inventory_modes.get(product_id, "legacy")
+        ledger_managed = _is_ledger_managed_mode(inventory_mode)
+        movements = movements_by_product.get(product_id, [])
+        sale_issue = next((m for m in movements if m["movement_type"] == "sale_issue"), None)
+        cancellation = next(
+            (m for m in movements if m["movement_type"] == "cancellation_reversal"), None
+        )
+        if not ledger_managed:
+            stock_issue_status = "legacy"
+        elif cancellation is not None:
+            stock_issue_status = "reversed"
+        elif sale_issue is not None:
+            stock_issue_status = "issued"
+        else:
+            stock_issue_status = "missing"
+            missing_movement_count += 1
+
+        cogs = cogs_by_product.get(product_id)
+        if cogs is not None:
+            cogs_readiness = cogs["review_state"]
+        elif official_cogs_required and ledger_managed:
+            cogs_readiness = "missing"
+            missing_cogs_count += 1
+        elif ledger_managed:
+            cogs_readiness = "estimate_only"
+        else:
+            cogs_readiness = "not_required"
+
+        batch = latest_batches.get(product_id)
+        item_contexts[product_id] = {
+            "inventory_mode": inventory_mode,
+            "ledger_managed": ledger_managed,
+            "stock_issue_status": stock_issue_status,
+            "inventory_movement_ids": [m["id"] for m in movements],
+            "source_movement_id": sale_issue["id"] if sale_issue else None,
+            "finished_batch_id": batch["id"] if batch and batch["id"] else None,
+            "finished_batch_number": batch["batch_number"] if batch and batch["id"] else None,
+            "cogs_row_id": cogs["id"] if cogs else None,
+            "cogs_readiness": cogs_readiness,
+            "valuation_method": valuation_method if ledger_managed else None,
+            "source_valuation_layer_id": cogs["source_valuation_layer_id"] if cogs else None,
+            "inventory_exception_ids": exception_ids_by_product.get(product_id, []),
+            "inventory_exception_count": len(exception_ids_by_product.get(product_id, [])),
+        }
+
+    return {
+        "valuation_method": valuation_method,
+        "official_cogs_required": official_cogs_required,
+        "missing_inventory_movement_count": missing_movement_count,
+        "missing_cogs_count": missing_cogs_count,
+        "inventory_exception_count": len(order_exception_ids),
+        "inventory_exception_ids": order_exception_ids,
+        "items": item_contexts,
+        "links": {
+            "movements_href": f"/admin/inventory/movements?order_id={order_id}",
+            "cogs_href": f"/admin/inventory/valuation/cogs?order_id={order_id}",
+            "exceptions_href": f"/admin/inventory/valuation/exceptions?order_id={order_id}",
+        },
+    }
+
+
 def get_order(
     conn: sqlite3.Connection,
     order_id: str,
@@ -1527,6 +1881,105 @@ def list_orders_admin(
         conditions.append(
             "accounting_classification_state IN ('cross_border_candidate', 'manual_review_required')"
         )
+    elif accounting_filter == "missing_inventory_movement":
+        conditions.append(
+            """
+            EXISTS (
+                SELECT 1
+                FROM order_items oi
+                JOIN product_inventory_profiles pip
+                  ON pip.product_id = oi.product_id
+                 AND pip.inventory_mode = 'ledger_managed'
+                WHERE oi.order_id = orders.id
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM inventory_movements im
+                    WHERE im.order_id = oi.order_id
+                      AND im.product_id = oi.product_id
+                      AND im.order_item_key = oi.order_id || ':' || oi.product_id
+                      AND im.movement_type = 'sale_issue'
+                  )
+            )
+            """
+        )
+    elif accounting_filter == "missing_cogs_row":
+        conditions.append(
+            """
+            EXISTS (
+                SELECT 1
+                FROM inventory_settings invs
+                WHERE invs.id = 'default'
+                  AND invs.valuation_enabled = 1
+                  AND invs.accountant_reviewed = 1
+            )
+            """
+        )
+        conditions.append(
+            """
+            EXISTS (
+                SELECT 1
+                FROM order_items oi
+                JOIN product_inventory_profiles pip
+                  ON pip.product_id = oi.product_id
+                 AND pip.inventory_mode = 'ledger_managed'
+                WHERE oi.order_id = orders.id
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM cogs_ledger c
+                    WHERE c.order_id = oi.order_id
+                      AND c.product_id = oi.product_id
+                      AND c.review_state != 'reversed'
+                  )
+            )
+            """
+        )
+    elif accounting_filter == "valuation_exception":
+        conditions.append(
+            """
+            EXISTS (
+                SELECT 1
+                FROM inventory_exceptions ie
+                WHERE ie.status = 'open'
+                  AND (
+                    (ie.target_type = 'order' AND ie.target_id = orders.id)
+                    OR (ie.source_type = 'order' AND ie.source_id = orders.id)
+                    OR EXISTS (
+                        SELECT 1
+                        FROM order_items oi
+                        WHERE oi.order_id = orders.id
+                          AND ie.target_type = 'product'
+                          AND ie.target_id = oi.product_id
+                    )
+                  )
+            )
+            """
+        )
+    elif accounting_filter == "missing_batch_assignment":
+        conditions.append(
+            """
+            EXISTS (
+                SELECT 1
+                FROM order_items oi
+                JOIN product_inventory_profiles pip
+                  ON pip.product_id = oi.product_id
+                 AND pip.inventory_mode = 'ledger_managed'
+                WHERE oi.order_id = orders.id
+                  AND pip.latest_batch_id IS NULL
+            )
+            """
+        )
+    elif accounting_filter == "return_inventory_review_pending":
+        conditions.append(
+            """
+            EXISTS (
+                SELECT 1
+                FROM order_returns review_return
+                WHERE review_return.order_id = orders.id
+                  AND review_return.status NOT IN ('closed', 'rejected')
+                  AND review_return.restock_decision = 'pending'
+            )
+            """
+        )
 
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
@@ -1739,16 +2192,46 @@ def update_status(
             (order_id,),
         ).fetchall()
         for item in item_rows:
-            cursor = conn.execute(
-                "UPDATE products SET stock = stock + ? WHERE id = ?",
-                (item["quantity"], item["product_id"]),
-            )
-            if cursor.rowcount == 0:
-                logger.warning(
-                    "Could not restore stock for missing product",
-                    product_id=item["product_id"],
+            product_id = item["product_id"]
+            if _is_ledger_managed_mode(_product_inventory_mode(conn, product_id)):
+                key = _order_item_key(order_id, product_id)
+                issue = _sale_issue_movement(conn, order_id=order_id, product_id=product_id)
+                if issue is None:
+                    _insert_inventory_exception(
+                        conn,
+                        exception_type="missing_sale_issue_movement",
+                        message="Ledger-managed order cancellation has no original sale issue movement.",
+                        target_type="order",
+                        target_id=order_id,
+                        source_type="order_item",
+                        source_id=key,
+                    )
+                _record_finished_good_movement(
+                    conn,
+                    product_id=product_id,
+                    movement_type="cancellation_reversal",
+                    quantity_delta=abs(float(issue["quantity_delta"])) if issue else item["quantity"],
+                    source_type="order_cancellation",
+                    source_id=order_id,
                     order_id=order_id,
+                    order_item_key=key,
+                    reason="order_cancelled",
+                    notes="Cancellation stock reversal",
+                    reversal_of_movement_id=issue["id"] if issue else None,
+                    review_state="reviewed" if issue else "unreviewed",
+                    metadata={"inventory_mode": _LEDGER_MANAGED_MODE},
                 )
+            else:
+                cursor = conn.execute(
+                    "UPDATE products SET stock = stock + ? WHERE id = ?",
+                    (item["quantity"], product_id),
+                )
+                if cursor.rowcount == 0:
+                    logger.warning(
+                        "Could not restore stock for missing product",
+                        product_id=product_id,
+                        order_id=order_id,
+                    )
 
     # Log admin action
     logger.info(

@@ -671,6 +671,41 @@ export default function AdminOrderDetailPage() {
                     <p className="mt-1 text-sm text-soft-brown">
                       {formatPrice(item.price_cents)} x {item.quantity}
                     </p>
+                    {(item.ledger_managed || item.inventory_mode === "ledger_managed") && (
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-soft-brown">
+                        <span className="rounded-pill bg-champagne-beige/60 px-2 py-0.5 capitalize">
+                          {tAdmin("stockIssueStatus")}: {(item.stock_issue_status ?? "missing").replaceAll("_", " ")}
+                        </span>
+                        <span className="rounded-pill bg-champagne-beige/60 px-2 py-0.5 capitalize">
+                          {tAdmin("cogsReadiness")}: {(item.cogs_readiness ?? "not_required").replaceAll("_", " ")}
+                        </span>
+                        {item.valuation_method && (
+                          <span className="rounded-pill bg-champagne-beige/60 px-2 py-0.5 capitalize">
+                            {item.valuation_method.replaceAll("_", " ")}
+                          </span>
+                        )}
+                        {item.finished_batch_id && (
+                          <Link href={`/admin/inventory/batches?product_id=${item.product_id}`} className="font-medium text-charcoal underline-offset-2 hover:underline">
+                            {item.finished_batch_number ?? item.finished_batch_id}
+                          </Link>
+                        )}
+                        {item.source_movement_id && (
+                          <Link href={`/admin/inventory/movements?item_type=finished_good&item_id=${item.product_id}&source_id=${order.id}`} className="font-medium text-charcoal underline-offset-2 hover:underline">
+                            {tAdmin("inventoryMovement")}
+                          </Link>
+                        )}
+                        {item.cogs_row_id && (
+                          <Link href={`/admin/inventory/valuation/cogs?product_id=${item.product_id}`} className="font-medium text-charcoal underline-offset-2 hover:underline">
+                            {tAdmin("cogsRow")}
+                          </Link>
+                        )}
+                        {Boolean(item.inventory_exception_count) && (
+                          <Link href={`/admin/inventory/valuation/exceptions?target_type=product&target_id=${item.product_id}`} className="font-medium text-amber-800 underline-offset-2 hover:underline">
+                            {tAdmin("inventoryExceptions", { count: item.inventory_exception_count ?? 0 })}
+                          </Link>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <span className="whitespace-nowrap font-medium text-charcoal">
                     {formatPrice(item.price_cents * item.quantity)}

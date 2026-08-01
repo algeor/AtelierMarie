@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Image from "next/image";
 import { useTranslations } from "next-intl";
-import { useRouter } from "@/i18n/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { ApiError } from "@/lib/api-client";
@@ -213,6 +213,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
 
   const translationStaleBg = product?.translation_stale_bg;
   const translationStaleEn = product?.translation_stale_en;
+  const ledgerManaged = product?.ledger_managed || product?.inventory_mode === "ledger_managed";
 
   useEffect(() => {
     if (!pendingImageFiles) return;
@@ -803,10 +804,29 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
           type="number"
           min="0"
           step="1"
+          disabled={ledgerManaged}
           value={String(formData.stock)}
-          onChange={(e) => updateField("stock", Math.max(0, Math.floor(Number(e.target.value) || 0)))}
+          onChange={(e) => {
+            if (!ledgerManaged) updateField("stock", Math.max(0, Math.floor(Number(e.target.value) || 0)));
+          }}
           error={errors.stock}
         />
+        {ledgerManaged && (
+          <div className="rounded-brand border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 sm:col-span-2">
+            <p className="font-medium">{t("ledgerStockBlocked")}</p>
+            <div className="mt-2 flex flex-wrap gap-3 text-xs">
+              <Link href={product?.inventory_links?.movements_href ?? `/admin/inventory/movements?item_type=finished_good&item_id=${product?.id ?? ""}`} className="underline-offset-2 hover:underline">
+                {t("inventoryLinks.movements")}
+              </Link>
+              <Link href={product?.inventory_links?.valuation_href ?? `/admin/inventory/valuation/layers?item_type=finished_good&item_id=${product?.id ?? ""}`} className="underline-offset-2 hover:underline">
+                {t("inventoryLinks.valuation")}
+              </Link>
+              <Link href={`/admin/inventory/batches?product_id=${product?.id ?? ""}`} className="underline-offset-2 hover:underline">
+                {t("inventoryLinks.batches")}
+              </Link>
+            </div>
+          </div>
+        )}
         <div className="w-full">
           <Input
             label={t("weightGrams")}

@@ -72,6 +72,7 @@ const LEDGERS: AccountingLedgerName[] = [
   "courier_claims",
   "return_reasons",
   "inventory_adjustments",
+  "inventory_movements",
 ];
 
 const LEDGER_PAGE_SIZE = 50;
@@ -97,6 +98,11 @@ const SUMMARY_KEYS = [
   "recorded_expenses_cents",
   "estimated_product_cost_cents",
   "estimated_gross_margin_cents",
+  "material_on_hand_value_cents",
+  "finished_goods_on_hand_value_cents",
+  "inventory_cogs_cents",
+  "inventory_writeoffs_cents",
+  "inventory_exception_count",
   "review_required_item_count",
 ];
 

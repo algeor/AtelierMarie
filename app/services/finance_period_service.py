@@ -248,6 +248,10 @@ def _product_cost_settings(conn: sqlite3.Connection) -> tuple[bool, str]:
     return bool(row["enabled"]), row["missing_cost_policy"]
 
 
+def _inventory_settings(conn: sqlite3.Connection) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM inventory_settings WHERE id = 'default'").fetchone()
+
+
 def _tolerance_cents(conn: sqlite3.Connection) -> int:
     row = _latest_settings_row(conn, "vat_fiscal_settings_versions")
     return int(row["tolerance_cents"] or 0) if row is not None else 1
@@ -516,6 +520,147 @@ def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> l
                 }
             )
 
+    inventory_settings = _inventory_settings(conn)
+    inventory_valuation_enabled = bool(
+        inventory_settings and inventory_settings["valuation_enabled"]
+    )
+    inventory_reviewed = bool(inventory_settings and inventory_settings["accountant_reviewed"])
+    if inventory_valuation_enabled:
+        if not inventory_reviewed:
+            specs.append(
+                {
+                    "exception_type": "inventory_settings_unreviewed",
+                    "severity": "blocking",
+                    "target_type": "inventory_settings",
+                    "target_id": "default",
+                    "message": "Inventory valuation settings must be accountant-reviewed before official inventory output.",
+                    "details": {"valuation_enabled": True},
+                }
+            )
+        rows = conn.execute(
+            """
+            SELECT product_id, opening_balance_state
+            FROM product_inventory_profiles
+            WHERE inventory_mode = 'ledger_managed'
+              AND opening_balance_state != 'reviewed'
+            """
+        ).fetchall()
+        for row in rows:
+            specs.append(
+                {
+                    "exception_type": "inventory_opening_balance_unreviewed",
+                    "severity": "blocking",
+                    "target_type": "product",
+                    "target_id": row["product_id"],
+                    "message": "Ledger-managed product opening balance is not reviewed.",
+                    "details": {"opening_balance_state": row["opening_balance_state"]},
+                }
+            )
+        rows = conn.execute(
+            f"""
+            SELECT o.id AS order_id, o.order_number, oi.product_id, oi.product_name
+            FROM orders o
+            JOIN order_items oi ON oi.order_id = o.id
+            JOIN product_inventory_profiles pip
+              ON pip.product_id = oi.product_id
+             AND pip.inventory_mode = 'ledger_managed'
+            WHERE {_period_order_clause()}
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM inventory_movements im
+                  WHERE im.order_id = oi.order_id
+                    AND im.product_id = oi.product_id
+                    AND im.order_item_key = oi.order_id || ':' || oi.product_id
+                    AND im.movement_type = 'sale_issue'
+              )
+            """,
+            (period_start, period_end),
+        ).fetchall()
+        for row in rows:
+            specs.append(
+                {
+                    "exception_type": "inventory_sale_movement_missing",
+                    "severity": "blocking",
+                    "target_type": "order_item",
+                    "target_id": f"{row['order_id']}:{row['product_id']}",
+                    "message": f"Ledger-managed order item {row['product_name']} has no sale issue movement.",
+                    "details": {"order_id": row["order_id"], "product_id": row["product_id"]},
+                }
+            )
+        if inventory_reviewed:
+            rows = conn.execute(
+                f"""
+                SELECT o.id AS order_id, o.order_number, oi.product_id, oi.product_name
+                FROM orders o
+                JOIN order_items oi ON oi.order_id = o.id
+                JOIN product_inventory_profiles pip
+                  ON pip.product_id = oi.product_id
+                 AND pip.inventory_mode = 'ledger_managed'
+                WHERE {_period_order_clause()}
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM cogs_ledger c
+                      WHERE c.order_id = oi.order_id
+                        AND c.product_id = oi.product_id
+                        AND c.review_state != 'reversed'
+                  )
+                """,
+                (period_start, period_end),
+            ).fetchall()
+            for row in rows:
+                specs.append(
+                    {
+                        "exception_type": "inventory_cogs_missing",
+                        "severity": "blocking",
+                        "target_type": "order_item",
+                        "target_id": f"{row['order_id']}:{row['product_id']}",
+                        "message": f"Ledger-managed order item {row['product_name']} has no COGS ledger row.",
+                        "details": {"order_id": row["order_id"], "product_id": row["product_id"]},
+                    }
+                )
+        rows = conn.execute(
+            f"""
+            SELECT DISTINCT ie.*
+            FROM inventory_exceptions ie
+            WHERE ie.status = 'open'
+              AND (
+                EXISTS (
+                    SELECT 1
+                    FROM orders o
+                    WHERE {_period_order_clause()}
+                      AND (
+                        (ie.target_type = 'order' AND ie.target_id = o.id)
+                        OR (ie.source_type = 'order' AND ie.source_id = o.id)
+                      )
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM orders o
+                    JOIN order_items oi ON oi.order_id = o.id
+                    WHERE {_period_order_clause()}
+                      AND ie.target_type = 'product'
+                      AND ie.target_id = oi.product_id
+                )
+              )
+            """,
+            (period_start, period_end, period_start, period_end),
+        ).fetchall()
+        for row in rows:
+            specs.append(
+                {
+                    "exception_type": f"inventory_{row['exception_type']}",
+                    "severity": row["severity"],
+                    "target_type": row["target_type"],
+                    "target_id": row["target_id"],
+                    "message": row["message"],
+                    "details": {
+                        "inventory_exception_id": row["id"],
+                        "source_type": row["source_type"],
+                        "source_id": row["source_id"],
+                    },
+                }
+            )
+
     tolerance_cents = _tolerance_cents(conn)
     rows = conn.execute(
         f"""
@@ -743,6 +888,49 @@ def calculate_summary_totals(conn: sqlite3.Connection, period: sqlite3.Row) -> d
     refunded_cents = int(returns["refunded_cents"] or 0)
     estimated_product_cost_cents = int(product_cost["estimated_product_cost_cents"] or 0)
     net_sales_cents = gross_sales_cents - refunded_cents
+    inventory_settings = _inventory_settings(conn)
+    inventory_enabled = bool(inventory_settings and inventory_settings["valuation_enabled"])
+    inventory_values = conn.execute(
+        """
+        SELECT item_type,
+               COALESCE(SUM(CASE WHEN quantity >= 0 THEN total_value_cents ELSE -total_value_cents END), 0)
+                   AS ending_value_cents
+        FROM inventory_valuation_layers
+        WHERE substr(valuation_date, 1, 10) <= ?
+          AND review_state != 'reversed'
+        GROUP BY item_type
+        """,
+        (period_end,),
+    ).fetchall()
+    inventory_value_by_type = {
+        row["item_type"]: int(row["ending_value_cents"] or 0) for row in inventory_values
+    }
+    cogs = conn.execute(
+        """
+        SELECT COALESCE(SUM(CASE WHEN review_state = 'reversed'
+                                 THEN -total_cost_cents ELSE total_cost_cents END), 0)
+                   AS cogs_cents
+        FROM cogs_ledger
+        WHERE substr(cogs_date, 1, 10) BETWEEN ? AND ?
+        """,
+        params,
+    ).fetchone()
+    writeoffs = conn.execute(
+        """
+        SELECT COALESCE(SUM(vl.total_value_cents), 0) AS writeoffs_cents
+        FROM inventory_valuation_layers vl
+        JOIN inventory_movements im ON im.id = vl.movement_id
+        WHERE substr(vl.valuation_date, 1, 10) BETWEEN ? AND ?
+          AND im.movement_type IN (
+              'return_write_off', 'write_off', 'spoilage',
+              'stock_count_correction', 'adjustment'
+          )
+        """,
+        params,
+    ).fetchone()
+    inventory_exception_count = conn.execute(
+        "SELECT COUNT(*) FROM inventory_exceptions WHERE status = 'open'"
+    ).fetchone()[0]
     return {
         "currency": period["currency"],
         "gross_sales_cents": gross_sales_cents,
@@ -762,6 +950,15 @@ def calculate_summary_totals(conn: sqlite3.Connection, period: sqlite3.Row) -> d
             expenses["material_packaging_expenses_cents"] or 0
         ),
         "estimated_product_cost_cents": estimated_product_cost_cents,
+        "material_on_hand_value_cents": inventory_value_by_type.get("material", 0),
+        "finished_goods_on_hand_value_cents": inventory_value_by_type.get("finished_good", 0),
+        "inventory_cogs_cents": int(cogs["cogs_cents"] or 0),
+        "inventory_writeoffs_cents": int(writeoffs["writeoffs_cents"] or 0),
+        "inventory_exception_count": int(inventory_exception_count or 0),
+        "inventory_valuation_enabled": inventory_enabled,
+        "inventory_valuation_reviewed": bool(
+            inventory_settings and inventory_settings["accountant_reviewed"]
+        ),
         "estimated_gross_margin_cents": net_sales_cents - estimated_product_cost_cents,
         "review_required_item_count": open_count,
         "blocking_exception_count": blocking_count,

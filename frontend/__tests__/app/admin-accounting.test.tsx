@@ -106,6 +106,7 @@ const ledgerRows: Record<AccountingLedgerName, Record<string, unknown>[]> = {
   courier_claims: [],
   return_reasons: [],
   inventory_adjustments: [],
+  inventory_movements: [],
 };
 
 const blockedOrder: OrderResponse = {

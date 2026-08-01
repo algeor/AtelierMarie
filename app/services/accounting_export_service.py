@@ -32,6 +32,7 @@ _EXPORT_LEDGER_NAMES = [
     "courier_claims",
     "return_reasons",
     "inventory_adjustments",
+    "inventory_movements",
     "documents",
     "expenses",
     "product_costs",
@@ -110,6 +111,15 @@ def _headers(rows: list[dict[str, object]]) -> list[str]:
     return seen
 
 
+def _sheet_totals(rows: list[dict[str, object]]) -> dict[str, int]:
+    totals: dict[str, int] = {}
+    for row in rows:
+        for key, value in row.items():
+            if key.endswith("_cents") and isinstance(value, int):
+                totals[key] = totals.get(key, 0) + value
+    return totals
+
+
 def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
     headers = _headers(rows)
     with path.open("w", encoding="utf-8", newline="") as handle:
@@ -167,6 +177,195 @@ def _source_metadata_rows(period: sqlite3.Row, export_id: str, version: int) -> 
     ]
 
 
+def _inventory_settings(conn: sqlite3.Connection) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM inventory_settings WHERE id = 'default'").fetchone()
+
+
+def _inventory_label(settings: sqlite3.Row | None) -> str:
+    if settings and settings["valuation_enabled"] and settings["accountant_reviewed"]:
+        return "official"
+    return "estimate_only"
+
+
+def _material_on_hand_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, object]]:
+    settings = _inventory_settings(conn)
+    rows = conn.execute(
+        """
+        SELECT m.id AS material_id, m.sku, m.name, m.category, m.stock_uom AS uom,
+               m.active, m.evidence_required,
+               COALESCE((
+                   SELECT SUM(im.quantity_delta)
+                   FROM inventory_movements im
+                   WHERE im.item_type = 'material'
+                     AND im.item_id = m.id
+                     AND substr(im.occurred_at, 1, 10) <= ?
+               ), 0) AS on_hand_quantity,
+               COALESCE((
+                   SELECT SUM(CASE WHEN vl.quantity >= 0
+                                   THEN vl.total_value_cents ELSE -vl.total_value_cents END)
+                   FROM inventory_valuation_layers vl
+                   WHERE vl.item_type = 'material'
+                     AND vl.item_id = m.id
+                     AND substr(vl.valuation_date, 1, 10) <= ?
+                     AND vl.review_state != 'reversed'
+               ), 0) AS on_hand_value_cents,
+               (SELECT COUNT(*) FROM inventory_exceptions ie
+                WHERE ie.status = 'open' AND ie.target_type = 'material' AND ie.target_id = m.id)
+                   AS open_exception_count
+        FROM materials m
+        ORDER BY m.category, m.name, m.id
+        """,
+        (period["period_end"], period["period_end"]),
+    ).fetchall()
+    label = _inventory_label(settings)
+    return [
+        {
+            **{key: row[key] for key in row.keys()},
+            "currency": period["currency"],
+            "valuation_method": settings["valuation_method"] if settings else None,
+            "export_label": label,
+        }
+        for row in rows
+    ]
+
+
+def _finished_goods_on_hand_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, object]]:
+    settings = _inventory_settings(conn)
+    rows = conn.execute(
+        """
+        SELECT p.id AS product_id, p.name_en AS product_name,
+               COALESCE(pip.inventory_mode, 'legacy') AS inventory_mode,
+               COALESCE(pip.stock_source, 'product_stock') AS stock_source,
+               p.stock AS display_stock,
+               COALESCE((
+                   SELECT SUM(im.quantity_delta)
+                   FROM inventory_movements im
+                   WHERE im.item_type = 'finished_good'
+                     AND im.item_id = p.id
+                     AND substr(im.occurred_at, 1, 10) <= ?
+               ), 0) AS ledger_on_hand_quantity,
+               COALESCE((
+                   SELECT SUM(CASE WHEN vl.quantity >= 0
+                                   THEN vl.total_value_cents ELSE -vl.total_value_cents END)
+                   FROM inventory_valuation_layers vl
+                   WHERE vl.item_type = 'finished_good'
+                     AND vl.item_id = p.id
+                     AND substr(vl.valuation_date, 1, 10) <= ?
+                     AND vl.review_state != 'reversed'
+               ), 0) AS on_hand_value_cents,
+               pip.opening_balance_state, pip.valuation_readiness,
+               (SELECT COUNT(*) FROM inventory_exceptions ie
+                WHERE ie.status = 'open' AND ie.target_type = 'product' AND ie.target_id = p.id)
+                   AS open_exception_count
+        FROM products p
+        LEFT JOIN product_inventory_profiles pip ON pip.product_id = p.id
+        WHERE pip.product_id IS NOT NULL
+           OR EXISTS (
+               SELECT 1 FROM inventory_movements im
+               WHERE im.item_type = 'finished_good' AND im.item_id = p.id
+           )
+        ORDER BY p.name_en, p.id
+        """,
+        (period["period_end"], period["period_end"]),
+    ).fetchall()
+    label = _inventory_label(settings)
+    return [
+        {
+            **{key: row[key] for key in row.keys()},
+            "uom": "unit",
+            "currency": period["currency"],
+            "valuation_method": settings["valuation_method"] if settings else None,
+            "export_label": label,
+        }
+        for row in rows
+    ]
+
+
+def _inventory_valuation_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, object]]:
+    settings = _inventory_settings(conn)
+    rows = conn.execute(
+        """
+        SELECT vl.id AS valuation_layer_id, vl.movement_id, vl.item_type, vl.item_id,
+               COALESCE(m.name, p.name_en, vl.item_id) AS item_name,
+               im.movement_type, vl.quantity, vl.unit_value_amount,
+               vl.total_value_cents, vl.currency, vl.valuation_method,
+               vl.source_type, vl.source_id, vl.valuation_date, vl.review_state,
+               vl.reversal_layer_id
+        FROM inventory_valuation_layers vl
+        LEFT JOIN inventory_movements im ON im.id = vl.movement_id
+        LEFT JOIN materials m ON vl.item_type = 'material' AND m.id = vl.item_id
+        LEFT JOIN products p ON vl.item_type = 'finished_good' AND p.id = vl.item_id
+        WHERE substr(vl.valuation_date, 1, 10) BETWEEN ? AND ?
+        ORDER BY vl.valuation_date, vl.created_at, vl.id
+        """,
+        (period["period_start"], period["period_end"]),
+    ).fetchall()
+    label = _inventory_label(settings)
+    return [
+        {**{key: row[key] for key in row.keys()}, "export_label": label}
+        for row in rows
+    ]
+
+
+def _cogs_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, object]]:
+    settings = _inventory_settings(conn)
+    rows = conn.execute(
+        """
+        SELECT c.id AS cogs_id, c.order_id, c.order_number, c.order_item_key,
+               c.product_id, p.name_en AS product_name, c.quantity_sold,
+               c.cogs_date, c.unit_cost_amount, c.total_cost_cents, c.currency,
+               c.valuation_method, c.source_movement_id, c.source_valuation_layer_id,
+               c.source_finished_batch_id, c.review_state, c.reversal_cogs_id
+        FROM cogs_ledger c
+        LEFT JOIN products p ON p.id = c.product_id
+        WHERE substr(c.cogs_date, 1, 10) BETWEEN ? AND ?
+        ORDER BY c.cogs_date, c.created_at, c.id
+        """,
+        (period["period_start"], period["period_end"]),
+    ).fetchall()
+    label = _inventory_label(settings)
+    return [
+        {**{key: row[key] for key in row.keys()}, "export_label": label}
+        for row in rows
+    ]
+
+
+def _inventory_writeoff_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, object]]:
+    settings = _inventory_settings(conn)
+    rows = conn.execute(
+        """
+        SELECT im.id AS movement_id, im.item_type, im.item_id,
+               COALESCE(m.name, p.name_en, im.item_id) AS item_name,
+               im.movement_type, im.quantity_delta, im.uom, im.source_type,
+               im.source_id, im.order_id, im.order_item_key, im.reason,
+               im.notes, im.review_state, im.occurred_at,
+               vl.id AS valuation_layer_id, vl.total_value_cents,
+               vl.review_state AS valuation_review_state
+        FROM inventory_movements im
+        LEFT JOIN inventory_valuation_layers vl ON vl.movement_id = im.id
+        LEFT JOIN materials m ON im.item_type = 'material' AND m.id = im.item_id
+        LEFT JOIN products p ON im.item_type = 'finished_good' AND p.id = im.item_id
+        WHERE substr(im.occurred_at, 1, 10) BETWEEN ? AND ?
+          AND im.movement_type IN (
+              'return_write_off', 'write_off', 'spoilage',
+              'stock_count_correction', 'adjustment'
+          )
+        ORDER BY im.occurred_at, im.created_at, im.id
+        """,
+        (period["period_start"], period["period_end"]),
+    ).fetchall()
+    label = _inventory_label(settings)
+    return [
+        {
+            **{key: row[key] for key in row.keys()},
+            "currency": period["currency"],
+            "valuation_method": settings["valuation_method"] if settings else None,
+            "export_label": label,
+        }
+        for row in rows
+    ]
+
+
 def _collect_sheets(conn: sqlite3.Connection, period: sqlite3.Row, export_id: str, version: int) -> dict[str, list[dict[str, object]]]:
     sheets: dict[str, list[dict[str, object]]] = {
         "summary": _summary_rows(conn, period),
@@ -177,6 +376,11 @@ def _collect_sheets(conn: sqlite3.Connection, period: sqlite3.Row, export_id: st
     for ledger_name in _EXPORT_LEDGER_NAMES:
         ledger = accounting_ledger_service.get_ledger(period["id"], ledger_name, limit=10000)  # type: ignore[arg-type]
         sheets[ledger_name] = ledger.rows
+    sheets["material_on_hand"] = _material_on_hand_rows(conn, period)
+    sheets["finished_goods_on_hand"] = _finished_goods_on_hand_rows(conn, period)
+    sheets["inventory_valuation"] = _inventory_valuation_rows(conn, period)
+    sheets["cogs"] = _cogs_rows(conn, period)
+    sheets["inventory_writeoffs"] = _inventory_writeoff_rows(conn, period)
     return sheets
 
 
@@ -232,6 +436,7 @@ def generate_export_package(
             components[csv_path.name] = {
                 "sheet": sheet_name,
                 "row_count": len(rows),
+                "totals": _sheet_totals(rows),
                 "sha256": _hash_file(csv_path),
             }
         files = {
@@ -249,6 +454,7 @@ def generate_export_package(
             "generated_by_admin_id": actor_user_id,
             "filters": {"period_id": period_id},
             "row_counts": {name: len(rows) for name, rows in sheets.items()},
+            "sheet_totals": {name: _sheet_totals(rows) for name, rows in sheets.items()},
             "summary_totals": _json_loads(period["summary_totals_json"]) or {},
             "files": files,
         }

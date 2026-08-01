@@ -172,6 +172,33 @@ async def test_accounting_ledger_endpoint_returns_core_ledgers(admin_client, db,
                   'accountant_reviewed')
         """
     )
+    db.execute(
+        """
+        INSERT INTO materials (id, sku, name, category, stock_uom)
+        VALUES ('ledger-wax', 'WAX-LEDGER', 'Ledger Wax', 'wax', 'g')
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO inventory_movements (
+            id, item_type, item_id, movement_type, quantity_delta, uom,
+            source_type, source_id, review_state, occurred_at
+        ) VALUES ('ledger-inventory-move', 'material', 'ledger-wax', 'receipt',
+                  1000, 'g', 'material_receipt', 'receipt-ledger', 'reviewed',
+                  '2026-08-06 09:00:00')
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO inventory_valuation_layers (
+            id, movement_id, item_type, item_id, quantity, unit_value_amount,
+            total_value_cents, currency, valuation_method, source_type, source_id,
+            valuation_date, review_state
+        ) VALUES ('ledger-inventory-layer', 'ledger-inventory-move', 'material',
+                  'ledger-wax', 1000, '0.010000', 1000, 'EUR', 'weighted_average',
+                  'material_receipt', 'receipt-ledger', '2026-08-06 09:00:00', 'reviewed')
+        """
+    )
     db.commit()
 
     period_resp = await admin_client.post(
@@ -234,6 +261,17 @@ async def test_accounting_ledger_endpoint_returns_core_ledgers(admin_client, db,
     rows = product_cost_resp.json()["rows"]
     assert any(row["effective_cost_version_id"] == "ledger-cost" for row in rows)
     assert any(row["missing_cost_warning"] is True for row in rows)
+
+    inventory_resp = await admin_client.get(
+        f"/v1/admin/accounting/periods/{period_id}/ledgers/inventory_movements"
+    )
+    assert inventory_resp.status_code == 200
+    inventory = inventory_resp.json()
+    assert inventory["ledger"] == "inventory_movements"
+    assert inventory["total"] == 1
+    assert inventory["rows"][0]["movement_id"] == "ledger-inventory-move"
+    assert inventory["rows"][0]["item_name"] == "Ledger Wax"
+    assert inventory["totals"]["total_value_cents"] == 1000
 
     invalid_resp = await admin_client.get(
         f"/v1/admin/accounting/periods/{period_id}/ledgers/sales?date_basis=payment_date"

@@ -536,6 +536,9 @@ const mockLedgerRows: Record<AccountingLedgerName, Record<string, unknown>[]> = 
   inventory_adjustments: [
     { order_number: "AM-1002", product_id: "lavender-dreams-300ml", restock_decision: "partial", quantity: 1 },
   ],
+  inventory_movements: [
+    { item_type: "finished_good", item_id: "lavender-dreams-300ml", movement_type: "sale_issue", quantity_delta: -1 },
+  ],
   documents: mockAccountingDocuments as unknown as Record<string, unknown>[],
   expenses: mockExpenseEvidence as unknown as Record<string, unknown>[],
   product_costs: mockProductCosts as unknown as Record<string, unknown>[],

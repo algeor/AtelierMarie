@@ -59,6 +59,11 @@ const ACCOUNTING_FILTERS: (AdminOrderAccountingFilter | "")[] = [
   "cod_settlement_pending",
   "refund_document_missing",
   "vat_review_required",
+  "missing_batch_assignment",
+  "missing_inventory_movement",
+  "missing_cogs_row",
+  "valuation_exception",
+  "return_inventory_review_pending",
 ];
 
 const STATUS_COLORS: Record<OrderStatus, string> = {

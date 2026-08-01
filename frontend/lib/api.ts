@@ -140,16 +140,50 @@ import type {
   FinancePeriodCreateRequest,
   FinancePeriodListResponse,
   FinancePeriodResponse,
+  CogsLedgerListResponse,
+  InventoryClosePreviewResponse,
+  InventoryExceptionResponse,
+  InventoryMovementListResponse,
+  InventoryMovementResponse,
+  InventoryValuationSettingsRequest,
+  InventoryValuationSettingsResponse,
+  MaterialAdjustmentRequest,
+  MaterialDetailResponse,
+  MaterialListResponse,
+  MaterialLotListResponse,
+  MaterialReceiptRequest,
+  MaterialReceiptResponse,
+  MaterialRequest,
+  MaterialResponse,
+  MaterialUpdateRequest,
   MissingProductCostDiagnosticsResponse,
+  OpeningBalanceRequest,
+  ProductionBatchCorrectionRequest,
+  ProductionBatchListResponse,
+  ProductionBatchPostRequest,
+  ProductionBatchRequest,
+  ProductionBatchResponse,
+  ProductionBatchUpdateRequest,
+  ProductionTraceabilityResponse,
   ProductCostSettingsRequest,
   ProductCostSettingsResponse,
   ProductCostVersionListResponse,
   ProductCostVersionRequest,
   ProductCostVersionResponse,
+  RecipeCostSnapshotRequest,
+  RecipeCostSnapshotResponse,
+  RecipeDiagnosticsListResponse,
+  RecipeReviewRequest,
+  RecipeVersionListResponse,
+  RecipeVersionRequest,
+  RecipeVersionResponse,
+  RecipeVersionUpdateRequest,
   SellerLegalProfileRequest,
   SellerLegalProfileResponse,
   StripeBalanceImportResponse,
   StripePayoutImportStatusResponse,
+  ValuationLayerListResponse,
+  ValuationLayerResponse,
   VatFiscalSettingsRequest,
   VatFiscalSettingsResponse,
 } from "./types";
@@ -1021,6 +1055,195 @@ export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailRe
   return apiClient.get<AdminOrderDetailResponse>(
     `/v1/admin/orders/${encodeURIComponent(orderId)}`
   );
+}
+
+// --- Admin Inventory ---
+
+export async function listMaterials(filters: {
+  active?: boolean;
+  category?: string;
+  needsReorder?: boolean;
+  limit?: number;
+  offset?: number;
+} = {}): Promise<MaterialListResponse> {
+  const params = new URLSearchParams();
+  if (filters.active !== undefined) params.set("active", String(filters.active));
+  if (filters.category) params.set("category", filters.category);
+  if (filters.needsReorder) params.set("needs_reorder", "true");
+  if (filters.limit) params.set("limit", String(filters.limit));
+  if (filters.offset) params.set("offset", String(filters.offset));
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<MaterialListResponse>(`/v1/admin/inventory/materials${query}`);
+}
+
+export async function getMaterial(materialId: string): Promise<MaterialDetailResponse> {
+  return apiClient.get<MaterialDetailResponse>(`/v1/admin/inventory/materials/${encodeURIComponent(materialId)}`);
+}
+
+export async function createMaterial(data: MaterialRequest): Promise<MaterialResponse> {
+  return apiClient.post<MaterialResponse>("/v1/admin/inventory/materials", data);
+}
+
+export async function updateMaterial(materialId: string, data: MaterialUpdateRequest): Promise<MaterialResponse> {
+  return apiClient.patch<MaterialResponse>(`/v1/admin/inventory/materials/${encodeURIComponent(materialId)}`, data);
+}
+
+export async function createMaterialReceipt(materialId: string, data: MaterialReceiptRequest): Promise<MaterialReceiptResponse> {
+  return apiClient.post<MaterialReceiptResponse>(`/v1/admin/inventory/materials/${encodeURIComponent(materialId)}/receipts`, data);
+}
+
+export async function createMaterialAdjustment(materialId: string, data: MaterialAdjustmentRequest): Promise<InventoryMovementResponse> {
+  return apiClient.post<InventoryMovementResponse>(`/v1/admin/inventory/materials/${encodeURIComponent(materialId)}/adjustments`, data);
+}
+
+export async function listMaterialLots(materialId: string, productionDate?: string): Promise<MaterialLotListResponse> {
+  const params = new URLSearchParams();
+  if (productionDate) params.set("production_date", productionDate);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<MaterialLotListResponse>(`/v1/admin/inventory/materials/${encodeURIComponent(materialId)}/lots${query}`);
+}
+
+export async function listMaterialMovements(materialId: string, limit = 100): Promise<InventoryMovementListResponse> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  return apiClient.get<InventoryMovementListResponse>(`/v1/admin/inventory/materials/${encodeURIComponent(materialId)}/movements?${params}`);
+}
+
+export async function listInventoryMovements(filters: {
+  itemType?: "material" | "finished_good";
+  itemId?: string;
+  sourceType?: string;
+  sourceId?: string;
+  movementType?: string;
+  limit?: number;
+  offset?: number;
+} = {}): Promise<InventoryMovementListResponse> {
+  const params = new URLSearchParams();
+  if (filters.itemType) params.set("item_type", filters.itemType);
+  if (filters.itemId) params.set("item_id", filters.itemId);
+  if (filters.sourceType) params.set("source_type", filters.sourceType);
+  if (filters.sourceId) params.set("source_id", filters.sourceId);
+  if (filters.movementType) params.set("movement_type", filters.movementType);
+  if (filters.limit) params.set("limit", String(filters.limit));
+  if (filters.offset) params.set("offset", String(filters.offset));
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<InventoryMovementListResponse>(`/v1/admin/inventory/movements${query}`);
+}
+
+export async function listRecipes(filters: { productId?: string; status?: string } = {}): Promise<RecipeVersionListResponse> {
+  const params = new URLSearchParams();
+  if (filters.productId) params.set("product_id", filters.productId);
+  if (filters.status) params.set("status", filters.status);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<RecipeVersionListResponse>(`/v1/admin/inventory/recipes${query}`);
+}
+
+export async function getRecipe(recipeId: string): Promise<RecipeVersionResponse> {
+  return apiClient.get<RecipeVersionResponse>(`/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}`);
+}
+
+export async function createRecipe(data: RecipeVersionRequest): Promise<RecipeVersionResponse> {
+  return apiClient.post<RecipeVersionResponse>("/v1/admin/inventory/recipes", data);
+}
+
+export async function updateRecipe(recipeId: string, data: RecipeVersionUpdateRequest): Promise<RecipeVersionResponse> {
+  return apiClient.patch<RecipeVersionResponse>(`/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}`, data);
+}
+
+export async function activateRecipe(recipeId: string): Promise<RecipeVersionResponse> {
+  return apiClient.post<RecipeVersionResponse>(`/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}/activate`, {});
+}
+
+export async function archiveRecipe(recipeId: string): Promise<RecipeVersionResponse> {
+  return apiClient.post<RecipeVersionResponse>(`/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}/archive`, {});
+}
+
+export async function createRecipeCostSnapshot(recipeId: string, data: RecipeCostSnapshotRequest): Promise<RecipeCostSnapshotResponse> {
+  return apiClient.post<RecipeCostSnapshotResponse>(`/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}/cost-snapshots`, data);
+}
+
+export async function reviewRecipe(recipeId: string, data: RecipeReviewRequest): Promise<RecipeVersionResponse> {
+  return apiClient.post<RecipeVersionResponse>(`/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}/review`, data);
+}
+
+export async function getRecipeDiagnostics(recipeId: string): Promise<RecipeDiagnosticsListResponse> {
+  return apiClient.get<RecipeDiagnosticsListResponse>(`/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}/diagnostics`);
+}
+
+export async function listProductionBatches(filters: { productId?: string; status?: string } = {}): Promise<ProductionBatchListResponse> {
+  const params = new URLSearchParams();
+  if (filters.productId) params.set("product_id", filters.productId);
+  if (filters.status) params.set("status", filters.status);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<ProductionBatchListResponse>(`/v1/admin/inventory/batches${query}`);
+}
+
+export async function getProductionBatch(batchId: string): Promise<ProductionBatchResponse> {
+  return apiClient.get<ProductionBatchResponse>(`/v1/admin/inventory/batches/${encodeURIComponent(batchId)}`);
+}
+
+export async function createProductionBatch(data: ProductionBatchRequest): Promise<ProductionBatchResponse> {
+  return apiClient.post<ProductionBatchResponse>("/v1/admin/inventory/batches", data);
+}
+
+export async function updateProductionBatch(batchId: string, data: ProductionBatchUpdateRequest): Promise<ProductionBatchResponse> {
+  return apiClient.patch<ProductionBatchResponse>(`/v1/admin/inventory/batches/${encodeURIComponent(batchId)}`, data);
+}
+
+export async function postProductionBatch(batchId: string, data: ProductionBatchPostRequest): Promise<ProductionBatchResponse> {
+  return apiClient.post<ProductionBatchResponse>(`/v1/admin/inventory/batches/${encodeURIComponent(batchId)}/post`, data);
+}
+
+export async function cancelProductionBatch(batchId: string): Promise<ProductionBatchResponse> {
+  return apiClient.post<ProductionBatchResponse>(`/v1/admin/inventory/batches/${encodeURIComponent(batchId)}/cancel`, {});
+}
+
+export async function correctProductionBatch(batchId: string, data: ProductionBatchCorrectionRequest): Promise<InventoryMovementResponse> {
+  return apiClient.post<InventoryMovementResponse>(`/v1/admin/inventory/batches/${encodeURIComponent(batchId)}/correct`, data);
+}
+
+export async function getProductionTraceability(batchId: string): Promise<ProductionTraceabilityResponse> {
+  return apiClient.get<ProductionTraceabilityResponse>(`/v1/admin/inventory/batches/${encodeURIComponent(batchId)}/traceability`);
+}
+
+export async function getInventoryValuationSettings(): Promise<InventoryValuationSettingsResponse> {
+  return apiClient.get<InventoryValuationSettingsResponse>("/v1/admin/inventory/valuation/settings");
+}
+
+export async function updateInventoryValuationSettings(data: InventoryValuationSettingsRequest): Promise<InventoryValuationSettingsResponse> {
+  return apiClient.put<InventoryValuationSettingsResponse>("/v1/admin/inventory/valuation/settings", data);
+}
+
+export async function recordOpeningBalance(data: OpeningBalanceRequest): Promise<ValuationLayerResponse | null> {
+  return apiClient.post<ValuationLayerResponse | null>("/v1/admin/inventory/valuation/opening-balances", data);
+}
+
+export async function generateValuationLayers(): Promise<ValuationLayerListResponse> {
+  return apiClient.post<ValuationLayerListResponse>("/v1/admin/inventory/valuation/layers/generate", {});
+}
+
+export async function listValuationLayers(filters: { itemType?: "material" | "finished_good"; itemId?: string } = {}): Promise<ValuationLayerListResponse> {
+  const params = new URLSearchParams();
+  if (filters.itemType) params.set("item_type", filters.itemType);
+  if (filters.itemId) params.set("item_id", filters.itemId);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<ValuationLayerListResponse>(`/v1/admin/inventory/valuation/layers${query}`);
+}
+
+export async function generateCogsRows(): Promise<CogsLedgerListResponse> {
+  return apiClient.post<CogsLedgerListResponse>("/v1/admin/inventory/valuation/cogs/generate", {});
+}
+
+export async function listCogsRows(): Promise<CogsLedgerListResponse> {
+  return apiClient.get<CogsLedgerListResponse>("/v1/admin/inventory/valuation/cogs");
+}
+
+export async function getInventoryClosePreview(periodStart: string, periodEnd: string): Promise<InventoryClosePreviewResponse> {
+  const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
+  return apiClient.get<InventoryClosePreviewResponse>(`/v1/admin/inventory/valuation/close-preview?${params}`);
+}
+
+export async function listInventoryExceptions(): Promise<InventoryExceptionResponse[]> {
+  return apiClient.get<InventoryExceptionResponse[]>("/v1/admin/inventory/valuation/exceptions");
 }
 
 // --- Accounting & Finance Hub ---

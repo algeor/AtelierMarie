@@ -220,6 +220,39 @@ describe("Admin Orders List", () => {
     });
   });
 
+  it("filters orders by missing COGS inventory review", async () => {
+    mockedGetAdminOrders.mockResolvedValue(MOCK_ORDER_LIST);
+
+    const { AdminProvider } = await import("@/contexts/AdminContext");
+    const { AdminGuard } = await import("@/components/admin/AdminGuard");
+    const AdminOrdersPage = (await import("@/app/[locale]/admin/orders/page")).default;
+
+    renderWithIntl(
+      <AdminProvider>
+        <AdminGuard>
+          <AdminOrdersPage />
+        </AdminGuard>
+      </AdminProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("a***@example.com")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Missing COGS" }));
+
+    await waitFor(() => {
+      expect(mockedGetAdminOrders).toHaveBeenCalledWith(
+        1,
+        100,
+        undefined,
+        undefined,
+        undefined,
+        "missing_cogs_row"
+      );
+    });
+  });
+
   it("updates order status via dropdown", async () => {
     mockedGetAdminOrders.mockResolvedValue(MOCK_ORDER_LIST);
     mockedUpdateOrderStatus.mockResolvedValue({

@@ -315,3 +315,171 @@ async def test_exception_engine_flags_accounting_risks(admin_client, db, app):
         "expense_document_missing",
         "missing_product_cost",
     }.issubset(exception_types)
+
+
+@pytest.mark.asyncio
+async def test_inventory_readiness_exceptions_block_official_period(admin_client, db, app):
+    seller_id, vat_id = _seed_reviewed_settings(db)
+    _insert_order(
+        db,
+        app,
+        order_id="inventory-readiness-order",
+        seller_id=seller_id,
+        vat_id=vat_id,
+        product_id="inventory-readiness-candle",
+    )
+    db.execute(
+        """
+        INSERT INTO product_inventory_profiles (
+            product_id, inventory_mode, stock_source, opening_balance_state
+        ) VALUES ('inventory-readiness-candle', 'ledger_managed', 'inventory_ledger', 'unreviewed')
+        """
+    )
+    db.execute(
+        """
+        UPDATE inventory_settings
+        SET valuation_enabled = 1, accountant_reviewed = 0
+        WHERE id = 'default'
+        """
+    )
+    db.commit()
+
+    create_resp = await admin_client.post(
+        "/v1/admin/accounting/periods",
+        json={"period_start": "2026-08-01", "period_end": "2026-08-31", "currency": "EUR"},
+    )
+    period_id = create_resp.json()["id"]
+    review_resp = await admin_client.post(f"/v1/admin/accounting/periods/{period_id}/review")
+    assert review_resp.status_code == 200
+
+    exceptions_resp = await admin_client.get(
+        f"/v1/admin/accounting/periods/{period_id}/exceptions?status=open"
+    )
+    exception_types = {item["exception_type"] for item in exceptions_resp.json()["items"]}
+    assert {
+        "inventory_settings_unreviewed",
+        "inventory_opening_balance_unreviewed",
+        "inventory_sale_movement_missing",
+    }.issubset(exception_types)
+
+    close_resp = await admin_client.post(f"/v1/admin/accounting/periods/{period_id}/close")
+    assert close_resp.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_finance_summary_includes_inventory_valuation_totals(admin_client, db, app):
+    seller_id, vat_id = _seed_reviewed_settings(db)
+    _insert_order(
+        db,
+        app,
+        order_id="inventory-summary-order",
+        seller_id=seller_id,
+        vat_id=vat_id,
+        product_id="inventory-summary-candle",
+    )
+    db.execute(
+        """
+        INSERT INTO product_inventory_profiles (
+            product_id, inventory_mode, stock_source, opening_balance_state, valuation_readiness
+        ) VALUES ('inventory-summary-candle', 'ledger_managed', 'inventory_ledger', 'reviewed', 'ready')
+        """
+    )
+    db.execute(
+        """
+        UPDATE inventory_settings
+        SET valuation_enabled = 1, accountant_reviewed = 1, valuation_method = 'weighted_average'
+        WHERE id = 'default'
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO materials (id, sku, name, category, stock_uom)
+        VALUES ('summary-wax', 'SUM-WAX', 'Summary Wax', 'wax', 'g')
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO inventory_movements (
+            id, item_type, item_id, movement_type, quantity_delta, uom,
+            product_id, order_id, order_item_key, review_state, occurred_at
+        ) VALUES ('summary-sale-move', 'finished_good', 'inventory-summary-candle',
+                  'sale_issue', -1, 'unit', 'inventory-summary-candle',
+                  'inventory-summary-order', 'inventory-summary-order:inventory-summary-candle',
+                  'reviewed', '2026-08-10 10:00:00')
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO inventory_movements (
+            id, item_type, item_id, movement_type, quantity_delta, uom,
+            review_state, occurred_at
+        ) VALUES ('summary-writeoff-move', 'material', 'summary-wax', 'write_off',
+                  -100, 'g', 'reviewed', '2026-08-12 10:00:00')
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO inventory_valuation_layers (
+            id, movement_id, item_type, item_id, quantity, unit_value_amount,
+            total_value_cents, currency, valuation_method, valuation_date, review_state
+        ) VALUES ('summary-material-layer', NULL, 'material', 'summary-wax', 1000,
+                  '0.010000', 1000, 'EUR', 'weighted_average', '2026-08-01', 'official')
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO inventory_valuation_layers (
+            id, movement_id, item_type, item_id, quantity, unit_value_amount,
+            total_value_cents, currency, valuation_method, valuation_date, review_state
+        ) VALUES ('summary-finished-layer', NULL, 'finished_good',
+                  'inventory-summary-candle', 5, '2.000000', 1000, 'EUR',
+                  'weighted_average', '2026-08-01', 'official')
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO inventory_valuation_layers (
+            id, movement_id, item_type, item_id, quantity, unit_value_amount,
+            total_value_cents, currency, valuation_method, valuation_date, review_state
+        ) VALUES ('summary-writeoff-layer', 'summary-writeoff-move', 'material',
+                  'summary-wax', -100, '0.010000', 100, 'EUR', 'weighted_average',
+                  '2026-08-12', 'official')
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO cogs_ledger (
+            id, order_id, order_number, order_item_key, product_id, quantity_sold,
+            cogs_date, unit_cost_amount, total_cost_cents, currency, valuation_method,
+            source_movement_id, review_state
+        ) VALUES ('summary-cogs', 'inventory-summary-order', 'INV-SUMMARY',
+                  'inventory-summary-order:inventory-summary-candle',
+                  'inventory-summary-candle', 1, '2026-08-10', '2.000000', 200,
+                  'EUR', 'weighted_average', 'summary-sale-move', 'official')
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO inventory_exceptions (
+            id, exception_type, severity, target_type, target_id, status, message
+        ) VALUES ('summary-inventory-exception', 'sample_warning', 'warning', 'product',
+                  'inventory-summary-candle', 'open', 'Sample warning')
+        """
+    )
+    db.commit()
+
+    create_resp = await admin_client.post(
+        "/v1/admin/accounting/periods",
+        json={"period_start": "2026-08-01", "period_end": "2026-08-31", "currency": "EUR"},
+    )
+    period_id = create_resp.json()["id"]
+    review_resp = await admin_client.post(f"/v1/admin/accounting/periods/{period_id}/review")
+    summary = review_resp.json()["summary_totals"]
+
+    assert summary["inventory_valuation_enabled"] is True
+    assert summary["inventory_valuation_reviewed"] is True
+    assert summary["material_on_hand_value_cents"] == 900
+    assert summary["finished_goods_on_hand_value_cents"] == 1000
+    assert summary["inventory_cogs_cents"] == 200
+    assert summary["inventory_writeoffs_cents"] == 100
+    assert summary["inventory_exception_count"] == 1

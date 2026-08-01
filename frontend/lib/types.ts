@@ -368,6 +368,22 @@ export interface OrderItemResponse {
   quantity: number;
 }
 
+export interface AdminOrderItemResponse extends OrderItemResponse {
+  inventory_mode?: "legacy" | "fallback" | "ledger_managed";
+  ledger_managed?: boolean;
+  stock_issue_status?: "legacy" | "issued" | "missing" | "reversed";
+  inventory_movement_ids?: string[];
+  source_movement_id?: string | null;
+  finished_batch_id?: string | null;
+  finished_batch_number?: string | null;
+  cogs_row_id?: string | null;
+  cogs_readiness?: string;
+  valuation_method?: string | null;
+  source_valuation_layer_id?: string | null;
+  inventory_exception_ids?: string[];
+  inventory_exception_count?: number;
+}
+
 export interface InvoiceProfile {
   customer_type: "individual" | "business";
   legal_name: string;
@@ -414,6 +430,16 @@ export interface AccountingFinanceHubLinks {
   exceptions_href?: string | null;
   ledger_href?: string | null;
   documents_href?: string | null;
+}
+
+export interface OrderInventoryContext {
+  valuation_method?: string | null;
+  official_cogs_required?: boolean;
+  missing_inventory_movement_count?: number;
+  missing_cogs_count?: number;
+  inventory_exception_count?: number;
+  inventory_exception_ids?: string[];
+  links?: Record<string, string | null> | null;
 }
 
 export interface OrderResponse {
@@ -505,6 +531,7 @@ export type AccountingLedgerName =
   | "courier_claims"
   | "return_reasons"
   | "inventory_adjustments"
+  | "inventory_movements"
   | "documents"
   | "expenses"
   | "product_costs";
@@ -531,7 +558,521 @@ export type AdminOrderAccountingFilter =
   | "payout_mismatch"
   | "cod_settlement_pending"
   | "refund_document_missing"
-  | "vat_review_required";
+  | "vat_review_required"
+  | "missing_batch_assignment"
+  | "missing_inventory_movement"
+  | "missing_cogs_row"
+  | "valuation_exception"
+  | "return_inventory_review_pending";
+
+// --- Inventory, recipes, production, valuation ---
+
+export type MaterialUom = "g" | "kg" | "ml" | "l" | "piece" | "pcs" | "unit" | "m" | "cm";
+export type MaterialMovementType = "adjustment" | "spoilage" | "write_off" | "stock_count_correction";
+export type InventoryReviewState = "unreviewed" | "reviewed" | "estimate" | "official" | "reversed";
+export type MaterialReviewState = "draft" | "needs_review" | "reviewed" | "rejected";
+export type RecipeStatus = "draft" | "active" | "archived";
+export type RecipeReviewState = "estimate" | "reviewed" | "accountant_reviewed" | "invalid";
+export type QuantityBasis = "per_unit" | "per_batch";
+export type ProductionBatchStatus = "draft" | "produced" | "cancelled";
+export type ValuationMethod = "weighted_average" | "fifo";
+export type CogsDateBasis = "order_date" | "payment_date" | "shipment_date" | "delivery_date" | "period_close";
+
+export interface InventoryExceptionResponse {
+  id: string;
+  exception_type: string;
+  severity: FinanceExceptionSeverity;
+  target_type?: string | null;
+  target_id?: string | null;
+  source_type?: string | null;
+  source_id?: string | null;
+  status: FinanceExceptionStatus;
+  message: string;
+  created_at: string;
+}
+
+export interface InventoryMovementResponse {
+  id: string;
+  item_type: "material" | "finished_good";
+  item_id: string;
+  movement_type: string;
+  quantity_delta: number;
+  uom: string;
+  source_type?: string | null;
+  source_id?: string | null;
+  material_lot_id?: string | null;
+  actor_user_id?: string | null;
+  actor_email?: string | null;
+  reason?: string | null;
+  notes?: string | null;
+  review_state: InventoryReviewState;
+  occurred_at: string;
+  created_at: string;
+}
+
+export interface InventoryMovementListResponse {
+  movements: InventoryMovementResponse[];
+  total: number;
+}
+
+export interface MaterialRequest {
+  sku?: string | null;
+  name: string;
+  category?: string;
+  stock_uom: MaterialUom;
+  purchase_uom?: MaterialUom | null;
+  purchase_to_stock_factor?: number | null;
+  preferred_supplier_name?: string | null;
+  preferred_supplier_sku?: string | null;
+  reorder_threshold?: number | null;
+  active?: boolean;
+  lot_tracked?: boolean;
+  expiry_tracked?: boolean;
+  evidence_required?: boolean;
+  notes?: string | null;
+}
+
+export type MaterialUpdateRequest = Partial<MaterialRequest>;
+
+export interface MaterialResponse {
+  id: string;
+  sku?: string | null;
+  name: string;
+  category: string;
+  stock_uom: string;
+  purchase_uom?: string | null;
+  purchase_to_stock_factor?: number | null;
+  preferred_supplier_name?: string | null;
+  preferred_supplier_sku?: string | null;
+  reorder_threshold?: number | null;
+  active: boolean;
+  lot_tracked: boolean;
+  expiry_tracked: boolean;
+  evidence_required: boolean;
+  on_hand_quantity: number;
+  reorder_status: "ok" | "below_threshold" | "not_configured" | "inactive";
+  open_exception_count: number;
+  latest_movement_at?: string | null;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MaterialLotResponse {
+  id: string;
+  material_id: string;
+  receipt_id?: string | null;
+  supplier_lot?: string | null;
+  expiry_date?: string | null;
+  use_by_date?: string | null;
+  received_quantity: number;
+  stock_uom: string;
+  remaining_quantity_snapshot?: number | null;
+  unit_cost_amount?: string | null;
+  currency: string;
+  supplier_name?: string | null;
+  review_state: MaterialReviewState;
+  lot_status: "ok" | "near_expiry" | "expired" | "unknown";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MaterialDetailResponse extends MaterialResponse {
+  lots: MaterialLotResponse[];
+  recent_movements: InventoryMovementResponse[];
+  exceptions: InventoryExceptionResponse[];
+}
+
+export interface MaterialListResponse {
+  materials: MaterialResponse[];
+  total: number;
+}
+
+export interface MaterialLotListResponse {
+  lots: MaterialLotResponse[];
+  total: number;
+}
+
+export interface MaterialReceiptRequest {
+  receipt_date?: string | null;
+  quantity: number;
+  uom: MaterialUom;
+  unit_cost_amount?: string | null;
+  total_cost_cents?: number | null;
+  currency?: string;
+  supplier_name?: string | null;
+  supplier_lot?: string | null;
+  expiry_date?: string | null;
+  use_by_date?: string | null;
+  expense_evidence_id?: string | null;
+  document_reference?: string | null;
+  notes?: string | null;
+}
+
+export interface MaterialReceiptResponse extends MaterialReceiptRequest {
+  id: string;
+  material_id: string;
+  receipt_date: string;
+  quantity: number;
+  uom: MaterialUom;
+  stock_quantity: number;
+  stock_uom: string;
+  currency: string;
+  review_state: MaterialReviewState;
+  movement_id?: string | null;
+  lot_id?: string | null;
+  exceptions: InventoryExceptionResponse[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MaterialAdjustmentRequest {
+  movement_type: MaterialMovementType;
+  quantity_delta: number;
+  uom?: MaterialUom | null;
+  reason: string;
+  notes?: string | null;
+  occurred_at?: string | null;
+}
+
+export interface RecipeComponentRequest {
+  material_id: string;
+  quantity: number;
+  uom: MaterialUom;
+  quantity_basis?: QuantityBasis;
+  wastage_percent?: number;
+  required?: boolean;
+  substitute_group?: string | null;
+  sort_order?: number;
+}
+
+export interface RecipeVersionRequest {
+  product_id: string;
+  version_label: string;
+  effective_date: string;
+  output_quantity: number;
+  output_uom?: string;
+  notes?: string | null;
+  components?: RecipeComponentRequest[];
+}
+
+export type RecipeVersionUpdateRequest = Partial<Omit<RecipeVersionRequest, "product_id">>;
+
+export interface RecipeReviewRequest {
+  review_state?: RecipeReviewState;
+  review_note?: string | null;
+}
+
+export interface RecipeCostSnapshotRequest {
+  labor_cost_cents?: number;
+  overhead_cost_cents?: number;
+  currency?: string;
+}
+
+export interface RecipeDiagnosticResponse {
+  code: string;
+  severity: FinanceExceptionSeverity;
+  message: string;
+  target_type?: string | null;
+  target_id?: string | null;
+}
+
+export interface RecipeComponentResponse {
+  id: string;
+  recipe_version_id: string;
+  material_id: string;
+  material_name?: string | null;
+  material_active?: boolean | null;
+  material_category?: string | null;
+  quantity: number;
+  uom: string;
+  quantity_basis: QuantityBasis;
+  wastage_percent: number;
+  required: boolean;
+  substitute_group?: string | null;
+  sort_order: number;
+  review_state: "valid" | "warning" | "invalid";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RecipeCostSnapshotResponse {
+  id: string;
+  recipe_version_id: string;
+  currency: string;
+  material_cost_cents: number;
+  packaging_cost_cents: number;
+  labor_cost_cents: number;
+  overhead_cost_cents: number;
+  batch_cost_cents: number;
+  expected_unit_cost_cents: number;
+  source_cost_references_json?: string | null;
+  missing_cost_count: number;
+  estimate_label: string;
+  review_state: "estimate" | "incomplete" | "reviewed" | "accountant_reviewed";
+  calculated_at: string;
+  created_by_admin_id?: string | null;
+  created_at: string;
+}
+
+export interface RecipeVersionResponse {
+  id: string;
+  product_id: string;
+  version_label: string;
+  status: RecipeStatus;
+  effective_date: string;
+  output_quantity: number;
+  output_uom: string;
+  review_state: RecipeReviewState;
+  accountant_reviewed: boolean;
+  reviewed_by_admin_id?: string | null;
+  reviewed_at?: string | null;
+  notes?: string | null;
+  created_by_admin_id?: string | null;
+  updated_by_admin_id?: string | null;
+  components: RecipeComponentResponse[];
+  latest_cost_snapshot?: RecipeCostSnapshotResponse | null;
+  diagnostics: RecipeDiagnosticResponse[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RecipeVersionListResponse {
+  recipes: RecipeVersionResponse[];
+  total: number;
+}
+
+export interface RecipeDiagnosticsListResponse {
+  diagnostics: RecipeDiagnosticResponse[];
+}
+
+export interface ProductionBatchRequest {
+  batch_number: string;
+  product_id: string;
+  recipe_version_id?: string | null;
+  planned_output_quantity: number;
+  output_uom?: string;
+  production_date: string;
+  ready_date?: string | null;
+  notes?: string | null;
+}
+
+export interface ProductionBatchUpdateRequest {
+  planned_output_quantity?: number;
+  production_date?: string;
+  ready_date?: string | null;
+  notes?: string | null;
+}
+
+export interface ProductionBatchActualConsumptionRequest {
+  batch_consumption_id?: string | null;
+  material_id: string;
+  material_lot_id?: string | null;
+  actual_quantity: number;
+  waste_quantity?: number;
+  uom?: MaterialUom | null;
+}
+
+export interface ProductionBatchPostRequest {
+  actual_output_quantity: number;
+  actual_consumption?: ProductionBatchActualConsumptionRequest[];
+  variance_tolerance_percent?: number;
+  notes?: string | null;
+}
+
+export interface ProductionBatchCorrectionRequest {
+  item_type: "material" | "finished_good";
+  item_id: string;
+  quantity_delta: number;
+  uom: string;
+  reason: string;
+  notes?: string | null;
+}
+
+export interface ProductionBatchConsumptionResponse {
+  id: string;
+  production_batch_id: string;
+  recipe_component_id?: string | null;
+  material_id: string;
+  material_name?: string | null;
+  material_lot_id?: string | null;
+  expected_quantity?: number | null;
+  actual_quantity?: number | null;
+  waste_quantity: number;
+  uom: string;
+  unit_cost_amount?: string | null;
+  currency: string;
+  movement_id?: string | null;
+  review_state: MaterialReviewState;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductionBatchOutputResponse {
+  id: string;
+  production_batch_id: string;
+  product_id: string;
+  batch_number: string;
+  quantity: number;
+  uom: string;
+  unit_cost_amount?: string | null;
+  currency: string;
+  movement_id?: string | null;
+  remaining_quantity_snapshot?: number | null;
+  valuation_review_state: "estimate" | "reviewed" | "official";
+  created_at: string;
+}
+
+export interface ProductionBatchResponse {
+  id: string;
+  batch_number: string;
+  product_id: string;
+  recipe_version_id?: string | null;
+  planned_output_quantity: number;
+  actual_output_quantity?: number | null;
+  output_uom: string;
+  status: ProductionBatchStatus;
+  production_date: string;
+  ready_date?: string | null;
+  cost_snapshot_id?: string | null;
+  variance_review_state: "not_reviewed" | "warning" | "reviewed";
+  actor_user_id?: string | null;
+  notes?: string | null;
+  consumption: ProductionBatchConsumptionResponse[];
+  outputs: ProductionBatchOutputResponse[];
+  exceptions: InventoryExceptionResponse[];
+  created_by_admin_id?: string | null;
+  updated_by_admin_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductionBatchListResponse {
+  batches: ProductionBatchResponse[];
+  total: number;
+}
+
+export interface ProductionTraceabilityResponse extends ProductionBatchResponse {
+  source_movements: InventoryMovementResponse[];
+  finished_movements: InventoryMovementResponse[];
+  linked_order_lines: Record<string, unknown>[];
+}
+
+export interface InventoryValuationSettingsRequest {
+  ledger_mode?: "legacy" | "setup" | "ledger_managed";
+  valuation_enabled?: boolean;
+  valuation_method?: ValuationMethod;
+  effective_date: string;
+  cogs_date_basis?: CogsDateBasis;
+  rounding_policy?: "half_up_2dp" | "half_up_4dp";
+  missing_cost_behavior?: "allow_estimate" | "warn" | "block_official";
+  included_cost_components?: Record<string, unknown> | null;
+  write_off_mapping?: Record<string, unknown> | null;
+  currency?: string;
+  accountant_reviewed?: boolean;
+  reviewed_by_name?: string | null;
+  review_notes?: string | null;
+}
+
+export interface InventoryValuationSettingsResponse {
+  id: string;
+  ledger_mode: "legacy" | "setup" | "ledger_managed";
+  valuation_enabled: boolean;
+  valuation_method: ValuationMethod;
+  effective_date: string;
+  cogs_date_basis: CogsDateBasis;
+  rounding_policy: string;
+  missing_cost_behavior: string;
+  included_cost_components?: Record<string, unknown> | null;
+  write_off_mapping?: Record<string, unknown> | null;
+  currency: string;
+  settings_version: number;
+  accountant_reviewed: boolean;
+  reviewed_by_admin_id?: string | null;
+  reviewed_by_name?: string | null;
+  reviewed_at?: string | null;
+  review_notes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OpeningBalanceRequest {
+  item_type: "material" | "finished_good";
+  item_id: string;
+  quantity: number;
+  uom: string;
+  unit_value_amount?: string | null;
+  total_value_cents?: number | null;
+  reviewed?: boolean;
+  notes?: string | null;
+}
+
+export interface ValuationLayerResponse {
+  id: string;
+  movement_id?: string | null;
+  item_type: "material" | "finished_good";
+  item_id: string;
+  quantity: number;
+  unit_value_amount?: string | null;
+  total_value_cents?: number | null;
+  currency: string;
+  valuation_method: ValuationMethod | "revaluation";
+  source_type?: string | null;
+  source_id?: string | null;
+  valuation_date: string;
+  review_state: "estimate" | "reviewed" | "official" | "reversed";
+  method_metadata_json?: string | null;
+  reversal_layer_id?: string | null;
+  created_at: string;
+}
+
+export interface ValuationLayerListResponse {
+  layers: ValuationLayerResponse[];
+  total: number;
+}
+
+export interface CogsLedgerResponse {
+  id: string;
+  order_id?: string | null;
+  order_number?: string | null;
+  order_item_key?: string | null;
+  product_id?: string | null;
+  quantity_sold: number;
+  cogs_date: string;
+  unit_cost_amount?: string | null;
+  total_cost_cents: number;
+  currency: string;
+  valuation_method: ValuationMethod;
+  source_movement_id?: string | null;
+  source_valuation_layer_id?: string | null;
+  source_finished_batch_id?: string | null;
+  review_state: "estimate" | "reviewed" | "official" | "reversed";
+  reversal_cogs_id?: string | null;
+  created_at: string;
+}
+
+export interface CogsLedgerListResponse {
+  rows: CogsLedgerResponse[];
+  total: number;
+}
+
+export interface InventoryClosePreviewResponse {
+  period_start: string;
+  period_end: string;
+  currency: string;
+  valuation_method: ValuationMethod;
+  official: boolean;
+  opening_value_cents: number;
+  receipts_value_cents: number;
+  production_consumption_value_cents: number;
+  finished_output_value_cents: number;
+  sales_cogs_value_cents: number;
+  returns_value_cents: number;
+  adjustments_value_cents: number;
+  ending_value_cents: number;
+  exception_count: number;
+  policy_snapshot: Record<string, unknown>;
+}
 
 export interface SellerLegalProfileRequest {
   effective_date: string;
@@ -1490,6 +2031,7 @@ export interface EcontCodEvidence {
 }
 
 export interface AdminOrderDetailResponse extends OrderResponse {
+  items: AdminOrderItemResponse[];
   payment_events: PaymentEventResponse[];
   return_cases: ReturnCaseResponse[];
   return_events: ReturnEventResponse[];
@@ -1497,6 +2039,7 @@ export interface AdminOrderDetailResponse extends OrderResponse {
   cod_settlement: CodSettlementResponse | null;
   cod_settlement_required: boolean;
   econt_cod_evidence: EcontCodEvidence | null;
+  inventory_context?: OrderInventoryContext | null;
 }
 
 export type ManualPaymentAction =
@@ -1716,6 +2259,20 @@ export interface AdminProductResponse {
   primary_image_url: string | null;
   primary_thumbnail_url: string | null;
   stock: number;
+  inventory_mode?: "legacy" | "fallback" | "ledger_managed";
+  stock_source?: "product_stock" | "inventory_ledger" | "mixed";
+  ledger_managed?: boolean;
+  valuation_readiness?: "setup_required" | "estimate_only" | "ready" | "blocked";
+  active_recipe_id?: string | null;
+  active_recipe_status?: "missing" | "draft" | "active" | "archived";
+  active_recipe_review_state?: string | null;
+  latest_batch_id?: string | null;
+  latest_batch_number?: string | null;
+  latest_batch_status?: string | null;
+  latest_batch_date?: string | null;
+  inventory_exception_count?: number;
+  inventory_exceptions?: InventoryExceptionResponse[];
+  inventory_links?: Record<string, string | null> | null;
   weight_grams?: number;
   is_active: boolean;
   is_featured: boolean;

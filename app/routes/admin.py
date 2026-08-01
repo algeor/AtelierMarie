@@ -193,6 +193,7 @@ from app.services.order_service import (
     WrongPaymentMethodError,
     apply_manual_payment_action,
     get_order_admin,
+    get_order_inventory_context,
     list_orders_admin,
     list_payment_events,
     mark_bank_transfer_paid,
@@ -204,6 +205,7 @@ from app.services.product_service import (
     BulkTargetLimitError,
     DiscountValidationError,
     DuplicateError,
+    LedgerManagedStockEditError,
     NotFoundError,
 )
 from app.services.return_service import (
@@ -1878,6 +1880,13 @@ async def admin_update_product(
         return error_response(422, "INVALID_TAXONOMY", str(e))
     except DiscountValidationError as e:
         return error_response(422, "VALIDATION_ERROR", str(e))
+    except LedgerManagedStockEditError as e:
+        return error_response(
+            422,
+            "LEDGER_STOCK_EDIT_BLOCKED",
+            str(e),
+            details={"product_id": e.product_id},
+        )
 
     return ProductAdminResponse(**product)
 
@@ -2247,7 +2256,13 @@ async def admin_import_products(
                 updated += 1
             else:
                 created += 1
-        except (TaxonomyValidationError, DuplicateError, ValueError, sqlite3.IntegrityError) as e:
+        except (
+            TaxonomyValidationError,
+            DuplicateError,
+            LedgerManagedStockEditError,
+            ValueError,
+            sqlite3.IntegrityError,
+        ) as e:
             # Expected per-row data errors are reported and the import continues.
             # Unexpected exceptions propagate rather than masquerading as row errors.
             errors.append(CSVImportError(row=row_num, message=str(e)))
@@ -2354,8 +2369,14 @@ def admin_get_order_detail(order_id: str) -> AdminOrderDetailResponse:
         cod_settlement = get_cod_settlement_for_order(conn, order_id)
         cod_settlement_required = cod_settlement_required_for_order(conn, order_id)
         econt_cod_evidence = econt_fulfillment_service.get_latest_cod_evidence(conn, order_id)
+        inventory_context = get_order_inventory_context(conn, order_id)
 
     payload = dict(order_data)
+    item_contexts = inventory_context.get("items", {})
+    payload["items"] = [
+        {**dict(item), **item_contexts.get(item["product_id"], {})}
+        for item in order_data["items"]
+    ]
     payload["payment_events"] = payment_events
     payload["return_cases"] = return_cases
     payload["return_events"] = return_events
@@ -2363,6 +2384,9 @@ def admin_get_order_detail(order_id: str) -> AdminOrderDetailResponse:
     payload["cod_settlement"] = cod_settlement
     payload["cod_settlement_required"] = cod_settlement_required
     payload["econt_cod_evidence"] = econt_cod_evidence
+    payload["inventory_context"] = {
+        key: value for key, value in inventory_context.items() if key != "items"
+    }
     return AdminOrderDetailResponse.model_validate(payload)
 
 

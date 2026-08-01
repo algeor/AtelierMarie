@@ -39,6 +39,21 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    labelKey: "inventoryNav",
+    href: "/admin/inventory",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5v8.25a2.25 2.25 0 01-1.244 2.013l-6 3a2.25 2.25 0 01-2.012 0l-6-3A2.25 2.25 0 013.75 15.75V7.5m16.5 0L12 3.375 3.75 7.5m16.5 0L12 11.625 3.75 7.5M12 21V11.625" />
+      </svg>
+    ),
+    children: [
+      { labelKey: "materialsNav", href: "/admin/inventory/materials" },
+      { labelKey: "recipesNav", href: "/admin/inventory/recipes" },
+      { labelKey: "productionBatchesNav", href: "/admin/inventory/batches" },
+      { labelKey: "valuationNav", href: "/admin/inventory/valuation" },
+    ],
+  },
+  {
     labelKey: "orders",
     href: "/admin/orders",
     icon: (

@@ -77,6 +77,19 @@ const ORDER: AdminOrderDetailResponse = {
       product_name: "Lavender Dreams",
       price_cents: 3200,
       quantity: 1,
+      inventory_mode: "ledger_managed",
+      ledger_managed: true,
+      stock_issue_status: "issued",
+      inventory_movement_ids: ["mov-sale-1"],
+      source_movement_id: "mov-sale-1",
+      finished_batch_id: "batch-1",
+      finished_batch_number: "B-001",
+      cogs_row_id: "cogs-1",
+      cogs_readiness: "estimate",
+      valuation_method: "weighted_average",
+      source_valuation_layer_id: "layer-1",
+      inventory_exception_ids: ["exc-1"],
+      inventory_exception_count: 1,
     },
   ],
   tracking_number: null,
@@ -107,6 +120,19 @@ const ORDER: AdminOrderDetailResponse = {
   cod_settlement: null,
   cod_settlement_required: false,
   econt_cod_evidence: null,
+  inventory_context: {
+    valuation_method: "weighted_average",
+    official_cogs_required: true,
+    missing_inventory_movement_count: 0,
+    missing_cogs_count: 0,
+    inventory_exception_count: 1,
+    inventory_exception_ids: ["exc-1"],
+    links: {
+      movements_href: "/admin/inventory/movements?order_id=order-1",
+      cogs_href: "/admin/inventory/valuation/cogs?order_id=order-1",
+      exceptions_href: "/admin/inventory/valuation/exceptions?order_id=order-1",
+    },
+  },
 };
 
 describe("Admin order payment detail", () => {
@@ -145,6 +171,25 @@ describe("Admin order payment detail", () => {
     expect(screen.getByText("Payment timeline")).toBeInTheDocument();
     expect(screen.getByText("checkout session completed")).toBeInTheDocument();
     expect(screen.getByText("evt_test_123")).toBeInTheDocument();
+  });
+
+  it("shows item inventory context and traceability links", async () => {
+    renderWithIntl(<AdminOrderDetailPage />);
+
+    expect(await screen.findByText("Stock issue: issued")).toBeInTheDocument();
+    expect(screen.getByText("COGS: estimate")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "B-001" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("/admin/inventory/batches")
+    );
+    expect(screen.getByRole("link", { name: "Movement" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("/admin/inventory/movements")
+    );
+    expect(screen.getByRole("link", { name: "COGS row" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("/admin/inventory/valuation/cogs")
+    );
   });
 
   it("requires a note before applying manual payment action", async () => {

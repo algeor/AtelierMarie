@@ -69,6 +69,115 @@ def _seed_paid_order(db: sqlite3.Connection, app, *, seller_id: int, vat_id: int
     db.commit()
 
 
+def _seed_inventory_export_data(db: sqlite3.Connection) -> None:
+    db.execute(
+        """
+        UPDATE inventory_settings
+        SET valuation_enabled = 1, accountant_reviewed = 1, valuation_method = 'weighted_average'
+        WHERE id = 'default'
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO product_inventory_profiles (
+            product_id, inventory_mode, stock_source, opening_balance_state, valuation_readiness
+        ) VALUES ('export-candle', 'ledger_managed', 'inventory_ledger', 'reviewed', 'ready')
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO materials (id, sku, name, category, stock_uom)
+        VALUES ('export-wax', 'EXP-WAX', 'Export Wax', 'wax', 'g')
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO inventory_movements (
+            id, item_type, item_id, movement_type, quantity_delta, uom,
+            source_type, source_id, review_state, occurred_at
+        ) VALUES ('export-wax-receipt-move', 'material', 'export-wax', 'receipt',
+                  1000, 'g', 'material_receipt', 'export-wax-receipt', 'reviewed',
+                  '2026-08-03 09:00:00')
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO inventory_movements (
+            id, item_type, item_id, movement_type, quantity_delta, uom,
+            source_type, source_id, review_state, occurred_at
+        ) VALUES ('export-wax-writeoff-move', 'material', 'export-wax', 'write_off',
+                  -100, 'g', 'stock_count', 'export-count', 'reviewed',
+                  '2026-08-20 09:00:00')
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO inventory_movements (
+            id, item_type, item_id, movement_type, quantity_delta, uom,
+            product_id, order_id, order_item_key, review_state, occurred_at
+        ) VALUES ('export-sale-move', 'finished_good', 'export-candle', 'sale_issue',
+                  -1, 'unit', 'export-candle', 'export-order', 'export-order:export-candle',
+                  'reviewed', '2026-08-10 10:00:00')
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO inventory_valuation_layers (
+            id, movement_id, item_type, item_id, quantity, unit_value_amount,
+            total_value_cents, currency, valuation_method, source_type, source_id,
+            valuation_date, review_state
+        ) VALUES ('export-wax-receipt-layer', 'export-wax-receipt-move', 'material',
+                  'export-wax', 1000, '0.010000', 1000, 'EUR', 'weighted_average',
+                  'material_receipt', 'export-wax-receipt', '2026-08-03', 'official')
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO inventory_valuation_layers (
+            id, movement_id, item_type, item_id, quantity, unit_value_amount,
+            total_value_cents, currency, valuation_method, source_type, source_id,
+            valuation_date, review_state
+        ) VALUES ('export-wax-writeoff-layer', 'export-wax-writeoff-move', 'material',
+                  'export-wax', -100, '0.010000', 100, 'EUR', 'weighted_average',
+                  'stock_count', 'export-count', '2026-08-20', 'official')
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO inventory_valuation_layers (
+            id, movement_id, item_type, item_id, quantity, unit_value_amount,
+            total_value_cents, currency, valuation_method, source_type, source_id,
+            valuation_date, review_state
+        ) VALUES ('export-finished-opening-layer', NULL, 'finished_good', 'export-candle',
+                  5, '2.000000', 1000, 'EUR', 'weighted_average', 'opening_balance',
+                  'export-opening', '2026-08-01', 'official')
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO inventory_valuation_layers (
+            id, movement_id, item_type, item_id, quantity, unit_value_amount,
+            total_value_cents, currency, valuation_method, source_type, source_id,
+            valuation_date, review_state
+        ) VALUES ('export-sale-layer', 'export-sale-move', 'finished_good', 'export-candle',
+                  -1, '2.000000', 200, 'EUR', 'weighted_average', 'order_item',
+                  'export-order:export-candle', '2026-08-10', 'official')
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO cogs_ledger (
+            id, order_id, order_number, order_item_key, product_id, quantity_sold,
+            cogs_date, unit_cost_amount, total_cost_cents, currency, valuation_method,
+            source_movement_id, source_valuation_layer_id, review_state
+        ) VALUES ('export-cogs', 'export-order', 'EXPORT-ORDER', 'export-order:export-candle',
+                  'export-candle', 1, '2026-08-10', '2.000000', 200, 'EUR',
+                  'weighted_average', 'export-sale-move', 'export-sale-layer', 'official')
+        """
+    )
+    db.commit()
+
+
 async def _closed_period(admin_client) -> str:
     period_resp = await admin_client.post(
         "/v1/admin/accounting/periods",
@@ -85,6 +194,7 @@ async def _closed_period(admin_client) -> str:
 async def test_export_package_generation_manifest_download_accept_and_versioning(admin_client, db, app):
     seller_id, vat_id = _seed_reviewed_settings(db)
     _seed_paid_order(db, app, seller_id=seller_id, vat_id=vat_id)
+    _seed_inventory_export_data(db)
 
     open_period_resp = await admin_client.post(
         "/v1/admin/accounting/periods",
@@ -110,13 +220,32 @@ async def test_export_package_generation_manifest_download_accept_and_versioning
     manifest = package["manifest"]
     assert manifest["schema_version"] == "accounting-finance-hub.v1"
     assert manifest["row_counts"]["sales"] >= 1
+    assert manifest["row_counts"]["inventory_movements"] == 3
+    assert manifest["row_counts"]["material_on_hand"] == 1
+    assert manifest["row_counts"]["finished_goods_on_hand"] == 1
+    assert manifest["row_counts"]["inventory_valuation"] == 4
+    assert manifest["row_counts"]["cogs"] == 1
+    assert manifest["row_counts"]["inventory_writeoffs"] == 1
+    assert manifest["sheet_totals"]["cogs"]["total_cost_cents"] == 200
+    assert manifest["files"]["csv_components"]["inventory_movements.csv"]["sha256"]
+    assert manifest["files"]["csv_components"]["cogs.csv"]["totals"]["total_cost_cents"] == 200
     assert "summary.csv" in manifest["files"]["csv_components"]
     assert manifest["files"]["xlsx"]["sha256"]
 
     workbook = load_workbook(xlsx_path, read_only=True)
-    assert {"summary", "sales", "expenses", "product_costs", "settings_snapshot"}.issubset(
-        set(workbook.sheetnames)
-    )
+    assert {
+        "summary",
+        "sales",
+        "expenses",
+        "product_costs",
+        "settings_snapshot",
+        "inventory_movements",
+        "material_on_hand",
+        "finished_goods_on_hand",
+        "inventory_valuation",
+        "cogs",
+        "inventory_writeoffs",
+    }.issubset(set(workbook.sheetnames))
     workbook.close()
 
     download_resp = await admin_client.get(

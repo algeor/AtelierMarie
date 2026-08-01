@@ -620,6 +620,7 @@ CREATE TABLE IF NOT EXISTS inventory_settings (
     valuation_method TEXT NOT NULL DEFAULT 'weighted_average' CHECK (valuation_method IN (
                     'weighted_average', 'fifo'
                 )),
+    effective_date TEXT NOT NULL DEFAULT (date('now')),
     cogs_date_basis TEXT NOT NULL DEFAULT 'order_date' CHECK (cogs_date_basis IN (
                     'order_date', 'payment_date', 'shipment_date',
                     'delivery_date', 'period_close'
@@ -2193,6 +2194,7 @@ def init_db(path: str) -> None:
         conn.execute("PRAGMA foreign_keys=ON")
         _migrate_existing_schema(conn)
         conn.executescript(_SCHEMA_SQL)
+        _migrate_inventory_settings(conn)
         _migrate_delivery_settings(conn)
         _backfill_order_payment_summary(conn)
         _migrate_taxonomy(conn)
@@ -2261,6 +2263,20 @@ def _migrate_delivery_settings(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_inventory_settings(conn: sqlite3.Connection) -> None:
+    """Add inventory settings columns introduced after the initial inventory schema."""
+    if not _table_exists(conn, "inventory_settings"):
+        return
+    columns = _table_columns(conn, "inventory_settings")
+    _add_column_if_missing(
+        conn,
+        "inventory_settings",
+        columns,
+        "effective_date",
+        "effective_date TEXT NOT NULL DEFAULT '1970-01-01'",
+    )
+
+
 def _seed_delivery_settings(conn: sqlite3.Connection) -> None:
     """Seed the singleton delivery availability row with all methods enabled."""
     conn.execute(
@@ -2290,10 +2306,10 @@ def _seed_inventory_settings(conn: sqlite3.Connection) -> None:
         """
         INSERT OR IGNORE INTO inventory_settings (
             id, ledger_mode, valuation_enabled, valuation_method,
-            cogs_date_basis, rounding_policy, missing_cost_behavior,
+            effective_date, cogs_date_basis, rounding_policy, missing_cost_behavior,
             currency, settings_version, accountant_reviewed
         ) VALUES (
-            'default', 'setup', 0, 'weighted_average',
+            'default', 'setup', 0, 'weighted_average', date('now'),
             'order_date', 'half_up_2dp', 'block_official',
             'EUR', 1, 0
         )
