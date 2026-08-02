@@ -119,8 +119,8 @@ def _cancel_abandoned_card_orders() -> int:
     window expires without confirmation, the system cancels the order and
     releases the stock reservation without creating a refund.
     """
-    from app.services.payment_service import expire_checkout_session
     from app.services.order_service import update_status
+    from app.services.payment_service import expire_checkout_session
 
     reviewed = 0
     settings = get_settings()
@@ -209,7 +209,7 @@ def _cancel_abandoned_card_orders() -> int:
               AND payment_status IN ('pending', 'failed')
               AND (
                   (reserved_until IS NOT NULL AND reserved_until < CURRENT_TIMESTAMP)
-                  OR created_at < datetime('now', '-24 hours')
+                  OR created_at < CURRENT_TIMESTAMP - INTERVAL '24 hours'
               )
               AND status NOT IN ('cancelled', 'shipped', 'delivered', 'return_in_transit', 'returned')
             """

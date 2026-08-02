@@ -50,8 +50,9 @@ def age_out_suppressed_emails(older_than_days: int = 365) -> int:
     """
     with get_db() as conn:
         cursor = conn.execute(
-            "DELETE FROM suppressed_emails WHERE suppressed_at < datetime('now', %s)",
-            (f"-{int(older_than_days)} days",),
+            "DELETE FROM suppressed_emails "
+            "WHERE suppressed_at < CURRENT_TIMESTAMP - make_interval(days => %s)",
+            (int(older_than_days),),
         )
         count = cursor.rowcount
     logger.info("suppressed_emails_aged_out", rows=count, older_than_days=older_than_days)

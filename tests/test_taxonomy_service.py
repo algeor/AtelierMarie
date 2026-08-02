@@ -4,14 +4,16 @@ Covers public listing, admin CRUD, slug derivation/immutability, delete guards,
 assignment validation (including preserve-current-inactive rules), and the
 batched display-name resolver.
 
-Each test gets a fresh DB file (`tax_db`) because taxonomy tables persist across
-init_db calls (seeds use INSERT OR IGNORE) and the shared module cleanup fixture
-does not reset taxonomy state — deactivations would otherwise leak between tests.
+Each test needs the seeded taxonomy restored to its migration-default state
+because the taxonomy tables are migration-seed tables (carried into every worker
+DB by the template clone) and are deliberately excluded from the autouse
+``_clean_tables`` TRUNCATE — deactivations/creates would otherwise leak between
+tests. The local ``tax_db`` autouse fixture below restores that seeded state.
 """
 
 import pytest
 
-from app.database import get_db, init_db
+from app.database import get_db
 from app.services import product_service, taxonomy_service
 from app.services.taxonomy_service import (
     TaxonomyInUseError,
@@ -19,13 +21,61 @@ from app.services.taxonomy_service import (
     TaxonomyValidationError,
 )
 
+# Seeded taxonomy rows (migration 20260802_0001). Restored before each test so
+# per-test deactivations, renames, reorders and creates never leak across tests.
+# Tuple shape: (slug, name_en, name_bg, sort_order).
+_SEED_TYPES = (
+    ("candles", "Candles", "Свещи", 0),
+    ("boxes", "Boxes", "Кутии", 1),
+)
+_SEED_CATEGORIES = (
+    ("small", "Small", "Малка", 0),
+    ("medium", "Medium", "Средна", 1),
+    ("premium", "Premium", "Премиум", 2),
+)
+_SEED_LABELS = (
+    ("floral", "Floral", "Флорални", 0),
+    ("woody", "Woody", "Дървесни", 1),
+    ("fresh", "Fresh", "Свежи", 2),
+    ("gourmand", "Gourmand", "Гурме", 3),
+    ("spicy", "Spicy", "Пикантни", 4),
+    ("citrus", "Citrus", "Цитрусови", 5),
+    ("winter", "Winter", "Зима", 6),
+    ("gift", "Gift", "Подарък", 7),
+    ("christmas", "Christmas", "Коледа", 8),
+)
 
-@pytest.fixture()
-def tax_db(tmp_path) -> str:
-    """Fresh, fully-seeded DB per test (sets the module-global connection path)."""
-    path = str(tmp_path / "tax.db")
-    init_db(path)
-    return path
+
+@pytest.fixture(autouse=True)
+def tax_db(app, _clean_tables) -> None:
+    """Restore seeded taxonomy state before each test.
+
+    Depends on ``app`` so the psycopg pool is initialized, and on ``_clean_tables``
+    so it runs *after* the autouse TRUNCATE: volatile tables (products, label
+    assignments) are already cleared, so no taxonomy row can be FK-referenced here.
+    Any extra terms created by a prior test are deleted and the seeded terms are
+    reset to their migration defaults (active, original name/order).
+    """
+    with get_db() as conn:
+        for table, seed in (
+            ("product_types", _SEED_TYPES),
+            ("product_categories", _SEED_CATEGORIES),
+            ("product_labels", _SEED_LABELS),
+        ):
+            seeded_slugs = tuple(row[0] for row in seed)
+            conn.execute(
+                f"DELETE FROM {table} WHERE slug <> ALL(%s)",
+                (list(seeded_slugs),),
+            )
+            for slug, name_en, name_bg, sort_order in seed:
+                conn.execute(
+                    f"INSERT INTO {table} (slug, name_en, name_bg, sort_order, is_active) "
+                    "VALUES (%s, %s, %s, %s, 1) "
+                    "ON CONFLICT (slug) DO UPDATE SET "
+                    "name_en = EXCLUDED.name_en, name_bg = EXCLUDED.name_bg, "
+                    "sort_order = EXCLUDED.sort_order, is_active = 1",
+                    (slug, name_en, name_bg, sort_order),
+                )
 
 
 def _deactivate(kind: str, slug: str) -> None:
@@ -412,7 +462,7 @@ class TestDisplayResolution:
                 "INSERT INTO products (id, name_en, price_cents, product_type_slug, "
                 "category_slug, stock, is_active, created_at, updated_at) VALUES "
                 "('orphan', 'Orphan', 1000, 'candles', 'ghost-cat', 1, 1, "
-                "datetime('now'), datetime('now'))"
+                "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
             )
         product = product_service.get_product("orphan")
         assert product["category"] == "ghost-cat"

@@ -234,7 +234,8 @@ def record_manual_status(
             courier_last_error = NULL, courier_last_synced_at = %s,
             courier_shipment_number = COALESCE(%s, courier_shipment_number),
             tracking_number = COALESCE(%s, tracking_number),
-            tracking_carrier = CASE WHEN %s IS NOT NULL THEN 'econt' ELSE tracking_carrier END,
+            tracking_carrier = CASE
+                WHEN %s::text IS NOT NULL THEN 'econt' ELSE tracking_carrier END,
             tracking_url = COALESCE(%s, tracking_url)
         WHERE id = %s
         """,

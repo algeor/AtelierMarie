@@ -54,7 +54,7 @@ def _check_hourly_limit(session_id: str) -> None:
     with get_db() as conn:
         row = conn.execute(
             "SELECT COUNT(*) as cnt FROM comments "
-            "WHERE session_id = %s AND created_at > datetime('now', '-1 hour')",
+            "WHERE session_id = %s AND created_at > CURRENT_TIMESTAMP - INTERVAL '1 hour'",
             (session_id,),
         ).fetchone()
     if row["cnt"] >= _MAX_COMMENTS_PER_HOUR:

@@ -11,7 +11,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.config import get_settings
-from app.database import get_db, init_db
+from app.database import get_db
 from app.services.gdpr_service import age_out_suppressed_emails, anonymize_order_emails
 from app.services.webhook_service import (
     WebhookVerificationError,
@@ -26,12 +26,6 @@ def _sign(body: bytes, secret: str = _SECRET, ts: int | None = None) -> str:
     ts = ts if ts is not None else int(time.time())
     sig = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
     return f"ts={ts}, s={sig}, s-algorithm=HMAC-SHA256"
-
-
-@pytest.fixture()
-def db(tmp_path):
-    init_db(str(tmp_path / "test.db"))
-    yield
 
 
 class TestVerifySignature:
@@ -74,7 +68,7 @@ class TestHandleEvent:
         )
         with get_db() as conn:
             row = conn.execute(
-                "SELECT reason FROM suppressed_emails WHERE email = ?", ("bad@example.com",)
+                "SELECT reason FROM suppressed_emails WHERE email = %s", ("bad@example.com",)
             ).fetchone()
         assert row is not None
         assert row["reason"] == "hard_bounce"
@@ -85,7 +79,7 @@ class TestHandleEvent:
         )
         with get_db() as conn:
             row = conn.execute(
-                "SELECT 1 FROM suppressed_emails WHERE email = ?", ("spam@example.com",)
+                "SELECT 1 FROM suppressed_emails WHERE email = %s", ("spam@example.com",)
             ).fetchone()
         assert row is not None
 
@@ -96,7 +90,7 @@ class TestHandleEvent:
         assert result["status"] == "logged"
         with get_db() as conn:
             row = conn.execute(
-                "SELECT 1 FROM suppressed_emails WHERE email = ?", ("temp@example.com",)
+                "SELECT 1 FROM suppressed_emails WHERE email = %s", ("temp@example.com",)
             ).fetchone()
         assert row is None
 
@@ -106,8 +100,8 @@ class TestHandleEvent:
         handle_webhook_event(payload)  # no error, no duplicate row
         with get_db() as conn:
             count = conn.execute(
-                "SELECT COUNT(*) FROM suppressed_emails WHERE email = ?", ("dup@example.com",)
-            ).fetchone()[0]
+                "SELECT COUNT(*) AS n FROM suppressed_emails WHERE email = %s", ("dup@example.com",)
+            ).fetchone()["n"]
         assert count == 1
 
 
@@ -127,14 +121,14 @@ class TestGdprHelpers:
         with get_db() as conn:
             recipient = conn.execute(
                 "SELECT recipient FROM order_emails WHERE order_id = 'o1'"
-            ).fetchone()[0]
+            ).fetchone()["recipient"]
         assert recipient == "[erased]"
 
     def test_age_out_suppressed(self, db):
         with get_db() as conn:
             conn.execute(
                 "INSERT INTO suppressed_emails (email, reason, suppressed_at) "
-                "VALUES ('old@e.com', 'hard_bounce', datetime('now', '-400 days'))"
+                "VALUES ('old@e.com', 'hard_bounce', CURRENT_TIMESTAMP - INTERVAL '400 days')"
             )
             conn.execute(
                 "INSERT INTO suppressed_emails (email, reason) VALUES ('new@e.com', 'hard_bounce')"
@@ -150,16 +144,13 @@ class TestGdprHelpers:
 @pytest.mark.integration
 class TestWebhookRoute:
     @pytest.fixture()
-    async def webhook_client(self, tmp_path, monkeypatch):
-        db_path = str(tmp_path / "wh.db")
-        monkeypatch.setenv("DATABASE_PATH", db_path)
+    async def webhook_client(self, app, monkeypatch):
+        # Source the app from the root session-scoped fixture (bound to the
+        # worker Postgres DB); only inject the webhook secret the route reads
+        # from settings at request time. DATABASE_URL / ADMIN_API_KEY are already
+        # set in the environment by the root ``app`` fixture, so we preserve them.
         monkeypatch.setenv("ZEPTOMAIL_WEBHOOK_AUTH_KEY", _SECRET)
-        monkeypatch.setenv("ADMIN_API_KEY", "z" * 40)
         get_settings.cache_clear()
-        init_db(db_path)
-        from app.main import create_app
-
-        app = create_app()
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             yield c

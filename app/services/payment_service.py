@@ -131,13 +131,18 @@ def _stored_checkout_url(conn: psycopg.Connection, order_id: str) -> str | None:
     return url if isinstance(url, str) and url else None
 
 
-def _reservation_is_active(reserved_until: str | None) -> bool:
+def _reservation_is_active(reserved_until: str | datetime | None) -> bool:
     if not reserved_until:
         return False
-    try:
-        expires_at = datetime.strptime(reserved_until, _DT_FMT).replace(tzinfo=UTC)
-    except ValueError:
-        return False
+    if isinstance(reserved_until, datetime):
+        expires_at = reserved_until
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+    else:
+        try:
+            expires_at = datetime.strptime(reserved_until, _DT_FMT).replace(tzinfo=UTC)
+        except ValueError:
+            return False
     return expires_at > datetime.now(UTC)
 
 
