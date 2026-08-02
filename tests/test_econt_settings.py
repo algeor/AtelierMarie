@@ -4,9 +4,22 @@ import pytest
 from pydantic import SecretStr
 
 from app.config import get_settings
-from app.database import _seed_econt_settings
 from app.services.econt_delivery_client import EcontAuthError
 from app.services.econt_redaction import redact_mapping, redact_secret
+
+
+def _seed_econt_settings(conn) -> None:
+    """Re-seed the singleton Econt settings ``default`` row.
+
+    ``econt_settings`` is a migration-seed table (never truncated by the root
+    ``_clean_tables``), but these tests mutate the singleton, so this file owns an
+    explicit per-test re-seed (Decision 15). Replaces the removed SQLite
+    ``app.database._seed_econt_settings`` helper — the row's non-id columns take
+    their DB defaults, exactly as the old ``INSERT OR IGNORE`` did.
+    """
+    conn.execute(
+        "INSERT INTO econt_settings (id) VALUES ('default') ON CONFLICT (id) DO NOTHING"
+    )
 
 
 @pytest.fixture(autouse=True)

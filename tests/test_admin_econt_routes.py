@@ -1,15 +1,14 @@
 """Admin Econt fulfillment route tests."""
 
 import json
-import sqlite3
 import uuid
 
+import psycopg
 import pytest
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr
 
 from app.config import get_settings
-from app.database import _seed_econt_settings
 from app.models.delivery import DeliveryInfo, DeliveryOffice
 from app.models.econt import EcontShipmentStatus
 from app.models.users import UserResponse
@@ -59,6 +58,20 @@ class FakeEcontClient:
         )
 
 
+def _seed_econt_settings(conn) -> None:
+    """Re-seed the singleton Econt settings ``default`` row.
+
+    ``econt_settings`` is a migration-seed table (never truncated by the root
+    ``_clean_tables``), but these tests mutate the singleton, so this file owns an
+    explicit per-test re-seed (Decision 15). Replaces the removed SQLite
+    ``app.database._seed_econt_settings`` helper — non-id columns take their DB
+    defaults, exactly as the old ``INSERT OR IGNORE`` did.
+    """
+    conn.execute(
+        "INSERT INTO econt_settings (id) VALUES ('default') ON CONFLICT (id) DO NOTHING"
+    )
+
+
 @pytest.fixture(autouse=True)
 def _reset_econt_settings(db):
     db.execute("DELETE FROM econt_settings")
@@ -77,7 +90,7 @@ def econt_secret(monkeypatch):
     yield
 
 
-def _configure_econt(db: sqlite3.Connection) -> None:
+def _configure_econt(db: psycopg.Connection) -> None:
     db.execute(
         """
         UPDATE econt_settings
@@ -88,7 +101,7 @@ def _configure_econt(db: sqlite3.Connection) -> None:
     db.commit()
 
 
-def _make_order(db: sqlite3.Connection, app, *, courier="econt", confirmed=True) -> str:
+def _make_order(db: psycopg.Connection, app, *, courier="econt", confirmed=True) -> str:
     session_id = app._test_session_id
     product_id = f"route-product-{uuid.uuid4().hex[:8]}"
     db.execute(
@@ -127,7 +140,7 @@ def _make_order(db: sqlite3.Connection, app, *, courier="econt", confirmed=True)
     return order["id"]
 
 
-def _seed_admin_session(db: sqlite3.Connection, app, *, user_id: str = "jwt-admin") -> str:
+def _seed_admin_session(db: psycopg.Connection, app, *, user_id: str = "jwt-admin") -> str:
     db.execute(
         """
         INSERT INTO users (id, google_id, email, name, is_admin)

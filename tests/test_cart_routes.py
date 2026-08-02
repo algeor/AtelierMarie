@@ -1,37 +1,18 @@
 """Tests for cart route layer — HTTP status codes, error formats, validation."""
 
-import sqlite3
-
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.config import get_settings
-from app.database import init_db
-
-_DT_FMT = "%Y-%m-%d %H:%M:%S"
+from app.database import get_db
+from conftest import seed_products
 
 
 @pytest.fixture()
-def _seed_products(db_path: str, app):
-    """Seed products for cart route tests."""
-    conn = sqlite3.connect(db_path)
-    conn.execute("PRAGMA foreign_keys=ON")
-    products = [
-        ("lavender-dream", "Lavender Dream", 2500, 10, 1),
-        ("rose-garden", "Rose Garden", 1800, 5, 1),
-        ("midnight-musk", "Midnight Musk", 3200, 0, 1),  # Out of stock
-        ("winter-pine", "Winter Pine", 2000, 8, 0),  # Inactive
-        ("ocean-breeze", "Ocean Breeze", 1500, 20, 1),
-    ]
-    for pid, name, price, stock, active in products:
-        conn.execute(
-            "INSERT INTO products (id, name_en, price_cents, stock, "
-            "is_active, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
-            (pid, name, price, stock, active),
-        )
-    conn.commit()
-    conn.close()
+def _seed_products(app):
+    """Seed products for cart route tests (shared default catalog)."""
+    with get_db() as conn:
+        seed_products(conn)
 
 
 # --- 9.1 Test GET /v1/cart ---
@@ -69,15 +50,13 @@ async def test_get_cart_with_items(client: AsyncClient):
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("_seed_products")
-async def test_get_cart_unavailable_items(client: AsyncClient, db_path: str):
+async def test_get_cart_unavailable_items(client: AsyncClient):
     """GET /v1/cart — 200 with unavailable_items populated."""
     # Add item then deactivate it
     await client.post("/v1/cart", json={"product_id": "lavender-dream", "quantity": 1})
 
-    conn = sqlite3.connect(db_path)
-    conn.execute("UPDATE products SET is_active = 0 WHERE id = 'lavender-dream'")
-    conn.commit()
-    conn.close()
+    with get_db() as conn:
+        conn.execute("UPDATE products SET is_active = FALSE WHERE id = 'lavender-dream'")
 
     response = await client.get("/v1/cart")
     assert response.status_code == 200
@@ -154,20 +133,18 @@ async def test_post_cart_quantity_limit_422(client: AsyncClient):
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("_seed_products")
-async def test_post_cart_cart_full_422(client: AsyncClient, db_path: str):
+async def test_post_cart_cart_full_422(client: AsyncClient):
     """POST /v1/cart — 422 for cart full."""
     # Create 20 products and fill cart
-    conn = sqlite3.connect(db_path)
-    for i in range(20):
-        pid = f"fill-route-{i:03d}"
-        conn.execute(
-            "INSERT INTO products (id, name_en, price_cents, stock, "
-            "is_active, created_at, updated_at) "
-            "VALUES (?, ?, 1000, 50, 1, datetime('now'), datetime('now'))",
-            (pid, f"Fill Route {i}"),
-        )
-    conn.commit()
-    conn.close()
+    with get_db() as conn:
+        for i in range(20):
+            pid = f"fill-route-{i:03d}"
+            conn.execute(
+                "INSERT INTO products (id, name_en, price_cents, stock, "
+                "is_active, created_at, updated_at) "
+                "VALUES (%s, %s, 1000, 50, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                (pid, f"Fill Route {i}"),
+            )
 
     for i in range(20):
         resp = await client.post(
@@ -347,27 +324,23 @@ async def test_patch_oversized_product_id_422(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_cart_isolation_between_sessions(tmp_path, monkeypatch):
-    """Different sessions have independent carts (requires real session middleware)."""
-    # This test needs real middleware — create a standalone app inline.
-    db_file = str(tmp_path / "isolation.db")
-    monkeypatch.setenv("DATABASE_PATH", db_file)
-    monkeypatch.setenv("ADMIN_API_KEY", "test-key")
-    get_settings.cache_clear()
-    init_db(db_file)
+async def test_cart_isolation_between_sessions(app):
+    """Different sessions have independent carts (requires real session middleware).
 
-    # Seed products
-    conn = sqlite3.connect(db_file)
-    conn.execute(
-        "INSERT INTO products (id, name_en, price_cents, stock, is_active, created_at, updated_at) "
-        "VALUES ('lavender-dream', 'Lavender Dream', 2500, 10, 1, datetime('now'), datetime('now'))"
-    )
-    conn.execute(
-        "INSERT INTO products (id, name_en, price_cents, stock, is_active, created_at, updated_at) "
-        "VALUES ('rose-garden', 'Rose Garden', 1800, 5, 1, datetime('now'), datetime('now'))"
-    )
-    conn.commit()
-    conn.close()
+    The shared ``app`` fixture installs ``FakeSessionMiddleware``, which pins every
+    request to one session id — useless for an isolation test. We depend on ``app``
+    only to guarantee the psycopg pool is open against this worker's DB, then build
+    a fresh app with the REAL ``SessionMiddleware`` bound to the same pool.
+    """
+    # Seed products via the pooled connection (worker DB already provisioned).
+    with get_db() as conn:
+        seed_products(
+            conn,
+            (
+                ("lavender-dream", "Lavender Dream", 2500, 10, True),
+                ("rose-garden", "Rose Garden", 1800, 5, True),
+            ),
+        )
 
     from app.main import create_app
 
@@ -404,5 +377,3 @@ async def test_cart_isolation_between_sessions(tmp_path, monkeypatch):
         body_a = resp_a_cart.json()
         assert len(body_a["items"]) == 1
         assert body_a["items"][0]["product_id"] == "lavender-dream"
-
-    get_settings.cache_clear()
