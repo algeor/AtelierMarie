@@ -13,14 +13,14 @@
 
 ## 2. Alembic Schema Foundation
 
-- [ ] 2.1 Add Alembic project scaffolding: `alembic.ini`, migration env, versions folder, URL loading from settings, and a migration script template with `revision` / `down_revision` metadata.
-- [ ] 2.2 Write the hand-authored initial Postgres migration for the intended launch schema after active-change reconciliation, with an explicit initial `revision` id and `down_revision = None`.
-- [ ] 2.3 Port core constraints, foreign keys, unique indexes, and check constraints into the initial migration.
-- [ ] 2.4 Port updated-at behavior from SQLite triggers to Postgres trigger functions or explicit service updates.
-- [ ] 2.5 Port structural seed data for taxonomy, FAQ, legal pages, cookies, banner, delivery, Econt, inventory, and about content.
-- [ ] 2.6 Add Postgres full-text search indexes for localized product search.
-- [ ] 2.7 Add a migration-head verification path that compares the database current revision against Alembic's script-directory head revision graph and fails startup when Alembic is missing, stale, or diverged.
-- [ ] 2.8 Preserve compatible timestamp serialization and 0/1 flag semantics in the initial schema or update all dependent code/tests explicitly.
+- [x] 2.1 Add Alembic project scaffolding: `alembic.ini`, migration env, versions folder, URL loading from settings, and a migration script template with `revision` / `down_revision` metadata.
+- [x] 2.2 Write the hand-authored initial Postgres migration for the intended launch schema after active-change reconciliation, with an explicit initial `revision` id and `down_revision = None`.
+- [x] 2.3 Port core constraints, foreign keys, unique indexes, and check constraints into the initial migration.
+- [x] 2.4 Port updated-at behavior from SQLite triggers to Postgres trigger functions or explicit service updates.
+- [x] 2.5 Port structural seed data for taxonomy, FAQ, legal pages, cookies, banner, delivery, Econt, inventory, and about content.
+- [x] 2.6 Add Postgres full-text search indexes for localized product search.
+- [x] 2.7 Add a migration-head verification path that compares the database current revision against Alembic's script-directory head revision graph and fails startup when Alembic is missing, stale, or diverged.
+- [x] 2.8 Preserve compatible timestamp serialization and 0/1 flag semantics in the initial schema or update all dependent code/tests explicitly.
 
 ## 3. Database Connection Layer
 
