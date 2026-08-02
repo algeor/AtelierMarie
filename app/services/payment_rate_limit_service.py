@@ -226,8 +226,7 @@ def consume_pay_on_delivery_rate_limit(
                 window_modifier="-1 day",
                 window_seconds=PAY_ON_DELIVERY_IP_WINDOW_SECONDS,
                 message=(
-                    "Too many pay-on-delivery attempts from this network. "
-                    "Please try again later."
+                    "Too many pay-on-delivery attempts from this network. Please try again later."
                 ),
             ),
         ],

@@ -117,9 +117,7 @@ class TestEcontDeliveryClient:
                     "label": {
                         "shipmentNum": "1234567890",
                         "shortDeliveryStatusEn": "Returned to sender",
-                        "trackingEvents": [
-                            {"type": "returned_to_sender", "status": "Returned"}
-                        ],
+                        "trackingEvents": [{"type": "returned_to_sender", "status": "Returned"}],
                     }
                 },
             )

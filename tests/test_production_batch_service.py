@@ -26,14 +26,17 @@ def batch_db(tmp_path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute(
-        "INSERT INTO products (id, name_en, price_cents, stock) VALUES ('prod-batch', 'Batch Candle', 2500, 0)"
+        "INSERT INTO products (id, name_en, price_cents, stock) "
+        "VALUES ('prod-batch', 'Batch Candle', 2500, 0)"
     )
     conn.commit()
     yield conn
     conn.close()
 
 
-def _material(sku: str, name: str, category: str, stock_uom: str, quantity: float, cost: int) -> str:
+def _material(
+    sku: str, name: str, category: str, stock_uom: str, quantity: float, cost: int
+) -> str:
     material = inventory_service.create_material(
         MaterialCreateRequest(sku=sku, name=name, category=category, stock_uom=stock_uom)
     )
@@ -109,7 +112,7 @@ def test_batch_create_post_correct_and_traceability(batch_db):
                     actual_quantity=10,
                 ),
             ],
-        )
+        ),
     )
 
     assert posted.status == "produced"
@@ -120,7 +123,9 @@ def test_batch_create_post_correct_and_traceability(batch_db):
         "material_usage_variance",
         "produced_quantity_variance",
     }
-    product_stock = batch_db.execute("SELECT stock FROM products WHERE id = 'prod-batch'").fetchone()[0]
+    product_stock = batch_db.execute(
+        "SELECT stock FROM products WHERE id = 'prod-batch'"
+    ).fetchone()[0]
     assert product_stock == 9
     wax_on_hand = inventory_service.get_material(wax_id).on_hand_quantity
     assert wax_on_hand == 880
@@ -250,7 +255,8 @@ def test_posted_batch_decrements_lot_and_values_finished_output(batch_db):
 
     layers = inventory_service.generate_valuation_layers()
     output_layers = [
-        layer for layer in layers.layers
+        layer
+        for layer in layers.layers
         if layer.item_type == "finished_good" and layer.item_id == "prod-batch"
     ]
     assert output_layers[0].total_value_cents == 1000
@@ -259,11 +265,15 @@ def test_posted_batch_decrements_lot_and_values_finished_output(batch_db):
 def test_batch_post_rejects_lot_for_different_material(batch_db):
     wax_id = _material("BATCH-WAX-LOT-MISMATCH", "Batch wax", "wax", "g", 1000, 1000)
     wick = inventory_service.create_material(
-        MaterialCreateRequest(sku="BATCH-WICK-LOT-MISMATCH", name="Batch wick", category="wick", stock_uom="piece")
+        MaterialCreateRequest(
+            sku="BATCH-WICK-LOT-MISMATCH", name="Batch wick", category="wick", stock_uom="piece"
+        )
     )
     wick_receipt = inventory_service.create_material_receipt(
         wick.id,
-        MaterialReceiptRequest(quantity=100, uom="piece", total_cost_cents=500, supplier_lot="WICK-LOT"),
+        MaterialReceiptRequest(
+            quantity=100, uom="piece", total_cost_cents=500, supplier_lot="WICK-LOT"
+        ),
     )
     recipe = inventory_service.create_recipe_version(
         RecipeVersionCreateRequest(

@@ -143,7 +143,9 @@ class EcontDeliveryClient:
     async def delete_label(self, shipment_number: str) -> dict[str, Any]:
         if not shipment_number:
             raise EcontValidationError("shipment_number is required")
-        return await self._post("OrdersService.deleteLabel.json", {"shipmentNumber": shipment_number})
+        return await self._post(
+            "OrdersService.deleteLabel.json", {"shipmentNumber": shipment_number}
+        )
 
     async def test_connection(self) -> bool:
         """Safe credential smoke test that does not create a shipment.

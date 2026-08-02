@@ -846,9 +846,7 @@ class TestCancellationRestoresStock:
 class TestReturnTransitionsDoNotRestoreStock:
     """Post-shipment return statuses are physical workflow, not inventory decisions."""
 
-    def test_shipped_to_return_in_transit_keeps_stock_unchanged(
-        self, conn, session_a, products
-    ):
+    def test_shipped_to_return_in_transit_keeps_stock_unchanged(self, conn, session_a, products):
         order_id = _create_order_with_status(
             conn,
             session_a,
@@ -865,9 +863,7 @@ class TestReturnTransitionsDoNotRestoreStock:
         assert result["status"] == "return_in_transit"
         assert stock == 8
 
-    def test_return_in_transit_to_returned_keeps_stock_unchanged(
-        self, conn, session_a, products
-    ):
+    def test_return_in_transit_to_returned_keeps_stock_unchanged(self, conn, session_a, products):
         order_id = _create_order_with_status(
             conn,
             session_a,

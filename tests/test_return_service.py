@@ -14,12 +14,12 @@ from app.services.return_service import (
     close_return_case,
     cod_settlement_required_for_order,
     create_return_case,
-    get_return_case,
     get_cod_settlement_for_order,
+    get_return_case,
     inspect_return_case,
     list_return_cases_for_order,
-    record_cod_settlement,
     receive_return_case,
+    record_cod_settlement,
     update_return_accounting,
 )
 
@@ -142,7 +142,8 @@ def test_receive_return_case_does_not_restock(conn, order_id):
     event_types = [
         row[0]
         for row in conn.execute(
-            "SELECT event_type FROM order_return_events WHERE order_return_id = ? ORDER BY created_at",
+            "SELECT event_type FROM order_return_events "
+            "WHERE order_return_id = ? ORDER BY created_at",
             (case["id"],),
         ).fetchall()
     ]

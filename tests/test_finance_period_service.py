@@ -209,9 +209,7 @@ async def test_finance_period_close_blocks_until_exception_waived(admin_client, 
         assert waive_resp.status_code == 200
         assert waive_resp.json()["status"] == "waived"
 
-    close_after_waiver = await admin_client.post(
-        f"/v1/admin/accounting/periods/{period_id}/close"
-    )
+    close_after_waiver = await admin_client.post(f"/v1/admin/accounting/periods/{period_id}/close")
     assert close_after_waiver.status_code == 200
     assert close_after_waiver.json()["status"] == "closed"
 
@@ -381,7 +379,9 @@ async def test_finance_summary_includes_inventory_valuation_totals(admin_client,
         """
         INSERT INTO product_inventory_profiles (
             product_id, inventory_mode, stock_source, opening_balance_state, valuation_readiness
-        ) VALUES ('inventory-summary-candle', 'ledger_managed', 'inventory_ledger', 'reviewed', 'ready')
+        ) VALUES (
+            'inventory-summary-candle', 'ledger_managed', 'inventory_ledger', 'reviewed', 'ready'
+        )
         """
     )
     db.execute(

@@ -124,9 +124,7 @@ class TestSpeedyAdminHealthAndQueues:
         }
 
     @pytest.mark.asyncio
-    async def test_health_uses_client_service_and_persists_safe_success(
-        self, conn, monkeypatch
-    ):
+    async def test_health_uses_client_service_and_persists_safe_success(self, conn, monkeypatch):
         async def fake_client_id(**kwargs):
             assert kwargs["username"] == "speedy-user"
             assert kwargs["password"] == "speedy-secret"
@@ -269,9 +267,7 @@ class TestSpeedyAdminActions:
         assert row["courier_sync_status"] == "shipment_cancelled"
 
     @pytest.mark.asyncio
-    async def test_cancel_rejection_preserves_tracking_and_redacts_error(
-        self, conn, monkeypatch
-    ):
+    async def test_cancel_rejection_preserves_tracking_and_redacts_error(self, conn, monkeypatch):
         order_id = _make_order(conn, status="shipped", tracking_number="63689182611")
 
         async def fail_cancel(*_args, **_kwargs):
@@ -374,9 +370,7 @@ class TestSpeedyAdminActions:
             "parcels": [
                 {
                     "id": "63689182611",
-                    "operations": [
-                        {"description": "Returned to sender", "operationCode": 42}
-                    ],
+                    "operations": [{"description": "Returned to sender", "operationCode": 42}],
                 }
             ]
         }

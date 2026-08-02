@@ -33,6 +33,7 @@ vi.mock("@/components/layout/LanguageToggle", () => ({
 vi.mock("@/contexts/CartContext", () => ({
   useCart: () => ({
     items: [],
+    unavailable_items: [],
     total_cents: 0,
     item_count: 0,
     isLoading: false,

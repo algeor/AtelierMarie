@@ -24,7 +24,12 @@ from app.models.shipping import (
     CityPlace,
 )
 from app.responses import error_response
-from app.services import delivery_service, delivery_settings_service, econt_settings_service, shipping_service
+from app.services import (
+    delivery_service,
+    delivery_settings_service,
+    econt_settings_service,
+    shipping_service,
+)
 
 router = APIRouter()
 

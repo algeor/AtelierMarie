@@ -53,6 +53,27 @@ const MOCK_STATS: AdminStats = {
   orders_today: 5,
   revenue_this_week_cents: 15000,
   active_product_count: 3,
+  low_stock_count: 2,
+  contact_messages_needing_attention: 1,
+  orders: {
+    total: 8,
+    revenue_cents: 24000,
+    by_status: {
+      pending: 4,
+      confirmed: 2,
+      shipped: 1,
+      delivered: 1,
+    },
+    by_payment_status: {
+      pending: 3,
+      failed: 1,
+      paid: 4,
+    },
+  },
+  products: {
+    total: 4,
+    active: 3,
+  },
 };
 
 describe("Admin Route Protection", () => {
@@ -169,6 +190,47 @@ describe("Admin Dashboard", () => {
       expect(screen.getByText("€150.00")).toBeInTheDocument();
       expect(screen.getByText("3")).toBeInTheDocument();
     });
+  });
+
+  it("renders today's work queue from dashboard aggregates", async () => {
+    mockedGetAdminStats.mockResolvedValue(MOCK_STATS);
+
+    const { AdminProvider } = await import("@/contexts/AdminContext");
+    const { AdminGuard } = await import("@/components/admin/AdminGuard");
+    const AdminDashboardPage = (await import("@/app/[locale]/admin/page")).default;
+
+    renderWithIntl(
+      <AdminProvider>
+        <AdminGuard>
+          <AdminDashboardPage />
+        </AdminGuard>
+      </AdminProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Today's work queue")).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("link", { name: /4Orders to confirm/i })).toHaveAttribute(
+      "href",
+      "/admin/orders?status=pending"
+    );
+    expect(screen.getByRole("link", { name: /4Payment attention/i })).toHaveAttribute(
+      "href",
+      "/admin/orders?payment_status=pending"
+    );
+    expect(screen.getByRole("link", { name: /2Ready to ship/i })).toHaveAttribute(
+      "href",
+      "/admin/orders?status=confirmed"
+    );
+    expect(screen.getByRole("link", { name: /2Low stock products/i })).toHaveAttribute(
+      "href",
+      "/admin/products"
+    );
+    expect(screen.getByRole("link", { name: /1Contact messages/i })).toHaveAttribute(
+      "href",
+      "/admin"
+    );
   });
 
   it("shows loading skeletons while fetching stats", async () => {

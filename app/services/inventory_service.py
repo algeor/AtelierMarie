@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import uuid
-import json
 from datetime import date, timedelta
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 from app.database import get_db
 from app.models.inventory import (
+    COGSLedgerListResponse,
+    COGSLedgerResponse,
+    InventoryClosePreviewResponse,
     InventoryMovementResponse,
+    InventoryValuationSettingsRequest,
+    InventoryValuationSettingsResponse,
     MaterialAdjustmentRequest,
     MaterialCreateRequest,
     MaterialDetailResponse,
@@ -22,6 +27,16 @@ from app.models.inventory import (
     MaterialReceiptResponse,
     MaterialResponse,
     MaterialUpdateRequest,
+    OpeningBalanceRequest,
+    ProductionBatchConsumptionResponse,
+    ProductionBatchCorrectionRequest,
+    ProductionBatchCreateRequest,
+    ProductionBatchListResponse,
+    ProductionBatchOutputResponse,
+    ProductionBatchPostRequest,
+    ProductionBatchResponse,
+    ProductionBatchUpdateRequest,
+    ProductionTraceabilityResponse,
     RecipeComponentRequest,
     RecipeComponentResponse,
     RecipeCostSnapshotRequest,
@@ -33,21 +48,6 @@ from app.models.inventory import (
     RecipeVersionListResponse,
     RecipeVersionResponse,
     RecipeVersionUpdateRequest,
-    ProductionBatchCorrectionRequest,
-    ProductionBatchCreateRequest,
-    ProductionBatchConsumptionResponse,
-    ProductionBatchListResponse,
-    ProductionBatchOutputResponse,
-    ProductionBatchPostRequest,
-    ProductionBatchResponse,
-    ProductionBatchUpdateRequest,
-    ProductionTraceabilityResponse,
-    COGSLedgerListResponse,
-    COGSLedgerResponse,
-    InventoryClosePreviewResponse,
-    InventoryValuationSettingsRequest,
-    InventoryValuationSettingsResponse,
-    OpeningBalanceRequest,
     ValuationLayerListResponse,
     ValuationLayerResponse,
 )
@@ -477,7 +477,10 @@ def _stock_quantity(material: sqlite3.Row, quantity: float, uom: str) -> float:
     if uom == material["stock_uom"]:
         return quantity
     if uom == material["purchase_uom"] and material["purchase_to_stock_factor"]:
-        return float(_decimal(quantity, "quantity") * _decimal(material["purchase_to_stock_factor"], "purchase_to_stock_factor"))
+        return float(
+            _decimal(quantity, "quantity")
+            * _decimal(material["purchase_to_stock_factor"], "purchase_to_stock_factor")
+        )
     raise InventoryValidationError("Receipt unit cannot be converted to the material stock unit")
 
 
@@ -489,7 +492,9 @@ def _receipt_issue_codes(material: sqlite3.Row, data: dict[str, object]) -> list
         issues.append("missing_receipt_evidence")
     if bool(material["lot_tracked"]) and not data.get("supplier_lot"):
         issues.append("missing_supplier_lot")
-    if bool(material["expiry_tracked"]) and not (data.get("expiry_date") or data.get("use_by_date")):
+    if bool(material["expiry_tracked"]) and not (
+        data.get("expiry_date") or data.get("use_by_date")
+    ):
         issues.append("missing_expiry_metadata")
     if data.get("unit_cost_amount") is None and data.get("total_cost_cents") is None:
         issues.append("missing_unit_cost")
@@ -506,7 +511,11 @@ def _insert_exception(
     created_by_admin_id: str | None,
 ) -> str:
     exception_id = _uuid()
-    severity = "blocking" if exception_type in {"missing_unit_cost", "missing_receipt_evidence"} else "warning"
+    severity = (
+        "blocking"
+        if exception_type in {"missing_unit_cost", "missing_receipt_evidence"}
+        else "warning"
+    )
     conn.execute(
         """
         INSERT INTO inventory_exceptions (
@@ -642,7 +651,9 @@ def create_material_receipt(
             )
             for issue in issues
         ]
-        receipt = conn.execute("SELECT * FROM material_receipts WHERE id = ?", (receipt_id,)).fetchone()
+        receipt = conn.execute(
+            "SELECT * FROM material_receipts WHERE id = ?", (receipt_id,)
+        ).fetchone()
         exceptions = []
         if exception_ids:
             placeholders = ",".join("?" for _ in exception_ids)
@@ -683,7 +694,10 @@ def create_material_adjustment(
                 id, item_type, item_id, movement_type, quantity_delta, uom,
                 source_type, source_id, actor_user_id, actor_email, reason,
                 notes, review_state, occurred_at
-            ) VALUES (?, 'material', ?, ?, ?, ?, 'manual_material_adjustment', ?, ?, ?, ?, ?, 'reviewed', ?)
+            ) VALUES (
+                ?, 'material', ?, ?, ?, ?, 'manual_material_adjustment', ?, ?, ?, ?, ?,
+                'reviewed', ?
+            )
             """,
             (
                 movement_id,
@@ -699,7 +713,9 @@ def create_material_adjustment(
                 data["occurred_at"] or now_utc(),
             ),
         )
-        row = conn.execute("SELECT * FROM inventory_movements WHERE id = ?", (movement_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM inventory_movements WHERE id = ?", (movement_id,)
+        ).fetchone()
     return _movement_response_from_row(row)
 
 
@@ -733,7 +749,9 @@ def list_material_lots(
     return MaterialLotListResponse(lots=lots, total=len(lots))
 
 
-def list_material_movements(material_id: str, *, limit: int = 100) -> list[InventoryMovementResponse]:
+def list_material_movements(
+    material_id: str, *, limit: int = 100
+) -> list[InventoryMovementResponse]:
     """List movement rows for one material."""
     with get_db() as conn:
         _get_material_row(conn, material_id)
@@ -811,7 +829,9 @@ def _get_recipe_row(conn: sqlite3.Connection, recipe_id: str) -> sqlite3.Row:
     return row
 
 
-def _component_stock_quantity(material: sqlite3.Row, quantity: float | Decimal, uom: str) -> Decimal:
+def _component_stock_quantity(
+    material: sqlite3.Row, quantity: float | Decimal, uom: str
+) -> Decimal:
     qty = _decimal(quantity, "component quantity")
     if uom == material["stock_uom"]:
         return qty
@@ -1078,7 +1098,9 @@ def create_recipe_version(
             )
             _replace_recipe_components(conn, recipe_id, request.components)
         except sqlite3.IntegrityError as exc:
-            raise InventoryValidationError("Recipe version label must be unique per product") from exc
+            raise InventoryValidationError(
+                "Recipe version label must be unique per product"
+            ) from exc
         return _recipe_response_from_row(conn, _get_recipe_row(conn, recipe_id))
 
 
@@ -1341,7 +1363,9 @@ def create_recipe_cost_snapshot(
                 actor_user_id,
             ),
         )
-        row = conn.execute("SELECT * FROM recipe_cost_snapshots WHERE id = ?", (snapshot_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM recipe_cost_snapshots WHERE id = ?", (snapshot_id,)
+        ).fetchone()
     snapshot = _snapshot_response_from_row(row)
     assert snapshot is not None
     return snapshot
@@ -1430,7 +1454,9 @@ def _batch_consumption_response_from_row(row: sqlite3.Row) -> ProductionBatchCon
         material_id=row["material_id"],
         material_name=row["material_name"],
         material_lot_id=row["material_lot_id"],
-        expected_quantity=None if row["expected_quantity"] is None else float(row["expected_quantity"]),
+        expected_quantity=None
+        if row["expected_quantity"] is None
+        else float(row["expected_quantity"]),
         actual_quantity=None if row["actual_quantity"] is None else float(row["actual_quantity"]),
         waste_quantity=float(row["waste_quantity"]),
         uom=row["uom"],
@@ -1477,7 +1503,8 @@ def _batch_response_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Prod
     outputs = [
         _batch_output_response_from_row(item)
         for item in conn.execute(
-            "SELECT * FROM production_batch_outputs WHERE production_batch_id = ? ORDER BY created_at",
+            "SELECT * FROM production_batch_outputs WHERE production_batch_id = ? "
+            "ORDER BY created_at",
             (row["id"],),
         ).fetchall()
     ]
@@ -1563,11 +1590,9 @@ def _unit_value_from_total(total_cost_cents: int, quantity: float) -> str:
     if quantity <= 0:
         raise InventoryValidationError("output quantity must be positive")
     return str(
-        (
-            Decimal(total_cost_cents)
-            / Decimal("100")
-            / _decimal(quantity, "quantity")
-        ).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+        (Decimal(total_cost_cents) / Decimal("100") / _decimal(quantity, "quantity")).quantize(
+            Decimal("0.000001"), rounding=ROUND_HALF_UP
+        )
     )
 
 
@@ -1598,7 +1623,9 @@ def _expected_consumption_rows(
             )
         else:
             quantity = _decimal(row["quantity"], "component quantity") * scale
-        quantity *= Decimal("1") + (_decimal(row["wastage_percent"], "wastage_percent") / Decimal("100"))
+        quantity *= Decimal("1") + (
+            _decimal(row["wastage_percent"], "wastage_percent") / Decimal("100")
+        )
         stock_quantity = _component_stock_quantity(row, quantity, row["uom"])
         expected.append((row["id"], row["material_id"], float(stock_quantity), row["stock_uom"]))
     return expected
@@ -1610,7 +1637,9 @@ def _seed_batch_expected_consumption(
     recipe_id: str,
     planned_output_quantity: float,
 ) -> None:
-    conn.execute("DELETE FROM production_batch_consumption WHERE production_batch_id = ?", (batch_id,))
+    conn.execute(
+        "DELETE FROM production_batch_consumption WHERE production_batch_id = ?", (batch_id,)
+    )
     for component_id, material_id, expected_quantity, stock_uom in _expected_consumption_rows(
         conn, recipe_id, planned_output_quantity
     ):
@@ -1739,7 +1768,8 @@ def list_production_batches(
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
     with get_db() as conn:
         rows = conn.execute(
-            f"SELECT * FROM production_batches {where_sql} ORDER BY production_date DESC, created_at DESC",  # noqa: S608
+            f"SELECT * FROM production_batches {where_sql} "  # noqa: S608
+            "ORDER BY production_date DESC, created_at DESC",
             params,
         ).fetchall()
         batches = [_batch_response_from_row(conn, row) for row in rows]
@@ -1751,7 +1781,9 @@ def get_production_batch(batch_id: str) -> ProductionBatchResponse:
         return _batch_response_from_row(conn, _get_batch_row(conn, batch_id))
 
 
-def cancel_production_batch(batch_id: str, *, actor_user_id: str | None = None) -> ProductionBatchResponse:
+def cancel_production_batch(
+    batch_id: str, *, actor_user_id: str | None = None
+) -> ProductionBatchResponse:
     with get_db() as conn:
         batch = _get_batch_row(conn, batch_id)
         if batch["status"] == "produced":
@@ -1814,18 +1846,28 @@ def post_production_batch(
             "SELECT * FROM production_batch_consumption WHERE production_batch_id = ?",
             (batch_id,),
         ).fetchall()
-        actual_by_id = {item.batch_consumption_id: item for item in request.actual_consumption if item.batch_consumption_id}
+        actual_by_id = {
+            item.batch_consumption_id: item
+            for item in request.actual_consumption
+            if item.batch_consumption_id
+        }
         actual_by_material = {
-            item.material_id: item for item in request.actual_consumption if not item.batch_consumption_id
+            item.material_id: item
+            for item in request.actual_consumption
+            if not item.batch_consumption_id
         }
         planned_by_material: dict[str, float] = {}
         actual_lines: list[tuple[sqlite3.Row, float, float, str | None]] = []
         for row in consumption_rows:
             actual = actual_by_id.get(row["id"]) or actual_by_material.get(row["material_id"])
-            actual_quantity = float(actual.actual_quantity if actual else row["expected_quantity"] or 0)
+            actual_quantity = float(
+                actual.actual_quantity if actual else row["expected_quantity"] or 0
+            )
             waste_quantity = float(actual.waste_quantity if actual else 0)
             lot_id = actual.material_lot_id if actual else row["material_lot_id"]
-            planned_by_material[row["material_id"]] = planned_by_material.get(row["material_id"], 0) + actual_quantity
+            planned_by_material[row["material_id"]] = (
+                planned_by_material.get(row["material_id"], 0) + actual_quantity
+            )
             actual_lines.append((row, actual_quantity, waste_quantity, lot_id))
 
         insufficient_materials = False
@@ -1846,7 +1888,8 @@ def post_production_batch(
             conn.execute(
                 """
                 UPDATE production_batches
-                SET variance_review_state = 'warning', updated_by_admin_id = COALESCE(?, updated_by_admin_id)
+                SET variance_review_state = 'warning',
+                    updated_by_admin_id = COALESCE(?, updated_by_admin_id)
                 WHERE id = ?
                 """,
                 (actor_user_id, batch_id),
@@ -1861,7 +1904,9 @@ def post_production_batch(
             if lot is None:
                 raise InventoryValidationError("Selected material lot does not exist")
             if lot["material_id"] != row["material_id"]:
-                raise InventoryValidationError("Selected material lot does not belong to the consumed material")
+                raise InventoryValidationError(
+                    "Selected material lot does not belong to the consumed material"
+                )
             remaining = lot["remaining_quantity_snapshot"]
             if remaining is not None and actual_quantity > float(remaining):
                 insufficient_lots = True
@@ -1870,7 +1915,9 @@ def post_production_batch(
                     batch_id=batch_id,
                     exception_type="insufficient_material_lot_quantity",
                     severity="blocking",
-                    message="Batch requires more material from the selected lot than remains available.",
+                    message=(
+                        "Batch requires more material from the selected lot than remains available."
+                    ),
                     target_type="material_lot",
                     target_id=lot_id,
                     actor_user_id=actor_user_id,
@@ -1879,7 +1926,8 @@ def post_production_batch(
             conn.execute(
                 """
                 UPDATE production_batches
-                SET variance_review_state = 'warning', updated_by_admin_id = COALESCE(?, updated_by_admin_id)
+                SET variance_review_state = 'warning',
+                    updated_by_admin_id = COALESCE(?, updated_by_admin_id)
                 WHERE id = ?
                 """,
                 (actor_user_id, batch_id),
@@ -2118,7 +2166,10 @@ def correct_production_batch(
                 id, item_type, item_id, movement_type, quantity_delta, uom,
                 source_type, source_id, product_id, actor_user_id, actor_email,
                 reason, notes, review_state, occurred_at
-            ) VALUES (?, ?, ?, 'adjustment', ?, ?, 'production_batch_correction', ?, ?, ?, ?, ?, ?, 'reviewed', ?)
+            ) VALUES (
+                ?, ?, ?, 'adjustment', ?, ?, 'production_batch_correction', ?, ?, ?, ?, ?, ?,
+                'reviewed', ?
+            )
             """,
             (
                 movement_id,
@@ -2140,7 +2191,9 @@ def correct_production_batch(
                 "UPDATE products SET stock = MAX(stock + ?, 0) WHERE id = ?",
                 (request.quantity_delta, request.item_id),
             )
-        row = conn.execute("SELECT * FROM inventory_movements WHERE id = ?", (movement_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM inventory_movements WHERE id = ?", (movement_id,)
+        ).fetchone()
     return _movement_response_from_row(row)
 
 
@@ -2243,7 +2296,9 @@ def update_inventory_valuation_settings(
             _ensure_inventory_exception(
                 conn,
                 exception_type="fifo_requires_lot_discipline",
-                message="FIFO valuation requires reviewed lot-layer discipline before official output.",
+                message=(
+                    "FIFO valuation requires reviewed lot-layer discipline before official output."
+                ),
                 severity="warning",
                 target_type="inventory_settings",
                 target_id="default",
@@ -2435,7 +2490,16 @@ def _ensure_inventory_exception(
             source_type, source_id, message
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (_uuid(), exception_type, severity, target_type, target_id, source_type, source_id, message),
+        (
+            _uuid(),
+            exception_type,
+            severity,
+            target_type,
+            target_id,
+            source_type,
+            source_id,
+            message,
+        ),
     )
 
 
@@ -2482,7 +2546,8 @@ def record_opening_balance(
             conn.execute(
                 """
                 UPDATE product_inventory_profiles
-                SET opening_balance_state = ?, updated_by_admin_id = COALESCE(?, updated_by_admin_id)
+                SET opening_balance_state = ?,
+                    updated_by_admin_id = COALESCE(?, updated_by_admin_id)
                 WHERE product_id = ?
                 """,
                 ("reviewed" if request.reviewed else "unreviewed", actor_user_id, request.item_id),
@@ -2492,9 +2557,11 @@ def record_opening_balance(
         total_value = request.total_value_cents
         if total_value is None and unit_value is not None:
             total_value = int(
-                (_decimal(request.quantity, "quantity") * _decimal(unit_value, "unit_value_amount") * Decimal("100")).quantize(
-                    Decimal("1"), rounding=ROUND_HALF_UP
-                )
+                (
+                    _decimal(request.quantity, "quantity")
+                    * _decimal(unit_value, "unit_value_amount")
+                    * Decimal("100")
+                ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
             )
         if total_value is None:
             _ensure_inventory_exception(
@@ -2509,9 +2576,9 @@ def record_opening_balance(
             return None
         if unit_value is None:
             unit_value = str(
-                (Decimal(total_value) / Decimal("100") / _decimal(request.quantity, "quantity")).quantize(
-                    Decimal("0.000001"), rounding=ROUND_HALF_UP
-                )
+                (
+                    Decimal(total_value) / Decimal("100") / _decimal(request.quantity, "quantity")
+                ).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
             )
         layer_id = _uuid()
         conn.execute(
@@ -2533,11 +2600,15 @@ def record_opening_balance(
                 settings["currency"],
                 settings["valuation_method"],
                 movement_id,
-                "official" if settings["valuation_enabled"] and settings["accountant_reviewed"] else "reviewed",
+                "official"
+                if settings["valuation_enabled"] and settings["accountant_reviewed"]
+                else "reviewed",
             ),
         )
         return _layer_response_from_row(
-            conn.execute("SELECT * FROM inventory_valuation_layers WHERE id = ?", (layer_id,)).fetchone()
+            conn.execute(
+                "SELECT * FROM inventory_valuation_layers WHERE id = ?", (layer_id,)
+            ).fetchone()
         )
 
 
@@ -2570,9 +2641,11 @@ def generate_valuation_layers() -> ValuationLayerListResponse:
                 if receipt and receipt["unit_cost_amount"]:
                     unit_value = receipt["unit_cost_amount"]
                     total_value_cents = int(
-                        (abs(_decimal(quantity, "quantity")) * _decimal(unit_value, "unit_value_amount") * Decimal("100")).quantize(
-                            Decimal("1"), rounding=ROUND_HALF_UP
-                        )
+                        (
+                            abs(_decimal(quantity, "quantity"))
+                            * _decimal(unit_value, "unit_value_amount")
+                            * Decimal("100")
+                        ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
                     )
                 elif receipt and receipt["total_cost_cents"] is not None:
                     total_value_cents = receipt["total_cost_cents"]
@@ -2617,15 +2690,19 @@ def generate_valuation_layers() -> ValuationLayerListResponse:
                 continue
             if total_value_cents is None and unit_value is not None:
                 total_value_cents = int(
-                    (abs(_decimal(quantity, "quantity")) * _decimal(unit_value, "unit_value_amount") * Decimal("100")).quantize(
-                        Decimal("1"), rounding=ROUND_HALF_UP
-                    )
+                    (
+                        abs(_decimal(quantity, "quantity"))
+                        * _decimal(unit_value, "unit_value_amount")
+                        * Decimal("100")
+                    ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
                 )
             if unit_value is None and total_value_cents is not None:
                 unit_value = str(
-                    (Decimal(total_value_cents) / Decimal("100") / abs(_decimal(quantity, "quantity"))).quantize(
-                        Decimal("0.000001"), rounding=ROUND_HALF_UP
-                    )
+                    (
+                        Decimal(total_value_cents)
+                        / Decimal("100")
+                        / abs(_decimal(quantity, "quantity"))
+                    ).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
                 )
             layer_id = _uuid()
             conn.execute(
@@ -2654,13 +2731,17 @@ def generate_valuation_layers() -> ValuationLayerListResponse:
             )
             created.append(
                 _layer_response_from_row(
-                    conn.execute("SELECT * FROM inventory_valuation_layers WHERE id = ?", (layer_id,)).fetchone()
+                    conn.execute(
+                        "SELECT * FROM inventory_valuation_layers WHERE id = ?", (layer_id,)
+                    ).fetchone()
                 )
             )
     return ValuationLayerListResponse(layers=created, total=len(created))
 
 
-def list_valuation_layers(item_type: str | None = None, item_id: str | None = None) -> ValuationLayerListResponse:
+def list_valuation_layers(
+    item_type: str | None = None, item_id: str | None = None
+) -> ValuationLayerListResponse:
     where: list[str] = []
     params: list[object] = []
     if item_type:
@@ -2672,7 +2753,8 @@ def list_valuation_layers(item_type: str | None = None, item_id: str | None = No
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
     with get_db() as conn:
         rows = conn.execute(
-            f"SELECT * FROM inventory_valuation_layers {where_sql} ORDER BY valuation_date, created_at",  # noqa: S608
+            f"SELECT * FROM inventory_valuation_layers {where_sql} "  # noqa: S608
+            "ORDER BY valuation_date, created_at",
             params,
         ).fetchall()
     layers = [_layer_response_from_row(row) for row in rows]
@@ -2829,7 +2911,9 @@ def generate_cogs_rows() -> COGSLedgerListResponse:
                 ),
             )
             created.append(
-                _cogs_response_from_row(conn.execute("SELECT * FROM cogs_ledger WHERE id = ?", (cogs_id,)).fetchone())
+                _cogs_response_from_row(
+                    conn.execute("SELECT * FROM cogs_ledger WHERE id = ?", (cogs_id,)).fetchone()
+                )
             )
 
         return_rows = conn.execute(
@@ -2862,9 +2946,9 @@ def generate_cogs_rows() -> COGSLedgerListResponse:
                     / _decimal(row["quantity_sold"], "quantity_sold")
                 ).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
             total_cost = int(
-                (_decimal(row["quantity_delta"], "quantity_delta") * unit_value * Decimal("100")).quantize(
-                    Decimal("1"), rounding=ROUND_HALF_UP
-                )
+                (
+                    _decimal(row["quantity_delta"], "quantity_delta") * unit_value * Decimal("100")
+                ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
             )
             source_layer = _valuation_layer_for_movement(conn, row["movement_id"])
             cogs_id = _uuid()
@@ -2904,7 +2988,9 @@ def generate_cogs_rows() -> COGSLedgerListResponse:
     return COGSLedgerListResponse(rows=created, total=len(created))
 
 
-def list_cogs_rows(product_id: str | None = None, order_id: str | None = None) -> COGSLedgerListResponse:
+def list_cogs_rows(
+    product_id: str | None = None, order_id: str | None = None
+) -> COGSLedgerListResponse:
     where: list[str] = []
     params: list[object] = []
     if product_id:
@@ -2969,7 +3055,9 @@ def inventory_close_preview(period_start: str, period_end: str) -> InventoryClos
             totals["ending_value_cents"] += value
         else:
             totals["ending_value_cents"] -= value
-    official = bool(settings["valuation_enabled"] and settings["accountant_reviewed"] and exception_count == 0)
+    official = bool(
+        settings["valuation_enabled"] and settings["accountant_reviewed"] and exception_count == 0
+    )
     return InventoryClosePreviewResponse(
         period_start=period_start,
         period_end=period_end,

@@ -32,10 +32,12 @@ class DashboardResponse(BaseModel):
     orders: OrderStats
     low_stock_count: int = Field(..., description="Active products with stock <= 5")
     orders_today: int = Field(..., description="Orders created today")
-    revenue_this_week_cents: int = Field(
-        ..., description="Paid-order revenue from the last 7 days"
-    )
+    revenue_this_week_cents: int = Field(..., description="Paid-order revenue from the last 7 days")
     active_product_count: int = Field(..., description="Currently active products")
+    contact_messages_needing_attention: int = Field(
+        default=0,
+        description="Contact messages whose owner notification is not successfully sent",
+    )
 
 
 class AdminAlertResponse(BaseModel):

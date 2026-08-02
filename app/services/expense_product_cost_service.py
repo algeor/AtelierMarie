@@ -75,13 +75,25 @@ def _get_expense_row(conn: sqlite3.Connection, expense_id: str) -> sqlite3.Row:
 
 
 def _validate_expense_links(conn: sqlite3.Connection, body: ExpenseEvidenceRequest) -> None:
-    if body.linked_product_id and conn.execute("SELECT 1 FROM products WHERE id = ?", (body.linked_product_id,)).fetchone() is None:
+    if (
+        body.linked_product_id
+        and conn.execute(
+            "SELECT 1 FROM products WHERE id = ?", (body.linked_product_id,)
+        ).fetchone()
+        is None
+    ):
         raise FinancePeriodError(404, "PRODUCT_NOT_FOUND", "Linked product not found.")
-    if body.linked_order_id and conn.execute("SELECT 1 FROM orders WHERE id = ?", (body.linked_order_id,)).fetchone() is None:
+    if (
+        body.linked_order_id
+        and conn.execute("SELECT 1 FROM orders WHERE id = ?", (body.linked_order_id,)).fetchone()
+        is None
+    ):
         raise FinancePeriodError(404, "ORDER_NOT_FOUND", "Linked order not found.")
 
 
-def list_expenses(category_key: str | None = None, review_status: str | None = None) -> ExpenseEvidenceListResponse:
+def list_expenses(
+    category_key: str | None = None, review_status: str | None = None
+) -> ExpenseEvidenceListResponse:
     clauses: list[str] = []
     params: list[str] = []
     if category_key:
@@ -96,7 +108,9 @@ def list_expenses(category_key: str | None = None, review_status: str | None = N
             f"SELECT * FROM expense_evidence {where} ORDER BY purchase_date DESC, created_at DESC",  # noqa: S608
             params,
         ).fetchall()
-    return ExpenseEvidenceListResponse(items=[_expense_from_row(row) for row in rows], total=len(rows))
+    return ExpenseEvidenceListResponse(
+        items=[_expense_from_row(row) for row in rows], total=len(rows)
+    )
 
 
 def create_expense(
@@ -311,9 +325,13 @@ def _cost_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> ProductCostVer
 
 
 def _get_cost_row(conn: sqlite3.Connection, cost_version_id: str) -> sqlite3.Row:
-    row = conn.execute("SELECT * FROM product_cost_versions WHERE id = ?", (cost_version_id,)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM product_cost_versions WHERE id = ?", (cost_version_id,)
+    ).fetchone()
     if row is None:
-        raise FinancePeriodError(404, "PRODUCT_COST_VERSION_NOT_FOUND", "Product-cost version not found.")
+        raise FinancePeriodError(
+            404, "PRODUCT_COST_VERSION_NOT_FOUND", "Product-cost version not found."
+        )
     return row
 
 
@@ -362,7 +380,8 @@ def list_product_costs(product_id: str | None = None) -> ProductCostVersionListR
     with get_db() as conn:
         if product_id:
             rows = conn.execute(
-                "SELECT * FROM product_cost_versions WHERE product_id = ? ORDER BY effective_date DESC",
+                "SELECT * FROM product_cost_versions WHERE product_id = ? "
+                "ORDER BY effective_date DESC",
                 (product_id,),
             ).fetchall()
         else:
@@ -480,7 +499,9 @@ def update_product_cost(
                 cost_version_id,
             ),
         )
-        conn.execute("DELETE FROM product_cost_components WHERE cost_version_id = ?", (cost_version_id,))
+        conn.execute(
+            "DELETE FROM product_cost_components WHERE cost_version_id = ?", (cost_version_id,)
+        )
         _insert_components(conn, cost_version_id, body)
         after = _cost_from_row(conn, _get_cost_row(conn, cost_version_id))
         accounting_config_service.write_finance_audit_event(
@@ -497,7 +518,9 @@ def update_product_cost(
         return after
 
 
-def effective_product_cost(product_id: str, effective_date: str) -> ProductCostVersionResponse | None:
+def effective_product_cost(
+    product_id: str, effective_date: str
+) -> ProductCostVersionResponse | None:
     with get_db() as conn:
         row = conn.execute(
             """
@@ -518,7 +541,8 @@ def missing_product_costs(period_id: str) -> MissingProductCostDiagnosticsRespon
             raise FinancePeriodError(404, "FINANCE_PERIOD_NOT_FOUND", "Finance period not found.")
         rows = conn.execute(
             """
-            SELECT DISTINCT o.id AS order_id, o.order_number, substr(o.created_at, 1, 10) AS order_date,
+            SELECT DISTINCT o.id AS order_id, o.order_number,
+                   substr(o.created_at, 1, 10) AS order_date,
                    oi.product_id, oi.product_name
             FROM orders o
             JOIN order_items oi ON oi.order_id = o.id

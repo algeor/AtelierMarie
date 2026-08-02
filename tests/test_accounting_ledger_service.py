@@ -207,14 +207,16 @@ async def test_accounting_ledger_endpoint_returns_core_ledgers(admin_client, db,
     )
     period_id = period_resp.json()["id"]
 
-    sales_resp = await admin_client.get(
-        f"/v1/admin/accounting/periods/{period_id}/ledgers/sales"
-    )
+    sales_resp = await admin_client.get(f"/v1/admin/accounting/periods/{period_id}/ledgers/sales")
     assert sales_resp.status_code == 200
     assert sales_resp.headers["cache-control"] == "no-store, no-cache"
     sales = sales_resp.json()
     assert sales["ledger"] == "sales"
-    assert {row["row_type"] for row in sales["rows"]} >= {"order_line", "shipping", "refund_reversal"}
+    assert {row["row_type"] for row in sales["rows"]} >= {
+        "order_line",
+        "shipping",
+        "refund_reversal",
+    }
     assert sales["totals"]["gross_amount_cents"] == 1700
 
     payments_resp = await admin_client.get(

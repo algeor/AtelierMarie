@@ -258,7 +258,9 @@ class TestEcontReadiness:
     ):
         _configure_econt(conn)
         order_id = _make_order(conn)
-        row = conn.execute("SELECT delivery_details FROM orders WHERE id = ?", (order_id,)).fetchone()
+        row = conn.execute(
+            "SELECT delivery_details FROM orders WHERE id = ?", (order_id,)
+        ).fetchone()
         details = json.loads(row["delivery_details"])
         details.pop("office_code", None)
         conn.execute(
@@ -433,9 +435,7 @@ class TestEcontActions:
         assert row["tracking_carrier"] == "econt"
         actions = [
             r["action"]
-            for r in conn.execute(
-                "SELECT action FROM order_courier_events ORDER BY id"
-            ).fetchall()
+            for r in conn.execute("SELECT action FROM order_courier_events ORDER BY id").fetchall()
         ]
         assert actions == ["create_label", "mark_shipped"]
 
@@ -589,9 +589,10 @@ class TestEcontActions:
         assert order["status"] == "shipped"
         assert order["payment_status"] == "cod_pending"
         assert order["courier_status"] == "return_in_transit"
-        assert conn.execute(
-            "SELECT stock FROM products WHERE id = 'weighted-candle'"
-        ).fetchone()[0] == stock_before
+        assert (
+            conn.execute("SELECT stock FROM products WHERE id = 'weighted-candle'").fetchone()[0]
+            == stock_before
+        )
         case = conn.execute(
             "SELECT reason, source, status FROM order_returns WHERE order_id = ?",
             (order_id,),
@@ -716,8 +717,7 @@ class TestEcontActions:
         ).fetchone()
         assert event["action"] == "manual_status"
         assert (
-            json.loads(event["request_json"])["notes"]
-            == "Courier portal shows returned to sender."
+            json.loads(event["request_json"])["notes"] == "Courier portal shows returned to sender."
         )
         assert event["actor_user_id"] == "admin-1"
 

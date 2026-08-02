@@ -24,7 +24,12 @@ from app.constants import (
 )
 from app.models.delivery import DeliveryInfo
 from app.models.orders import InvoiceProfile, OrderStatus
-from app.services import accounting_config_service, delivery_service, delivery_settings_service, pricing
+from app.services import (
+    accounting_config_service,
+    delivery_service,
+    delivery_settings_service,
+    pricing,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -157,9 +162,7 @@ def _order_item_key(order_id: str, product_id: str) -> str:
     return f"{order_id}:{product_id}"
 
 
-def _ledger_modes_for_products(
-    conn: sqlite3.Connection, product_ids: list[str]
-) -> dict[str, str]:
+def _ledger_modes_for_products(conn: sqlite3.Connection, product_ids: list[str]) -> dict[str, str]:
     if not product_ids:
         return {}
     placeholders = ",".join("?" for _ in product_ids)
@@ -291,9 +294,7 @@ def _record_finished_good_movement(
             (quantity_delta, product_id),
         )
         if cursor.rowcount == 0:
-            raise ProductUnavailableError(
-                [{"product_id": product_id, "product_name": product_id}]
-            )
+            raise ProductUnavailableError([{"product_id": product_id, "product_name": product_id}])
     return movement_id
 
 
@@ -342,7 +343,9 @@ def _accounting_admin_fields(
         (order_id,),
     ).fetchall()
     blocking_exception_count = sum(1 for row in exception_rows if row["severity"] == "blocking")
-    exception_period_id = next((row["period_id"] for row in exception_rows if row["period_id"]), None)
+    exception_period_id = next(
+        (row["period_id"] for row in exception_rows if row["period_id"]), None
+    )
     linked_period_id = finance_period_id or exception_period_id
 
     document_rows = conn.execute(
@@ -414,7 +417,9 @@ def _accounting_admin_fields(
         ).fetchone()
         if settlement_row is None:
             cod_settlement_status = "pending"
-        elif bool(settlement_row["mismatch_review"]) or settlement_row["amount_cents"] != total_cents:
+        elif (
+            bool(settlement_row["mismatch_review"]) or settlement_row["amount_cents"] != total_cents
+        ):
             cod_settlement_status = "mismatch"
         else:
             cod_settlement_status = "settled"
@@ -1488,12 +1493,8 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
         accounting_readiness_status=accounting_admin_fields["accounting_readiness_status"],
         finance_period_id=finance_period_id,
         document_reference_status=accounting_admin_fields["document_reference_status"],
-        payment_reconciliation_status=accounting_admin_fields[
-            "payment_reconciliation_status"
-        ],
-        payout_reconciliation_status=accounting_admin_fields[
-            "payout_reconciliation_status"
-        ],
+        payment_reconciliation_status=accounting_admin_fields["payment_reconciliation_status"],
+        payout_reconciliation_status=accounting_admin_fields["payout_reconciliation_status"],
         cod_settlement_status=accounting_admin_fields["cod_settlement_status"],
         blocking_exception_count=accounting_admin_fields["blocking_exception_count"],
         finance_hub_links=accounting_admin_fields["finance_hub_links"],
@@ -1905,7 +1906,8 @@ def list_orders_admin(
         )
     elif accounting_filter == "vat_review_required":
         conditions.append(
-            "accounting_classification_state IN ('cross_border_candidate', 'manual_review_required')"
+            "accounting_classification_state IN "
+            "('cross_border_candidate', 'manual_review_required')"
         )
     elif accounting_filter == "missing_inventory_movement":
         conditions.append(
@@ -2226,7 +2228,9 @@ def update_status(
                     _insert_inventory_exception(
                         conn,
                         exception_type="missing_sale_issue_movement",
-                        message="Ledger-managed order cancellation has no original sale issue movement.",
+                        message=(
+                            "Ledger-managed order cancellation has no original sale issue movement."
+                        ),
                         target_type="order",
                         target_id=order_id,
                         source_type="order_item",
@@ -2236,7 +2240,9 @@ def update_status(
                     conn,
                     product_id=product_id,
                     movement_type="cancellation_reversal",
-                    quantity_delta=abs(float(issue["quantity_delta"])) if issue else item["quantity"],
+                    quantity_delta=abs(float(issue["quantity_delta"]))
+                    if issue
+                    else item["quantity"],
                     source_type="order_cancellation",
                     source_id=order_id,
                     order_id=order_id,

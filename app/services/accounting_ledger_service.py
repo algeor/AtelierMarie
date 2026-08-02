@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from app.database import get_db
 from app.models.accounting import AccountingLedgerName, AccountingLedgerResponse
@@ -29,7 +30,12 @@ _LEDGER_DEFAULT_DATE_BASIS: dict[str, str] = {
 _LEDGER_ALLOWED_DATE_BASIS: dict[str, set[str]] = {
     "sales": {"order_date"},
     "payments": {"event_date"},
-    "stripe_payouts": {"provider_created_date", "available_date", "payout_effective_date", "payout_arrival_date"},
+    "stripe_payouts": {
+        "provider_created_date",
+        "available_date",
+        "payout_effective_date",
+        "payout_arrival_date",
+    },
     "cod_settlements": {"order_date", "settlement_date"},
     "refunds": {"created_date", "confirmed_date"},
     "courier_claims": {"created_date", "updated_date"},
@@ -98,7 +104,9 @@ def _paginate(rows: list[dict[str, object]], *, page: int, limit: int) -> list[d
     return rows[start : start + limit]
 
 
-def _document_status(conn: sqlite3.Connection, *, order_id: str | None, refund_id: str | None = None) -> str:
+def _document_status(
+    conn: sqlite3.Connection, *, order_id: str | None, refund_id: str | None = None
+) -> str:
     if not order_id and not refund_id:
         return "not_applicable"
     clauses: list[str] = []
@@ -112,7 +120,7 @@ def _document_status(conn: sqlite3.Connection, *, order_id: str | None, refund_i
     row = conn.execute(
         f"""
         SELECT status FROM accounting_documents
-        WHERE ({' OR '.join(clauses)}) AND status NOT IN ('void', 'missing')
+        WHERE ({" OR ".join(clauses)}) AND status NOT IN ('void', 'missing')
         ORDER BY issue_date DESC, created_at DESC
         LIMIT 1
         """,  # noqa: S608
@@ -319,7 +327,9 @@ def _cod_rows(conn: sqlite3.Connection, _period: sqlite3.Row) -> list[dict[str, 
     return rows
 
 
-def _report_rows(report_func: Callable[[sqlite3.Connection], list[dict[str, Any]]]) -> Callable[[sqlite3.Connection, sqlite3.Row], list[dict[str, object]]]:
+def _report_rows(
+    report_func: Callable[[sqlite3.Connection], list[dict[str, Any]]],
+) -> Callable[[sqlite3.Connection, sqlite3.Row], list[dict[str, object]]]:
     def adapter(conn: sqlite3.Connection, _period: sqlite3.Row) -> list[dict[str, object]]:
         rows: list[dict[str, object]] = []
         for row in report_func(conn):
@@ -436,7 +446,9 @@ def _product_cost_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[di
     return ledger
 
 
-def _inventory_movement_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, object]]:
+def _inventory_movement_rows(
+    conn: sqlite3.Connection, period: sqlite3.Row
+) -> list[dict[str, object]]:
     settings = conn.execute("SELECT * FROM inventory_settings WHERE id = 'default'").fetchone()
     official = bool(settings and settings["valuation_enabled"] and settings["accountant_reviewed"])
     rows = conn.execute(
@@ -472,7 +484,9 @@ def _inventory_movement_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> l
     ]
 
 
-_LEDGER_BUILDERS: dict[str, Callable[[sqlite3.Connection, sqlite3.Row], list[dict[str, object]]]] = {
+_LEDGER_BUILDERS: dict[
+    str, Callable[[sqlite3.Connection, sqlite3.Row], list[dict[str, object]]]
+] = {
     "sales": _sales_rows,
     "payments": _payment_rows,
     "stripe_payouts": _stripe_payout_rows,

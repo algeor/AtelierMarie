@@ -118,7 +118,9 @@ def test_material_receipt_and_movement_constraints(db: sqlite3.Connection):
     with pytest.raises(sqlite3.IntegrityError):
         db.execute(
             """
-            INSERT INTO inventory_movements (id, item_type, item_id, movement_type, quantity_delta, uom)
+            INSERT INTO inventory_movements (
+                id, item_type, item_id, movement_type, quantity_delta, uom
+            )
             VALUES ('bad-movement', 'material', 'mat-wax', 'silent_edit', 1, 'g')
             """
         )
@@ -127,10 +129,12 @@ def test_material_receipt_and_movement_constraints(db: sqlite3.Connection):
 
 def test_recipe_batch_valuation_and_cogs_tables_accept_linked_rows(db: sqlite3.Connection):
     db.execute(
-        "INSERT INTO products (id, name_en, price_cents, stock) VALUES ('prod-candle', 'Candle', 2500, 0)"
+        "INSERT INTO products (id, name_en, price_cents, stock) "
+        "VALUES ('prod-candle', 'Candle', 2500, 0)"
     )
     db.execute(
-        "INSERT INTO materials (id, sku, name, category, stock_uom) VALUES ('mat-wick', 'WICK', 'Wick', 'wick', 'piece')"
+        "INSERT INTO materials (id, sku, name, category, stock_uom) "
+        "VALUES ('mat-wick', 'WICK', 'Wick', 'wick', 'piece')"
     )
     db.execute(
         """
@@ -161,7 +165,10 @@ def test_recipe_batch_valuation_and_cogs_tables_accept_linked_rows(db: sqlite3.C
         INSERT INTO production_batches (
             id, batch_number, product_id, recipe_version_id, planned_output_quantity,
             actual_output_quantity, production_date, cost_snapshot_id, status
-        ) VALUES ('batch-1', 'B-2026-001', 'prod-candle', 'recipe-1', 24, 24, '2026-09-02', 'cost-1', 'produced')
+        ) VALUES (
+            'batch-1', 'B-2026-001', 'prod-candle', 'recipe-1', 24, 24, '2026-09-02',
+            'cost-1', 'produced'
+        )
         """
     )
     db.execute(
@@ -179,7 +186,9 @@ def test_recipe_batch_valuation_and_cogs_tables_accept_linked_rows(db: sqlite3.C
             id, production_batch_id, recipe_component_id, material_id,
             expected_quantity, actual_quantity, waste_quantity, uom, movement_id,
             review_state
-        ) VALUES ('consume-1', 'batch-1', 'component-1', 'mat-wick', 24, 24, 0, 'piece', NULL, 'reviewed')
+        ) VALUES (
+            'consume-1', 'batch-1', 'component-1', 'mat-wick', 24, 24, 0, 'piece', NULL, 'reviewed'
+        )
         """
     )
     db.execute(
@@ -187,7 +196,10 @@ def test_recipe_batch_valuation_and_cogs_tables_accept_linked_rows(db: sqlite3.C
         INSERT INTO production_batch_outputs (
             id, production_batch_id, product_id, batch_number, quantity, uom,
             unit_cost_amount, movement_id, valuation_review_state
-        ) VALUES ('output-1', 'batch-1', 'prod-candle', 'B-2026-001', 24, 'unit', '0.10', 'move-output-1', 'reviewed')
+        ) VALUES (
+            'output-1', 'batch-1', 'prod-candle', 'B-2026-001', 24, 'unit', '0.10',
+            'move-output-1', 'reviewed'
+        )
         """
     )
     db.execute(
@@ -229,7 +241,10 @@ def test_recipe_batch_valuation_and_cogs_tables_accept_linked_rows(db: sqlite3.C
         """
         INSERT INTO inventory_exceptions (
             id, exception_type, severity, target_type, target_id, message
-        ) VALUES ('inv-ex-1', 'missing_opening_balance_review', 'blocking', 'product', 'prod-candle', 'Review opening value')
+        ) VALUES (
+            'inv-ex-1', 'missing_opening_balance_review', 'blocking', 'product', 'prod-candle',
+            'Review opening value'
+        )
         """
     )
     db.commit()

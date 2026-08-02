@@ -100,10 +100,19 @@ const product: AdminProductResponse = {
   category: "Floral",
   product_type: "candles",
   labels: [],
-  images: [],
+  images: [
+    {
+      id: "img-1",
+      image_url: "/static/products/lavender.webp",
+      thumbnail_url: "/static/products/lavender-thumb.webp",
+      zoom_url: null,
+      sort_order: 0,
+      is_primary: true,
+    },
+  ],
   video: null,
-  primary_image_url: null,
-  primary_thumbnail_url: null,
+  primary_image_url: "/static/products/lavender.webp",
+  primary_thumbnail_url: "/static/products/lavender-thumb.webp",
   stock: 24,
   weight_grams: 300,
   is_active: true,
@@ -240,6 +249,22 @@ describe("ProductForm image crop editor", () => {
         care_instructions_bg: "Подрязвайте фитила.",
       })
     );
+  });
+
+  it("blocks active products without a product image", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    renderWithIntl(
+      <ProductForm
+        product={{ ...product, images: [], primary_image_url: null, primary_thumbnail_url: null, is_active: true }}
+        onSubmit={onSubmit}
+        submitLabel="Save"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findAllByText("Active products need at least one product image.")).not.toHaveLength(0);
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("blocks direct stock edits for ledger-managed products", async () => {

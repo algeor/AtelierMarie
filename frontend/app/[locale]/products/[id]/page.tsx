@@ -11,7 +11,11 @@ import { ProductSocialSection } from "@/components/products/ProductSocialSection
 import { ProductViewTracker } from "@/components/products/ProductViewTracker";
 import type { Locale } from "@/i18n/routing";
 import { loadLegalIdentity } from "@/lib/legal";
-import { getLocalizedAlternates } from "@/lib/seo";
+import {
+  buildProductJsonLd,
+  getLocalizedAlternates,
+  serializeJsonLd,
+} from "@/lib/seo";
 
 interface ProductPageProps {
   params: Promise<{ id: string; locale: Locale }>;
@@ -49,11 +53,16 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
   if (!product.is_active) {
     notFound();
   }
+  const productJsonLd = buildProductJsonLd(product, locale);
 
   const legalIdentity = await loadLegalIdentity();
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(productJsonLd) }}
+      />
       <ProductViewTracker
         productId={product.id}
         category={product.category}

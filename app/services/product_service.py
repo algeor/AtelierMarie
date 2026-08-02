@@ -40,9 +40,7 @@ class LedgerManagedStockEditError(Exception):
 
     def __init__(self, product_id: str) -> None:
         self.product_id = product_id
-        super().__init__(
-            "Ledger-managed product stock must be changed through inventory movements"
-        )
+        super().__init__("Ledger-managed product stock must be changed through inventory movements")
 
 
 BULK_DISCOUNT_TARGET_LIMIT = 500
@@ -212,10 +210,16 @@ def _attach_admin_inventory_context(conn: sqlite3.Connection, products: list[dic
         product["inventory_links"] = {
             "recipes_href": f"/admin/inventory/recipes?product_id={product_id}",
             "batches_href": f"/admin/inventory/batches?product_id={product_id}",
-            "movements_href": f"/admin/inventory/movements?item_type=finished_good&item_id={product_id}",
-            "valuation_href": f"/admin/inventory/valuation/layers?item_type=finished_good&item_id={product_id}",
+            "movements_href": (
+                f"/admin/inventory/movements?item_type=finished_good&item_id={product_id}"
+            ),
+            "valuation_href": (
+                f"/admin/inventory/valuation/layers?item_type=finished_good&item_id={product_id}"
+            ),
             "cogs_href": f"/admin/inventory/valuation/cogs?product_id={product_id}",
-            "exceptions_href": f"/admin/inventory/valuation/exceptions?target_type=product&target_id={product_id}",
+            "exceptions_href": (
+                f"/admin/inventory/valuation/exceptions?target_type=product&target_id={product_id}"
+            ),
         }
 
 

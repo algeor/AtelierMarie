@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import date
 import json
 import sqlite3
 import uuid
+from datetime import date
 from typing import Any
 
 from app.database import get_db
@@ -139,9 +139,7 @@ def _get_period_row(conn: sqlite3.Connection, period_id: str) -> sqlite3.Row:
 
 
 def _get_exception_row(conn: sqlite3.Connection, exception_id: str) -> sqlite3.Row:
-    row = conn.execute(
-        "SELECT * FROM finance_exceptions WHERE id = ?", (exception_id,)
-    ).fetchone()
+    row = conn.execute("SELECT * FROM finance_exceptions WHERE id = ?", (exception_id,)).fetchone()
     if row is None:
         raise FinancePeriodError(404, "FINANCE_EXCEPTION_NOT_FOUND", "Finance exception not found.")
     return row
@@ -261,7 +259,9 @@ def _period_order_clause() -> str:
     return "substr(o.created_at, 1, 10) BETWEEN ? AND ? AND o.status != 'cancelled'"
 
 
-def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, object]]:
+def _collect_exception_specs(
+    conn: sqlite3.Connection, period: sqlite3.Row
+) -> list[dict[str, object]]:
     period_start = period["period_start"]
     period_end = period["period_end"]
     specs = _settings_exception_specs(conn)
@@ -286,7 +286,10 @@ def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> l
                     "severity": "blocking",
                     "target_type": "order",
                     "target_id": order["id"],
-                    "message": f"Order {order['order_number'] or order['id']} is missing reviewed accounting settings.",
+                    "message": (
+                        f"Order {order['order_number'] or order['id']} "
+                        "is missing reviewed accounting settings."
+                    ),
                     "details": {"payment_method": order["payment_method"]},
                 }
             )
@@ -297,7 +300,10 @@ def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> l
                     "severity": "blocking",
                     "target_type": "order",
                     "target_id": order["id"],
-                    "message": f"Order {order['order_number'] or order['id']} needs VAT/accounting classification review.",
+                    "message": (
+                        f"Order {order['order_number'] or order['id']} "
+                        "needs VAT/accounting classification review."
+                    ),
                     "details": {"classification": order["accounting_classification_state"]},
                 }
             )
@@ -313,7 +319,7 @@ def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> l
             SELECT o.id, o.order_number, o.payment_method
             FROM orders o
             WHERE {_period_order_clause()}
-              AND o.payment_method IN ({','.join('?' for _ in required_document_methods)})
+              AND o.payment_method IN ({",".join("?" for _ in required_document_methods)})
               AND NOT EXISTS (
                   SELECT 1 FROM accounting_documents d
                   WHERE d.order_id = o.id
@@ -329,7 +335,10 @@ def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> l
                     "severity": "blocking",
                     "target_type": "order",
                     "target_id": row["id"],
-                    "message": f"Order {row['order_number'] or row['id']} is missing a required accounting document reference.",
+                    "message": (
+                        f"Order {row['order_number'] or row['id']} "
+                        "is missing a required accounting document reference."
+                    ),
                     "details": {"payment_method": row["payment_method"]},
                 }
             )
@@ -340,7 +349,7 @@ def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> l
         FROM orders o
         WHERE {_period_order_clause()}
           AND o.payment_method IN ('card', 'bank_transfer')
-          AND o.payment_status IN ({','.join('?' for _ in _PAID_PAYMENT_STATUSES)})
+          AND o.payment_status IN ({",".join("?" for _ in _PAID_PAYMENT_STATUSES)})
           AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.order_id = o.id)
         """,
         (period_start, period_end, *_PAID_PAYMENT_STATUSES),
@@ -352,8 +361,14 @@ def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> l
                 "severity": "blocking",
                 "target_type": "order",
                 "target_id": row["id"],
-                "message": f"Order {row['order_number'] or row['id']} is marked paid without payment evidence.",
-                "details": {"payment_method": row["payment_method"], "payment_status": row["payment_status"]},
+                "message": (
+                    f"Order {row['order_number'] or row['id']} "
+                    "is marked paid without payment evidence."
+                ),
+                "details": {
+                    "payment_method": row["payment_method"],
+                    "payment_status": row["payment_status"],
+                },
             }
         )
 
@@ -375,7 +390,10 @@ def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> l
                 "severity": "blocking",
                 "target_type": "order",
                 "target_id": row["id"],
-                "message": f"Delivered COD order {row['order_number'] or row['id']} has no settlement record.",
+                "message": (
+                    f"Delivered COD order {row['order_number'] or row['id']} "
+                    "has no settlement record."
+                ),
                 "details": {"order_total_cents": row["total_cents"]},
             }
         )
@@ -398,7 +416,10 @@ def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> l
                 "severity": "blocking",
                 "target_type": "order",
                 "target_id": row["id"],
-                "message": f"COD settlement for order {row['order_number'] or row['id']} does not match the order total.",
+                "message": (
+                    f"COD settlement for order {row['order_number'] or row['id']} "
+                    "does not match the order total."
+                ),
                 "details": {
                     "order_total_cents": row["total_cents"],
                     "settlement_amount_cents": row["amount_cents"],
@@ -411,7 +432,11 @@ def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> l
         SELECT id, balance_transaction_id, match_status, gross_amount_cents, net_amount_cents
         FROM stripe_balance_transactions
         WHERE match_status IN ('unmatched', 'mismatch', 'duplicate')
-          AND COALESCE(substr(provider_created_at, 1, 10), substr(payout_effective_at, 1, 10), substr(imported_at, 1, 10))
+          AND COALESCE(
+                  substr(provider_created_at, 1, 10),
+                  substr(payout_effective_at, 1, 10),
+                  substr(imported_at, 1, 10)
+              )
               BETWEEN ? AND ?
         """,
         (period_start, period_end),
@@ -424,7 +449,10 @@ def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> l
                 "severity": severity,
                 "target_type": "stripe_balance_transaction",
                 "target_id": row["id"],
-                "message": f"Stripe balance transaction {row['balance_transaction_id']} is {row['match_status']}.",
+                "message": (
+                    f"Stripe balance transaction {row['balance_transaction_id']} "
+                    f"is {row['match_status']}."
+                ),
                 "details": {
                     "gross_amount_cents": row["gross_amount_cents"],
                     "net_amount_cents": row["net_amount_cents"],
@@ -453,7 +481,10 @@ def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> l
                 "severity": "blocking",
                 "target_type": "refund",
                 "target_id": row["id"],
-                "message": f"Refund for order {row['order_number'] or row['order_id']} is missing a credit/document reference.",
+                "message": (
+                    f"Refund for order {row['order_number'] or row['order_id']} "
+                    "is missing a credit/document reference."
+                ),
                 "details": {"amount_cents": row["amount_cents"], "order_id": row["order_id"]},
             }
         )
@@ -465,7 +496,7 @@ def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> l
             SELECT id, supplier_name, category_key, gross_amount_cents
             FROM expense_evidence
             WHERE purchase_date BETWEEN ? AND ?
-              AND category_key IN ({','.join('?' for _ in required_expense_categories)})
+              AND category_key IN ({",".join("?" for _ in required_expense_categories)})
               AND COALESCE(document_number, '') = ''
               AND COALESCE(attachment_reference, '') = ''
             """,
@@ -478,7 +509,10 @@ def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> l
                     "severity": "blocking" if close_behavior == "block" else "warning",
                     "target_type": "expense",
                     "target_id": row["id"],
-                    "message": f"Expense from {row['supplier_name']} is missing required invoice/receipt evidence.",
+                    "message": (
+                        f"Expense from {row['supplier_name']} "
+                        "is missing required invoice/receipt evidence."
+                    ),
                     "details": {
                         "category_key": row["category_key"],
                         "gross_amount_cents": row["gross_amount_cents"],
@@ -511,7 +545,10 @@ def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> l
                     "severity": "blocking" if missing_cost_policy == "blocking" else "warning",
                     "target_type": "order_item",
                     "target_id": f"{row['order_id']}:{row['product_id']}",
-                    "message": f"Sold product {row['product_name']} has no effective product-cost estimate.",
+                    "message": (
+                        f"Sold product {row['product_name']} "
+                        "has no effective product-cost estimate."
+                    ),
                     "details": {
                         "order_id": row["order_id"],
                         "product_id": row["product_id"],
@@ -533,7 +570,10 @@ def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> l
                     "severity": "blocking",
                     "target_type": "inventory_settings",
                     "target_id": "default",
-                    "message": "Inventory valuation settings must be accountant-reviewed before official inventory output.",
+                    "message": (
+                        "Inventory valuation settings must be accountant-reviewed "
+                        "before official inventory output."
+                    ),
                     "details": {"valuation_enabled": True},
                 }
             )
@@ -583,7 +623,10 @@ def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> l
                     "severity": "blocking",
                     "target_type": "order_item",
                     "target_id": f"{row['order_id']}:{row['product_id']}",
-                    "message": f"Ledger-managed order item {row['product_name']} has no sale issue movement.",
+                    "message": (
+                        f"Ledger-managed order item {row['product_name']} "
+                        "has no sale issue movement."
+                    ),
                     "details": {"order_id": row["order_id"], "product_id": row["product_id"]},
                 }
             )
@@ -614,7 +657,10 @@ def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> l
                         "severity": "blocking",
                         "target_type": "order_item",
                         "target_id": f"{row['order_id']}:{row['product_id']}",
-                        "message": f"Ledger-managed order item {row['product_name']} has no COGS ledger row.",
+                        "message": (
+                            f"Ledger-managed order item {row['product_name']} "
+                            "has no COGS ledger row."
+                        ),
                         "details": {"order_id": row["order_id"], "product_id": row["product_id"]},
                     }
                 )
@@ -681,7 +727,10 @@ def _collect_exception_specs(conn: sqlite3.Connection, period: sqlite3.Row) -> l
                 "severity": "blocking",
                 "target_type": "order",
                 "target_id": row["id"],
-                "message": f"Order {row['order_number'] or row['id']} total differs from line/shipping total beyond tolerance.",
+                "message": (
+                    f"Order {row['order_number'] or row['id']} "
+                    "total differs from line/shipping total beyond tolerance."
+                ),
                 "details": {
                     "order_total_cents": row["total_cents"],
                     "computed_total_cents": row["computed_total"],
@@ -762,7 +811,9 @@ def _upsert_exception(
     )
 
 
-def refresh_period_exceptions(conn: sqlite3.Connection, period_id: str) -> list[FinanceExceptionResponse]:
+def refresh_period_exceptions(
+    conn: sqlite3.Connection, period_id: str
+) -> list[FinanceExceptionResponse]:
     """Recompute engine-managed exceptions for a period and return open rows."""
     period = _get_period_row(conn, period_id)
     desired_specs = _collect_exception_specs(conn, period)
@@ -779,7 +830,11 @@ def refresh_period_exceptions(conn: sqlite3.Connection, period_id: str) -> list[
     ).fetchall():
         details = _json_loads(row["details_json"], {})
         key = (row["exception_type"], row["target_type"] or "", row["target_id"] or "")
-        if isinstance(details, dict) and details.get("generated_by") == _ENGINE_MARKER and key not in desired_keys:
+        if (
+            isinstance(details, dict)
+            and details.get("generated_by") == _ENGINE_MARKER
+            and key not in desired_keys
+        ):
             conn.execute(
                 """
                 UPDATE finance_exceptions
@@ -839,7 +894,11 @@ def calculate_summary_totals(conn: sqlite3.Connection, period: sqlite3.Row) -> d
         SELECT COALESCE(SUM(fee_amount_cents), 0) AS stripe_fees_cents,
                COALESCE(SUM(net_amount_cents), 0) AS net_provider_payouts_cents
         FROM stripe_balance_transactions
-        WHERE COALESCE(substr(provider_created_at, 1, 10), substr(payout_effective_at, 1, 10), substr(imported_at, 1, 10))
+        WHERE COALESCE(
+                  substr(provider_created_at, 1, 10),
+                  substr(payout_effective_at, 1, 10),
+                  substr(imported_at, 1, 10)
+              )
               BETWEEN ? AND ?
           AND match_status != 'ignored'
         """,
@@ -894,7 +953,10 @@ def calculate_summary_totals(conn: sqlite3.Connection, period: sqlite3.Row) -> d
     inventory_values = conn.execute(
         """
         SELECT item_type,
-               COALESCE(SUM(CASE WHEN quantity >= 0 THEN total_value_cents ELSE -total_value_cents END), 0)
+               COALESCE(
+                   SUM(CASE WHEN quantity >= 0 THEN total_value_cents ELSE -total_value_cents END),
+                   0
+               )
                    AS ending_value_cents
         FROM inventory_valuation_layers
         WHERE substr(valuation_date, 1, 10) <= ?
@@ -966,7 +1028,9 @@ def calculate_summary_totals(conn: sqlite3.Connection, period: sqlite3.Row) -> d
         "order_count": int(sales["order_count"] or 0),
         "refund_count": int(returns["refund_count"] or 0),
         "generated_at": pricing.now_utc(),
-        "estimate_notice": "Product-cost and margin values are management estimates unless accountant-reviewed.",
+        "estimate_notice": (
+            "Product-cost and margin values are management estimates unless accountant-reviewed."
+        ),
     }
 
 
@@ -1120,7 +1184,11 @@ def close_period(
                 409,
                 "FINANCE_PERIOD_CLOSE_BLOCKED",
                 "Cannot close finance period while blocking exceptions are open.",
-                {"blocking_exceptions": [_exception_from_row(row).model_dump() for row in blocking]},
+                {
+                    "blocking_exceptions": [
+                        _exception_from_row(row).model_dump() for row in blocking
+                    ]
+                },
             )
         summary = calculate_summary_totals(conn, period)
         now = pricing.now_utc()

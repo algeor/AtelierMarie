@@ -41,8 +41,8 @@ from app.services.payment_service import (
     handle_charge_refunded,
     handle_dispute_event,
     handle_payment_failed,
-    handle_refund_updated,
     handle_payment_succeeded,
+    handle_refund_updated,
     handle_session_expired,
 )
 from app.services.payment_settings_service import (
@@ -1354,9 +1354,7 @@ class TestAbandonedCardPaymentReview:
             m.return_value.__exit__ = MagicMock(return_value=False)
             return _cancel_abandoned_card_orders()
 
-    def test_marks_old_card_pending_order_for_review_and_keeps_stock_reserved(
-        self, conn, delivery
-    ):
+    def test_marks_old_card_pending_order_for_review_and_keeps_stock_reserved(self, conn, delivery):
         pid = _seed_product(conn, stock=5)
         sid = uuid.uuid4().hex
         _add_cart(conn, sid, pid, qty=2)
@@ -1379,7 +1377,10 @@ class TestAbandonedCardPaymentReview:
         updated = get_order(conn, order["id"])
         assert updated["status"] == "pending"
         assert updated["payment_status"] == "review_required"
-        assert conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0] == stock_after_order
+        assert (
+            conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0]
+            == stock_after_order
+        )
         assert updated["reserved_until"] is not None
 
     def test_expired_card_reservation_writes_payment_event_and_expires_stripe(self, conn, delivery):
@@ -1426,7 +1427,10 @@ class TestAbandonedCardPaymentReview:
         updated = get_order(conn, order["id"])
         assert updated["status"] == "pending"
         assert updated["payment_status"] == "review_required"
-        assert conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0] == stock_after_order
+        assert (
+            conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0]
+            == stock_after_order
+        )
         assert updated["reserved_until"] is not None
         event = conn.execute(
             """
@@ -1488,10 +1492,13 @@ class TestAbandonedCardPaymentReview:
         assert updated["payment_status"] == "failed"
         assert updated["reserved_until"] is None
         assert conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0] == 5
-        assert conn.execute(
-            "SELECT COUNT(*) FROM payment_refunds WHERE order_id = ?",
-            (order["id"],),
-        ).fetchone()[0] == 0
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM payment_refunds WHERE order_id = ?",
+                (order["id"],),
+            ).fetchone()[0]
+            == 0
+        )
         payment = conn.execute(
             "SELECT provider_status FROM payments WHERE order_id = ? AND provider = 'stripe'",
             (order["id"],),
@@ -1628,10 +1635,13 @@ class TestAbandonedCardPaymentReview:
         assert updated["status"] == "cancelled"
         assert updated["payment_status"] == "failed"
         assert conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0] == 5
-        assert conn.execute(
-            "SELECT COUNT(*) FROM payment_refunds WHERE order_id = ?",
-            (order["id"],),
-        ).fetchone()[0] == 0
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM payment_refunds WHERE order_id = ?",
+                (order["id"],),
+            ).fetchone()[0]
+            == 0
+        )
 
     def test_does_not_cancel_cod_orders(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="cod")

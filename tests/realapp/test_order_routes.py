@@ -1428,9 +1428,7 @@ class TestAdminListOrders:
         assert body["total"] == 1
         assert body["items"][0]["id"] == "inspection-order"
 
-    async def test_admin_review_filter_courier_claim_follow_up(
-        self, admin_order_client, db_path
-    ):
+    async def test_admin_review_filter_courier_claim_follow_up(self, admin_order_client, db_path):
         conn = sqlite3.connect(db_path)
         conn.executemany(
             """

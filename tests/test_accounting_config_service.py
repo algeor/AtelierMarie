@@ -29,9 +29,7 @@ async def test_accounting_config_reports_missing_setup(admin_client):
 
 
 @pytest.mark.asyncio
-async def test_seller_and_vat_settings_are_versioned_redacted_and_audited(
-    admin_client, db
-):
+async def test_seller_and_vat_settings_are_versioned_redacted_and_audited(admin_client, db):
     seller_resp = await admin_client.post(
         "/v1/admin/accounting/config/seller-profile",
         json={
@@ -181,8 +179,7 @@ async def test_mapping_and_singleton_settings_update_with_audit(admin_client, db
     assert product_cost_resp.json()["enabled"] is True
 
     actions = {
-        row["action"]
-        for row in db.execute("SELECT action FROM finance_audit_events").fetchall()
+        row["action"] for row in db.execute("SELECT action FROM finance_audit_events").fetchall()
     }
     assert {
         "category_mapping.upsert",

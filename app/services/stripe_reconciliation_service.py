@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import csv
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import io
 import json
 import sqlite3
 import uuid
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 from app.config import get_settings
@@ -113,7 +113,8 @@ def _normalize_import_row(row: dict[str, Any]) -> dict[str, Any]:
 
 def _tolerance_cents(conn: sqlite3.Connection) -> int:
     row = conn.execute(
-        "SELECT tolerance_cents FROM vat_fiscal_settings_versions ORDER BY effective_date DESC, id DESC LIMIT 1"
+        "SELECT tolerance_cents FROM vat_fiscal_settings_versions "
+        "ORDER BY effective_date DESC, id DESC LIMIT 1"
     ).fetchone()
     return int(row["tolerance_cents"] or 0) if row else 1
 
@@ -145,7 +146,9 @@ def _matching_local_amount(conn: sqlite3.Connection, row: sqlite3.Row) -> int | 
 
 
 def _reconcile_row(conn: sqlite3.Connection, row_id: str) -> str:
-    row = conn.execute("SELECT * FROM stripe_balance_transactions WHERE id = ?", (row_id,)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM stripe_balance_transactions WHERE id = ?", (row_id,)
+    ).fetchone()
     if row is None:
         return "unmatched"
     if row["match_status"] in {"duplicate", "ignored"}:
@@ -338,11 +341,15 @@ def sync_from_stripe(
     """Sync Stripe balance transactions via the Stripe SDK when configured."""
     settings = get_settings()
     if not settings.stripe_secret_key:
-        raise FinancePeriodError(422, "STRIPE_NOT_CONFIGURED", "Stripe secret key is not configured.")
+        raise FinancePeriodError(
+            422, "STRIPE_NOT_CONFIGURED", "Stripe secret key is not configured."
+        )
     try:
         import stripe
     except ImportError as exc:
-        raise FinancePeriodError(503, "STRIPE_SDK_UNAVAILABLE", "Stripe SDK is unavailable.") from exc
+        raise FinancePeriodError(
+            503, "STRIPE_SDK_UNAVAILABLE", "Stripe SDK is unavailable."
+        ) from exc
     stripe.api_key = settings.stripe_secret_key
     try:
         provider_rows = stripe.BalanceTransaction.list(limit=limit)
@@ -351,7 +358,11 @@ def sync_from_stripe(
 
     rows: list[dict[str, Any]] = []
     for item in getattr(provider_rows, "data", provider_rows):
-        getter = item.get if isinstance(item, dict) else lambda key, default=None: getattr(item, key, default)
+        getter = (
+            item.get
+            if isinstance(item, dict)
+            else lambda key, default=None: getattr(item, key, default)
+        )
         source = getter("source")
         rows.append(
             {

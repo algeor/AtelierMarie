@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import csv
-from hashlib import sha256
 import json
-from pathlib import Path
 import sqlite3
 import uuid
-from typing import Any
+from hashlib import sha256
+from pathlib import Path
 
 from openpyxl import Workbook
 
@@ -75,7 +74,9 @@ def _package_from_row(row: sqlite3.Row) -> FinanceExportPackageResponse:
 
 
 def _get_package_row(conn: sqlite3.Connection, export_id: str) -> sqlite3.Row:
-    row = conn.execute("SELECT * FROM finance_export_packages WHERE id = ?", (export_id,)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM finance_export_packages WHERE id = ?", (export_id,)
+    ).fetchone()
     if row is None:
         raise FinancePeriodError(404, "EXPORT_PACKAGE_NOT_FOUND", "Export package not found.")
     return row
@@ -150,7 +151,8 @@ def _settings_rows() -> list[dict[str, object]]:
 
 def _exception_rows(conn: sqlite3.Connection, period_id: str) -> list[dict[str, object]]:
     rows = conn.execute(
-        "SELECT * FROM finance_exceptions WHERE period_id = ? ORDER BY status, severity, created_at",
+        "SELECT * FROM finance_exceptions WHERE period_id = ? "
+        "ORDER BY status, severity, created_at",
         (period_id,),
     ).fetchall()
     return [{key: row[key] for key in row.keys()} for row in rows]
@@ -161,7 +163,9 @@ def _summary_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[st
     return [{"metric": key, "value": value} for key, value in summary.items()]
 
 
-def _source_metadata_rows(period: sqlite3.Row, export_id: str, version: int) -> list[dict[str, object]]:
+def _source_metadata_rows(
+    period: sqlite3.Row, export_id: str, version: int
+) -> list[dict[str, object]]:
     return [
         {
             "export_id": export_id,
@@ -187,7 +191,9 @@ def _inventory_label(settings: sqlite3.Row | None) -> str:
     return "estimate_only"
 
 
-def _material_on_hand_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, object]]:
+def _material_on_hand_rows(
+    conn: sqlite3.Connection, period: sqlite3.Row
+) -> list[dict[str, object]]:
     settings = _inventory_settings(conn)
     rows = conn.execute(
         """
@@ -229,7 +235,9 @@ def _material_on_hand_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> lis
     ]
 
 
-def _finished_goods_on_hand_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, object]]:
+def _finished_goods_on_hand_rows(
+    conn: sqlite3.Connection, period: sqlite3.Row
+) -> list[dict[str, object]]:
     settings = _inventory_settings(conn)
     rows = conn.execute(
         """
@@ -281,7 +289,9 @@ def _finished_goods_on_hand_rows(conn: sqlite3.Connection, period: sqlite3.Row) 
     ]
 
 
-def _inventory_valuation_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, object]]:
+def _inventory_valuation_rows(
+    conn: sqlite3.Connection, period: sqlite3.Row
+) -> list[dict[str, object]]:
     settings = _inventory_settings(conn)
     rows = conn.execute(
         """
@@ -301,10 +311,7 @@ def _inventory_valuation_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> 
         (period["period_start"], period["period_end"]),
     ).fetchall()
     label = _inventory_label(settings)
-    return [
-        {**{key: row[key] for key in row.keys()}, "export_label": label}
-        for row in rows
-    ]
+    return [{**{key: row[key] for key in row.keys()}, "export_label": label} for row in rows]
 
 
 def _cogs_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, object]]:
@@ -324,13 +331,12 @@ def _cogs_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, 
         (period["period_start"], period["period_end"]),
     ).fetchall()
     label = _inventory_label(settings)
-    return [
-        {**{key: row[key] for key in row.keys()}, "export_label": label}
-        for row in rows
-    ]
+    return [{**{key: row[key] for key in row.keys()}, "export_label": label} for row in rows]
 
 
-def _inventory_writeoff_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, object]]:
+def _inventory_writeoff_rows(
+    conn: sqlite3.Connection, period: sqlite3.Row
+) -> list[dict[str, object]]:
     settings = _inventory_settings(conn)
     rows = conn.execute(
         """
@@ -366,7 +372,9 @@ def _inventory_writeoff_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> l
     ]
 
 
-def _collect_sheets(conn: sqlite3.Connection, period: sqlite3.Row, export_id: str, version: int) -> dict[str, list[dict[str, object]]]:
+def _collect_sheets(
+    conn: sqlite3.Connection, period: sqlite3.Row, export_id: str, version: int
+) -> dict[str, list[dict[str, object]]]:
     sheets: dict[str, list[dict[str, object]]] = {
         "summary": _summary_rows(conn, period),
         "settings_snapshot": _settings_rows(),
@@ -395,7 +403,9 @@ def list_export_packages(period_id: str | None = None) -> FinanceExportPackageLi
             rows = conn.execute(
                 "SELECT * FROM finance_export_packages ORDER BY generated_at DESC"
             ).fetchall()
-    return FinanceExportPackageListResponse(items=[_package_from_row(row) for row in rows], total=len(rows))
+    return FinanceExportPackageListResponse(
+        items=[_package_from_row(row) for row in rows], total=len(rows)
+    )
 
 
 def generate_export_package(
@@ -417,7 +427,8 @@ def generate_export_package(
                 "Final export packages can only be generated for closed finance periods.",
             )
         version_row = conn.execute(
-            "SELECT COALESCE(MAX(version), 0) + 1 AS next_version FROM finance_export_packages WHERE period_id = ?",
+            "SELECT COALESCE(MAX(version), 0) + 1 AS next_version "
+            "FROM finance_export_packages WHERE period_id = ?",
             (period_id,),
         ).fetchone()
         version = int(version_row["next_version"])
@@ -490,7 +501,8 @@ def generate_export_package(
             ),
         )
         conn.execute(
-            "UPDATE finance_periods SET status = 'exported', updated_by_admin_id = ?, updated_at = ? WHERE id = ?",
+            "UPDATE finance_periods SET status = 'exported', "
+            "updated_by_admin_id = ?, updated_at = ? WHERE id = ?",
             (actor_user_id, pricing.now_utc(), period_id),
         )
         row = _get_package_row(conn, export_id)
@@ -525,12 +537,20 @@ def accept_export_package(
                 accountant_reference = ?, acceptance_note = ?
             WHERE id = ?
             """,
-            (actor_user_id, now, body.accountant_name, body.accountant_reference, body.note, export_id),
+            (
+                actor_user_id,
+                now,
+                body.accountant_name,
+                body.accountant_reference,
+                body.note,
+                export_id,
+            ),
         )
         after = _get_package_row(conn, export_id)
         if bool(after["current_final"]):
             conn.execute(
-                "UPDATE finance_periods SET status = 'accepted', accepted_at = ?, updated_by_admin_id = ?, updated_at = ? WHERE id = ?",
+                "UPDATE finance_periods SET status = 'accepted', accepted_at = ?, "
+                "updated_by_admin_id = ?, updated_at = ? WHERE id = ?",
                 (now, actor_user_id, now, after["period_id"]),
             )
         accounting_config_service.write_finance_audit_event(

@@ -1,7 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { cn, formatPrice } from "@/lib/utils";
+import { resolveMediaUrl } from "@/lib/media";
 import { PriceDisplay } from "@/components/products/PriceDisplay";
 import { DeleteIconButton } from "@/components/ui/DeleteIconButton";
 import type { CartItemResponse } from "@/lib/types";
@@ -16,11 +18,28 @@ export function CartItem({ item, onUpdateQuantity, onRemove }: CartItemProps) {
   const t = useTranslations("cart");
   const { product, quantity, product_id } = item;
   const lineTotal = product.effective_price_cents * quantity;
+  const thumbnailUrl = resolveMediaUrl(product.primary_thumbnail_url ?? product.primary_image_url);
+  const maxQuantity = Math.max(0, Math.min(10, product.stock));
   const canDecrement = quantity > 1;
-  const canIncrement = quantity < 10;
+  const canIncrement = quantity < maxQuantity;
 
   return (
     <div className="flex gap-4 py-4 border-b border-champagne-beige last:border-b-0">
+      <div className="h-16 w-16 shrink-0 overflow-hidden rounded-brand border border-champagne-beige bg-cream">
+        {thumbnailUrl ? (
+          <Image
+            src={thumbnailUrl}
+            alt=""
+            width={64}
+            height={64}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center px-2 text-center font-heading text-[10px] leading-tight text-soft-brown/70">
+            {product.name}
+          </div>
+        )}
+      </div>
       <div className="flex-1 min-w-0">
         <h3 className="text-sm font-medium text-charcoal truncate">
           {product.name}
@@ -56,6 +75,7 @@ export function CartItem({ item, onUpdateQuantity, onRemove }: CartItemProps) {
             onClick={() => canIncrement && onUpdateQuantity(product_id, quantity + 1)}
             disabled={!canIncrement}
             aria-label={t("increaseQuantity")}
+            title={!canIncrement && maxQuantity > 0 ? t("stockLimit", { count: maxQuantity }) : undefined}
             className={cn(
               "w-7 h-7 inline-flex items-center justify-center rounded-brand border border-champagne-beige text-sm font-medium",
               "transition-colors duration-fast",
@@ -68,6 +88,11 @@ export function CartItem({ item, onUpdateQuantity, onRemove }: CartItemProps) {
             +
           </button>
         </div>
+        {!canIncrement && maxQuantity > 0 && (
+          <p className="mt-1 text-xs text-soft-brown">
+            {t("stockLimit", { count: maxQuantity })}
+          </p>
+        )}
       </div>
 
       <div className="flex flex-col items-end justify-between">

@@ -23,7 +23,8 @@ def valuation_db(tmp_path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute(
-        "INSERT INTO products (id, name_en, price_cents, stock) VALUES ('prod-value', 'Value Candle', 2500, 10)"
+        "INSERT INTO products (id, name_en, price_cents, stock) "
+        "VALUES ('prod-value', 'Value Candle', 2500, 10)"
     )
     conn.commit()
     yield conn
@@ -108,7 +109,8 @@ def test_opening_balance_and_weighted_average_layers(valuation_db):
     assert opening is not None
     assert opening.total_value_cents == 2000
     profile = valuation_db.execute(
-        "SELECT opening_balance_state FROM product_inventory_profiles WHERE product_id = 'prod-value'"
+        "SELECT opening_balance_state FROM product_inventory_profiles "
+        "WHERE product_id = 'prod-value'"
     ).fetchone()
     assert profile[0] == "reviewed"
 

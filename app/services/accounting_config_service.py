@@ -297,7 +297,9 @@ def setup_exceptions(
     return issues
 
 
-def get_accounting_configuration(*, include_sensitive: bool = False) -> AccountingConfigurationResponse:
+def get_accounting_configuration(
+    *, include_sensitive: bool = False
+) -> AccountingConfigurationResponse:
     """Return the current accounting configuration snapshot."""
     with get_db() as conn:
         seller = _seller_profile_from_row(
