@@ -8,8 +8,8 @@
 - [x] 1.4 Add a Postgres service, healthcheck, credentials, and persistent volume to `compose.yml`.
 - [x] 1.5 Update `.env.example`, `.env.docker.example`, and local setup docs for Postgres URLs.
 - [x] 1.6 Add Makefile or documented commands for starting Postgres, running migrations, and resetting the local dev DB.
-- [ ] 1.7 Add a local/Compose migration command or one-shot migration service so `alembic upgrade head` is explicit before backend startup.
-- [ ] 1.8 Review active OpenSpec changes and document which pending schema work is included in, or deferred from, the initial Postgres baseline.
+- [x] 1.7 Add a local/Compose migration command or one-shot migration service so `alembic upgrade head` is explicit before backend startup.
+- [x] 1.8 Review active OpenSpec changes and document which pending schema work is included in, or deferred from, the initial Postgres baseline.
 
 ## 2. Alembic Schema Foundation
 

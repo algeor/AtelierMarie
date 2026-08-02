@@ -16,6 +16,9 @@ COPY data ./data
 COPY frontend/messages ./frontend/messages
 COPY scripts/sync_cookie_inventory.py ./scripts/sync_cookie_inventory.py
 
+COPY alembic.ini ./
+COPY alembic ./alembic
+
 RUN pip install --upgrade pip \
     && pip install .
 

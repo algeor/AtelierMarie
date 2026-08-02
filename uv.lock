@@ -97,6 +97,7 @@ name = "atelier-marie"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "alembic" },
     { name = "duckdb" },
     { name = "email-validator" },
     { name = "fastapi" },
@@ -126,13 +127,9 @@ dev = [
     { name = "ruff" },
 ]
 
-[package.dev-dependencies]
-dev = [
-    { name = "alembic" },
-]
-
 [package.metadata]
 requires-dist = [
+    { name = "alembic", specifier = ">=1.18.5" },
     { name = "duckdb", specifier = ">=1.1.0" },
     { name = "email-validator", specifier = ">=2.1.0" },
     { name = "fastapi", specifier = ">=0.111.0" },
@@ -160,7 +157,7 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "alembic", specifier = ">=1.18.5" }]
+dev = []
 
 [[package]]
 name = "certifi"

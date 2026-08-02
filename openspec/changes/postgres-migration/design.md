@@ -158,6 +158,11 @@ not part of launch correctness.
 
 ### 9. Active changes are reconciled before DDL is frozen
 
+Current active-change reconciliation:
+- `econt-delivery-integration`: include its completed courier metadata/settings schema in the initial Postgres baseline; defer only real-credential smoke task 13.5 because it has no schema impact.
+- `gdpr-data-erasure`: no new schema is required; implement its service/API behavior against the Postgres baseline when that change is resumed.
+- `core-ecommerce`: stale bootstrap plan that still references SQLite; superseded by the current application schema and this Postgres migration.
+
 The repository has other active OpenSpec changes. Before writing the initial
 Postgres migration, inspect active changes and current app schema ownership. The
 initial migration should represent the intended launch schema, not merely the
