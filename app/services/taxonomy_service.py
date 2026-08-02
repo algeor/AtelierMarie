@@ -374,10 +374,11 @@ def replace_product_labels(conn: sqlite3.Connection, product_id: str, slugs: lis
             continue
         seen.add(slug)
         unique.append(slug)
-    conn.executemany(
-        "INSERT INTO product_label_assignments (product_id, label_slug) VALUES (%s, %s)",
-        [(product_id, s) for s in unique],
-    )
+    with conn.cursor() as cur:
+        cur.executemany(
+            "INSERT INTO product_label_assignments (product_id, label_slug) VALUES (%s, %s)",
+            [(product_id, s) for s in unique],
+        )
 
 
 # ---------------------------------------------------------------------------

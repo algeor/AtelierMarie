@@ -56,7 +56,7 @@ async def test_get_cart_unavailable_items(client: AsyncClient):
     await client.post("/v1/cart", json={"product_id": "lavender-dream", "quantity": 1})
 
     with get_db() as conn:
-        conn.execute("UPDATE products SET is_active = FALSE WHERE id = 'lavender-dream'")
+        conn.execute("UPDATE products SET is_active = 0 WHERE id = 'lavender-dream'")
 
     response = await client.get("/v1/cart")
     assert response.status_code == 200
@@ -142,7 +142,7 @@ async def test_post_cart_cart_full_422(client: AsyncClient):
             conn.execute(
                 "INSERT INTO products (id, name_en, price_cents, stock, "
                 "is_active, created_at, updated_at) "
-                "VALUES (%s, %s, 1000, 50, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                "VALUES (%s, %s, 1000, 50, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
                 (pid, f"Fill Route {i}"),
             )
 

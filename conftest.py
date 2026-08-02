@@ -360,6 +360,19 @@ def app(worker_database_url: str):
     get_settings.cache_clear()
     init_db(worker_database_url)
 
+    # Service tests hold one pooled connection (the ``service_db`` / ``conn``
+    # fixture) for the whole test while the code under test opens further nested
+    # ``get_db()`` connections (e.g. checkout -> delivery_settings_service ->
+    # get_db). The production pool is opened with ``min_size=1`` and psycopg's
+    # default ``max_size`` (== min_size), so a held connection plus a nested
+    # acquisition would exhaust a size-1 pool and dead-lock until PoolTimeout.
+    # Grow the pool for the test session only (the real request path never holds
+    # a connection across a nested get_db(), so production is unaffected).
+    import app.database as _database
+
+    if _database._pool is not None:
+        _database._pool.resize(min_size=1, max_size=8)
+
     from app.main import create_app
 
     test_app = create_app()

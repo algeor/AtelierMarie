@@ -1,13 +1,14 @@
 """Cart service — business logic for cart operations.
 
-Pure functions taking explicit sqlite3.Connection parameter.
+Pure functions taking explicit psycopg.Connection parameter.
 No HTTP concerns — testable without FastAPI/Starlette.
 """
 
-import sqlite3
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Literal, NotRequired, TypedDict, cast
 
+import psycopg
 import structlog
 
 from app.config import get_settings
@@ -17,6 +18,20 @@ from app.services.product_image_service import images_for_products, with_image_f
 logger = structlog.get_logger(__name__)
 
 Locale = Literal["en", "bg"]
+
+# psycopg returns TIMESTAMPTZ columns as datetime; ProductDict/ProductResponse
+# declare timestamp fields as str and pricing parses discount bounds as this
+# canonical string. Products are written as _DT_FMT strings, so normalise reads.
+_DT_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _fmt_ts(value: object) -> str | None:
+    """Render a timestamp column read as the canonical `_DT_FMT` string."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.strftime(_DT_FMT)
+    return str(value)
 
 
 def _localized_product_columns(locale: Locale) -> tuple[str, str]:
@@ -151,7 +166,7 @@ class AddItemResult:
 # --- Service Functions ---
 
 
-def get_cart(conn: sqlite3.Connection, session_id: str, locale: Locale = "en") -> CartData:
+def get_cart(conn: psycopg.Connection, session_id: str, locale: Locale = "en") -> CartData:
     """Retrieve the cart for a session, separating active and unavailable items.
 
     Line and total pricing use each product's effective (discounted) price. A
@@ -184,7 +199,7 @@ def get_cart(conn: sqlite3.Connection, session_id: str, locale: Locale = "en") -
 
     active_product_ids = [row["p_id"] for row in rows if row["p_id"] is not None]
     image_map = images_for_products(conn, active_product_ids)
-    active_entries: list[tuple[sqlite3.Row, dict]] = []
+    active_entries: list[tuple[dict, dict]] = []
 
     for row in rows:
         if row["p_id"] is None:
@@ -216,15 +231,15 @@ def get_cart(conn: sqlite3.Connection, session_id: str, locale: Locale = "en") -
                         "days_to_craft": row["days_to_craft"],
                         "price_cents": row["price_cents"],
                         "discount_percent": row["discount_percent"],
-                        "discount_starts_at": row["discount_starts_at"],
-                        "discount_ends_at": row["discount_ends_at"],
+                        "discount_starts_at": _fmt_ts(row["discount_starts_at"]),
+                        "discount_ends_at": _fmt_ts(row["discount_ends_at"]),
                         "product_type_slug": row["product_type_slug"],
                         "category_slug": row["category_slug"],
                         "stock": row["stock"],
                         "is_active": bool(row["is_active"]),
                         "is_featured": bool(row["is_featured"]),
-                        "created_at": row["created_at"],
-                        "updated_at": row["updated_at"],
+                        "created_at": _fmt_ts(row["created_at"]),
+                        "updated_at": _fmt_ts(row["updated_at"]),
                     },
                 )
             )
@@ -253,7 +268,7 @@ def get_cart(conn: sqlite3.Connection, session_id: str, locale: Locale = "en") -
                 product_id=row["product_id"],
                 product=product,
                 quantity=row["quantity"],
-                added_at=row["added_at"],
+                added_at=_fmt_ts(row["added_at"]),
             )
         )
         total_cents += effective_price * row["quantity"]
@@ -268,7 +283,7 @@ def get_cart(conn: sqlite3.Connection, session_id: str, locale: Locale = "en") -
 
 
 def add_item(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     session_id: str,
     product_id: str,
     quantity: int,
@@ -276,7 +291,8 @@ def add_item(
 ) -> AddItemResult:
     """Add a product to the cart or increment existing quantity.
 
-    Uses BEGIN IMMEDIATE to prevent TOCTOU races on stock/quantity checks.
+    Runs the validate-and-write path inside a single transaction to prevent
+    TOCTOU races on stock/quantity checks.
     """
     if quantity <= 0:
         msg = "Quantity must be at least 1"
@@ -284,70 +300,63 @@ def add_item(
 
     settings = get_settings()
 
-    conn.execute("BEGIN IMMEDIATE")
     try:
-        # Validate product exists and is active
-        product = conn.execute(
-            "SELECT id, stock, is_active FROM products WHERE id = %s",
-            (product_id,),
-        ).fetchone()
+        with conn.transaction():
+            # Validate product exists and is active
+            product = conn.execute(
+                "SELECT id, stock, is_active FROM products WHERE id = %s",
+                (product_id,),
+            ).fetchone()
 
-        if not product or not product["is_active"]:
-            conn.execute("ROLLBACK")
-            raise ProductNotFoundError(product_id)
+            if not product or not product["is_active"]:
+                raise ProductNotFoundError(product_id)
 
-        # Check existing cart quantity
-        existing = conn.execute(
-            "SELECT quantity FROM cart_items WHERE session_id = %s AND product_id = %s",
-            (session_id, product_id),
-        ).fetchone()
+            # Check existing cart quantity
+            existing = conn.execute(
+                "SELECT quantity FROM cart_items WHERE session_id = %s AND product_id = %s",
+                (session_id, product_id),
+            ).fetchone()
 
-        existing_qty = existing["quantity"] if existing else 0
-        new_total_qty = existing_qty + quantity
+            existing_qty = existing["quantity"] if existing else 0
+            new_total_qty = existing_qty + quantity
 
-        # Stock validation: total cart quantity vs available stock
-        if new_total_qty > product["stock"]:
-            conn.execute("ROLLBACK")
-            raise InsufficientStockError(
-                product_id=product_id,
-                requested=new_total_qty,
-                available=product["stock"],
-            )
+            # Stock validation: total cart quantity vs available stock
+            if new_total_qty > product["stock"]:
+                raise InsufficientStockError(
+                    product_id=product_id,
+                    requested=new_total_qty,
+                    available=product["stock"],
+                )
 
-        # Per-item quantity limit
-        if new_total_qty > settings.cart_max_quantity_per_item:
-            conn.execute("ROLLBACK")
-            raise QuantityLimitError(max_quantity=settings.cart_max_quantity_per_item)
+            # Per-item quantity limit
+            if new_total_qty > settings.cart_max_quantity_per_item:
+                raise QuantityLimitError(max_quantity=settings.cart_max_quantity_per_item)
 
-        # Cart full check (only for new items)
-        if not existing:
-            distinct_count = conn.execute(
-                "SELECT COUNT(*) FROM cart_items WHERE session_id = %s",
-                (session_id,),
-            ).fetchone()[0]
+            # Cart full check (only for new items)
+            if not existing:
+                distinct_count = conn.execute(
+                    "SELECT COUNT(*) AS count FROM cart_items WHERE session_id = %s",
+                    (session_id,),
+                ).fetchone()["count"]
 
-            if distinct_count >= settings.cart_max_distinct_items:
-                conn.execute("ROLLBACK")
-                raise CartFullError(max_items=settings.cart_max_distinct_items)
+                if distinct_count >= settings.cart_max_distinct_items:
+                    raise CartFullError(max_items=settings.cart_max_distinct_items)
 
-        # INSERT or UPDATE
-        created = existing is None
-        if created:
-            conn.execute(
-                "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (%s, %s, %s)",
-                (session_id, product_id, quantity),
-            )
-        else:
-            conn.execute(
-                "UPDATE cart_items SET quantity = %s WHERE session_id = %s AND product_id = %s",
-                (new_total_qty, session_id, product_id),
-            )
-
-        conn.execute("COMMIT")
+            # INSERT or UPDATE
+            created = existing is None
+            if created:
+                conn.execute(
+                    "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (%s, %s, %s)",
+                    (session_id, product_id, quantity),
+                )
+            else:
+                conn.execute(
+                    "UPDATE cart_items SET quantity = %s WHERE session_id = %s AND product_id = %s",
+                    (new_total_qty, session_id, product_id),
+                )
     except (ProductNotFoundError, InsufficientStockError, QuantityLimitError, CartFullError):
         raise
-    except sqlite3.Error:
-        conn.execute("ROLLBACK")
+    except psycopg.Error:
         logger.exception(
             "Cart add_item failed",
             session_id=session_id,
@@ -355,14 +364,14 @@ def add_item(
         )
         raise
 
-    # Read cart AFTER transaction is complete — a failure here does not mask the write.
+    # Read cart AFTER the transaction is complete — a failure here does not mask the write.
     # The caller (route) handles read errors at the HTTP layer.
     cart = get_cart(conn, session_id, locale=locale)
     return AddItemResult(cart=cart, created=created)
 
 
 def update_quantity(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     session_id: str,
     product_id: str,
     quantity: int,
@@ -375,46 +384,41 @@ def update_quantity(
 
     settings = get_settings()
 
-    conn.execute("BEGIN IMMEDIATE")
     try:
-        # Validate item exists in cart
-        existing = conn.execute(
-            "SELECT quantity FROM cart_items WHERE session_id = %s AND product_id = %s",
-            (session_id, product_id),
-        ).fetchone()
+        with conn.transaction():
+            # Validate item exists in cart
+            existing = conn.execute(
+                "SELECT quantity FROM cart_items WHERE session_id = %s AND product_id = %s",
+                (session_id, product_id),
+            ).fetchone()
 
-        if not existing:
-            conn.execute("ROLLBACK")
-            raise CartItemNotFoundError(product_id)
+            if not existing:
+                raise CartItemNotFoundError(product_id)
 
-        # Per-item quantity limit
-        if quantity > settings.cart_max_quantity_per_item:
-            conn.execute("ROLLBACK")
-            raise QuantityLimitError(max_quantity=settings.cart_max_quantity_per_item)
+            # Per-item quantity limit
+            if quantity > settings.cart_max_quantity_per_item:
+                raise QuantityLimitError(max_quantity=settings.cart_max_quantity_per_item)
 
-        # Stock validation (absolute qty vs stock) — also reject deleted/inactive products
-        product = conn.execute(
-            "SELECT stock, is_active FROM products WHERE id = %s",
-            (product_id,),
-        ).fetchone()
+            # Stock validation (absolute qty vs stock) — also reject deleted/inactive products
+            product = conn.execute(
+                "SELECT stock, is_active FROM products WHERE id = %s",
+                (product_id,),
+            ).fetchone()
 
-        if not product or not product["is_active"]:
-            conn.execute("ROLLBACK")
-            raise ProductNotFoundError(product_id)
+            if not product or not product["is_active"]:
+                raise ProductNotFoundError(product_id)
 
-        if quantity > product["stock"]:
-            conn.execute("ROLLBACK")
-            raise InsufficientStockError(
-                product_id=product_id,
-                requested=quantity,
-                available=product["stock"],
+            if quantity > product["stock"]:
+                raise InsufficientStockError(
+                    product_id=product_id,
+                    requested=quantity,
+                    available=product["stock"],
+                )
+
+            conn.execute(
+                "UPDATE cart_items SET quantity = %s WHERE session_id = %s AND product_id = %s",
+                (quantity, session_id, product_id),
             )
-
-        conn.execute(
-            "UPDATE cart_items SET quantity = %s WHERE session_id = %s AND product_id = %s",
-            (quantity, session_id, product_id),
-        )
-        conn.execute("COMMIT")
     except (
         CartItemNotFoundError,
         QuantityLimitError,
@@ -422,8 +426,7 @@ def update_quantity(
         ProductNotFoundError,
     ):
         raise
-    except sqlite3.Error:
-        conn.execute("ROLLBACK")
+    except psycopg.Error:
         logger.exception(
             "Cart update_quantity failed",
             session_id=session_id,
@@ -431,12 +434,12 @@ def update_quantity(
         )
         raise
 
-    # Read cart AFTER transaction is complete — a failure here does not mask the write.
+    # Read cart AFTER the transaction is complete — a failure here does not mask the write.
     return get_cart(conn, session_id, locale=locale)
 
 
 def remove_item(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     session_id: str,
     product_id: str,
     locale: Locale = "en",

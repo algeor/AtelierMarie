@@ -3,7 +3,7 @@
 import csv
 import io
 import re
-import sqlite3
+import psycopg
 from pathlib import Path
 from typing import Annotated, cast, get_args
 
@@ -191,6 +191,7 @@ from app.services.order_service import (
     OrderNotFoundError,
     PaymentAlreadyPaidError,
     WrongPaymentMethodError,
+    _fmt_ts,
     apply_manual_payment_action,
     get_order_admin,
     get_order_inventory_context,
@@ -2567,7 +2568,7 @@ def _return_service_error_response(exc: Exception) -> JSONResponse:
 
 
 def _ensure_return_case_belongs_to_order(
-    conn: sqlite3.Connection, *, order_id: str, return_id: str
+    conn: psycopg.Connection, *, order_id: str, return_id: str
 ) -> None:
     case = get_return_case(conn, return_id)
     if case["order_id"] != order_id:
@@ -2780,7 +2781,7 @@ def admin_get_order_emails(order_id: str) -> OrderEmailAuditResponse:
                 status=r["status"],
                 reason=r["reason"],
                 attempts=r["attempts"],
-                sent_at=r["sent_at"],
+                sent_at=_fmt_ts(r["sent_at"]),
             )
             for r in rows
         ],

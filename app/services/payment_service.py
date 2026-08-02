@@ -4,22 +4,28 @@ Stripe SDK is imported inside this module only. No other Layer-1 module imports
 stripe directly. All stripe.StripeError exceptions are wrapped into custom
 exceptions so the route layer never sees Stripe internals.
 
-Webhook idempotency mirrors the order_emails pattern: INSERT OR IGNORE into
-stripe_events on event_id; if rowcount == 0 the event was already processed.
+Webhook idempotency mirrors the order_emails pattern: INSERT ... ON CONFLICT
+(event_id) DO NOTHING into stripe_events; if rowcount == 0 the event was already
+processed.
 """
 
 import asyncio
 import json
-import sqlite3
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
+import psycopg
 import structlog
 
 from app.services.admin_alert_service import create_admin_alert
-from app.services.order_service import OrderData, OrderNotFoundError, _fetch_order_with_items
+from app.services.order_service import (
+    OrderData,
+    OrderNotFoundError,
+    _fetch_order_with_items,
+    _fmt_ts,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -46,7 +52,7 @@ def _format_stripe_return_url(template: str, order: OrderData) -> str:
 
 
 def _upsert_stripe_payment_row(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     order: OrderData,
     *,
     stripe_checkout_session_id: str | None,
@@ -104,7 +110,7 @@ def _upsert_stripe_payment_row(
     )
 
 
-def _stored_checkout_url(conn: sqlite3.Connection, order_id: str) -> str | None:
+def _stored_checkout_url(conn: psycopg.Connection, order_id: str) -> str | None:
     row = conn.execute(
         """
         SELECT provider_details
@@ -136,7 +142,7 @@ def _reservation_is_active(reserved_until: str | None) -> bool:
 
 
 def _payment_id_for_order(
-    conn: sqlite3.Connection, order_id: str, provider: str = "stripe"
+    conn: psycopg.Connection, order_id: str, provider: str = "stripe"
 ) -> str | None:
     row = conn.execute(
         """
@@ -152,7 +158,7 @@ def _payment_id_for_order(
 
 
 def _order_id_for_payment_intent(
-    conn: sqlite3.Connection, payment_intent_id: str | None
+    conn: psycopg.Connection, payment_intent_id: str | None
 ) -> str | None:
     if not payment_intent_id:
         return None
@@ -178,7 +184,7 @@ def _order_id_for_payment_intent(
 
 
 def _append_stripe_payment_event(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     event_id: str,
     event_type: str,
@@ -268,7 +274,7 @@ def _create_stripe_checkout_session(
 ) -> object:
     """Create the provider-side Stripe Checkout Session.
 
-    This helper intentionally does no SQLite work so async callers can run only
+    This helper intentionally does no database work so async callers can run only
     the blocking provider call in a worker thread and persist on the owning DB
     thread afterward.
     """
@@ -299,7 +305,7 @@ def _create_stripe_checkout_session(
 
 
 def _persist_checkout_session(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     order: OrderData,
     session: object,
 ) -> str:
@@ -319,7 +325,7 @@ def _persist_checkout_session(
 
 
 def create_checkout_session(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     order: OrderData,
     success_url: str,
     cancel_url: str,
@@ -344,7 +350,7 @@ def create_checkout_session(
 
 
 async def create_checkout_session_async(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     order: OrderData,
     success_url: str,
     cancel_url: str,
@@ -352,8 +358,8 @@ async def create_checkout_session_async(
 ) -> str:
     """Async route-friendly Checkout Session creation.
 
-    Only the blocking Stripe SDK call is offloaded. SQLite writes stay on the
-    connection owner thread because sqlite3 connections are thread-bound.
+    Only the blocking Stripe SDK call is offloaded. DB writes stay on the
+    connection owner thread because the connection is not shared across threads.
     """
     try:
         session = await asyncio.to_thread(
@@ -370,7 +376,7 @@ async def create_checkout_session_async(
 
 
 def create_retry_checkout_session(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     order: OrderData,
     success_url: str,
     cancel_url: str,
@@ -388,7 +394,7 @@ def create_retry_checkout_session(
 
 
 async def create_retry_checkout_session_async(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     order: OrderData,
     success_url: str,
     cancel_url: str,
@@ -438,14 +444,29 @@ def _stripe_refund_create(
     )
 
 
-def _refund_row(conn: sqlite3.Connection, refund_id: str) -> dict:
+def _normalize_refund_row(row: dict) -> dict:
+    """Render TIMESTAMPTZ columns as canonical strings for the str-typed response.
+
+    ``payment_refunds.created_at`` / ``confirmed_at`` come back from psycopg
+    (dict_row) as ``datetime`` objects, but PaymentRefundResponse declares them
+    as ``str``. Normalise to the same shape order_service uses.
+    """
+    refund = dict(row)
+    if "created_at" in refund:
+        refund["created_at"] = _fmt_ts(refund["created_at"])
+    if "confirmed_at" in refund:
+        refund["confirmed_at"] = _fmt_ts(refund["confirmed_at"])
+    return refund
+
+
+def _refund_row(conn: psycopg.Connection, refund_id: str) -> dict:
     row = conn.execute("SELECT * FROM payment_refunds WHERE id = %s", (refund_id,)).fetchone()
     if row is None:
         raise StripeRefundActionError("REFUND_NOT_FOUND", "Refund record was not found", 500)
-    return dict(row)
+    return _normalize_refund_row(row)
 
 
-def _refunded_or_pending_total(conn: sqlite3.Connection, order_id: str) -> int:
+def _refunded_or_pending_total(conn: psycopg.Connection, order_id: str) -> int:
     row = conn.execute(
         """
         SELECT COALESCE(SUM(amount_cents), 0) AS total
@@ -458,7 +479,7 @@ def _refunded_or_pending_total(conn: sqlite3.Connection, order_id: str) -> int:
 
 
 def _append_admin_refund_event(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     order_id: str,
     payment_id: str | None,
@@ -487,7 +508,7 @@ def _append_admin_refund_event(
 
 
 async def create_stripe_refund_async(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     order_id: str,
     amount_cents: int | None,
@@ -505,8 +526,7 @@ async def create_stripe_refund_async(
         raise StripeRefundActionError("IDEMPOTENCY_KEY_REQUIRED", "Idempotency key is required")
 
     now = _now_str()
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    with conn.transaction():
         existing = conn.execute(
             """
             SELECT * FROM payment_refunds
@@ -516,8 +536,7 @@ async def create_stripe_refund_async(
             (clean_key,),
         ).fetchone()
         if existing is not None:
-            conn.execute("COMMIT")
-            return dict(existing)
+            return _normalize_refund_row(existing)
 
         order = conn.execute(
             """
@@ -607,10 +626,6 @@ async def create_stripe_refund_async(
             },
             admin_id=admin_id,
         )
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
 
     try:
         stripe_refund = await asyncio.to_thread(
@@ -624,8 +639,7 @@ async def create_stripe_refund_async(
     except Exception as exc:
         failure_reason = str(exc)
         failed_at = _now_str()
-        conn.execute("BEGIN IMMEDIATE")
-        try:
+        with conn.transaction():
             conn.execute(
                 """
                 UPDATE payment_refunds
@@ -647,10 +661,6 @@ async def create_stripe_refund_async(
                 details={"failure_reason": failure_reason, "idempotency_key": clean_key},
                 admin_id=admin_id,
             )
-            conn.execute("COMMIT")
-        except Exception:
-            conn.execute("ROLLBACK")
-            raise
         raise StripeRefundActionError(
             "STRIPE_REFUND_FAILED",
             f"Failed to create Stripe refund: {failure_reason}",
@@ -685,7 +695,7 @@ async def create_stripe_refund_async(
 
 
 def create_retry_session(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     order_id: str,
     payment_return_token: str,
     success_url: str,
@@ -706,7 +716,7 @@ def create_retry_session(
 
 
 def prepare_retry_session(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     order_id: str,
     payment_return_token: str,
 ) -> tuple[OrderData, str | None]:
@@ -794,7 +804,7 @@ def expire_checkout_session(stripe_checkout_session_id: str | None, stripe_secre
 
 
 def handle_payment_succeeded(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     event_id: str,
     order_id: str,
     payment_intent_id: str | None,
@@ -804,18 +814,17 @@ def handle_payment_succeeded(
 ) -> bool:
     """Handle checkout.session.completed: set payment_status='paid', queue 'placed' email.
 
-    Uses stripe_events dedup (INSERT OR IGNORE). Returns True if processed,
+    Uses stripe_events dedup (ON CONFLICT DO NOTHING). Returns True if processed,
     False if already seen (idempotent).
     """
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    with conn.transaction():
         cur = conn.execute(
-            "INSERT OR IGNORE INTO stripe_events (event_id, order_id, event_type, received_at)"
-            " VALUES (%s, %s, 'checkout.session.completed', %s)",
+            "INSERT INTO stripe_events (event_id, order_id, event_type, received_at)"
+            " VALUES (%s, %s, 'checkout.session.completed', %s)"
+            " ON CONFLICT (event_id) DO NOTHING",
             (event_id, order_id, now),
         )
         if cur.rowcount == 0:
-            conn.execute("ROLLBACK")
             return False
 
         order_row = conn.execute(
@@ -963,17 +972,13 @@ def handle_payment_succeeded(
             processing_status=processing_status,
             details=details,
         )
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
 
     logger.info("stripe_payment_succeeded", order_id=order_id, event_id=event_id)
     return True
 
 
 def handle_session_expired(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     event_id: str,
     order_id: str,
     stripe_session_id: str,
@@ -987,15 +992,14 @@ def handle_session_expired(
 
     Uses stripe_events dedup. Returns True if processed, False if already seen.
     """
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    with conn.transaction():
         cur = conn.execute(
-            "INSERT OR IGNORE INTO stripe_events (event_id, order_id, event_type, received_at)"
-            " VALUES (%s, %s, 'checkout.session.expired', %s)",
+            "INSERT INTO stripe_events (event_id, order_id, event_type, received_at)"
+            " VALUES (%s, %s, 'checkout.session.expired', %s)"
+            " ON CONFLICT (event_id) DO NOTHING",
             (event_id, order_id, now),
         )
         if cur.rowcount == 0:
-            conn.execute("ROLLBACK")
             return False
 
         order_row = conn.execute(
@@ -1031,17 +1035,13 @@ def handle_session_expired(
                 "updated_order": bool(cur.rowcount),
             },
         )
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
 
     logger.info("stripe_session_expired", order_id=order_id, event_id=event_id)
     return True
 
 
 def handle_payment_failed(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     event_id: str,
     order_id: str | None,
     payment_intent_id: str | None,
@@ -1053,15 +1053,14 @@ def handle_payment_failed(
 ) -> bool:
     """Handle payment_intent.payment_failed as audit-only for Checkout reservations."""
     resolved_order_id = order_id or None
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    with conn.transaction():
         cur = conn.execute(
-            "INSERT OR IGNORE INTO stripe_events (event_id, order_id, event_type, received_at)"
-            " VALUES (%s, %s, 'payment_intent.payment_failed', %s)",
+            "INSERT INTO stripe_events (event_id, order_id, event_type, received_at)"
+            " VALUES (%s, %s, 'payment_intent.payment_failed', %s)"
+            " ON CONFLICT (event_id) DO NOTHING",
             (event_id, resolved_order_id, now),
         )
         if cur.rowcount == 0:
-            conn.execute("ROLLBACK")
             return False
 
         if not resolved_order_id:
@@ -1101,10 +1100,6 @@ def handle_payment_failed(
                 "order_status_unchanged": True,
             },
         )
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
 
     logger.info(
         "stripe_payment_failed",
@@ -1116,7 +1111,7 @@ def handle_payment_failed(
 
 
 def handle_charge_refunded(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     event_id: str,
     order_id: str | None,
     charge_id: str | None,
@@ -1129,15 +1124,14 @@ def handle_charge_refunded(
 ) -> bool:
     """Handle charge.refunded as audit-only; order/payment status is unchanged in MVP."""
     resolved_order_id = order_id or None
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    with conn.transaction():
         cur = conn.execute(
-            "INSERT OR IGNORE INTO stripe_events (event_id, order_id, event_type, received_at)"
-            " VALUES (%s, %s, 'charge.refunded', %s)",
+            "INSERT INTO stripe_events (event_id, order_id, event_type, received_at)"
+            " VALUES (%s, %s, 'charge.refunded', %s)"
+            " ON CONFLICT (event_id) DO NOTHING",
             (event_id, resolved_order_id, now),
         )
         if cur.rowcount == 0:
-            conn.execute("ROLLBACK")
             return False
 
         if not resolved_order_id:
@@ -1166,10 +1160,6 @@ def handle_charge_refunded(
                 "audit_only": True,
             },
         )
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
 
     logger.info(
         "stripe_charge_refunded_audit",
@@ -1181,7 +1171,7 @@ def handle_charge_refunded(
 
 
 def handle_refund_updated(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     event_id: str,
     event_type: str,
     provider_refund_id: str | None,
@@ -1196,15 +1186,14 @@ def handle_refund_updated(
 ) -> bool:
     """Handle Stripe refund status updates and finalize local refund records."""
     resolved_order_id: str | None = None
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    with conn.transaction():
         cur = conn.execute(
-            "INSERT OR IGNORE INTO stripe_events (event_id, order_id, event_type, received_at)"
-            " VALUES (%s, NULL, %s, %s)",
+            "INSERT INTO stripe_events (event_id, order_id, event_type, received_at)"
+            " VALUES (%s, NULL, %s, %s)"
+            " ON CONFLICT (event_id) DO NOTHING",
             (event_id, event_type, now),
         )
         if cur.rowcount == 0:
-            conn.execute("ROLLBACK")
             return False
 
         refund = None
@@ -1314,10 +1303,6 @@ def handle_refund_updated(
                 "livemode": livemode,
             },
         )
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
 
     logger.info("stripe_refund_updated", order_id=resolved_order_id, event_id=event_id)
     return True
@@ -1335,7 +1320,7 @@ def _payment_status_for_dispute(event_type: str, dispute_status: str | None) -> 
 
 
 def handle_dispute_event(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     event_id: str,
     event_type: str,
     order_id: str | None,
@@ -1351,15 +1336,14 @@ def handle_dispute_event(
 ) -> bool:
     """Record Stripe dispute evidence and update the payment review status."""
     resolved_order_id = order_id or _order_id_for_payment_intent(conn, payment_intent_id)
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    with conn.transaction():
         cur = conn.execute(
-            "INSERT OR IGNORE INTO stripe_events (event_id, order_id, event_type, received_at)"
-            " VALUES (%s, %s, %s, %s)",
+            "INSERT INTO stripe_events (event_id, order_id, event_type, received_at)"
+            " VALUES (%s, %s, %s, %s)"
+            " ON CONFLICT (event_id) DO NOTHING",
             (event_id, resolved_order_id, event_type, now),
         )
         if cur.rowcount == 0:
-            conn.execute("ROLLBACK")
             return False
 
         payment_id = _payment_id_for_order(conn, resolved_order_id) if resolved_order_id else None
@@ -1393,10 +1377,6 @@ def handle_dispute_event(
                 "livemode": livemode,
             },
         )
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
 
     logger.info("stripe_dispute_event", order_id=resolved_order_id, event_id=event_id)
     return True

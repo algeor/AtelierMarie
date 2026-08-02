@@ -1,8 +1,5 @@
-import sqlite3
-
 import pytest
 
-from app.database import init_db
 from app.services.payment_rate_limit_service import (
     CHECKOUT_IP_LIMIT,
     CHECKOUT_SESSION_LIMIT,
@@ -21,13 +18,9 @@ from app.services.payment_rate_limit_service import (
 
 
 @pytest.fixture()
-def conn(tmp_path):
-    path = str(tmp_path / "test.db")
-    init_db(path)
-    c = sqlite3.connect(path)
-    c.row_factory = sqlite3.Row
-    yield c
-    c.close()
+def conn(service_db):
+    """Alias the shared pooled psycopg connection as ``conn`` for these tests."""
+    return service_db
 
 
 def test_checkout_limited_after_five_attempts_per_session(conn):
@@ -48,10 +41,10 @@ def test_checkout_limited_after_five_attempts_per_session(conn):
     assert exc.value.scope == "session"
     count = conn.execute(
         """
-        SELECT COUNT(*) FROM payment_rate_limit_events
+        SELECT COUNT(*) AS count FROM payment_rate_limit_events
         WHERE action = 'checkout_order_create' AND scope = 'session' AND key = 'session-1'
         """
-    ).fetchone()[0]
+    ).fetchone()["count"]
     assert count == CHECKOUT_SESSION_LIMIT
 
 
@@ -73,10 +66,10 @@ def test_checkout_limited_after_twenty_attempts_per_ip(conn):
     assert exc.value.scope == "ip"
     count = conn.execute(
         """
-        SELECT COUNT(*) FROM payment_rate_limit_events
+        SELECT COUNT(*) AS count FROM payment_rate_limit_events
         WHERE action = 'checkout_order_create' AND scope = 'ip' AND key = '203.0.113.9'
         """
-    ).fetchone()[0]
+    ).fetchone()["count"]
     assert count == CHECKOUT_IP_LIMIT
 
 
@@ -121,10 +114,10 @@ def test_stripe_session_precheck_does_not_record_attempt(conn):
 
     count = conn.execute(
         """
-        SELECT COUNT(*) FROM payment_rate_limit_events
+        SELECT COUNT(*) AS count FROM payment_rate_limit_events
         WHERE action = 'stripe_session_create'
         """
-    ).fetchone()[0]
+    ).fetchone()["count"]
     assert count == 0
 
 

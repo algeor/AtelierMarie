@@ -14,14 +14,14 @@ no send-level idempotency key (design Decisions 11, 14, 25). Logs bind
 """
 
 import json
-import sqlite3
 from datetime import UTC, datetime, timedelta
 
+import psycopg
 import structlog
 
 from app.config import Settings, get_settings
 from app.constants import STATUS_TO_EMAIL_EVENT
-from app.database import get_db
+from app.database import IntegrityError, get_db
 from app.email.providers import (
     EmailProvider,
     PermanentEmailError,
@@ -156,7 +156,7 @@ def _build_delivery_email_context(order_data: OrderData, locale: str) -> dict:
     }
 
 
-def _latest_payment_review_context(conn: sqlite3.Connection, order_id: str) -> dict:
+def _latest_payment_review_context(conn: psycopg.Connection, order_id: str) -> dict:
     """Return safe metadata for the latest payment review event."""
     row = conn.execute(
         """
@@ -274,7 +274,7 @@ def recipient_for(customer_email: str, event: str, settings: Settings) -> str:
 
 
 def queue_order_email(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     order_id: str,
     event: str,
     recipient: str,
@@ -300,12 +300,12 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def _is_suppressed(conn: sqlite3.Connection, email: str) -> bool:
+def _is_suppressed(conn: psycopg.Connection, email: str) -> bool:
     row = conn.execute("SELECT 1 FROM suppressed_emails WHERE email = %s", (email,)).fetchone()
     return row is not None
 
 
-def _already_sent(conn: sqlite3.Connection, order_id: str, event: str) -> bool:
+def _already_sent(conn: psycopg.Connection, order_id: str, event: str) -> bool:
     row = conn.execute(
         "SELECT 1 FROM order_emails WHERE order_id = %s AND event = %s AND status = 'sent'",
         (order_id, event),
@@ -313,7 +313,7 @@ def _already_sent(conn: sqlite3.Connection, order_id: str, event: str) -> bool:
     return row is not None
 
 
-def _try_acquire_claim(conn: sqlite3.Connection, order_id: str, event: str) -> bool:
+def _try_acquire_claim(conn: psycopg.Connection, order_id: str, event: str) -> bool:
     """Atomically claim (order_id, event) for this sweeper.
 
     Returns True if the claim was acquired (fresh, or taken over from an expired
@@ -324,18 +324,17 @@ def _try_acquire_claim(conn: sqlite3.Connection, order_id: str, event: str) -> b
     now_s = now.strftime(_DT_FMT)
     lease_s = (now + timedelta(seconds=CLAIM_LEASE_SECONDS)).strftime(_DT_FMT)
 
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    with conn.transaction():
         cursor = conn.execute(
             """
-            INSERT OR IGNORE INTO order_email_send_claims
+            INSERT INTO order_email_send_claims
                 (order_id, event, status, lease_expires_at, updated_at)
             VALUES (%s, %s, 'in_flight', %s, %s)
+            ON CONFLICT DO NOTHING
             """,
             (order_id, event, lease_s, now_s),
         )
         if cursor.rowcount == 1:
-            conn.execute("COMMIT")
             return True
 
         # Row exists — take it over only if failed or the lease has expired.
@@ -349,14 +348,10 @@ def _try_acquire_claim(conn: sqlite3.Connection, order_id: str, event: str) -> b
             """,
             (lease_s, now_s, order_id, event, now_s),
         )
-        conn.execute("COMMIT")
         return cursor.rowcount == 1
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
 
 
-def _claim_status(conn: sqlite3.Connection, order_id: str, event: str) -> str | None:
+def _claim_status(conn: psycopg.Connection, order_id: str, event: str) -> str | None:
     row = conn.execute(
         "SELECT status FROM order_email_send_claims WHERE order_id = %s AND event = %s",
         (order_id, event),
@@ -364,7 +359,7 @@ def _claim_status(conn: sqlite3.Connection, order_id: str, event: str) -> str | 
     return row["status"] if row else None
 
 
-def _release_claim(conn: sqlite3.Connection, order_id: str, event: str, status: str) -> None:
+def _release_claim(conn: psycopg.Connection, order_id: str, event: str, status: str) -> None:
     conn.execute(
         "UPDATE order_email_send_claims SET status = %s, updated_at = %s "
         "WHERE order_id = %s AND event = %s",
@@ -373,7 +368,7 @@ def _release_claim(conn: sqlite3.Connection, order_id: str, event: str, status: 
 
 
 def _update_row(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     row_id: int,
     status: str,
     *,
@@ -398,7 +393,7 @@ def _update_row(
     params.append(row_id)
     try:
         conn.execute(f"UPDATE order_emails SET {', '.join(fields)} WHERE id = %s", params)
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         # A concurrent worker already recorded 'sent' for this (order_id, event).
         conn.execute(
             "UPDATE order_emails SET status = 'skipped_duplicate', reason = %s, sent_at = %s "

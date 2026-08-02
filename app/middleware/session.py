@@ -39,8 +39,15 @@ def _format_dt(dt: datetime) -> str:
     return dt.strftime(SQLITE_DATETIME_FORMAT)
 
 
-def _parse_dt(s: str) -> datetime:
-    """Parse a SQLite datetime string into a timezone-aware UTC datetime."""
+def _parse_dt(s: str | datetime) -> datetime:
+    """Parse a session timestamp into a timezone-aware UTC datetime.
+
+    Postgres (psycopg) returns TIMESTAMPTZ columns as ``datetime`` objects; a
+    legacy string is still parsed via the canonical format. Either way the
+    result is normalised to UTC.
+    """
+    if isinstance(s, datetime):
+        return s if s.tzinfo is not None else s.replace(tzinfo=UTC)
     return datetime.strptime(s, SQLITE_DATETIME_FORMAT).replace(tzinfo=UTC)
 
 

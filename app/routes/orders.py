@@ -160,6 +160,13 @@ async def create_order(
                 },
             )
 
+    # Read analytics consent BEFORE opening the order connection. It runs its
+    # own get_db(); nesting it inside the order's held connection would need two
+    # pooled connections at once for a single request and dead-locks the psycopg
+    # pool. The consent read is independent of the order transaction, so hoisting
+    # it out does not affect checkout atomicity.
+    analytics_consent = analytics_service.has_current_analytics_consent(session_id)
+
     try:
         with get_db() as conn:
             row = conn.execute(
@@ -171,7 +178,6 @@ async def create_order(
             user_id = row["user_id"] if row else None
             preferred_locale = row["preferred_locale"] if row else None
             locale: Literal["en", "bg"] = "bg" if preferred_locale == "bg" else "en"
-            analytics_consent = analytics_service.has_current_analytics_consent(session_id)
 
             # Resolve the order's contact email. A logged-in user may omit it and
             # fall back to their account email; anyone may supply a different one
@@ -199,7 +205,7 @@ async def create_order(
                 else None
             )
             # get_payment_settings() may lazily insert defaults; close that
-            # transaction before checkout() starts its explicit BEGIN IMMEDIATE.
+            # transaction before checkout() opens its own transaction block.
             conn.commit()
 
             order_data = checkout(
@@ -377,7 +383,7 @@ async def create_stripe_retry_session(
                 "Card payments are not currently available",
             )
         # payment_method_available() may lazily insert default settings; close
-        # that transaction before the rate limiter starts BEGIN IMMEDIATE.
+        # that transaction before the rate limiter opens its own transaction.
         conn.commit()
 
         try:

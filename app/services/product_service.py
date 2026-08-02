@@ -1,8 +1,9 @@
 """Product service — business logic for product CRUD, search, and listing."""
 
-import sqlite3
 from datetime import UTC, datetime
 from typing import Literal
+
+import psycopg
 
 from app.constants import MAX_LIMIT, MAX_PAGE
 from app.database import get_db
@@ -10,6 +11,12 @@ from app.models.common import calculate_offset
 from app.services import pricing, product_image_service, product_video_service, taxonomy_service
 
 Locale = Literal["en", "bg"]
+
+# Canonical timestamp string format shared across services (SQLite legacy shape).
+# psycopg returns TIMESTAMPTZ columns as datetime; product response models and
+# pricing.parse_discount_dt expect this string, so _row_to_dict normalises reads.
+_DT_FMT = "%Y-%m-%d %H:%M:%S"
+_TIMESTAMP_COLUMNS = ("created_at", "updated_at", "discount_starts_at", "discount_ends_at")
 
 
 class NotFoundError(Exception):
@@ -59,7 +66,7 @@ def _validate_merged_discount(
         raise DiscountValidationError("discount_starts_at must be earlier than discount_ends_at")
 
 
-def merge_discount_update(existing: dict | sqlite3.Row, data: dict) -> dict:
+def merge_discount_update(existing: dict, data: dict) -> dict:
     """Merge a partial discount patch with the existing row and validate it.
 
     Shared by the single-product update path and the bulk discount path so both
@@ -108,9 +115,22 @@ def _annotate_admin(products: list[dict], now: str | None = None) -> list[dict]:
     return [pricing.annotate_product_pricing(p, now, public=False) for p in products]
 
 
-def _row_to_dict(row: sqlite3.Row) -> dict:
-    """Convert a sqlite3.Row to a plain dict."""
-    return dict(row)
+def _row_to_dict(row: dict) -> dict:
+    """Convert a database row to a plain dict.
+
+    Postgres TIMESTAMPTZ columns come back from psycopg (dict_row) as
+    ``datetime`` objects, but the product response models declare every
+    timestamp field as ``str`` (and ``pricing._parse_discount_dt`` parses the
+    discount bounds as the canonical ``_DT_FMT`` string). Products are written
+    with ``_now_utc()`` strings, so normalise reads through this single
+    chokepoint to the same shape. ``None`` and existing strings pass through.
+    """
+    product = dict(row)
+    for column in _TIMESTAMP_COLUMNS:
+        value = product.get(column)
+        if isinstance(value, datetime):
+            product[column] = value.strftime(_DT_FMT)
+    return product
 
 
 def _flatten_admin_labels(product: dict) -> dict:
@@ -119,7 +139,7 @@ def _flatten_admin_labels(product: dict) -> dict:
     return product
 
 
-def _attach_admin_inventory_context(conn: sqlite3.Connection, products: list[dict]) -> None:
+def _attach_admin_inventory_context(conn: psycopg.Connection, products: list[dict]) -> None:
     """Attach admin-only inventory/recipe/batch context without changing public payloads."""
     if not products:
         return
@@ -134,7 +154,7 @@ def _attach_admin_inventory_context(conn: sqlite3.Connection, products: list[dic
         ).fetchall()
     }
 
-    active_recipes: dict[str, sqlite3.Row] = {}
+    active_recipes: dict[str, dict] = {}
     for row in conn.execute(
         f"""
         SELECT id, product_id, status, effective_date, review_state
@@ -146,7 +166,7 @@ def _attach_admin_inventory_context(conn: sqlite3.Connection, products: list[dic
     ).fetchall():
         active_recipes.setdefault(row["product_id"], row)
 
-    latest_batches: dict[str, sqlite3.Row] = {}
+    latest_batches: dict[str, dict] = {}
     for row in conn.execute(
         f"""
         SELECT id, product_id, batch_number, status, production_date
@@ -548,10 +568,8 @@ def create_product(data: dict) -> dict:
                 f"INSERT INTO products ({col_str}) VALUES ({placeholders})",  # noqa: S608
                 values,
             )
-        except sqlite3.IntegrityError as e:
-            if "UNIQUE constraint failed" in str(e):
-                raise DuplicateError(f"Product with this ID already exists: {product_id}") from e
-            raise
+        except psycopg.errors.UniqueViolation as e:
+            raise DuplicateError(f"Product with this ID already exists: {product_id}") from e
 
         taxonomy_service.replace_product_labels(conn, product_id, label_slugs)
 
@@ -1030,7 +1048,7 @@ def get_low_stock_products(threshold: int = 5) -> list[dict]:
     return product_video_service.attach_video_fields(products, public_only=False)
 
 
-def _resolve_filter_target_ids(conn: sqlite3.Connection, filt: dict) -> list[str]:
+def _resolve_filter_target_ids(conn: psycopg.Connection, filt: dict) -> list[str]:
     """Resolve an admin product-list filter descriptor to product IDs.
 
     Admin scope: all products (active and inactive) unless `is_active` is set.
@@ -1102,7 +1120,7 @@ def bulk_update_discount(
     discount_percent: int | None = None,
     discount_starts_at: str | None = None,
     discount_ends_at: str | None = None,
-    conn: sqlite3.Connection | None = None,
+    conn: psycopg.Connection | None = None,
 ) -> dict:
     """Apply or clear the discount on a resolved list of products.
 
@@ -1132,7 +1150,7 @@ def bulk_update_discount(
     results: list[dict] = []
     success = 0
 
-    def _run(conn: sqlite3.Connection) -> None:
+    def _run(conn: psycopg.Connection) -> None:
         nonlocal success
         for pid in product_ids:
             conn.execute("SAVEPOINT bulk_item")
@@ -1179,7 +1197,7 @@ def bulk_update_discount(
 
 
 def conservative_clear_discount(
-    targets: list[dict], conn: sqlite3.Connection | None = None
+    targets: list[dict], conn: psycopg.Connection | None = None
 ) -> dict:
     """Clear a discount only where a product's current fields still match.
 
@@ -1194,7 +1212,7 @@ def conservative_clear_discount(
     results: list[dict] = []
     success = 0
 
-    def _run(conn: sqlite3.Connection) -> None:
+    def _run(conn: psycopg.Connection) -> None:
         nonlocal success
         for t in targets:
             pid = t["product_id"]
@@ -1235,7 +1253,7 @@ def conservative_clear_discount(
                 conn.execute("RELEASE clear_item")
                 results.append({"id": pid, "status": "updated"})
                 success += 1
-            except sqlite3.Error as e:
+            except psycopg.Error as e:
                 conn.execute("ROLLBACK TO clear_item")
                 conn.execute("RELEASE clear_item")
                 results.append({"id": pid, "status": "failed", "error": str(e)})

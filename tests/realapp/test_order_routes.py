@@ -1,6 +1,5 @@
 """Integration tests for order routes with TestClient."""
 
-import sqlite3
 import sys
 import types
 import uuid
@@ -11,8 +10,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.config import get_settings
-
-_DT_FMT = "%Y-%m-%d %H:%M:%S"
+from app.database import get_db
 
 # Reusable structured-delivery block for /v1/orders POSTs. Kept as a module-
 # level dict so the JSON body composes with `**DELIVERY` (or nested inline).
@@ -42,62 +40,60 @@ DELIVERY_DOOR_SPEEDY = {
 
 
 def _set_payment_settings(
-    db_path: str,
     *,
     card_payments_enabled: bool = False,
     pay_on_delivery_enabled: bool = True,
     pay_on_delivery_max_cents: int = 5000,
 ) -> None:
-    conn = sqlite3.connect(db_path)
-    conn.executemany(
-        """
-        INSERT INTO site_settings (key, value, value_type, is_public)
-        VALUES (?, ?, 'json', 1)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value, is_public = 1
-        """,
-        [
-            ("card_payments_enabled", "true" if card_payments_enabled else "false"),
-            ("pay_on_delivery_enabled", "true" if pay_on_delivery_enabled else "false"),
-            ("pay_on_delivery_max_cents", str(pay_on_delivery_max_cents)),
-        ],
-    )
-    conn.commit()
-    conn.close()
+    with get_db() as conn:
+        conn.cursor().executemany(
+            """
+            INSERT INTO site_settings (key, value, value_type, is_public)
+            VALUES (%s, %s, 'json', 1)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, is_public = 1
+            """,
+            [
+                ("card_payments_enabled", "true" if card_payments_enabled else "false"),
+                ("pay_on_delivery_enabled", "true" if pay_on_delivery_enabled else "false"),
+                ("pay_on_delivery_max_cents", str(pay_on_delivery_max_cents)),
+            ],
+        )
 
 
 @pytest.fixture(autouse=True)
-def _seed_order_products(db_path, app):
+def _seed_order_products(app):
     """Seed products needed by order tests (uses realapp conftest's app)."""
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "INSERT INTO products (id, name_en, price_cents, stock, is_active, created_at, updated_at) "
-        "VALUES ('lavender-dream', 'Lavender Dream', 2500, 10, 1, datetime('now'), datetime('now'))"
-    )
-    conn.execute(
-        "INSERT INTO products (id, name_en, price_cents, stock, is_active, created_at, updated_at) "
-        "VALUES ('midnight-amber', 'Midnight Amber', 3500, 5, 1, datetime('now'), datetime('now'))"
-    )
-    conn.commit()
-    conn.close()
-    _set_payment_settings(db_path, pay_on_delivery_enabled=True)
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO products (id, name_en, price_cents, stock, is_active, "
+            "created_at, updated_at) "
+            "VALUES ('lavender-dream', 'Lavender Dream', 2500, 10, 1, "
+            "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        )
+        conn.execute(
+            "INSERT INTO products (id, name_en, price_cents, stock, is_active, "
+            "created_at, updated_at) "
+            "VALUES ('midnight-amber', 'Midnight Amber', 3500, 5, 1, "
+            "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        )
+    _set_payment_settings(pay_on_delivery_enabled=True)
 
 
 @pytest.fixture()
-def order_session_id(db_path):
+def order_session_id(app):
     """Insert a session and cart items, return session_id."""
     sid = str(uuid.uuid4())
-    now = datetime.now(UTC)
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
-        (sid, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
-    )
-    conn.execute(
-        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, 'lavender-dream', 1)",
-        (sid,),
-    )
-    conn.commit()
-    conn.close()
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO sessions (id, created_at, expires_at) "
+            "VALUES (%s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '30 days')",
+            (sid,),
+        )
+        conn.execute(
+            "INSERT INTO cart_items (session_id, product_id, quantity) "
+            "VALUES (%s, 'lavender-dream', 1)",
+            (sid,),
+        )
     return sid
 
 
@@ -118,7 +114,7 @@ async def admin_order_client(app, order_session_id) -> AsyncClient:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         c.cookies.set(settings.session_cookie_name, order_session_id)
-        c.headers["Authorization"] = "Bearer test-admin-key-realapp"
+        c.headers["Authorization"] = "Bearer test-admin-key"
         yield c
 
 
@@ -151,25 +147,23 @@ class TestCreateOrder:
     async def test_checkout_accepts_invoice_profile_and_snapshots_accounting_settings(
         self, order_client, db_path
     ):
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            """
-            INSERT INTO seller_legal_profile_versions (
-                effective_date, reviewed, legal_name, default_currency
-            ) VALUES ('2026-08-01', 1, 'Atelier Marie OOD', 'EUR')
-            """
-        )
-        seller_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-        conn.execute(
-            """
-            INSERT INTO vat_fiscal_settings_versions (
-                effective_date, reviewed, vat_mode, fiscal_document_mode
-            ) VALUES ('2026-08-01', 1, 'registered', 'external_reference')
-            """
-        )
-        vat_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            conn.execute(
+                """
+                INSERT INTO seller_legal_profile_versions (
+                    effective_date, reviewed, legal_name, default_currency
+                ) VALUES ('2026-08-01', 1, 'Atelier Marie OOD', 'EUR')
+                """
+            )
+            seller_id = conn.execute("SELECT lastval() AS id").fetchone()["id"]
+            conn.execute(
+                """
+                INSERT INTO vat_fiscal_settings_versions (
+                    effective_date, reviewed, vat_mode, fiscal_document_mode
+                ) VALUES ('2026-08-01', 1, 'registered', 'external_reference')
+                """
+            )
+            vat_id = conn.execute("SELECT lastval() AS id").fetchone()["id"]
 
         resp = await order_client.post(
             "/v1/orders",
@@ -202,17 +196,16 @@ class TestCreateOrder:
             "invoice@example.com"
         )
 
-        conn = sqlite3.connect(db_path)
-        row = conn.execute(
-            """
-            SELECT invoice_profile_json, accounting_snapshot_json
-            FROM orders WHERE id = ?
-            """,
-            (body["id"],),
-        ).fetchone()
-        conn.close()
-        assert '"legal_name": "Buyer OOD"' in row[0]
-        assert '"seller_legal_profile_version_id": ' in row[1]
+        with get_db() as conn:
+            row = conn.execute(
+                """
+                SELECT invoice_profile_json, accounting_snapshot_json
+                FROM orders WHERE id = %s
+                """,
+                (body["id"],),
+            ).fetchone()
+        assert '"legal_name": "Buyer OOD"' in row["invoice_profile_json"]
+        assert '"seller_legal_profile_version_id": ' in row["accounting_snapshot_json"]
 
     async def test_invalid_invoice_email_422(self, order_client):
         resp = await order_client.post(
@@ -264,23 +257,21 @@ class TestCreateOrder:
     async def test_cod_above_cap_rejected(self, app, db_path):
         sid = str(uuid.uuid4())
         now = datetime.now(UTC)
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
-            (sid, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
-        )
-        conn.execute(
-            "INSERT INTO cart_items (session_id, product_id, quantity) "
-            "VALUES (?, 'lavender-dream', 2)",
-            (sid,),
-        )
-        conn.execute(
-            "INSERT INTO cart_items (session_id, product_id, quantity) "
-            "VALUES (?, 'midnight-amber', 1)",
-            (sid,),
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO sessions (id, created_at, expires_at) VALUES (%s, %s, %s)",
+                (sid, now, now + timedelta(days=30)),
+            )
+            conn.execute(
+                "INSERT INTO cart_items (session_id, product_id, quantity) "
+                "VALUES (%s, 'lavender-dream', 2)",
+                (sid,),
+            )
+            conn.execute(
+                "INSERT INTO cart_items (session_id, product_id, quantity) "
+                "VALUES (%s, 'midnight-amber', 1)",
+                (sid,),
+            )
 
         settings = get_settings()
         transport = ASGITransport(app=app)
@@ -302,7 +293,7 @@ class TestCreateOrder:
         assert body["error"]["details"] == {"total_cents": 8500, "max_cents": 5000}
 
     async def test_cod_disabled_by_payment_settings_rejected(self, app, db_path, order_session_id):
-        _set_payment_settings(db_path, pay_on_delivery_enabled=False)
+        _set_payment_settings(pay_on_delivery_enabled=False)
 
         settings = get_settings()
         transport = ASGITransport(app=app)
@@ -332,26 +323,22 @@ class TestCreateOrder:
         first = await order_client.post("/v1/orders", json=payload)
         assert first.status_code == 201
 
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "INSERT INTO cart_items (session_id, product_id, quantity) "
-            "VALUES (?, 'lavender-dream', 1)",
-            (order_session_id,),
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO cart_items (session_id, product_id, quantity) "
+                "VALUES (%s, 'lavender-dream', 1)",
+                (order_session_id,),
+            )
 
         second = await order_client.post("/v1/orders", json=payload)
         assert second.status_code == 201
 
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "INSERT INTO cart_items (session_id, product_id, quantity) "
-            "VALUES (?, 'lavender-dream', 1)",
-            (order_session_id,),
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO cart_items (session_id, product_id, quantity) "
+                "VALUES (%s, 'lavender-dream', 1)",
+                (order_session_id,),
+            )
 
         third = await order_client.post("/v1/orders", json=payload)
         assert third.status_code == 429
@@ -361,7 +348,6 @@ class TestCreateOrder:
         from app.config import Settings
 
         _set_payment_settings(
-            db_path,
             card_payments_enabled=True,
             pay_on_delivery_enabled=True,
         )
@@ -424,13 +410,11 @@ class TestCreateOrder:
         # Create session without cart items
         sid = str(uuid.uuid4())
         now = datetime.now(UTC)
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
-            (sid, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO sessions (id, created_at, expires_at) VALUES (%s, %s, %s)",
+                (sid, now, now + timedelta(days=30)),
+            )
 
         settings = get_settings()
         transport = ASGITransport(app=app)
@@ -451,19 +435,17 @@ class TestCreateOrder:
         """Insufficient stock returns 409."""
         sid = str(uuid.uuid4())
         now = datetime.now(UTC)
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
-            (sid, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
-        )
-        # Request 10 but only 5 in stock
-        conn.execute(
-            "INSERT INTO cart_items (session_id, product_id, quantity) "
-            "VALUES (?, 'midnight-amber', 6)",
-            (sid,),
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO sessions (id, created_at, expires_at) VALUES (%s, %s, %s)",
+                (sid, now, now + timedelta(days=30)),
+            )
+            # Request 10 but only 5 in stock
+            conn.execute(
+                "INSERT INTO cart_items (session_id, product_id, quantity) "
+                "VALUES (%s, 'midnight-amber', 6)",
+                (sid,),
+            )
 
         settings = get_settings()
         transport = ASGITransport(app=app)
@@ -498,22 +480,21 @@ class TestCreateOrder:
         uid = str(uuid.uuid4())
         sid = str(uuid.uuid4())
         now = datetime.now(UTC)
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "INSERT INTO users (id, google_id, email) VALUES (?, ?, ?)",
-            (uid, "g-" + uid, "account@example.com"),
-        )
-        conn.execute(
-            "INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-            (sid, uid, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
-        )
-        conn.execute(
-            "INSERT INTO cart_items (session_id, product_id, quantity) "
-            "VALUES (?, 'lavender-dream', 1)",
-            (sid,),
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO users (id, google_id, email) VALUES (%s, %s, %s)",
+                (uid, "g-" + uid, "account@example.com"),
+            )
+            conn.execute(
+                "INSERT INTO sessions (id, user_id, created_at, expires_at) "
+                "VALUES (%s, %s, %s, %s)",
+                (sid, uid, now, now + timedelta(days=30)),
+            )
+            conn.execute(
+                "INSERT INTO cart_items (session_id, product_id, quantity) "
+                "VALUES (%s, 'lavender-dream', 1)",
+                (sid,),
+            )
 
         settings = get_settings()
         transport = ASGITransport(app=app)
@@ -531,22 +512,21 @@ class TestCreateOrder:
         uid = str(uuid.uuid4())
         sid = str(uuid.uuid4())
         now = datetime.now(UTC)
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "INSERT INTO users (id, google_id, email) VALUES (?, ?, ?)",
-            (uid, "g-" + uid, "account@example.com"),
-        )
-        conn.execute(
-            "INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-            (sid, uid, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
-        )
-        conn.execute(
-            "INSERT INTO cart_items (session_id, product_id, quantity) "
-            "VALUES (?, 'lavender-dream', 1)",
-            (sid,),
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO users (id, google_id, email) VALUES (%s, %s, %s)",
+                (uid, "g-" + uid, "account@example.com"),
+            )
+            conn.execute(
+                "INSERT INTO sessions (id, user_id, created_at, expires_at) "
+                "VALUES (%s, %s, %s, %s)",
+                (sid, uid, now, now + timedelta(days=30)),
+            )
+            conn.execute(
+                "INSERT INTO cart_items (session_id, product_id, quantity) "
+                "VALUES (%s, 'lavender-dream', 1)",
+                (sid,),
+            )
 
         settings = get_settings()
         transport = ASGITransport(app=app)
@@ -651,13 +631,11 @@ class TestListMyOrders:
         # Create session B (no orders)
         sid_b = str(uuid.uuid4())
         now = datetime.now(UTC)
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
-            (sid_b, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO sessions (id, created_at, expires_at) VALUES (%s, %s, %s)",
+                (sid_b, now, now + timedelta(days=30)),
+            )
 
         # Session B sees no orders
         async with AsyncClient(transport=transport, base_url="http://test") as c:
@@ -695,13 +673,11 @@ class TestGetOrderDetail:
         # Session B tries to access
         sid_b = str(uuid.uuid4())
         now = datetime.now(UTC)
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
-            (sid_b, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO sessions (id, created_at, expires_at) VALUES (%s, %s, %s)",
+                (sid_b, now, now + timedelta(days=30)),
+            )
 
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             c.cookies.set(settings.session_cookie_name, sid_b)
@@ -769,14 +745,12 @@ class TestAdminUpdateStatus:
         await admin_order_client.patch(
             f"/v1/admin/orders/{order_id}/status", json={"status": "confirmed"}
         )
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "UPDATE orders SET payment_method = 'card', payment_status = 'review_required' "
-            "WHERE id = ?",
-            (order_id,),
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE orders SET payment_method = 'card', payment_status = 'review_required' "
+                "WHERE id = %s",
+                (order_id,),
+            )
 
         resp = await admin_order_client.patch(
             f"/v1/admin/orders/{order_id}/status",
@@ -785,10 +759,9 @@ class TestAdminUpdateStatus:
 
         assert resp.status_code == 422
         assert resp.json()["error"]["code"] == "PAYMENT_REVIEW_REQUIRED"
-        conn = sqlite3.connect(db_path)
-        row = conn.execute("SELECT status FROM orders WHERE id = ?", (order_id,)).fetchone()
-        conn.close()
-        assert row[0] == "confirmed"
+        with get_db() as conn:
+            row = conn.execute("SELECT status FROM orders WHERE id = %s", (order_id,)).fetchone()
+        assert row["status"] == "confirmed"
 
     async def test_ship_with_tracking_autogenerates_url(self, admin_order_client):
         resp = await admin_order_client.post(
@@ -843,11 +816,10 @@ class TestAdminReturnCases:
         self, admin_order_client, db_path
     ):
         order_id = await self._create_shipped_econt_order(admin_order_client)
-        conn = sqlite3.connect(db_path)
-        stock_after_checkout = conn.execute(
-            "SELECT stock FROM products WHERE id = 'lavender-dream'"
-        ).fetchone()[0]
-        conn.close()
+        with get_db() as conn:
+            stock_after_checkout = conn.execute(
+                "SELECT stock FROM products WHERE id = 'lavender-dream'"
+            ).fetchone()["stock"]
 
         resp = await admin_order_client.post(
             f"/v1/admin/orders/{order_id}/returns",
@@ -864,20 +836,19 @@ class TestAdminReturnCases:
         assert body["reason"] == "not_picked_up"
         assert body["status"] == "return_in_transit"
         assert body["restock_decision"] == "pending"
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        row = conn.execute(
-            "SELECT status FROM orders WHERE id = ?",
-            (order_id,),
-        ).fetchone()
-        stock_now = conn.execute(
-            "SELECT stock FROM products WHERE id = 'lavender-dream'"
-        ).fetchone()[0]
-        event = conn.execute(
-            "SELECT event_type, payload_json FROM order_return_events WHERE order_return_id = ?",
-            (body["id"],),
-        ).fetchone()
-        conn.close()
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT status FROM orders WHERE id = %s",
+                (order_id,),
+            ).fetchone()
+            stock_now = conn.execute(
+                "SELECT stock FROM products WHERE id = 'lavender-dream'"
+            ).fetchone()["stock"]
+            event = conn.execute(
+                "SELECT event_type, payload_json FROM order_return_events "
+                "WHERE order_return_id = %s",
+                (body["id"],),
+            ).fetchone()
         assert row["status"] == "return_in_transit"
         assert stock_now == stock_after_checkout
         assert event["event_type"] == "return_created"
@@ -912,20 +883,19 @@ class TestAdminReturnCases:
 
         assert resp.status_code == 422
         assert resp.json()["error"]["code"] == "INVALID_TRANSITION"
-        conn = sqlite3.connect(db_path)
-        order_status = conn.execute(
-            "SELECT status FROM orders WHERE id = ?",
-            (order_id,),
-        ).fetchone()[0]
-        return_count = conn.execute(
-            "SELECT COUNT(*) FROM order_returns WHERE order_id = ?",
-            (order_id,),
-        ).fetchone()[0]
-        event_count = conn.execute(
-            "SELECT COUNT(*) FROM order_return_events WHERE order_id = ?",
-            (order_id,),
-        ).fetchone()[0]
-        conn.close()
+        with get_db() as conn:
+            order_status = conn.execute(
+                "SELECT status FROM orders WHERE id = %s",
+                (order_id,),
+            ).fetchone()["status"]
+            return_count = conn.execute(
+                "SELECT COUNT(*) AS n FROM order_returns WHERE order_id = %s",
+                (order_id,),
+            ).fetchone()["n"]
+            event_count = conn.execute(
+                "SELECT COUNT(*) AS n FROM order_return_events WHERE order_id = %s",
+                (order_id,),
+            ).fetchone()["n"]
         assert order_status == "pending"
         assert return_count == 0
         assert event_count == 0
@@ -934,11 +904,10 @@ class TestAdminReturnCases:
         self, admin_order_client, db_path
     ):
         order_id = await self._create_shipped_econt_order(admin_order_client)
-        conn = sqlite3.connect(db_path)
-        stock_after_checkout = conn.execute(
-            "SELECT stock FROM products WHERE id = 'lavender-dream'"
-        ).fetchone()[0]
-        conn.close()
+        with get_db() as conn:
+            stock_after_checkout = conn.execute(
+                "SELECT stock FROM products WHERE id = 'lavender-dream'"
+            ).fetchone()["stock"]
         created = await admin_order_client.post(
             f"/v1/admin/orders/{order_id}/returns",
             json={"reason": "customer_return", "status": "return_in_transit"},
@@ -950,13 +919,13 @@ class TestAdminReturnCases:
         )
         assert received.status_code == 200
         assert received.json()["status"] == "received"
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        order_row = conn.execute("SELECT status FROM orders WHERE id = ?", (order_id,)).fetchone()
-        stock_after_receive = conn.execute(
-            "SELECT stock FROM products WHERE id = 'lavender-dream'"
-        ).fetchone()[0]
-        conn.close()
+        with get_db() as conn:
+            order_row = conn.execute(
+                "SELECT status FROM orders WHERE id = %s", (order_id,)
+            ).fetchone()
+            stock_after_receive = conn.execute(
+                "SELECT stock FROM products WHERE id = 'lavender-dream'"
+            ).fetchone()["stock"]
         assert order_row["status"] == "returned"
         assert stock_after_receive == stock_after_checkout
 
@@ -967,17 +936,16 @@ class TestAdminReturnCases:
         assert inspected.status_code == 200
         assert inspected.json()["status"] == "inspected"
         assert inspected.json()["restock_decision"] == "restock"
-        conn = sqlite3.connect(db_path)
-        stock_after_inspect = conn.execute(
-            "SELECT stock FROM products WHERE id = 'lavender-dream'"
-        ).fetchone()[0]
-        adjustment = conn.execute(
-            "SELECT quantity, reason FROM inventory_adjustments WHERE order_return_id = ?",
-            (return_id,),
-        ).fetchone()
-        conn.close()
+        with get_db() as conn:
+            stock_after_inspect = conn.execute(
+                "SELECT stock FROM products WHERE id = 'lavender-dream'"
+            ).fetchone()["stock"]
+            adjustment = conn.execute(
+                "SELECT quantity, reason FROM inventory_adjustments WHERE order_return_id = %s",
+                (return_id,),
+            ).fetchone()
         assert stock_after_inspect == stock_after_checkout + 1
-        assert adjustment == (1, "return_restock")
+        assert adjustment == {"quantity": 1, "reason": "return_restock"}
 
         closed = await admin_order_client.post(
             f"/v1/admin/orders/{order_id}/returns/{return_id}/close"
@@ -1001,14 +969,12 @@ class TestAdminReturnCases:
 
         assert resp.status_code == 404
         assert resp.json()["error"]["code"] == "RETURN_CASE_NOT_FOUND"
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        case = conn.execute(
-            "SELECT status, received_at FROM order_returns WHERE id = ?",
-            (return_id,),
-        ).fetchone()
-        order = conn.execute("SELECT status FROM orders WHERE id = ?", (order_id,)).fetchone()
-        conn.close()
+        with get_db() as conn:
+            case = conn.execute(
+                "SELECT status, received_at FROM order_returns WHERE id = %s",
+                (return_id,),
+            ).fetchone()
+            order = conn.execute("SELECT status FROM orders WHERE id = %s", (order_id,)).fetchone()
         assert case["status"] == "return_in_transit"
         assert case["received_at"] is None
         assert order["status"] == "return_in_transit"
@@ -1239,33 +1205,31 @@ class TestAdminListOrders:
         from app.models.delivery import DeliveryInfo
         from app.services.order_service import checkout
 
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        checkout(
-            conn,
-            session_id=order_session_id,
-            customer_email="card@example.com",
-            customer_name="Card Buyer",
-            delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
-            notes=None,
-            payment_method="card",
-        )
-        conn.execute(
-            "INSERT INTO cart_items (session_id, product_id, quantity) "
-            "VALUES (?, 'lavender-dream', 1)",
-            (order_session_id,),
-        )
-        conn.commit()
-        checkout(
-            conn,
-            session_id=order_session_id,
-            customer_email="cod@example.com",
-            customer_name="COD Buyer",
-            delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
-            notes=None,
-            payment_method="cod",
-        )
-        conn.close()
+        with get_db() as conn:
+            checkout(
+                conn,
+                session_id=order_session_id,
+                customer_email="card@example.com",
+                customer_name="Card Buyer",
+                delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
+                notes=None,
+                payment_method="card",
+            )
+            conn.execute(
+                "INSERT INTO cart_items (session_id, product_id, quantity) "
+                "VALUES (%s, 'lavender-dream', 1)",
+                (order_session_id,),
+            )
+            conn.commit()
+            checkout(
+                conn,
+                session_id=order_session_id,
+                customer_email="cod@example.com",
+                customer_name="COD Buyer",
+                delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
+                notes=None,
+                payment_method="cod",
+            )
 
         resp = await admin_order_client.get("/v1/admin/orders?payment_method=card")
 
@@ -1281,37 +1245,35 @@ class TestAdminListOrders:
         from app.models.delivery import DeliveryInfo
         from app.services.order_service import checkout
 
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        review_order = checkout(
-            conn,
-            session_id=order_session_id,
-            customer_email="review-card@example.com",
-            customer_name="Review Buyer",
-            delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
-            notes=None,
-            payment_method="card",
-        )
-        conn.execute(
-            "UPDATE orders SET payment_status = 'review_required' WHERE id = ?",
-            (review_order["id"],),
-        )
-        conn.execute(
-            "INSERT INTO cart_items (session_id, product_id, quantity) "
-            "VALUES (?, 'lavender-dream', 1)",
-            (order_session_id,),
-        )
-        conn.commit()
-        checkout(
-            conn,
-            session_id=order_session_id,
-            customer_email="pending-card@example.com",
-            customer_name="Pending Buyer",
-            delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
-            notes=None,
-            payment_method="card",
-        )
-        conn.close()
+        with get_db() as conn:
+            review_order = checkout(
+                conn,
+                session_id=order_session_id,
+                customer_email="review-card@example.com",
+                customer_name="Review Buyer",
+                delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
+                notes=None,
+                payment_method="card",
+            )
+            conn.execute(
+                "UPDATE orders SET payment_status = 'review_required' WHERE id = %s",
+                (review_order["id"],),
+            )
+            conn.execute(
+                "INSERT INTO cart_items (session_id, product_id, quantity) "
+                "VALUES (%s, 'lavender-dream', 1)",
+                (order_session_id,),
+            )
+            conn.commit()
+            checkout(
+                conn,
+                session_id=order_session_id,
+                customer_email="pending-card@example.com",
+                customer_name="Pending Buyer",
+                delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
+                notes=None,
+                payment_method="card",
+            )
 
         resp = await admin_order_client.get("/v1/admin/orders?review_filter=abandoned_payment")
 
@@ -1322,31 +1284,35 @@ class TestAdminListOrders:
         assert body["items"][0]["payment_status"] == "review_required"
 
     async def test_admin_review_filter_uncollected_refused(self, admin_order_client, db_path):
-        conn = sqlite3.connect(db_path)
-        conn.executemany(
-            """
-            INSERT INTO orders (id, session_id, status, total_cents, customer_email)
-            VALUES (?, 'review-session', ?, 2500, ?)
-            """,
-            [
-                ("uncollected-order", "shipped", "uncollected@example.com"),
-                ("refused-order", "return_in_transit", "refused@example.com"),
-                ("closed-uncollected-order", "returned", "closed-uncollected@example.com"),
-            ],
-        )
-        conn.executemany(
-            """
-            INSERT INTO order_returns (id, order_id, reason, source, status)
-            VALUES (?, ?, ?, 'admin', ?)
-            """,
-            [
-                ("return-uncollected", "uncollected-order", "not_picked_up", "requested"),
-                ("return-refused", "refused-order", "refused_delivery", "return_in_transit"),
-                ("return-closed", "closed-uncollected-order", "not_picked_up", "closed"),
-            ],
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """
+                    INSERT INTO orders (id, session_id, status, total_cents, customer_email)
+                    VALUES (%s, 'review-session', %s, 2500, %s)
+                    """,
+                    [
+                        ("uncollected-order", "shipped", "uncollected@example.com"),
+                        ("refused-order", "return_in_transit", "refused@example.com"),
+                        ("closed-uncollected-order", "returned", "closed-uncollected@example.com"),
+                    ],
+                )
+                cur.executemany(
+                    """
+                    INSERT INTO order_returns (id, order_id, reason, source, status)
+                    VALUES (%s, %s, %s, 'admin', %s)
+                    """,
+                    [
+                        ("return-uncollected", "uncollected-order", "not_picked_up", "requested"),
+                        (
+                            "return-refused",
+                            "refused-order",
+                            "refused_delivery",
+                            "return_in_transit",
+                        ),
+                        ("return-closed", "closed-uncollected-order", "not_picked_up", "closed"),
+                    ],
+                )
 
         resp = await admin_order_client.get("/v1/admin/orders?review_filter=uncollected_refused")
 
@@ -1356,32 +1322,31 @@ class TestAdminListOrders:
         assert {item["id"] for item in body["items"]} == {"uncollected-order", "refused-order"}
 
     async def test_admin_review_filter_refund_pending(self, admin_order_client, db_path):
-        conn = sqlite3.connect(db_path)
-        conn.executemany(
-            """
-            INSERT INTO orders (
-                id, session_id, status, total_cents, customer_email,
-                payment_method, payment_status
-            ) VALUES (?, 'review-session', 'delivered', 2500, ?, 'card', ?)
-            """,
-            [
-                ("refund-status-order", "refund-status@example.com", "refund_pending"),
-                ("refund-record-order", "refund-record@example.com", "paid"),
-                ("refund-succeeded-order", "refund-succeeded@example.com", "paid"),
-            ],
-        )
-        conn.executemany(
-            """
-            INSERT INTO payment_refunds (id, order_id, provider, amount_cents, status)
-            VALUES (?, ?, 'stripe', 1000, ?)
-            """,
-            [
-                ("pending-refund", "refund-record-order", "pending"),
-                ("succeeded-refund", "refund-succeeded-order", "succeeded"),
-            ],
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """
+                    INSERT INTO orders (
+                        id, session_id, status, total_cents, customer_email,
+                        payment_method, payment_status
+                    ) VALUES (%s, 'review-session', 'delivered', 2500, %s, 'card', %s)
+                    """,
+                    [
+                        ("refund-status-order", "refund-status@example.com", "refund_pending"),
+                        ("refund-record-order", "refund-record@example.com", "paid"),
+                        ("refund-succeeded-order", "refund-succeeded@example.com", "paid"),
+                    ],
+                )
+                cur.executemany(
+                    """
+                    INSERT INTO payment_refunds (id, order_id, provider, amount_cents, status)
+                    VALUES (%s, %s, 'stripe', 1000, %s)
+                    """,
+                    [
+                        ("pending-refund", "refund-record-order", "pending"),
+                        ("succeeded-refund", "refund-succeeded-order", "succeeded"),
+                    ],
+                )
 
         resp = await admin_order_client.get("/v1/admin/orders?review_filter=refund_pending")
 
@@ -1394,32 +1359,31 @@ class TestAdminListOrders:
         }
 
     async def test_admin_review_filter_inspection_pending(self, admin_order_client, db_path):
-        conn = sqlite3.connect(db_path)
-        conn.executemany(
-            """
-            INSERT INTO orders (id, session_id, status, total_cents, customer_email)
-            VALUES (?, 'review-session', ?, 2500, ?)
-            """,
-            [
-                ("inspection-order", "returned", "inspection@example.com"),
-                ("in-transit-order", "return_in_transit", "in-transit@example.com"),
-                ("restocked-order", "returned", "restocked@example.com"),
-            ],
-        )
-        conn.executemany(
-            """
-            INSERT INTO order_returns (
-                id, order_id, reason, source, status, restock_decision
-            ) VALUES (?, ?, 'customer_return', 'admin', ?, ?)
-            """,
-            [
-                ("return-inspection", "inspection-order", "received", "pending"),
-                ("return-in-transit", "in-transit-order", "return_in_transit", "pending"),
-                ("return-restocked", "restocked-order", "inspected", "restock"),
-            ],
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """
+                    INSERT INTO orders (id, session_id, status, total_cents, customer_email)
+                    VALUES (%s, 'review-session', %s, 2500, %s)
+                    """,
+                    [
+                        ("inspection-order", "returned", "inspection@example.com"),
+                        ("in-transit-order", "return_in_transit", "in-transit@example.com"),
+                        ("restocked-order", "returned", "restocked@example.com"),
+                    ],
+                )
+                cur.executemany(
+                    """
+                    INSERT INTO order_returns (
+                        id, order_id, reason, source, status, restock_decision
+                    ) VALUES (%s, %s, 'customer_return', 'admin', %s, %s)
+                    """,
+                    [
+                        ("return-inspection", "inspection-order", "received", "pending"),
+                        ("return-in-transit", "in-transit-order", "return_in_transit", "pending"),
+                        ("return-restocked", "restocked-order", "inspected", "restock"),
+                    ],
+                )
 
         resp = await admin_order_client.get("/v1/admin/orders?review_filter=inspection_pending")
 
@@ -1428,36 +1392,33 @@ class TestAdminListOrders:
         assert body["total"] == 1
         assert body["items"][0]["id"] == "inspection-order"
 
-    async def test_admin_review_filter_courier_claim_follow_up(
-        self, admin_order_client, db_path
-    ):
-        conn = sqlite3.connect(db_path)
-        conn.executemany(
-            """
-            INSERT INTO orders (id, session_id, status, total_cents, customer_email)
-            VALUES (?, 'review-session', 'return_in_transit', 2500, ?)
-            """,
-            [
-                ("claim-filed-order", "claim-filed@example.com"),
-                ("claim-id-order", "claim-id@example.com"),
-                ("claim-paid-order", "claim-paid@example.com"),
-            ],
-        )
-        conn.executemany(
-            """
-            INSERT INTO order_returns (
-                id, order_id, reason, source, status,
-                courier_claim_id, courier_claim_status
-            ) VALUES (?, ?, 'damaged_by_courier', 'admin', 'return_in_transit', ?, ?)
-            """,
-            [
-                ("return-claim-filed", "claim-filed-order", "CLM-1", "filed"),
-                ("return-claim-id", "claim-id-order", "CLM-2", "none"),
-                ("return-claim-paid", "claim-paid-order", "CLM-3", "paid"),
-            ],
-        )
-        conn.commit()
-        conn.close()
+    async def test_admin_review_filter_courier_claim_follow_up(self, admin_order_client, db_path):
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """
+                    INSERT INTO orders (id, session_id, status, total_cents, customer_email)
+                    VALUES (%s, 'review-session', 'return_in_transit', 2500, %s)
+                    """,
+                    [
+                        ("claim-filed-order", "claim-filed@example.com"),
+                        ("claim-id-order", "claim-id@example.com"),
+                        ("claim-paid-order", "claim-paid@example.com"),
+                    ],
+                )
+                cur.executemany(
+                    """
+                    INSERT INTO order_returns (
+                        id, order_id, reason, source, status,
+                        courier_claim_id, courier_claim_status
+                    ) VALUES (%s, %s, 'damaged_by_courier', 'admin', 'return_in_transit', %s, %s)
+                    """,
+                    [
+                        ("return-claim-filed", "claim-filed-order", "CLM-1", "filed"),
+                        ("return-claim-id", "claim-id-order", "CLM-2", "none"),
+                        ("return-claim-paid", "claim-paid-order", "CLM-3", "paid"),
+                    ],
+                )
 
         resp = await admin_order_client.get(
             "/v1/admin/orders?review_filter=courier_claim_follow_up"
@@ -1469,28 +1430,45 @@ class TestAdminListOrders:
         assert {item["id"] for item in body["items"]} == {"claim-filed-order", "claim-id-order"}
 
     async def test_admin_review_filter_cod_settlement_pending(self, admin_order_client, db_path):
-        conn = sqlite3.connect(db_path)
-        conn.executemany(
-            """
-            INSERT INTO orders (
-                id, session_id, status, total_cents, customer_email,
-                payment_method, payment_status
-            ) VALUES (?, 'review-session', ?, 2500, ?, ?, ?)
-            """,
-            [
-                ("cod-pending-order", "delivered", "cod-pending@example.com", "cod", "paid"),
-                ("cod-settled-order", "delivered", "cod-settled@example.com", "cod", "paid"),
-                ("card-delivered-order", "delivered", "card-delivered@example.com", "card", "paid"),
-            ],
-        )
-        conn.execute(
-            """
-            INSERT INTO cod_settlements (id, order_id, amount_cents, settlement_date)
-            VALUES ('settled-cod', 'cod-settled-order', 2500, '2026-08-01')
-            """
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """
+                    INSERT INTO orders (
+                        id, session_id, status, total_cents, customer_email,
+                        payment_method, payment_status
+                    ) VALUES (%s, 'review-session', %s, 2500, %s, %s, %s)
+                    """,
+                    [
+                        (
+                            "cod-pending-order",
+                            "delivered",
+                            "cod-pending@example.com",
+                            "cod",
+                            "paid",
+                        ),
+                        (
+                            "cod-settled-order",
+                            "delivered",
+                            "cod-settled@example.com",
+                            "cod",
+                            "paid",
+                        ),
+                        (
+                            "card-delivered-order",
+                            "delivered",
+                            "card-delivered@example.com",
+                            "card",
+                            "paid",
+                        ),
+                    ],
+                )
+            conn.execute(
+                """
+                INSERT INTO cod_settlements (id, order_id, amount_cents, settlement_date)
+                VALUES ('settled-cod', 'cod-settled-order', 2500, '2026-08-01')
+                """
+            )
 
         resp = await admin_order_client.get("/v1/admin/orders?review_filter=cod_settlement_pending")
 
@@ -1594,28 +1572,25 @@ class TestAdminGetOrderDetail:
         from app.models.delivery import DeliveryInfo
         from app.services.order_service import apply_manual_payment_action, checkout
 
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        order = checkout(
-            conn,
-            session_id=order_session_id,
-            customer_email="timeline@example.com",
-            customer_name="Timeline Buyer",
-            delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
-            notes=None,
-            payment_method="cod",
-        )
-        apply_manual_payment_action(
-            conn,
-            order["id"],
-            "mark_collected",
-            "Collected at delivery",
-            admin_id="admin-1",
-            admin_email="owner@example.com",
-            request_id="req-timeline",
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            order = checkout(
+                conn,
+                session_id=order_session_id,
+                customer_email="timeline@example.com",
+                customer_name="Timeline Buyer",
+                delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
+                notes=None,
+                payment_method="cod",
+            )
+            apply_manual_payment_action(
+                conn,
+                order["id"],
+                "mark_collected",
+                "Collected at delivery",
+                admin_id="admin-1",
+                admin_email="owner@example.com",
+                request_id="req-timeline",
+            )
 
         resp = await admin_order_client.get(f"/v1/admin/orders/{order['id']}")
 
@@ -1643,18 +1618,16 @@ class TestCsrfProtection:
         """POST with application/x-www-form-urlencoded returns 422."""
         sid = str(uuid.uuid4())
         now = datetime.now(UTC)
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
-            (sid, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
-        )
-        conn.execute(
-            "INSERT INTO cart_items (session_id, product_id, quantity) "
-            "VALUES (?, 'lavender-dream', 1)",
-            (sid,),
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO sessions (id, created_at, expires_at) VALUES (%s, %s, %s)",
+                (sid, now, now + timedelta(days=30)),
+            )
+            conn.execute(
+                "INSERT INTO cart_items (session_id, product_id, quantity) "
+                "VALUES (%s, 'lavender-dream', 1)",
+                (sid,),
+            )
 
         settings = get_settings()
         transport = ASGITransport(app=app)
@@ -1671,13 +1644,11 @@ class TestCsrfProtection:
         """Retry payment endpoint uses the same JSON content-type guard."""
         sid = str(uuid.uuid4())
         now = datetime.now(UTC)
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
-            (sid, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO sessions (id, created_at, expires_at) VALUES (%s, %s, %s)",
+                (sid, now, now + timedelta(days=30)),
+            )
 
         settings = get_settings()
         transport = ASGITransport(app=app)
@@ -1698,25 +1669,22 @@ class TestCsrfProtection:
         from app.models.delivery import DeliveryInfo
         from app.services.order_service import checkout
 
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        order = checkout(
-            conn,
-            session_id=order_session_id,
-            customer_email="buyer@example.com",
-            customer_name="Buyer",
-            delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
-            notes=None,
-            payment_method="card",
-        )
         other_sid = str(uuid.uuid4())
         now = datetime.now(UTC)
-        conn.execute(
-            "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
-            (other_sid, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            order = checkout(
+                conn,
+                session_id=order_session_id,
+                customer_email="buyer@example.com",
+                customer_name="Buyer",
+                delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
+                notes=None,
+                payment_method="card",
+            )
+            conn.execute(
+                "INSERT INTO sessions (id, created_at, expires_at) VALUES (%s, %s, %s)",
+                (other_sid, now, now + timedelta(days=30)),
+            )
 
         settings = get_settings()
         transport = ASGITransport(app=app)
@@ -1746,23 +1714,19 @@ class TestCsrfProtection:
         from app.services.order_service import checkout
 
         _set_payment_settings(
-            db_path,
             card_payments_enabled=True,
             pay_on_delivery_enabled=True,
         )
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        order = checkout(
-            conn,
-            session_id=order_session_id,
-            customer_email="buyer@example.com",
-            customer_name="Buyer",
-            delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
-            notes=None,
-            payment_method="card",
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            order = checkout(
+                conn,
+                session_id=order_session_id,
+                customer_email="buyer@example.com",
+                customer_name="Buyer",
+                delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
+                notes=None,
+                payment_method="card",
+            )
 
         settings = get_settings()
         transport = ASGITransport(app=app)
@@ -1783,14 +1747,13 @@ class TestCsrfProtection:
                 )
 
         assert resp.status_code == 404
-        conn = sqlite3.connect(db_path)
-        count = conn.execute(
-            """
-            SELECT COUNT(*) FROM payment_rate_limit_events
-            WHERE action = 'stripe_session_create'
-            """
-        ).fetchone()[0]
-        conn.close()
+        with get_db() as conn:
+            count = conn.execute(
+                """
+                SELECT COUNT(*) AS n FROM payment_rate_limit_events
+                WHERE action = 'stripe_session_create'
+                """
+            ).fetchone()["n"]
         assert count == 0
 
 
@@ -1801,18 +1764,16 @@ class TestAdminMarkPaymentPaid:
         from app.models.delivery import DeliveryInfo
         from app.services.order_service import checkout
 
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        order = checkout(
-            conn,
-            session_id=order_session_id,
-            customer_email="buyer@example.com",
-            customer_name=None,
-            delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
-            notes=None,
-            payment_method="bank_transfer",
-        )
-        conn.close()
+        with get_db() as conn:
+            order = checkout(
+                conn,
+                session_id=order_session_id,
+                customer_email="buyer@example.com",
+                customer_name=None,
+                delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
+                notes=None,
+                payment_method="bank_transfer",
+            )
 
         resp = await admin_order_client.patch(
             f"/v1/admin/orders/{order['id']}/payment",
@@ -1820,12 +1781,11 @@ class TestAdminMarkPaymentPaid:
         )
         assert resp.status_code == 200
 
-        conn = sqlite3.connect(db_path)
-        placed_count = conn.execute(
-            "SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND event = 'placed'",
-            (order["id"],),
-        ).fetchone()[0]
-        conn.close()
+        with get_db() as conn:
+            placed_count = conn.execute(
+                "SELECT COUNT(*) AS n FROM order_emails WHERE order_id = %s AND event = 'placed'",
+                (order["id"],),
+            ).fetchone()["n"]
         assert placed_count == 1
 
 
@@ -1836,18 +1796,16 @@ class TestAdminManualPaymentActions:
         from app.models.delivery import DeliveryInfo
         from app.services.order_service import checkout
 
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        order = checkout(
-            conn,
-            session_id=order_session_id,
-            customer_email="review@example.com",
-            customer_name=None,
-            delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
-            notes=None,
-            payment_method="card",
-        )
-        conn.close()
+        with get_db() as conn:
+            order = checkout(
+                conn,
+                session_id=order_session_id,
+                customer_email="review@example.com",
+                customer_name=None,
+                delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
+                notes=None,
+                payment_method="card",
+            )
 
         resp = await admin_order_client.post(
             f"/v1/admin/orders/{order['id']}/payment-actions",
@@ -1858,14 +1816,12 @@ class TestAdminManualPaymentActions:
         body = resp.json()
         assert body["payment_status"] == "review_required"
 
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        event = conn.execute(
-            "SELECT event_type, provider_status, admin_note, details "
-            "FROM payment_events WHERE order_id = ?",
-            (order["id"],),
-        ).fetchone()
-        conn.close()
+        with get_db() as conn:
+            event = conn.execute(
+                "SELECT event_type, provider_status, admin_note, details "
+                "FROM payment_events WHERE order_id = %s",
+                (order["id"],),
+            ).fetchone()
         assert event["event_type"] == "manual_mark_review"
         assert event["provider_status"] == "review_required"
         assert event["admin_note"] == "Late Stripe success after expiry"
@@ -1877,18 +1833,16 @@ class TestAdminManualPaymentActions:
         from app.models.delivery import DeliveryInfo
         from app.services.order_service import checkout
 
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        order = checkout(
-            conn,
-            session_id=order_session_id,
-            customer_email="blank-note@example.com",
-            customer_name=None,
-            delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
-            notes=None,
-            payment_method="card",
-        )
-        conn.close()
+        with get_db() as conn:
+            order = checkout(
+                conn,
+                session_id=order_session_id,
+                customer_email="blank-note@example.com",
+                customer_name=None,
+                delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
+                notes=None,
+                payment_method="card",
+            )
 
         resp = await admin_order_client.post(
             f"/v1/admin/orders/{order['id']}/payment-actions",
@@ -1896,17 +1850,16 @@ class TestAdminManualPaymentActions:
         )
 
         assert resp.status_code == 422
-        conn = sqlite3.connect(db_path)
-        row = conn.execute(
-            "SELECT payment_status FROM orders WHERE id = ?",
-            (order["id"],),
-        ).fetchone()
-        event_count = conn.execute(
-            "SELECT COUNT(*) FROM payment_events WHERE order_id = ?",
-            (order["id"],),
-        ).fetchone()[0]
-        conn.close()
-        assert row[0] == "pending"
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT payment_status FROM orders WHERE id = %s",
+                (order["id"],),
+            ).fetchone()
+            event_count = conn.execute(
+                "SELECT COUNT(*) AS n FROM payment_events WHERE order_id = %s",
+                (order["id"],),
+            ).fetchone()["n"]
+        assert row["payment_status"] == "pending"
         assert event_count == 0
 
 
@@ -1921,35 +1874,32 @@ class TestAdminStripeRefunds:
         from app.models.delivery import DeliveryInfo
         from app.services.order_service import checkout
 
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        order = checkout(
-            conn,
-            session_id=order_session_id,
-            customer_email="refund@example.com",
-            customer_name=None,
-            delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
-            notes=None,
-            payment_method="card",
-        )
-        conn.execute(
-            """
-            UPDATE orders
-            SET payment_status = 'paid', stripe_payment_intent_id = 'pi_route_refund'
-            WHERE id = ?
-            """,
-            (order["id"],),
-        )
-        conn.execute(
-            """
-            UPDATE payments
-            SET provider_status = 'paid', stripe_payment_intent_id = 'pi_route_refund'
-            WHERE order_id = ? AND provider = 'stripe'
-            """,
-            (order["id"],),
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            order = checkout(
+                conn,
+                session_id=order_session_id,
+                customer_email="refund@example.com",
+                customer_name=None,
+                delivery=DeliveryInfo.model_validate(DELIVERY_OFFICE_ECONT),
+                notes=None,
+                payment_method="card",
+            )
+            conn.execute(
+                """
+                UPDATE orders
+                SET payment_status = 'paid', stripe_payment_intent_id = 'pi_route_refund'
+                WHERE id = %s
+                """,
+                (order["id"],),
+            )
+            conn.execute(
+                """
+                UPDATE payments
+                SET provider_status = 'paid', stripe_payment_intent_id = 'pi_route_refund'
+                WHERE order_id = %s AND provider = 'stripe'
+                """,
+                (order["id"],),
+            )
 
         calls: list[dict] = []
 
@@ -1990,17 +1940,15 @@ class TestAdminAlerts:
     async def test_admin_lists_unread_alerts(self, admin_order_client, db_path):
         from app.services.admin_alert_service import create_admin_alert
 
-        conn = sqlite3.connect(db_path)
-        create_admin_alert(
-            conn,
-            alert_type="payment_requires_review",
-            title="Payment review required",
-            message="Late Stripe success arrived after expiry.",
-            source="stripe",
-            details={"payment_intent_id": "pi_alert"},
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            create_admin_alert(
+                conn,
+                alert_type="payment_requires_review",
+                title="Payment review required",
+                message="Late Stripe success arrived after expiry.",
+                source="stripe",
+                details={"payment_intent_id": "pi_alert"},
+            )
 
         resp = await admin_order_client.get("/v1/admin/alerts?unread_only=true")
 
@@ -2043,13 +1991,12 @@ class TestDurableOutboxIntegration:
         assert resp.status_code == 201
         order_id = resp.json()["id"]
 
-        conn = sqlite3.connect(db_path)
-        rows = conn.execute(
-            "SELECT event, status FROM order_emails WHERE order_id = ? ORDER BY event",
-            (order_id,),
-        ).fetchall()
-        conn.close()
-        events = {r[0]: r[1] for r in rows}
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT event, status FROM order_emails WHERE order_id = %s ORDER BY event",
+                (order_id,),
+            ).fetchall()
+        events = {r["event"]: r["status"] for r in rows}
         # Both queued in the same commit as the order (Decision 25).
         assert events["placed"] == "queued"
         assert events["admin_new_order"] == "queued"
@@ -2074,12 +2021,11 @@ class TestDurableOutboxIntegration:
 
         # The customer 'placed' email was delivered (admin skipped — no address).
         assert any(m["to"] == "buyer@example.com" for m in provider.sent)
-        conn = sqlite3.connect(db_path)
-        placed = conn.execute(
-            "SELECT status FROM order_emails WHERE order_id = ? AND event = 'placed'",
-            (order_id,),
-        ).fetchone()[0]
-        conn.close()
+        with get_db() as conn:
+            placed = conn.execute(
+                "SELECT status FROM order_emails WHERE order_id = %s AND event = 'placed'",
+                (order_id,),
+            ).fetchone()["status"]
         assert placed == "sent"
 
     async def test_ship_queues_and_sends_shipped_email(self, admin_order_client, db_path):
@@ -2103,12 +2049,11 @@ class TestDurableOutboxIntegration:
             json={"status": "shipped", "tracking_number": "77", "tracking_carrier": "econt"},
         )
 
-        conn = sqlite3.connect(db_path)
-        shipped_status = conn.execute(
-            "SELECT status FROM order_emails WHERE order_id = ? AND event = 'shipped'",
-            (order_id,),
-        ).fetchone()[0]
-        conn.close()
+        with get_db() as conn:
+            shipped_status = conn.execute(
+                "SELECT status FROM order_emails WHERE order_id = %s AND event = 'shipped'",
+                (order_id,),
+            ).fetchone()["status"]
         assert shipped_status == "queued"
 
         provider = _RecordingProvider()
@@ -2129,12 +2074,12 @@ class TestDurableOutboxIntegration:
         await admin_order_client.patch(
             f"/v1/admin/orders/{order_id}/status", json={"status": "confirmed"}
         )
-        conn = sqlite3.connect(db_path)
-        count = conn.execute(
-            "SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND event = 'confirmed'",
-            (order_id,),
-        ).fetchone()[0]
-        conn.close()
+        with get_db() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) AS n FROM order_emails "
+                "WHERE order_id = %s AND event = 'confirmed'",
+                (order_id,),
+            ).fetchone()["n"]
         assert count == 0
 
 

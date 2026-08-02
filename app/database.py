@@ -119,6 +119,12 @@ def init_db(url: str) -> None:
     _pool = ConnectionPool(
         conninfo=url,
         min_size=1,
+        # A single request can hold one connection and, within that scope, call
+        # a service that opens its own get_db() (e.g. checkout -> pricing /
+        # delivery_settings_service). psycopg defaults max_size to min_size, so a
+        # size-1 pool dead-locks on the nested acquire. Allow enough headroom for
+        # the deepest nesting plus concurrent requests.
+        max_size=10,
         open=True,
         configure=_configure_connection,
         kwargs={"autocommit": False},

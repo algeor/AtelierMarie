@@ -1,12 +1,27 @@
 """Admin alert service — durable in-app operational alerts."""
 
 import json
-import sqlite3
 import uuid
+from datetime import datetime
+
+import psycopg
+
+# Mirrors app.services.order_service._DT_FMT — kept local to avoid importing the
+# heavy order_service module into this low-level alert helper.
+_DT_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _fmt_ts(value: object) -> str | None:
+    """Normalise a TIMESTAMPTZ column (psycopg datetime) to the canonical string."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.strftime(_DT_FMT)
+    return str(value)
 
 
 def create_admin_alert(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     alert_type: str,
     title: str,
@@ -39,7 +54,7 @@ def create_admin_alert(
 
 
 def list_admin_alerts(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     limit: int = 20,
     unread_only: bool = False,
@@ -47,7 +62,7 @@ def list_admin_alerts(
     """List recent admin alerts for the in-app alert surface."""
     limit = min(max(limit, 1), 100)
     where_clause = "WHERE is_read = 0" if unread_only else ""
-    total = conn.execute(f"SELECT COUNT(*) FROM admin_alerts {where_clause}").fetchone()[0]
+    total = conn.execute(f"SELECT COUNT(*) AS n FROM admin_alerts {where_clause}").fetchone()["n"]
     rows = conn.execute(
         f"""
         SELECT id, alert_type, order_id, source, severity, title, message,
@@ -68,5 +83,6 @@ def list_admin_alerts(
         except json.JSONDecodeError:
             alert["details"] = {}
         alert["is_read"] = bool(alert["is_read"])
+        alert["created_at"] = _fmt_ts(alert.get("created_at"))
         alerts.append(alert)
     return alerts, total

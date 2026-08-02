@@ -1,7 +1,7 @@
 """Payment settings stored in DB; Stripe secrets stay in environment."""
 
 import json
-import sqlite3
+import psycopg
 from typing import Any
 
 from app.config import Settings
@@ -78,19 +78,20 @@ def _decode(raw: str, fallback: Any) -> Any:
         return fallback
 
 
-def ensure_payment_settings(conn: sqlite3.Connection) -> None:
+def ensure_payment_settings(conn: psycopg.Connection) -> None:
     """Insert default payment settings if missing."""
     for key, value in _DEFAULT_SETTINGS.items():
         conn.execute(
             """
-            INSERT OR IGNORE INTO site_settings (key, value, value_type, is_public)
+            INSERT INTO site_settings (key, value, value_type, is_public)
             VALUES (%s, %s, 'json', 1)
+            ON CONFLICT (key) DO NOTHING
             """,
             (key, _encode(value)),
         )
 
 
-def get_payment_settings(conn: sqlite3.Connection) -> dict[str, Any]:
+def get_payment_settings(conn: psycopg.Connection) -> dict[str, Any]:
     """Return payment settings, applying DB defaults lazily."""
     ensure_payment_settings(conn)
     rows = conn.execute(
@@ -119,7 +120,7 @@ def validate_payment_settings_update(data: dict[str, Any], settings: Settings) -
 
 
 def update_payment_settings(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     data: dict[str, Any],
     settings: Settings,
     *,
@@ -157,7 +158,7 @@ def update_payment_settings(
 
 
 def public_payment_settings(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     settings: Settings,
 ) -> dict[str, Any]:
     """Return safe checkout-facing payment method availability."""
@@ -184,7 +185,7 @@ def public_payment_settings(
 
 
 def payment_method_available(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     settings: Settings,
     payment_method: str,
 ) -> bool:
