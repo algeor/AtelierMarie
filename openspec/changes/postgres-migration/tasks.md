@@ -51,13 +51,13 @@
 - [ ] 5.3 Replace email outbox, video transcode, and courier polling claim logic with `FOR UPDATE SKIP LOCKED` or equivalent safe leases.
 - [ ] 5.4 Replace SQLite FTS5 product search queries with Postgres full-text search and SQL-level filters.
 - [ ] 5.5 Verify search behavior for English and Bulgarian locales, category/taxonomy filters, stock filters, sorting, counts, and pagination.
-- [ ] 5.6 Ensure sync Postgres database work in async routes runs through sync endpoints or `run_in_threadpool` boundaries instead of blocking the event loop.
+- [ ] 5.6 Apply the async/DB execution policy (design Decision 14): Bucket A DB handlers become sync `def`; Bucket B (`admin.py`) stays async with DB wrapped in `run_in_threadpool`, and the 17 handlers holding a connection across a courier `await` are reworked to read→close→await→reopen. Size the psycopg pool and Starlette threadpool together as settings with a pool wait timeout and UTC session TZ.
 
 ## 6. Test Infrastructure
 
-- [ ] 6.1 Implement pytest-xdist-safe Postgres isolation with one migrated database per worker and FK-safe cleanup between tests.
-- [ ] 6.2 Update shared fixtures to run Alembic migrations before yielding app clients or service connections.
-- [ ] 6.3 Update test helpers such as `make_session`, `seed_products`, cleanup ordering, and admin clients for psycopg connections.
+- [ ] 6.1 Implement pytest-xdist-safe Postgres isolation (design Decision 15): a session-scoped setup migrates one template database via `alembic upgrade head`, each worker does `CREATE DATABASE <worker_db> TEMPLATE <template>` (name from `PYTEST_XDIST_WORKER`, single-DB fallback when xdist is off), and `_clean_tables` runs `TRUNCATE <curated volatile tables> RESTART IDENTITY CASCADE` — deliberately excluding migration-seed tables so seeded rows persist via the clone.
+- [ ] 6.2 Flip `db_path` / `app` / `db` / `service_db` fixtures from module- to session-scope so the worker DB is created once per worker; insert the `FakeSessionMiddleware` fake-session row via psycopg after clone. Fix any test that relied on a per-module fresh DB.
+- [ ] 6.3 Port test helpers to psycopg: `make_session`, `seed_products`, and the `db`/`service_db` connection source (pooled `dict_row` connections, no `PRAGMA foreign_keys` — always on in Postgres), flipping `?`→`%s` and `datetime('now')`→`CURRENT_TIMESTAMP`. Retire the `_seed_site_banner`/`_seed_delivery_settings`/`_seed_inventory_settings` re-seed calls (truncation no longer touches those tables); for any seeded singleton a test does mutate, add it to the truncate set with an explicit per-table re-seed.
 - [ ] 6.4 Rewrite or remove SQLite-specific tests for PRAGMA, WAL, FTS shadow tables, `sqlite_master`, old SQLite migrations, and file paths.
 - [ ] 6.5 Add Alembic migration tests for fresh database creation and schema-head validation.
 - [ ] 6.6 Add focused Postgres concurrency tests for checkout stock, reservation cleanup, email claims, courier leases, and payment webhook idempotency.
@@ -77,5 +77,6 @@
 - [ ] 8.2 Run backend tests against Postgres.
 - [ ] 8.3 Run frontend tests that depend on API contract changes or mocked DB-backed behavior.
 - [ ] 8.4 Run a local Compose smoke test for backend startup, health, product listing/search, cart, checkout, admin order view, and content pages.
+- [ ] 8.7 Run a stress test (dev-only `locust`/`hey`) at hundreds of concurrent requests against the money path and at least one Bucket-B courier route; confirm bounded p99 latency (no event-loop stall), no pool-exhaustion crash, and graceful queueing. Use the result to finalize pool/threadpool sizes (design Decision 14).
 - [ ] 8.5 Run lint and typecheck after the SQLite imports and type hints are removed or replaced.
 - [ ] 8.6 Confirm `rg "sqlite3|DATABASE_PATH|atelier_marie\\.db|PRAGMA|sqlite_master|BEGIN IMMEDIATE|FTS5|datetime\\('now'\\)|INSERT OR|lastrowid|last_insert_rowid" app tests scripts docs deploy technical_documentation` has no unintended runtime leftovers.
