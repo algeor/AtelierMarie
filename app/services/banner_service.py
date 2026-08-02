@@ -51,14 +51,14 @@ def _get_row(conn: sqlite3.Connection) -> sqlite3.Row:
     Used by the admin (read/write) paths only. The public read path must NOT
     seed — see `get_public_banner`.
     """
-    row = conn.execute("SELECT * FROM site_banners WHERE id = ?", (_BANNER_ID,)).fetchone()
+    row = conn.execute("SELECT * FROM site_banners WHERE id = %s", (_BANNER_ID,)).fetchone()
     if row is None:
         conn.execute(
             "INSERT OR IGNORE INTO site_banners (id, is_enabled, version, updated_at) "
-            "VALUES (?, 0, 1, ?)",
+            "VALUES (%s, 0, 1, %s)",
             (_BANNER_ID, pricing.now_utc()),
         )
-        row = conn.execute("SELECT * FROM site_banners WHERE id = ?", (_BANNER_ID,)).fetchone()
+        row = conn.execute("SELECT * FROM site_banners WHERE id = %s", (_BANNER_ID,)).fetchone()
     return row
 
 
@@ -97,9 +97,9 @@ def update_banner(data: dict) -> dict:
         version_sql = "version + 1" if content_changed else "version"
 
         conn.execute(
-            "UPDATE site_banners SET message_en = ?, message_bg = ?, link_label_en = ?, "
-            "link_label_bg = ?, link_url = ?, is_enabled = ?, starts_at = ?, ends_at = ?, "
-            f"version = {version_sql}, updated_at = ? WHERE id = ?",  # noqa: S608 - literal only
+            "UPDATE site_banners SET message_en = %s, message_bg = %s, link_label_en = %s, "
+            "link_label_bg = %s, link_url = %s, is_enabled = %s, starts_at = %s, ends_at = %s, "
+            f"version = {version_sql}, updated_at = %s WHERE id = %s",  # noqa: S608 - literal only
             (
                 new_values["message_en"],
                 new_values["message_bg"],
@@ -136,7 +136,7 @@ def get_public_banner(locale: str = "en") -> dict | None:
     public read never writes: a missing singleton is treated as "no banner".
     """
     with get_db() as conn:
-        row = conn.execute("SELECT * FROM site_banners WHERE id = ?", (_BANNER_ID,)).fetchone()
+        row = conn.execute("SELECT * FROM site_banners WHERE id = %s", (_BANNER_ID,)).fetchone()
 
     if row is None or not row["is_enabled"]:
         return None

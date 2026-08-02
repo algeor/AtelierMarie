@@ -29,7 +29,12 @@ _LEDGER_DEFAULT_DATE_BASIS: dict[str, str] = {
 _LEDGER_ALLOWED_DATE_BASIS: dict[str, set[str]] = {
     "sales": {"order_date"},
     "payments": {"event_date"},
-    "stripe_payouts": {"provider_created_date", "available_date", "payout_effective_date", "payout_arrival_date"},
+    "stripe_payouts": {
+        "provider_created_date",
+        "available_date",
+        "payout_effective_date",
+        "payout_arrival_date",
+    },
     "cod_settlements": {"order_date", "settlement_date"},
     "refunds": {"created_date", "confirmed_date"},
     "courier_claims": {"created_date", "updated_date"},
@@ -52,7 +57,7 @@ def _json_loads(value: str | None, default: Any = None) -> Any:
 
 
 def _get_period(conn: sqlite3.Connection, period_id: str) -> sqlite3.Row:
-    row = conn.execute("SELECT * FROM finance_periods WHERE id = ?", (period_id,)).fetchone()
+    row = conn.execute("SELECT * FROM finance_periods WHERE id = %s", (period_id,)).fetchone()
     if row is None:
         raise FinancePeriodError(404, "FINANCE_PERIOD_NOT_FOUND", "Finance period not found.")
     return row
@@ -98,21 +103,23 @@ def _paginate(rows: list[dict[str, object]], *, page: int, limit: int) -> list[d
     return rows[start : start + limit]
 
 
-def _document_status(conn: sqlite3.Connection, *, order_id: str | None, refund_id: str | None = None) -> str:
+def _document_status(
+    conn: sqlite3.Connection, *, order_id: str | None, refund_id: str | None = None
+) -> str:
     if not order_id and not refund_id:
         return "not_applicable"
     clauses: list[str] = []
     params: list[str] = []
     if order_id:
-        clauses.append("order_id = ?")
+        clauses.append("order_id = %s")
         params.append(order_id)
     if refund_id:
-        clauses.append("refund_id = ?")
+        clauses.append("refund_id = %s")
         params.append(refund_id)
     row = conn.execute(
         f"""
         SELECT status FROM accounting_documents
-        WHERE ({' OR '.join(clauses)}) AND status NOT IN ('void', 'missing')
+        WHERE ({" OR ".join(clauses)}) AND status NOT IN ('void', 'missing')
         ORDER BY issue_date DESC, created_at DESC
         LIMIT 1
         """,  # noqa: S608
@@ -130,7 +137,7 @@ def _sales_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str,
                oi.product_id, oi.product_name, oi.price_cents, oi.quantity
         FROM orders o
         JOIN order_items oi ON oi.order_id = o.id
-        WHERE substr(o.created_at, 1, 10) BETWEEN ? AND ?
+        WHERE substr(o.created_at, 1, 10) BETWEEN %s AND %s
           AND o.status != 'cancelled'
         ORDER BY o.created_at, o.id, oi.product_id
         """,
@@ -172,7 +179,7 @@ def _sales_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str,
                payment_method, accounting_currency AS currency, shipping_cents,
                accounting_snapshot_json
         FROM orders
-        WHERE substr(created_at, 1, 10) BETWEEN ? AND ?
+        WHERE substr(created_at, 1, 10) BETWEEN %s AND %s
           AND status != 'cancelled'
           AND shipping_cents > 0
         ORDER BY created_at, id
@@ -214,7 +221,7 @@ def _sales_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str,
                o.payment_method, o.accounting_currency AS currency, r.amount_cents
         FROM payment_refunds r
         JOIN orders o ON o.id = r.order_id
-        WHERE substr(o.created_at, 1, 10) BETWEEN ? AND ?
+        WHERE substr(o.created_at, 1, 10) BETWEEN %s AND %s
           AND r.status = 'succeeded'
         ORDER BY COALESCE(r.confirmed_at, r.created_at), r.id
         """,
@@ -261,7 +268,7 @@ def _payment_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[st
                'payment' AS row_type, 'unreviewed' AS reconciliation_status
         FROM payments p
         JOIN orders o ON o.id = p.order_id
-        WHERE substr(p.created_at, 1, 10) BETWEEN ? AND ?
+        WHERE substr(p.created_at, 1, 10) BETWEEN %s AND %s
         ORDER BY p.created_at, p.id
         """,
         (period["period_start"], period["period_end"]),
@@ -278,7 +285,7 @@ def _payment_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[st
                'refund' AS row_type, 'unreviewed' AS reconciliation_status
         FROM payment_refunds r
         JOIN orders o ON o.id = r.order_id
-        WHERE substr(COALESCE(r.confirmed_at, r.created_at), 1, 10) BETWEEN ? AND ?
+        WHERE substr(COALESCE(r.confirmed_at, r.created_at), 1, 10) BETWEEN %s AND %s
         ORDER BY COALESCE(r.confirmed_at, r.created_at), r.id
         """,
         (period["period_start"], period["period_end"]),
@@ -319,7 +326,9 @@ def _cod_rows(conn: sqlite3.Connection, _period: sqlite3.Row) -> list[dict[str, 
     return rows
 
 
-def _report_rows(report_func: Callable[[sqlite3.Connection], list[dict[str, Any]]]) -> Callable[[sqlite3.Connection, sqlite3.Row], list[dict[str, object]]]:
+def _report_rows(
+    report_func: Callable[[sqlite3.Connection], list[dict[str, Any]]],
+) -> Callable[[sqlite3.Connection, sqlite3.Row], list[dict[str, object]]]:
     def adapter(conn: sqlite3.Connection, _period: sqlite3.Row) -> list[dict[str, object]]:
         rows: list[dict[str, object]] = []
         for row in report_func(conn):
@@ -395,7 +404,7 @@ def _product_cost_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[di
             ORDER BY pc2.effective_date DESC, pc2.created_at DESC
             LIMIT 1
         )
-        WHERE substr(o.created_at, 1, 10) BETWEEN ? AND ?
+        WHERE substr(o.created_at, 1, 10) BETWEEN %s AND %s
           AND o.status != 'cancelled'
         ORDER BY o.created_at, o.id, oi.product_id
         """,
@@ -436,7 +445,9 @@ def _product_cost_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[di
     return ledger
 
 
-def _inventory_movement_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, object]]:
+def _inventory_movement_rows(
+    conn: sqlite3.Connection, period: sqlite3.Row
+) -> list[dict[str, object]]:
     settings = conn.execute("SELECT * FROM inventory_settings WHERE id = 'default'").fetchone()
     official = bool(settings and settings["valuation_enabled"] and settings["accountant_reviewed"])
     rows = conn.execute(
@@ -455,7 +466,7 @@ def _inventory_movement_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> l
         LEFT JOIN materials m ON im.item_type = 'material' AND m.id = im.item_id
         LEFT JOIN products p ON im.item_type = 'finished_good' AND p.id = im.item_id
         LEFT JOIN inventory_valuation_layers vl ON vl.movement_id = im.id
-        WHERE substr(im.occurred_at, 1, 10) BETWEEN ? AND ?
+        WHERE substr(im.occurred_at, 1, 10) BETWEEN %s AND %s
         ORDER BY im.occurred_at, im.created_at, im.id
         """,
         (period["period_start"], period["period_end"]),
@@ -472,7 +483,9 @@ def _inventory_movement_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> l
     ]
 
 
-_LEDGER_BUILDERS: dict[str, Callable[[sqlite3.Connection, sqlite3.Row], list[dict[str, object]]]] = {
+_LEDGER_BUILDERS: dict[
+    str, Callable[[sqlite3.Connection, sqlite3.Row], list[dict[str, object]]]
+] = {
     "sales": _sales_rows,
     "payments": _payment_rows,
     "stripe_payouts": _stripe_payout_rows,

@@ -29,7 +29,7 @@ def anonymize_order_emails(order_id: str, conn: sqlite3.Connection | None = None
 
     def _run(c: sqlite3.Connection) -> int:
         cursor = c.execute(
-            "UPDATE order_emails SET recipient = ? WHERE order_id = ? AND recipient != ?",
+            "UPDATE order_emails SET recipient = %s WHERE order_id = %s AND recipient != %s",
             (_ERASED_PLACEHOLDER, order_id, _ERASED_PLACEHOLDER),
         )
         return cursor.rowcount
@@ -50,7 +50,7 @@ def age_out_suppressed_emails(older_than_days: int = 365) -> int:
     """
     with get_db() as conn:
         cursor = conn.execute(
-            "DELETE FROM suppressed_emails WHERE suppressed_at < datetime('now', ?)",
+            "DELETE FROM suppressed_emails WHERE suppressed_at < datetime('now', %s)",
             (f"-{int(older_than_days)} days",),
         )
         count = cursor.rowcount

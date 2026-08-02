@@ -40,9 +40,7 @@ class LedgerManagedStockEditError(Exception):
 
     def __init__(self, product_id: str) -> None:
         self.product_id = product_id
-        super().__init__(
-            "Ledger-managed product stock must be changed through inventory movements"
-        )
+        super().__init__("Ledger-managed product stock must be changed through inventory movements")
 
 
 BULK_DISCOUNT_TARGET_LIMIT = 500
@@ -126,7 +124,7 @@ def _attach_admin_inventory_context(conn: sqlite3.Connection, products: list[dic
     if not products:
         return
     product_ids = [product["id"] for product in products]
-    placeholders = ", ".join("?" for _ in product_ids)
+    placeholders = ", ".join("%s" for _ in product_ids)
 
     profiles = {
         row["product_id"]: row
@@ -305,22 +303,22 @@ def list_products(
     params: list = []
 
     if product_type:
-        conditions.append("product_type_slug = ?")
+        conditions.append("product_type_slug = %s")
         params.append(product_type)
 
     if category:
-        conditions.append("category_slug = ?")
+        conditions.append("category_slug = %s")
         params.append(category)
 
     if labels:
         # De-duplicate so the HAVING COUNT(DISTINCT) = ? equality holds even if a
         # caller passes repeated slugs (the route already de-dupes; belt-and-braces).
         unique_labels = list(dict.fromkeys(labels))
-        placeholders = ", ".join("?" for _ in unique_labels)
+        placeholders = ", ".join("%s" for _ in unique_labels)
         conditions.append(
             f"id IN (SELECT product_id FROM product_label_assignments "  # noqa: S608
             f"WHERE label_slug IN ({placeholders}) "
-            "GROUP BY product_id HAVING COUNT(DISTINCT label_slug) = ?)"
+            "GROUP BY product_id HAVING COUNT(DISTINCT label_slug) = %s)"
         )
         params.extend(unique_labels)
         params.append(len(unique_labels))
@@ -361,7 +359,7 @@ def list_products(
             order_by = sort_map.get(sort or "", "created_at DESC")
             rows = conn.execute(
                 f"SELECT * FROM products WHERE {where_clause} "  # noqa: S608
-                f"ORDER BY {order_by} LIMIT ? OFFSET ?",
+                f"ORDER BY {order_by} LIMIT %s OFFSET %s",
                 [*params, limit, offset],
             ).fetchall()
 
@@ -389,7 +387,7 @@ def get_product(product_id: str, *, locale: Locale = "en") -> dict:
     """
     with get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM products WHERE id = ? AND is_active = 1",
+            "SELECT * FROM products WHERE id = %s AND is_active = 1",
             (product_id,),
         ).fetchone()
 
@@ -412,7 +410,7 @@ def get_product_admin(product_id: str) -> dict:
     """
     with get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM products WHERE id = ?",
+            "SELECT * FROM products WHERE id = %s",
             (product_id,),
         ).fetchone()
 
@@ -436,7 +434,7 @@ def product_exists(product_id: str) -> bool:
     """
     with get_db() as conn:
         return (
-            conn.execute("SELECT 1 FROM products WHERE id = ?", (product_id,)).fetchone()
+            conn.execute("SELECT 1 FROM products WHERE id = %s", (product_id,)).fetchone()
             is not None
         )
 
@@ -454,7 +452,7 @@ def list_products_admin(
         total = count_row["cnt"]
 
         rows = conn.execute(
-            "SELECT * FROM products ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            "SELECT * FROM products ORDER BY created_at DESC LIMIT %s OFFSET %s",
             (limit, offset),
         ).fetchall()
 
@@ -542,7 +540,7 @@ def create_product(data: dict) -> dict:
             now,
             now,
         ]
-        placeholders = ", ".join("?" for _ in columns)
+        placeholders = ", ".join("%s" for _ in columns)
         col_str = ", ".join(columns)
 
         try:
@@ -557,7 +555,7 @@ def create_product(data: dict) -> dict:
 
         taxonomy_service.replace_product_labels(conn, product_id, label_slugs)
 
-        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        row = conn.execute("SELECT * FROM products WHERE id = %s", (product_id,)).fetchone()
         product = _row_to_dict(row)
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
         _attach_admin_inventory_context(conn, [product])
@@ -586,7 +584,7 @@ def upsert_product(product_id: str, data: dict) -> dict:
             SELECT p.stock, COALESCE(pip.inventory_mode, 'legacy') AS inventory_mode
             FROM products p
             LEFT JOIN product_inventory_profiles pip ON pip.product_id = p.id
-            WHERE p.id = ?
+            WHERE p.id = %s
             """,
             (product_id,),
         ).fetchone()
@@ -652,7 +650,7 @@ def upsert_product(product_id: str, data: dict) -> dict:
                 update_parts.append(f"{col} = excluded.{col}")
 
         col_str = ", ".join(insert_cols)
-        placeholders = ", ".join("?" for _ in insert_cols)
+        placeholders = ", ".join("%s" for _ in insert_cols)
         update_str = ", ".join(update_parts)
         sql = (
             f"INSERT INTO products ({col_str}) VALUES ({placeholders}) "  # noqa: S608
@@ -664,7 +662,7 @@ def upsert_product(product_id: str, data: dict) -> dict:
         if labels is not None:
             taxonomy_service.replace_product_labels(conn, product_id, labels)
 
-        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        row = conn.execute("SELECT * FROM products WHERE id = %s", (product_id,)).fetchone()
         product = _row_to_dict(row)
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
         _attach_admin_inventory_context(conn, [product])
@@ -698,7 +696,7 @@ def update_product(product_id: str, data: dict) -> dict:
                    COALESCE(pip.inventory_mode, 'legacy') AS inventory_mode
             FROM products p
             LEFT JOIN product_inventory_profiles pip ON pip.product_id = p.id
-            WHERE p.id = ?
+            WHERE p.id = %s
             """,
             (product_id,),
         ).fetchone()
@@ -785,9 +783,9 @@ def update_product(product_id: str, data: dict) -> dict:
             updates["translation_stale_bg"] = 0
 
         if updates:
-            set_clause = ", ".join(f"{col} = ?" for col in updates)
+            set_clause = ", ".join(f"{col} = %s" for col in updates)
             conn.execute(
-                f"UPDATE products SET {set_clause} WHERE id = ?",  # noqa: S608
+                f"UPDATE products SET {set_clause} WHERE id = %s",  # noqa: S608
                 [*updates.values(), product_id],
             )
 
@@ -797,11 +795,11 @@ def update_product(product_id: str, data: dict) -> dict:
                 # A label-only change still modifies the product; touch the row so
                 # the products_updated_at trigger refreshes updated_at.
                 conn.execute(
-                    "UPDATE products SET updated_at = updated_at WHERE id = ?",
+                    "UPDATE products SET updated_at = updated_at WHERE id = %s",
                     (product_id,),
                 )
 
-        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        row = conn.execute("SELECT * FROM products WHERE id = %s", (product_id,)).fetchone()
         product = _row_to_dict(row)
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
         _attach_admin_inventory_context(conn, [product])
@@ -818,7 +816,7 @@ def deactivate_product(product_id: str) -> dict:
     """
     with get_db() as conn:
         # Check existence first (for 404)
-        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        row = conn.execute("SELECT * FROM products WHERE id = %s", (product_id,)).fetchone()
         if row is None:
             raise NotFoundError(f"Product not found: {product_id}")
 
@@ -826,11 +824,11 @@ def deactivate_product(product_id: str) -> dict:
 
     with get_db() as conn:
         conn.execute(
-            "UPDATE products SET is_active = 0 WHERE id = ?",
+            "UPDATE products SET is_active = 0 WHERE id = %s",
             (product_id,),
         )
 
-        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        row = conn.execute("SELECT * FROM products WHERE id = %s", (product_id,)).fetchone()
         product = _row_to_dict(row)
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
         _attach_admin_inventory_context(conn, [product])
@@ -853,24 +851,24 @@ def _build_search_conditions(
 
     Returns (conditions, params) covering only the WHERE clause (no LIMIT/OFFSET).
     """
-    conditions = [f"{fts_table} MATCH ?", "p.is_active = 1"]
+    conditions = [f"{fts_table} MATCH %s", "p.is_active = 1"]
     params: list = [sanitized]
 
     if product_type:
-        conditions.append("p.product_type_slug = ?")
+        conditions.append("p.product_type_slug = %s")
         params.append(product_type)
 
     if category:
-        conditions.append("p.category_slug = ?")
+        conditions.append("p.category_slug = %s")
         params.append(category)
 
     if labels:
         unique_labels = list(dict.fromkeys(labels))
-        placeholders = ", ".join("?" for _ in unique_labels)
+        placeholders = ", ".join("%s" for _ in unique_labels)
         conditions.append(
             f"p.id IN (SELECT product_id FROM product_label_assignments "  # noqa: S608
             f"WHERE label_slug IN ({placeholders}) "
-            "GROUP BY product_id HAVING COUNT(DISTINCT label_slug) = ?)"
+            "GROUP BY product_id HAVING COUNT(DISTINCT label_slug) = %s)"
         )
         params.extend(unique_labels)
         params.append(len(unique_labels))
@@ -991,7 +989,7 @@ def search_products(
                 JOIN products p ON p.rowid = fts.rowid
                 WHERE {where_clause}
                 ORDER BY rank
-                LIMIT ? OFFSET ?
+                LIMIT %s OFFSET %s
                 """,  # noqa: S608
                 [*params, limit, offset],
             ).fetchall()
@@ -1021,7 +1019,7 @@ def get_low_stock_products(threshold: int = 5) -> list[dict]:
         raise ValueError("Threshold must be non-negative")
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT * FROM products WHERE stock <= ? AND is_active = 1",
+            "SELECT * FROM products WHERE stock <= %s AND is_active = 1",
             (threshold,),
         ).fetchall()
         products = [_row_to_dict(r) for r in rows]
@@ -1045,17 +1043,17 @@ def _resolve_filter_target_ids(conn: sqlite3.Connection, filt: dict) -> list[str
     q = (filt.get("q") or "").strip()
     if q:
         conditions.append(
-            "(name_en LIKE ? ESCAPE '\\' OR name_bg LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')"
+            "(name_en LIKE %s ESCAPE '\\' OR name_bg LIKE %s ESCAPE '\\' OR id LIKE %s ESCAPE '\\')"
         )
         # Escape LIKE wildcards so a query like "50%" matches literally.
         escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         like = f"%{escaped}%"
         params.extend([like, like, like])
     if filt.get("category"):
-        conditions.append("category_slug = ?")
+        conditions.append("category_slug = %s")
         params.append(filt["category"])
     if filt.get("is_active") is not None:
-        conditions.append("is_active = ?")
+        conditions.append("is_active = %s")
         params.append(1 if filt["is_active"] else 0)
     if filt.get("in_stock"):
         conditions.append("stock > 0")
@@ -1141,7 +1139,7 @@ def bulk_update_discount(
             try:
                 existing = conn.execute(
                     "SELECT discount_percent, discount_starts_at, discount_ends_at "
-                    "FROM products WHERE id = ?",
+                    "FROM products WHERE id = %s",
                     (pid,),
                 ).fetchone()
                 if existing is None:
@@ -1149,8 +1147,8 @@ def bulk_update_discount(
 
                 merged = merge_discount_update(existing, patch)
                 conn.execute(
-                    "UPDATE products SET discount_percent = ?, discount_starts_at = ?, "
-                    "discount_ends_at = ? WHERE id = ?",
+                    "UPDATE products SET discount_percent = %s, discount_starts_at = %s, "
+                    "discount_ends_at = %s WHERE id = %s",
                     (
                         merged["discount_percent"],
                         merged["discount_starts_at"],
@@ -1204,7 +1202,7 @@ def conservative_clear_discount(
             try:
                 row = conn.execute(
                     "SELECT discount_percent, discount_starts_at, discount_ends_at "
-                    "FROM products WHERE id = ?",
+                    "FROM products WHERE id = %s",
                     (pid,),
                 ).fetchone()
                 if row is None:
@@ -1231,7 +1229,7 @@ def conservative_clear_discount(
 
                 conn.execute(
                     "UPDATE products SET discount_percent = NULL, "
-                    "discount_starts_at = NULL, discount_ends_at = NULL WHERE id = ?",
+                    "discount_starts_at = NULL, discount_ends_at = NULL WHERE id = %s",
                     (pid,),
                 )
                 conn.execute("RELEASE clear_item")

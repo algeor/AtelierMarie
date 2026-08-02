@@ -117,7 +117,7 @@ def suppress_email(email: str, reason: str) -> None:
     no-op), so redelivered webhooks don't error (email-deliverability spec)."""
     with get_db() as conn:
         conn.execute(
-            "INSERT OR IGNORE INTO suppressed_emails (email, reason) VALUES (?, ?)",
+            "INSERT OR IGNORE INTO suppressed_emails (email, reason) VALUES (%s, %s)",
             (email, reason),
         )
 

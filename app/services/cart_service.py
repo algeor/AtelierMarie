@@ -169,7 +169,7 @@ def get_cart(conn: sqlite3.Connection, session_id: str, locale: Locale = "en") -
                p.created_at, p.updated_at
         FROM cart_items ci
         LEFT JOIN products p ON ci.product_id = p.id
-        WHERE ci.session_id = ?
+        WHERE ci.session_id = %s
         ORDER BY ci.added_at
         """,  # noqa: S608 - locale selects fixed SQL expressions above.
         (session_id,),
@@ -288,7 +288,7 @@ def add_item(
     try:
         # Validate product exists and is active
         product = conn.execute(
-            "SELECT id, stock, is_active FROM products WHERE id = ?",
+            "SELECT id, stock, is_active FROM products WHERE id = %s",
             (product_id,),
         ).fetchone()
 
@@ -298,7 +298,7 @@ def add_item(
 
         # Check existing cart quantity
         existing = conn.execute(
-            "SELECT quantity FROM cart_items WHERE session_id = ? AND product_id = ?",
+            "SELECT quantity FROM cart_items WHERE session_id = %s AND product_id = %s",
             (session_id, product_id),
         ).fetchone()
 
@@ -322,7 +322,7 @@ def add_item(
         # Cart full check (only for new items)
         if not existing:
             distinct_count = conn.execute(
-                "SELECT COUNT(*) FROM cart_items WHERE session_id = ?",
+                "SELECT COUNT(*) FROM cart_items WHERE session_id = %s",
                 (session_id,),
             ).fetchone()[0]
 
@@ -334,12 +334,12 @@ def add_item(
         created = existing is None
         if created:
             conn.execute(
-                "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, ?, ?)",
+                "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (%s, %s, %s)",
                 (session_id, product_id, quantity),
             )
         else:
             conn.execute(
-                "UPDATE cart_items SET quantity = ? WHERE session_id = ? AND product_id = ?",
+                "UPDATE cart_items SET quantity = %s WHERE session_id = %s AND product_id = %s",
                 (new_total_qty, session_id, product_id),
             )
 
@@ -379,7 +379,7 @@ def update_quantity(
     try:
         # Validate item exists in cart
         existing = conn.execute(
-            "SELECT quantity FROM cart_items WHERE session_id = ? AND product_id = ?",
+            "SELECT quantity FROM cart_items WHERE session_id = %s AND product_id = %s",
             (session_id, product_id),
         ).fetchone()
 
@@ -394,7 +394,7 @@ def update_quantity(
 
         # Stock validation (absolute qty vs stock) — also reject deleted/inactive products
         product = conn.execute(
-            "SELECT stock, is_active FROM products WHERE id = ?",
+            "SELECT stock, is_active FROM products WHERE id = %s",
             (product_id,),
         ).fetchone()
 
@@ -411,7 +411,7 @@ def update_quantity(
             )
 
         conn.execute(
-            "UPDATE cart_items SET quantity = ? WHERE session_id = ? AND product_id = ?",
+            "UPDATE cart_items SET quantity = %s WHERE session_id = %s AND product_id = %s",
             (quantity, session_id, product_id),
         )
         conn.execute("COMMIT")
@@ -446,7 +446,7 @@ def remove_item(
     Uses a single DELETE + rowcount check for atomicity (no TOCTOU window).
     """
     cursor = conn.execute(
-        "DELETE FROM cart_items WHERE session_id = ? AND product_id = ?",
+        "DELETE FROM cart_items WHERE session_id = %s AND product_id = %s",
         (session_id, product_id),
     )
 

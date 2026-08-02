@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.constants import VIDEO_SWEEPER_INTERVAL_SECONDS
-from app.database import cleanup_expired_sessions, get_db, init_db
+from app.database import cleanup_expired_sessions, close_db, get_db, init_db
 from app.exceptions import register_exception_handlers
 from app.logging_config import configure_logging
 from app.middleware.request_id import RequestIdMiddleware
@@ -132,7 +132,7 @@ def _cancel_abandoned_card_orders() -> int:
             WHERE payment_method = 'card'
               AND payment_status = 'review_required'
               AND reserved_until IS NOT NULL
-              AND reserved_until < datetime('now')
+              AND reserved_until < CURRENT_TIMESTAMP
               AND status IN ('pending', 'confirmed')
             """
         ).fetchall()
@@ -142,7 +142,7 @@ def _cancel_abandoned_card_orders() -> int:
             payment_row = conn.execute(
                 """
                 SELECT id FROM payments
-                WHERE order_id = ? AND provider = 'stripe'
+                WHERE order_id = %s AND provider = 'stripe'
                 ORDER BY created_at DESC
                 LIMIT 1
                 """,
@@ -155,8 +155,8 @@ def _cancel_abandoned_card_orders() -> int:
                 """
                 UPDATE orders
                 SET payment_status = 'failed', reserved_until = NULL,
-                    updated_at = datetime('now')
-                WHERE id = ?
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s
                 """,
                 (order_id,),
             )
@@ -164,8 +164,8 @@ def _cancel_abandoned_card_orders() -> int:
                 conn.execute(
                     """
                     UPDATE payments
-                    SET provider_status = 'failed', updated_at = datetime('now')
-                    WHERE id = ?
+                    SET provider_status = 'failed', updated_at = CURRENT_TIMESTAMP
+                    WHERE id = %s
                     """,
                     (payment_id,),
                 )
@@ -174,8 +174,8 @@ def _cancel_abandoned_card_orders() -> int:
                 INSERT INTO payment_events (
                     id, order_id, payment_id, event_type, source, provider,
                     provider_status, processing_status, details
-                ) VALUES (?, ?, ?, 'reservation_closed', 'system', 'stripe',
-                          'failed', 'processed', ?)
+                ) VALUES (%s, %s, %s, 'reservation_closed', 'system', 'stripe',
+                          'failed', 'processed', %s)
                 """,
                 (
                     str(uuid.uuid4()),
@@ -208,7 +208,7 @@ def _cancel_abandoned_card_orders() -> int:
             WHERE payment_method = 'card'
               AND payment_status IN ('pending', 'failed')
               AND (
-                  (reserved_until IS NOT NULL AND reserved_until < datetime('now'))
+                  (reserved_until IS NOT NULL AND reserved_until < CURRENT_TIMESTAMP)
                   OR created_at < datetime('now', '-24 hours')
               )
               AND status NOT IN ('cancelled', 'shipped', 'delivered', 'return_in_transit', 'returned')
@@ -221,7 +221,7 @@ def _cancel_abandoned_card_orders() -> int:
             payment_row = conn.execute(
                 """
                 SELECT id FROM payments
-                WHERE order_id = ? AND provider = 'stripe'
+                WHERE order_id = %s AND provider = 'stripe'
                 ORDER BY created_at DESC
                 LIMIT 1
                 """,
@@ -234,9 +234,9 @@ def _cancel_abandoned_card_orders() -> int:
             conn.execute(
                 """
                 UPDATE orders
-                SET payment_status = 'review_required', reserved_until = ?,
-                    updated_at = datetime('now')
-                WHERE id = ?
+                SET payment_status = 'review_required', reserved_until = %s,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s
                 """,
                 (review_until, order_id),
             )
@@ -244,8 +244,8 @@ def _cancel_abandoned_card_orders() -> int:
                 conn.execute(
                     """
                     UPDATE payments
-                    SET provider_status = 'review_required', updated_at = datetime('now')
-                    WHERE id = ?
+                    SET provider_status = 'review_required', updated_at = CURRENT_TIMESTAMP
+                    WHERE id = %s
                     """,
                     (payment_id,),
                 )
@@ -254,8 +254,8 @@ def _cancel_abandoned_card_orders() -> int:
                 INSERT INTO payment_events (
                     id, order_id, payment_id, event_type, source, provider,
                     provider_status, processing_status, details
-                ) VALUES (?, ?, ?, 'reservation_expired', 'system', 'stripe',
-                          'review_required', 'requires_review', ?)
+                ) VALUES (%s, %s, %s, 'reservation_expired', 'system', 'stripe',
+                          'review_required', 'requires_review', %s)
                 """,
                 (
                     str(uuid.uuid4()),
@@ -403,6 +403,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             await asyncio.wait_for(background_task, timeout=5.0)
         except (TimeoutError, asyncio.CancelledError):
             pass
+    close_db()
 
 
 def create_app() -> FastAPI:

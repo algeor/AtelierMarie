@@ -59,9 +59,13 @@ def _document_from_row(row: sqlite3.Row) -> AccountingDocumentResponse:
 
 
 def _get_document_row(conn: sqlite3.Connection, document_id: str) -> sqlite3.Row:
-    row = conn.execute("SELECT * FROM accounting_documents WHERE id = ?", (document_id,)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM accounting_documents WHERE id = %s", (document_id,)
+    ).fetchone()
     if row is None:
-        raise FinancePeriodError(404, "ACCOUNTING_DOCUMENT_NOT_FOUND", "Accounting document not found.")
+        raise FinancePeriodError(
+            404, "ACCOUNTING_DOCUMENT_NOT_FOUND", "Accounting document not found."
+        )
     return row
 
 
@@ -74,12 +78,29 @@ def _validate_document(conn: sqlite3.Connection, body: AccountingDocumentRequest
         )
     if body.original_document_id:
         _get_document_row(conn, body.original_document_id)
-    if body.order_id and conn.execute("SELECT 1 FROM orders WHERE id = ?", (body.order_id,)).fetchone() is None:
+    if (
+        body.order_id
+        and conn.execute("SELECT 1 FROM orders WHERE id = %s", (body.order_id,)).fetchone() is None
+    ):
         raise FinancePeriodError(404, "ORDER_NOT_FOUND", "Linked order not found.")
-    if body.refund_id and conn.execute("SELECT 1 FROM payment_refunds WHERE id = ?", (body.refund_id,)).fetchone() is None:
+    if (
+        body.refund_id
+        and conn.execute(
+            "SELECT 1 FROM payment_refunds WHERE id = %s", (body.refund_id,)
+        ).fetchone()
+        is None
+    ):
         raise FinancePeriodError(404, "REFUND_NOT_FOUND", "Linked refund not found.")
-    if body.period_id and conn.execute("SELECT 1 FROM finance_periods WHERE id = ?", (body.period_id,)).fetchone() is None:
-        raise FinancePeriodError(404, "FINANCE_PERIOD_NOT_FOUND", "Linked finance period not found.")
+    if (
+        body.period_id
+        and conn.execute(
+            "SELECT 1 FROM finance_periods WHERE id = %s", (body.period_id,)
+        ).fetchone()
+        is None
+    ):
+        raise FinancePeriodError(
+            404, "FINANCE_PERIOD_NOT_FOUND", "Linked finance period not found."
+        )
 
 
 def list_documents(
@@ -92,13 +113,13 @@ def list_documents(
     clauses: list[str] = []
     params: list[str] = []
     if order_id:
-        clauses.append("order_id = ?")
+        clauses.append("order_id = %s")
         params.append(order_id)
     if refund_id:
-        clauses.append("refund_id = ?")
+        clauses.append("refund_id = %s")
         params.append(refund_id)
     if period_id:
-        clauses.append("period_id = ?")
+        clauses.append("period_id = %s")
         params.append(period_id)
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     with get_db() as conn:
@@ -133,7 +154,7 @@ def create_document(
                 tax_amount_cents, gross_amount_cents, vat_summary_json,
                 original_document_id, file_reference, status, notes,
                 created_by_admin_id, updated_by_admin_id, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 document_id,
@@ -191,12 +212,12 @@ def update_document(
         conn.execute(
             """
             UPDATE accounting_documents
-            SET document_type = ?, source_system = ?, document_number = ?, issue_date = ?,
-                order_id = ?, refund_id = ?, period_id = ?, currency = ?,
-                net_amount_cents = ?, tax_amount_cents = ?, gross_amount_cents = ?,
-                vat_summary_json = ?, original_document_id = ?, file_reference = ?,
-                status = ?, notes = ?, updated_by_admin_id = ?, updated_at = ?
-            WHERE id = ?
+            SET document_type = %s, source_system = %s, document_number = %s, issue_date = %s,
+                order_id = %s, refund_id = %s, period_id = %s, currency = %s,
+                net_amount_cents = %s, tax_amount_cents = %s, gross_amount_cents = %s,
+                vat_summary_json = %s, original_document_id = %s, file_reference = %s,
+                status = %s, notes = %s, updated_by_admin_id = %s, updated_at = %s
+            WHERE id = %s
             """,
             (
                 body.document_type,

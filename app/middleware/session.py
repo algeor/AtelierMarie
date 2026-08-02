@@ -12,7 +12,7 @@ from starlette.responses import Response
 
 from app.config import get_settings
 from app.constants import SQLITE_DATETIME_FORMAT
-from app.database import get_db
+from app.database import DatabaseError, get_db
 
 logger = structlog.get_logger(__name__)
 
@@ -105,7 +105,7 @@ class SessionMiddleware(BaseHTTPMiddleware):
                     # Bug #2 fix: fetch created_at alongside expires_at for absolute cap
                     row = conn.execute(
                         "SELECT expires_at, created_at, preferred_locale"
-                        " FROM sessions WHERE id = ?",
+                        " FROM sessions WHERE id = %s",
                         (session_id,),
                     ).fetchone()
 
@@ -143,7 +143,7 @@ class SessionMiddleware(BaseHTTPMiddleware):
                                 if new_expires > absolute_limit:
                                     new_expires = absolute_limit
                                 conn.execute(
-                                    "UPDATE sessions SET expires_at = ? WHERE id = ?",
+                                    "UPDATE sessions SET expires_at = %s WHERE id = %s",
                                     (_format_dt(new_expires), session_id),
                                 )
 
@@ -156,10 +156,10 @@ class SessionMiddleware(BaseHTTPMiddleware):
                     # Bug #5 fix: use SQLite-compatible datetime format
                     conn.execute(
                         "INSERT INTO sessions (id, created_at, expires_at, preferred_locale) "
-                        "VALUES (?, ?, ?, ?)",
+                        "VALUES (%s, %s, %s, %s)",
                         (session_id, _format_dt(now), _format_dt(expires_at), preferred_locale),
                     )
-        except sqlite3.Error:
+        except DatabaseError:
             # DB unavailable — return error without exposing internals
             logger.exception("Session middleware DB error")
             return Response(
@@ -209,21 +209,21 @@ def rotate_session_in_transaction(
     expires_at = now + timedelta(seconds=settings.session_max_age)
 
     row = conn.execute(
-        "SELECT preferred_locale FROM sessions WHERE id = ?",
+        "SELECT preferred_locale FROM sessions WHERE id = %s",
         (old_session_id,),
     ).fetchone()
     preferred_locale = row["preferred_locale"] if row and row["preferred_locale"] else "en"
 
     conn.execute(
         "INSERT INTO sessions (id, user_id, preferred_locale, created_at, expires_at) "
-        "VALUES (?, ?, ?, ?, ?)",
+        "VALUES (%s, %s, %s, %s, %s)",
         (new_session_id, user_id, preferred_locale, _format_dt(now), _format_dt(expires_at)),
     )
     conn.execute(
-        "UPDATE cart_items SET session_id = ? WHERE session_id = ?",
+        "UPDATE cart_items SET session_id = %s WHERE session_id = %s",
         (new_session_id, old_session_id),
     )
-    conn.execute("DELETE FROM sessions WHERE id = ?", (old_session_id,))
+    conn.execute("DELETE FROM sessions WHERE id = %s", (old_session_id,))
 
     return new_session_id
 

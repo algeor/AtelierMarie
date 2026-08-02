@@ -37,7 +37,7 @@ def get_dashboard_stats() -> dict:
         ).fetchall()
 
         today_row = conn.execute(
-            "SELECT COUNT(*) as count FROM orders WHERE date(created_at) = date('now')"
+            "SELECT COUNT(*) as count FROM orders WHERE date(created_at) = CURRENT_DATE"
         ).fetchone()
 
         week_revenue_row = conn.execute(
@@ -54,9 +54,7 @@ def get_dashboard_stats() -> dict:
         ).fetchone()
 
     orders_by_status = {row["status"]: row["count"] for row in status_rows}
-    orders_by_payment_status = {
-        row["payment_status"]: row["count"] for row in payment_status_rows
-    }
+    orders_by_payment_status = {row["payment_status"]: row["count"] for row in payment_status_rows}
 
     return {
         "products": {

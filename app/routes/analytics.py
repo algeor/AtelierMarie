@@ -79,7 +79,7 @@ async def ingest_analytics_events(
         return error_response(422, "VALIDATION_ERROR", str(exc))
 
     with get_db() as conn:
-        row = conn.execute("SELECT user_id FROM sessions WHERE id = ?", (session_id,)).fetchone()
+        row = conn.execute("SELECT user_id FROM sessions WHERE id = %s", (session_id,)).fetchone()
         user_id = row["user_id"] if row else None
 
     try:

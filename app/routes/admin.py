@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 
 from app.config import get_settings
 from app.constants import MAX_CSV_ROWS, MAX_CSV_UPLOAD_BYTES, MAX_PRICE_CENTS, MAX_STOCK
-from app.database import get_db
+from app.database import IntegrityError, get_db
 from app.dependencies.auth import require_admin
 from app.middleware.request_id import request_id_var
 from app.models.admin import (
@@ -2261,7 +2261,7 @@ async def admin_import_products(
             DuplicateError,
             LedgerManagedStockEditError,
             ValueError,
-            sqlite3.IntegrityError,
+            IntegrityError,
         ) as e:
             # Expected per-row data errors are reported and the import continues.
             # Unexpected exceptions propagate rather than masquerading as row errors.
@@ -2282,7 +2282,9 @@ def admin_list_orders(
     payment_status: str | None = Query(default=None, description="Filter by payment status"),
     payment_method: str | None = Query(default=None, description="Filter by payment method"),
     review_filter: str | None = Query(default=None, description="Filter operational review queues"),
-    accounting_filter: str | None = Query(default=None, description="Filter accounting readiness queues"),
+    accounting_filter: str | None = Query(
+        default=None, description="Filter accounting readiness queues"
+    ),
     finance_period_id: str | None = Query(default=None, description="Filter by finance period id"),
     page: int = Query(default=1, ge=1, description="Page number"),
     limit: int = Query(default=20, ge=1, le=100, description="Items per page"),
@@ -2765,7 +2767,7 @@ def admin_get_order_emails(order_id: str) -> OrderEmailAuditResponse:
         get_order_admin(conn=conn, order_id=order_id)
         rows = conn.execute(
             "SELECT event, recipient, status, reason, attempts, sent_at "
-            "FROM order_emails WHERE order_id = ? ORDER BY id",
+            "FROM order_emails WHERE order_id = %s ORDER BY id",
             (order_id,),
         ).fetchall()
 

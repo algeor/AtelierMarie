@@ -43,10 +43,10 @@ class EcontFulfillmentValidationError(EcontFulfillmentError):
 
 
 def _settings_row(conn: sqlite3.Connection) -> sqlite3.Row:
-    row = conn.execute("SELECT * FROM econt_settings WHERE id = ?", (_SETTINGS_ID,)).fetchone()
+    row = conn.execute("SELECT * FROM econt_settings WHERE id = %s", (_SETTINGS_ID,)).fetchone()
     if row is None:
-        conn.execute("INSERT OR IGNORE INTO econt_settings (id) VALUES (?)", (_SETTINGS_ID,))
-        row = conn.execute("SELECT * FROM econt_settings WHERE id = ?", (_SETTINGS_ID,)).fetchone()
+        conn.execute("INSERT OR IGNORE INTO econt_settings (id) VALUES (%s)", (_SETTINGS_ID,))
+        row = conn.execute("SELECT * FROM econt_settings WHERE id = %s", (_SETTINGS_ID,)).fetchone()
     return row
 
 
@@ -109,7 +109,7 @@ def get_latest_cod_evidence(conn: sqlite3.Connection, order_id: str) -> dict[str
         """
         SELECT id, action, response_json, created_at
         FROM order_courier_events
-        WHERE order_id = ? AND courier = 'econt' AND response_json IS NOT NULL
+        WHERE order_id = %s AND courier = 'econt' AND response_json IS NOT NULL
         ORDER BY created_at DESC, id DESC
         """,
         (order_id,),
@@ -185,9 +185,9 @@ def repair_order_fields(
     conn.execute(
         """
         UPDATE orders
-        SET delivery_details = ?, courier_sync_status = ?, courier_last_error = NULL,
+        SET delivery_details = %s, courier_sync_status = %s, courier_last_error = NULL,
             courier_last_synced_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
+        WHERE id = %s
         """,
         (json.dumps(details, ensure_ascii=False), "repaired", order_id),
     )
@@ -230,13 +230,13 @@ def record_manual_status(
     conn.execute(
         """
         UPDATE orders
-        SET courier_provider = 'econt', courier_status = ?, courier_sync_status = 'manual_status',
-            courier_last_error = NULL, courier_last_synced_at = ?,
-            courier_shipment_number = COALESCE(?, courier_shipment_number),
-            tracking_number = COALESCE(?, tracking_number),
-            tracking_carrier = CASE WHEN ? IS NOT NULL THEN 'econt' ELSE tracking_carrier END,
-            tracking_url = COALESCE(?, tracking_url)
-        WHERE id = ?
+        SET courier_provider = 'econt', courier_status = %s, courier_sync_status = 'manual_status',
+            courier_last_error = NULL, courier_last_synced_at = %s,
+            courier_shipment_number = COALESCE(%s, courier_shipment_number),
+            tracking_number = COALESCE(%s, tracking_number),
+            tracking_carrier = CASE WHEN %s IS NOT NULL THEN 'econt' ELSE tracking_carrier END,
+            tracking_url = COALESCE(%s, tracking_url)
+        WHERE id = %s
         """,
         (
             courier_status,
@@ -313,7 +313,9 @@ def build_order_payload(conn: sqlite3.Connection, order_id: str) -> EcontOrderPa
         return_parcel_destination=(
             row["return_parcel_destination"] if order["delivery_method"] == "office" else None
         ),
-        days_until_return=row["days_until_return"] if order["delivery_method"] == "office" else None,
+        days_until_return=row["days_until_return"]
+        if order["delivery_method"] == "office"
+        else None,
         return_parcel_payment_side=(
             row["return_parcel_payment_side"] if order["delivery_method"] == "office" else None
         ),
@@ -346,9 +348,9 @@ async def sync_order(
     conn.execute(
         """
         UPDATE orders
-        SET courier_provider = 'econt', courier_order_id = ?, courier_sync_status = 'synced',
-            courier_last_error = NULL, courier_last_synced_at = ?
-        WHERE id = ?
+        SET courier_provider = 'econt', courier_order_id = %s, courier_sync_status = 'synced',
+            courier_last_error = NULL, courier_last_synced_at = %s
+        WHERE id = %s
         """,
         (courier_order_id, now, order_id),
     )
@@ -365,7 +367,7 @@ async def create_label(
 ) -> dict[str, Any]:
     """Create an Econt AWB label unless one already exists."""
     existing = conn.execute(
-        "SELECT courier_shipment_number, courier_label_url, tracking_url FROM orders WHERE id = ?",
+        "SELECT courier_shipment_number, courier_label_url, tracking_url FROM orders WHERE id = %s",
         (order_id,),
     ).fetchone()
     if existing is None:
@@ -409,11 +411,11 @@ async def create_label(
     conn.execute(
         """
         UPDATE orders
-        SET courier_provider = 'econt', courier_shipment_number = ?, courier_label_url = ?,
-            courier_label_created_at = ?, courier_sync_status = 'label_created',
-            courier_last_error = NULL, courier_last_synced_at = ?, tracking_number = ?,
-            tracking_carrier = 'econt', tracking_url = ?
-        WHERE id = ?
+        SET courier_provider = 'econt', courier_shipment_number = %s, courier_label_url = %s,
+            courier_label_created_at = %s, courier_sync_status = 'label_created',
+            courier_last_error = NULL, courier_last_synced_at = %s, tracking_number = %s,
+            tracking_carrier = 'econt', tracking_url = %s
+        WHERE id = %s
         """,
         (
             shipment.shipment_number,
@@ -512,9 +514,9 @@ async def delete_label(
         UPDATE orders
         SET courier_shipment_number = NULL, courier_label_url = NULL,
             courier_label_created_at = NULL, courier_sync_status = 'label_deleted',
-            courier_last_error = NULL, courier_last_synced_at = ?, tracking_number = NULL,
+            courier_last_error = NULL, courier_last_synced_at = %s, tracking_number = NULL,
             tracking_carrier = NULL, tracking_url = NULL
-        WHERE id = ?
+        WHERE id = %s
         """,
         (now, order_id),
     )
@@ -561,10 +563,10 @@ async def refresh_trace(
     conn.execute(
         """
         UPDATE orders
-        SET courier_provider = 'econt', courier_status = COALESCE(?, courier_status),
+        SET courier_provider = 'econt', courier_status = COALESCE(%s, courier_status),
             courier_sync_status = 'trace_synced',
-            courier_last_error = NULL, courier_last_synced_at = ?
-        WHERE id = ?
+            courier_last_error = NULL, courier_last_synced_at = %s
+        WHERE id = %s
         """,
         (normalized_courier_status, now, order_id),
     )
@@ -685,10 +687,10 @@ def _order_items(conn: sqlite3.Connection, order_id: str) -> list[EcontOrderItem
     rows = conn.execute(
         """
         SELECT oi.product_id, oi.product_name, oi.price_cents, oi.quantity,
-               COALESCE(p.weight_grams, ?) AS weight_grams
+               COALESCE(p.weight_grams, %s) AS weight_grams
         FROM order_items oi
         LEFT JOIN products p ON p.id = oi.product_id
-        WHERE oi.order_id = ?
+        WHERE oi.order_id = %s
         ORDER BY oi.product_id
         """,
         (_DEFAULT_WEIGHT_GRAMS, order_id),
@@ -754,7 +756,7 @@ def _record_return_review_signal(
     reason: str,
 ) -> None:
     existing = conn.execute(
-        "SELECT id FROM order_returns WHERE order_id = ? LIMIT 1",
+        "SELECT id FROM order_returns WHERE order_id = %s LIMIT 1",
         (order_id,),
     ).fetchone()
     if existing is not None:
@@ -786,7 +788,7 @@ def _record_event(
         INSERT INTO order_courier_events (
             order_id, courier, action, status, request_json, response_json,
             error_json, actor_user_id
-        ) VALUES (?, 'econt', ?, ?, ?, ?, ?, ?)
+        ) VALUES (%s, 'econt', %s, %s, %s, %s, %s, %s)
         """,
         (
             order_id,
@@ -812,9 +814,9 @@ def _persist_failure(
     conn.execute(
         """
         UPDATE orders
-        SET courier_provider = 'econt', courier_sync_status = 'failed', courier_last_error = ?,
-            courier_last_synced_at = ?
-        WHERE id = ?
+        SET courier_provider = 'econt', courier_sync_status = 'failed', courier_last_error = %s,
+            courier_last_synced_at = %s
+        WHERE id = %s
         """,
         (_json_or_none(safe_error), pricing.now_utc(), order_id),
     )

@@ -85,11 +85,11 @@ def _count_one(conn: sqlite3.Connection, kind: str, slug: str) -> int:
     # referenced by any product — even an archived one — must stay for order and
     # history integrity. Such a term can be deactivated but not hard-deleted.
     if kind == "product-types":
-        sql = "SELECT COUNT(*) AS c FROM products WHERE product_type_slug = ?"
+        sql = "SELECT COUNT(*) AS c FROM products WHERE product_type_slug = %s"
     elif kind == "categories":
-        sql = "SELECT COUNT(*) AS c FROM products WHERE category_slug = ?"
+        sql = "SELECT COUNT(*) AS c FROM products WHERE category_slug = %s"
     else:  # labels
-        sql = "SELECT COUNT(*) AS c FROM product_label_assignments WHERE label_slug = ?"
+        sql = "SELECT COUNT(*) AS c FROM product_label_assignments WHERE label_slug = %s"
     return conn.execute(sql, (slug,)).fetchone()["c"]
 
 
@@ -157,7 +157,7 @@ def get_admin_term(kind: Kind, slug: str) -> dict:
     table = _table_for(kind)
     with get_db() as conn:
         row = conn.execute(
-            f"SELECT * FROM {table} WHERE slug = ?",
+            f"SELECT * FROM {table} WHERE slug = %s",
             (slug,),  # noqa: S608 — table is a constant
         ).fetchone()
         if row is None:
@@ -183,7 +183,7 @@ def create_term(kind: Kind, name_en: str, name_bg: str | None, sort_order: int) 
             try:
                 conn.execute(
                     f"INSERT INTO {table} (slug, name_en, name_bg, sort_order, is_active, "  # noqa: S608
-                    "created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
+                    "created_at, updated_at) VALUES (%s, %s, %s, %s, 1, %s, %s)",
                     (slug, name_en, name_bg, sort_order, now, now),
                 )
                 break
@@ -207,7 +207,7 @@ def update_term(kind: Kind, slug: str, updates: dict) -> dict:
 
     with get_db() as conn:
         exists = conn.execute(
-            f"SELECT 1 FROM {table} WHERE slug = ?",
+            f"SELECT 1 FROM {table} WHERE slug = %s",
             (slug,),  # noqa: S608 — table is a constant
         ).fetchone()
         if exists is None:
@@ -217,7 +217,7 @@ def update_term(kind: Kind, slug: str, updates: dict) -> dict:
         # shop must always have at least one active type to assign on create.
         if kind == "product-types" and fields.get("is_active") == 0:
             active_others = conn.execute(
-                "SELECT COUNT(*) AS c FROM product_types WHERE is_active = 1 AND slug != ?",
+                "SELECT COUNT(*) AS c FROM product_types WHERE is_active = 1 AND slug != %s",
                 (slug,),
             ).fetchone()["c"]
             if active_others == 0:
@@ -225,9 +225,9 @@ def update_term(kind: Kind, slug: str, updates: dict) -> dict:
 
         if fields:
             fields["updated_at"] = _now_utc()
-            set_clause = ", ".join(f"{col} = ?" for col in fields)
+            set_clause = ", ".join(f"{col} = %s" for col in fields)
             conn.execute(
-                f"UPDATE {table} SET {set_clause} WHERE slug = ?",  # noqa: S608
+                f"UPDATE {table} SET {set_clause} WHERE slug = %s",  # noqa: S608
                 [*fields.values(), slug],
             )
     return get_admin_term(kind, slug)
@@ -243,7 +243,7 @@ def delete_term(kind: Kind, slug: str) -> None:
     table = _table_for(kind)
     with get_db() as conn:
         exists = conn.execute(
-            f"SELECT 1 FROM {table} WHERE slug = ?",
+            f"SELECT 1 FROM {table} WHERE slug = %s",
             (slug,),  # noqa: S608 — table is a constant
         ).fetchone()
         if exists is None:
@@ -252,7 +252,7 @@ def delete_term(kind: Kind, slug: str) -> None:
             raise TaxonomyInUseError(
                 f"{kind} '{slug}' is in use; reassign or deactivate it before deleting"
             )
-        conn.execute(f"DELETE FROM {table} WHERE slug = ?", (slug,))  # noqa: S608
+        conn.execute(f"DELETE FROM {table} WHERE slug = %s", (slug,))  # noqa: S608
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +263,7 @@ def delete_term(kind: Kind, slug: str) -> None:
 def _term_state(conn: sqlite3.Connection, table: str, slug: str) -> int | None:
     """Return is_active (0/1) for a slug, or None if the slug does not exist."""
     row = conn.execute(
-        f"SELECT is_active FROM {table} WHERE slug = ?",
+        f"SELECT is_active FROM {table} WHERE slug = %s",
         (slug,),  # noqa: S608 — table is a constant
     ).fetchone()
     return None if row is None else row["is_active"]
@@ -332,7 +332,7 @@ def validate_labels(
     unique = list(dict.fromkeys(slugs))
     if not unique:
         return
-    placeholders = ", ".join("?" for _ in unique)
+    placeholders = ", ".join("%s" for _ in unique)
     rows = conn.execute(
         f"SELECT slug, is_active FROM product_labels WHERE slug IN ({placeholders})",  # noqa: S608
         unique,
@@ -357,7 +357,7 @@ def get_product_label_slugs(conn: sqlite3.Connection, product_id: str) -> list[s
     rows = conn.execute(
         "SELECT a.label_slug AS slug FROM product_label_assignments a "
         "LEFT JOIN product_labels l ON l.slug = a.label_slug "
-        "WHERE a.product_id = ? ORDER BY l.sort_order, a.label_slug",
+        "WHERE a.product_id = %s ORDER BY l.sort_order, a.label_slug",
         (product_id,),
     ).fetchall()
     return [r["slug"] for r in rows]
@@ -365,7 +365,7 @@ def get_product_label_slugs(conn: sqlite3.Connection, product_id: str) -> list[s
 
 def replace_product_labels(conn: sqlite3.Connection, product_id: str, slugs: list[str]) -> None:
     """Replace a product's label set within the caller's transaction."""
-    conn.execute("DELETE FROM product_label_assignments WHERE product_id = ?", (product_id,))
+    conn.execute("DELETE FROM product_label_assignments WHERE product_id = %s", (product_id,))
     # De-duplicate while preserving order.
     seen: set[str] = set()
     unique: list[str] = []
@@ -375,7 +375,7 @@ def replace_product_labels(conn: sqlite3.Connection, product_id: str, slugs: lis
         seen.add(slug)
         unique.append(slug)
     conn.executemany(
-        "INSERT INTO product_label_assignments (product_id, label_slug) VALUES (?, ?)",
+        "INSERT INTO product_label_assignments (product_id, label_slug) VALUES (%s, %s)",
         [(product_id, s) for s in unique],
     )
 
@@ -389,7 +389,7 @@ def _name_map(conn: sqlite3.Connection, table: str, slugs: set[str], locale: str
     """Map slug → localized name for the given slugs (includes inactive terms)."""
     if not slugs:
         return {}
-    placeholders = ", ".join("?" for _ in slugs)
+    placeholders = ", ".join("%s" for _ in slugs)
     rows = conn.execute(
         f"SELECT slug, name_en, name_bg FROM {table} WHERE slug IN ({placeholders})",  # noqa: S608
         list(slugs),
@@ -420,7 +420,7 @@ def resolve_products_taxonomy(
     # Batched label fetch for all products at once.
     labels_by_product: dict[str, list[dict]] = {pid: [] for pid in product_ids}
     if product_ids:
-        placeholders = ", ".join("?" for _ in product_ids)
+        placeholders = ", ".join("%s" for _ in product_ids)
         rows = conn.execute(
             "SELECT a.product_id, a.label_slug, l.name_en, l.name_bg "
             "FROM product_label_assignments a "

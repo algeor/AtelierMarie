@@ -22,7 +22,7 @@ def create_admin_alert(
         """
         INSERT INTO admin_alerts (
             id, alert_type, order_id, source, severity, title, message, details
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             alert_id,
@@ -55,7 +55,7 @@ def list_admin_alerts(
         FROM admin_alerts
         {where_clause}
         ORDER BY created_at DESC, id DESC
-        LIMIT ?
+        LIMIT %s
         """,
         (limit,),
     ).fetchall()

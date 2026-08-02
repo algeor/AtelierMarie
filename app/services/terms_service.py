@@ -173,7 +173,7 @@ def _get_page(conn: sqlite3.Connection) -> sqlite3.Row:
 
 
 def _get_section(conn: sqlite3.Connection, slug: str) -> sqlite3.Row:
-    row = conn.execute("SELECT * FROM terms_sections WHERE slug = ?", (slug,)).fetchone()
+    row = conn.execute("SELECT * FROM terms_sections WHERE slug = %s", (slug,)).fetchone()
     if row is None:
         raise TermsNotFoundError(f"Terms section not found: {slug}")
     return row
@@ -235,9 +235,7 @@ def get_public_terms(locale: str | None = "en") -> dict:
                 "title": _localized_text(row, "title", resolved),
                 "nav": _localized_text(row, "nav", resolved),
                 "body": _localized_lines(row, "body", resolved),
-                "model_form_title": _localized_optional_text(
-                    row, "model_form_title", resolved
-                ),
+                "model_form_title": _localized_optional_text(row, "model_form_title", resolved),
                 "model_form_intro": _localized_optional_text(row, "model_form_intro", resolved),
                 "model_form_lines": _localized_optional_lines(row, "model_form_lines", resolved),
             }
@@ -268,7 +266,7 @@ def update_page(updates: dict) -> dict:
     with get_db() as conn:
         _get_page(conn)
         if fields:
-            set_clause = ", ".join(f"{key} = ?" for key in fields)
+            set_clause = ", ".join(f"{key} = %s" for key in fields)
             conn.execute(
                 f"UPDATE terms_page SET {set_clause} WHERE id = 'terms'",  # noqa: S608
                 list(fields.values()),
@@ -290,9 +288,9 @@ def update_section(slug: str, updates: dict) -> dict:
     with get_db() as conn:
         _get_section(conn, slug)
         if fields:
-            set_clause = ", ".join(f"{key} = ?" for key in fields)
+            set_clause = ", ".join(f"{key} = %s" for key in fields)
             conn.execute(
-                f"UPDATE terms_sections SET {set_clause} WHERE slug = ?",  # noqa: S608
+                f"UPDATE terms_sections SET {set_clause} WHERE slug = %s",  # noqa: S608
                 [*fields.values(), slug],
             )
         return _section_to_admin_dict(_get_section(conn, slug))

@@ -44,7 +44,7 @@ def cart_weight_grams(conn: sqlite3.Connection, session_id: str) -> int:
         SELECT COALESCE(SUM(p.weight_grams * ci.quantity), 0) AS total
         FROM cart_items ci
         JOIN products p ON p.id = ci.product_id
-        WHERE ci.session_id = ?
+        WHERE ci.session_id = %s
         """,
         (session_id,),
     ).fetchone()

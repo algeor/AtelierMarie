@@ -80,7 +80,7 @@ def _select_due_candidates(
 ) -> list[sqlite3.Row]:
     if not providers or batch_size < 1:
         return []
-    placeholders = ",".join("?" for _ in providers)
+    placeholders = ",".join("%s" for _ in providers)
     params: list[Any] = [*sorted(providers), now, now, batch_size]
     return conn.execute(
         f"""
@@ -91,10 +91,10 @@ def _select_due_candidates(
         WHERE COALESCE(courier_provider, tracking_carrier, delivery_courier) IN ({placeholders})
           AND status IN ('shipped', 'return_in_transit')
           AND COALESCE(courier_shipment_number, tracking_number) IS NOT NULL
-          AND (courier_next_poll_at IS NULL OR courier_next_poll_at <= ?)
-          AND (courier_poll_lease_expires_at IS NULL OR courier_poll_lease_expires_at <= ?)
+          AND (courier_next_poll_at IS NULL OR courier_next_poll_at <= %s)
+          AND (courier_poll_lease_expires_at IS NULL OR courier_poll_lease_expires_at <= %s)
         ORDER BY COALESCE(courier_next_poll_at, created_at), created_at, id
-        LIMIT ?
+        LIMIT %s
         """,  # noqa: S608 - placeholders are generated from trusted provider count.
         params,
     ).fetchall()
@@ -124,9 +124,9 @@ def acquire_due_orders(
         cursor = conn.execute(
             """
             UPDATE orders
-            SET courier_poll_lease_token = ?, courier_poll_lease_expires_at = ?
-            WHERE id = ?
-              AND (courier_poll_lease_expires_at IS NULL OR courier_poll_lease_expires_at <= ?)
+            SET courier_poll_lease_token = %s, courier_poll_lease_expires_at = %s
+            WHERE id = %s
+              AND (courier_poll_lease_expires_at IS NULL OR courier_poll_lease_expires_at <= %s)
             """,
             (token, lease_until, row["id"], now),
         )
@@ -170,9 +170,9 @@ def _mark_success(conn: sqlite3.Connection, order_id: str, *, interval_seconds: 
     conn.execute(
         """
         UPDATE orders
-        SET courier_last_polled_at = ?, courier_next_poll_at = ?, courier_poll_attempts = 0,
+        SET courier_last_polled_at = %s, courier_next_poll_at = %s, courier_poll_attempts = 0,
             courier_poll_lease_token = NULL, courier_poll_lease_expires_at = NULL
-        WHERE id = ?
+        WHERE id = %s
         """,
         (now, _after(interval_seconds), order_id),
     )
@@ -187,7 +187,7 @@ def _mark_failure(
     max_backoff_seconds: int,
 ) -> None:
     row = conn.execute(
-        "SELECT courier_poll_attempts FROM orders WHERE id = ?",
+        "SELECT courier_poll_attempts FROM orders WHERE id = %s",
         (order_id,),
     ).fetchone()
     attempts = int(row["courier_poll_attempts"] or 0) + 1 if row else 1
@@ -196,11 +196,11 @@ def _mark_failure(
     conn.execute(
         """
         UPDATE orders
-        SET courier_sync_status = 'poll_failed', courier_last_error = ?,
-            courier_last_polled_at = ?, courier_next_poll_at = ?,
-            courier_poll_attempts = ?, courier_poll_lease_token = NULL,
+        SET courier_sync_status = 'poll_failed', courier_last_error = %s,
+            courier_last_polled_at = %s, courier_next_poll_at = %s,
+            courier_poll_attempts = %s, courier_poll_lease_token = NULL,
             courier_poll_lease_expires_at = NULL
-        WHERE id = ?
+        WHERE id = %s
         """,
         (
             json.dumps(_safe_error(exc), ensure_ascii=False, sort_keys=True),
@@ -287,7 +287,7 @@ async def refresh_order_now(
                tracking_url, courier_provider, courier_shipment_number,
                courier_poll_attempts
         FROM orders
-        WHERE id = ?
+        WHERE id = %s
         """,
         (order_id,),
     ).fetchone()
@@ -300,14 +300,14 @@ async def refresh_order_now(
             blockers=["courier_provider_mismatch"],
         )
     if provider and not detected_provider:
-        conn.execute("UPDATE orders SET courier_provider = ? WHERE id = ?", (provider, order_id))
+        conn.execute("UPDATE orders SET courier_provider = %s WHERE id = %s", (provider, order_id))
         row = conn.execute(
             """
             SELECT id, status, delivery_courier, tracking_carrier, tracking_number,
                    tracking_url, courier_provider, courier_shipment_number,
                    courier_poll_attempts
             FROM orders
-            WHERE id = ?
+            WHERE id = %s
             """,
             (order_id,),
         ).fetchone()

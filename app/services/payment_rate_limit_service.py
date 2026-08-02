@@ -59,7 +59,7 @@ def _count_bucket(
             """
             SELECT COUNT(*) AS count
             FROM payment_rate_limit_events
-            WHERE action = ? AND scope = ? AND key = ?
+            WHERE action = %s AND scope = %s AND key = %s
             """,
             (action, bucket.scope, bucket.key),
         ).fetchone()
@@ -68,10 +68,10 @@ def _count_bucket(
             """
             SELECT COUNT(*) AS count
             FROM payment_rate_limit_events
-            WHERE action = ?
-              AND scope = ?
-              AND key = ?
-              AND created_at >= datetime('now', ?)
+            WHERE action = %s
+              AND scope = %s
+              AND key = %s
+              AND created_at >= datetime('now', %s)
             """,
             (action, bucket.scope, bucket.key, bucket.window_modifier),
         ).fetchone()
@@ -111,7 +111,7 @@ def _consume_rate_limit(
         conn.executemany(
             """
             INSERT INTO payment_rate_limit_events (action, scope, key)
-            VALUES (?, ?, ?)
+            VALUES (%s, %s, %s)
             """,
             [(action, bucket.scope, bucket.key) for bucket in buckets],
         )
@@ -226,8 +226,7 @@ def consume_pay_on_delivery_rate_limit(
                 window_modifier="-1 day",
                 window_seconds=PAY_ON_DELIVERY_IP_WINDOW_SECONDS,
                 message=(
-                    "Too many pay-on-delivery attempts from this network. "
-                    "Please try again later."
+                    "Too many pay-on-delivery attempts from this network. Please try again later."
                 ),
             ),
         ],

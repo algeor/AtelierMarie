@@ -69,10 +69,10 @@ _BOOL_FIELDS = {
 
 
 def _get_row(conn: sqlite3.Connection) -> sqlite3.Row:
-    row = conn.execute("SELECT * FROM econt_settings WHERE id = ?", (_SETTINGS_ID,)).fetchone()
+    row = conn.execute("SELECT * FROM econt_settings WHERE id = %s", (_SETTINGS_ID,)).fetchone()
     if row is None:
-        conn.execute("INSERT OR IGNORE INTO econt_settings (id) VALUES (?)", (_SETTINGS_ID,))
-        row = conn.execute("SELECT * FROM econt_settings WHERE id = ?", (_SETTINGS_ID,)).fetchone()
+        conn.execute("INSERT OR IGNORE INTO econt_settings (id) VALUES (%s)", (_SETTINGS_ID,))
+        row = conn.execute("SELECT * FROM econt_settings WHERE id = %s", (_SETTINGS_ID,)).fetchone()
     return row
 
 
@@ -218,10 +218,10 @@ def update_econt_settings(body: EcontSettingsUpdate) -> EcontSettingsResponse:
     settings = get_settings()
     with get_db() as conn:
         _get_row(conn)
-        assignments = ", ".join(f"{field} = ?" for field in updates)
+        assignments = ", ".join(f"{field} = %s" for field in updates)
         params = [*updates.values(), pricing.now_utc(), _SETTINGS_ID]
         conn.execute(
-            f"UPDATE econt_settings SET {assignments}, updated_at = ? WHERE id = ?",  # noqa: S608
+            f"UPDATE econt_settings SET {assignments}, updated_at = %s WHERE id = %s",  # noqa: S608
             params,
         )
         row = _get_row(conn)
@@ -299,8 +299,8 @@ def _record_health(
     conn.execute(
         """
         UPDATE econt_settings
-        SET last_health_status = ?, last_health_checked_at = ?, last_health_error = ?
-        WHERE id = ?
+        SET last_health_status = %s, last_health_checked_at = %s, last_health_error = %s
+        WHERE id = %s
         """,
         (status, checked_at, error, _SETTINGS_ID),
     )

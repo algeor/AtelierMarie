@@ -64,19 +64,23 @@ def _set_site_json(conn: sqlite3.Connection, key: str, value: dict[str, Any]) ->
     conn.execute(
         """
         INSERT INTO site_settings (key, value, value_type, is_public, updated_at)
-        VALUES (?, ?, 'json', 0, ?)
+        VALUES (%s, %s, 'json', 0, %s)
         ON CONFLICT(key) DO UPDATE SET
             value = excluded.value,
             value_type = excluded.value_type,
             is_public = excluded.is_public,
             updated_at = excluded.updated_at
         """,
-        (key, json.dumps(redact_mapping(value), ensure_ascii=False, sort_keys=True), pricing.now_utc()),
+        (
+            key,
+            json.dumps(redact_mapping(value), ensure_ascii=False, sort_keys=True),
+            pricing.now_utc(),
+        ),
     )
 
 
 def _get_site_json(conn: sqlite3.Connection, key: str) -> dict[str, Any] | None:
-    row = conn.execute("SELECT value FROM site_settings WHERE key = ?", (key,)).fetchone()
+    row = conn.execute("SELECT value FROM site_settings WHERE key = %s", (key,)).fetchone()
     value = _loads_json(row["value"] if row else None)
     return value if isinstance(value, dict) else None
 
@@ -96,7 +100,7 @@ def _record_event(
         INSERT INTO order_courier_events (
             order_id, courier, action, status, request_json, response_json,
             error_json, actor_user_id
-        ) VALUES (?, 'speedy', ?, ?, ?, ?, ?, ?)
+        ) VALUES (%s, 'speedy', %s, %s, %s, %s, %s, %s)
         """,
         (
             order_id,
@@ -122,13 +126,15 @@ def _persist_failure(
     conn.execute(
         """
         UPDATE orders
-        SET courier_provider = 'speedy', courier_sync_status = 'failed', courier_last_error = ?,
-            courier_last_synced_at = ?
-        WHERE id = ?
+        SET courier_provider = 'speedy', courier_sync_status = 'failed', courier_last_error = %s,
+            courier_last_synced_at = %s
+        WHERE id = %s
         """,
         (_json_or_none(safe_error), pricing.now_utc(), order_id),
     )
-    _record_event(conn, order_id, action, "failed", request_payload, None, safe_error, actor_user_id)
+    _record_event(
+        conn, order_id, action, "failed", request_payload, None, safe_error, actor_user_id
+    )
 
 
 def _record_failure_event(
@@ -249,7 +255,9 @@ async def get_health(conn: sqlite3.Connection) -> dict[str, Any]:
         }
 
     try:
-        verified_client_id = await speedy_client.get_own_client_id(username=username, password=password)
+        verified_client_id = await speedy_client.get_own_client_id(
+            username=username, password=password
+        )
     except speedy_client.SpeedyError as exc:
         status = "unavailable" if exc.category in {"transient", "circuit_open"} else "blocked"
         health = {
@@ -293,7 +301,7 @@ def get_queues(conn: sqlite3.Connection, *, order_id: str | None = None) -> dict
     params: list[Any] = []
     focus_sql = ""
     if order_id:
-        focus_sql = " AND id = ?"
+        focus_sql = " AND id = %s"
         params.append(order_id)
 
     ready_rows = conn.execute(
@@ -335,7 +343,9 @@ async def create_or_reuse_waybill(
 ) -> dict[str, Any]:
     order = _safe_order(conn, order_id)
     if order["delivery_courier"] != "speedy":
-        raise SpeedyAdminValidationError("Order is not assigned to Speedy", blockers=["order_not_speedy"])
+        raise SpeedyAdminValidationError(
+            "Order is not assigned to Speedy", blockers=["order_not_speedy"]
+        )
     existing = _speedy_tracking(order)
     if existing:
         _record_event(
@@ -365,7 +375,9 @@ async def create_or_reuse_waybill(
     try:
         shipped = await update_status_async(conn, order_id, "shipped")
     except speedy_client.SpeedyError as exc:
-        _persist_failure(conn, order_id, "create_waybill", {"order_id": order_id}, exc, actor_user_id)
+        _persist_failure(
+            conn, order_id, "create_waybill", {"order_id": order_id}, exc, actor_user_id
+        )
         raise
 
     shipment_number = shipped["tracking_number"]
@@ -398,7 +410,9 @@ async def print_order_label(
     order = _safe_order(conn, order_id)
     shipment_number = _speedy_tracking(order)
     if not shipment_number:
-        raise SpeedyAdminValidationError("Order has no Speedy waybill", blockers=["no_speedy_waybill"])
+        raise SpeedyAdminValidationError(
+            "Order has no Speedy waybill", blockers=["no_speedy_waybill"]
+        )
     username, password, _client_id = _settings_credentials()
     request_payload = {"shipmentNumber": shipment_number, "paperSize": "A6"}
     try:
@@ -434,7 +448,9 @@ async def refresh_tracking(
     order = _safe_order(conn, order_id)
     shipment_number = _speedy_tracking(order)
     if not shipment_number:
-        raise SpeedyAdminValidationError("Order has no Speedy waybill", blockers=["no_speedy_waybill"])
+        raise SpeedyAdminValidationError(
+            "Order has no Speedy waybill", blockers=["no_speedy_waybill"]
+        )
     username, password, _client_id = _settings_credentials()
     request_payload = {"shipmentNumber": shipment_number}
     try:
@@ -453,9 +469,9 @@ async def refresh_tracking(
     conn.execute(
         """
         UPDATE orders
-        SET courier_provider = 'speedy', courier_status = ?, courier_sync_status = 'track_synced',
-            courier_last_error = NULL, courier_last_synced_at = ?
-        WHERE id = ?
+        SET courier_provider = 'speedy', courier_status = %s, courier_sync_status = 'track_synced',
+            courier_last_error = NULL, courier_last_synced_at = %s
+        WHERE id = %s
         """,
         (courier_status, now, order_id),
     )
@@ -505,7 +521,9 @@ async def search_shipments(
     except speedy_client.SpeedyError as exc:
         _record_search_failure_if_local(conn, reference, request_payload, exc, actor_user_id)
         raise
-    _record_search_success_if_local(conn, reference, request_payload, {"barcodes": barcodes}, actor_user_id)
+    _record_search_success_if_local(
+        conn, reference, request_payload, {"barcodes": barcodes}, actor_user_id
+    )
     return {"reference": reference, "barcodes": barcodes}
 
 
@@ -579,7 +597,9 @@ async def cancel_order_shipment(
             comment=comment,
         )
     except speedy_client.SpeedyError as exc:
-        _record_failure_event(conn, order_id, "cancel_shipment", request_payload, exc, actor_user_id)
+        _record_failure_event(
+            conn, order_id, "cancel_shipment", request_payload, exc, actor_user_id
+        )
         raise
 
     now = pricing.now_utc()
@@ -587,8 +607,8 @@ async def cancel_order_shipment(
         """
         UPDATE orders
         SET courier_provider = 'speedy', courier_sync_status = 'shipment_cancelled',
-            courier_status = 'cancelled', courier_last_error = NULL, courier_last_synced_at = ?
-        WHERE id = ?
+            courier_status = 'cancelled', courier_last_error = NULL, courier_last_synced_at = %s
+        WHERE id = %s
         """,
         (now, order_id),
     )
@@ -701,7 +721,7 @@ def list_events(conn: sqlite3.Connection, *, limit: int = 25) -> list[dict[str, 
         FROM order_courier_events
         WHERE courier = 'speedy'
         ORDER BY created_at DESC, id DESC
-        LIMIT ?
+        LIMIT %s
         """,
         (limit,),
     ).fetchall()
@@ -813,8 +833,8 @@ def _order_id_for_shipment(conn: sqlite3.Connection, shipment_id: str) -> str | 
     row = conn.execute(
         """
         SELECT id FROM orders
-        WHERE (tracking_carrier = 'speedy' AND tracking_number = ?)
-           OR (courier_provider = 'speedy' AND courier_shipment_number = ?)
+        WHERE (tracking_carrier = 'speedy' AND tracking_number = %s)
+           OR (courier_provider = 'speedy' AND courier_shipment_number = %s)
         LIMIT 1
         """,
         (shipment_id, shipment_id),
@@ -829,7 +849,9 @@ def _record_search_success_if_local(
     response_payload: Any,
     actor_user_id: str | None,
 ) -> None:
-    row = conn.execute("SELECT id FROM orders WHERE id = ? OR order_number = ?", (reference, reference)).fetchone()
+    row = conn.execute(
+        "SELECT id FROM orders WHERE id = %s OR order_number = %s", (reference, reference)
+    ).fetchone()
     if row:
         _record_event(
             conn,
@@ -850,7 +872,9 @@ def _record_search_failure_if_local(
     exc: speedy_client.SpeedyError,
     actor_user_id: str | None,
 ) -> None:
-    row = conn.execute("SELECT id FROM orders WHERE id = ? OR order_number = ?", (reference, reference)).fetchone()
+    row = conn.execute(
+        "SELECT id FROM orders WHERE id = %s OR order_number = %s", (reference, reference)
+    ).fetchone()
     if row:
         _persist_failure(conn, row["id"], "shipment_search", request_payload, exc, actor_user_id)
 
@@ -858,15 +882,17 @@ def _record_search_failure_if_local(
 def _eligible_pickup_order_ids(conn: sqlite3.Connection, shipment_ids: list[str]) -> list[str]:
     normalized_ids = [str(item).strip() for item in shipment_ids if str(item).strip()]
     if not normalized_ids:
-        raise SpeedyAdminValidationError("At least one shipment is required", blockers=["shipment_ids_missing"])
+        raise SpeedyAdminValidationError(
+            "At least one shipment is required", blockers=["shipment_ids_missing"]
+        )
     order_ids: list[str] = []
     blockers: list[str] = []
     for shipment_id in normalized_ids:
         row = conn.execute(
             """
             SELECT id, status, courier_sync_status FROM orders
-            WHERE (tracking_carrier = 'speedy' AND tracking_number = ?)
-               OR (courier_provider = 'speedy' AND courier_shipment_number = ?)
+            WHERE (tracking_carrier = 'speedy' AND tracking_number = %s)
+               OR (courier_provider = 'speedy' AND courier_shipment_number = %s)
             LIMIT 1
             """,
             (shipment_id, shipment_id),
@@ -897,7 +923,9 @@ def _record_return_review_signal(
         from app.services import return_service
     except ImportError:
         return
-    existing = conn.execute("SELECT id FROM order_returns WHERE order_id = ? LIMIT 1", (order_id,)).fetchone()
+    existing = conn.execute(
+        "SELECT id FROM order_returns WHERE order_id = %s LIMIT 1", (order_id,)
+    ).fetchone()
     if existing is not None:
         return
     reason = "not_picked_up" if courier_status == "returned" else "other"

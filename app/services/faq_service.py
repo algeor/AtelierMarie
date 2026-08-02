@@ -23,7 +23,7 @@ def _public_locale(locale: str | None) -> str:
 
 
 def _section_exists(conn: sqlite3.Connection, slug: str) -> bool:
-    row = conn.execute("SELECT 1 FROM faq_sections WHERE slug = ?", (slug,)).fetchone()
+    row = conn.execute("SELECT 1 FROM faq_sections WHERE slug = %s", (slug,)).fetchone()
     return row is not None
 
 
@@ -56,7 +56,7 @@ def _section_to_admin_dict(row: sqlite3.Row) -> dict:
 
 
 def _get_admin_item(conn: sqlite3.Connection, item_id: int) -> dict:
-    row = conn.execute("SELECT * FROM faq_items WHERE id = ?", (item_id,)).fetchone()
+    row = conn.execute("SELECT * FROM faq_items WHERE id = %s", (item_id,)).fetchone()
     if row is None:
         raise FaqItemNotFoundError(f"FAQ item not found: {item_id}")
     return _item_to_admin_dict(row)
@@ -147,7 +147,7 @@ def create_item(data: dict) -> dict:
         if sort_order is None:
             row = conn.execute(
                 "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order "
-                "FROM faq_items WHERE section = ?",
+                "FROM faq_items WHERE section = %s",
                 (section,),
             ).fetchone()
             sort_order = row["next_order"]
@@ -155,7 +155,7 @@ def create_item(data: dict) -> dict:
             """
             INSERT INTO faq_items (
                 section, question_en, question_bg, answer_en, answer_bg, sort_order, is_published
-            ) VALUES (?, ?, ?, ?, ?, ?, 1)
+            ) VALUES (%s, %s, %s, %s, %s, %s, 1)
             """,
             (
                 section,
@@ -188,14 +188,14 @@ def update_item(item_id: int, updates: dict) -> dict:
         fields["is_published"] = 1 if fields["is_published"] else 0
 
     with get_db() as conn:
-        if conn.execute("SELECT 1 FROM faq_items WHERE id = ?", (item_id,)).fetchone() is None:
+        if conn.execute("SELECT 1 FROM faq_items WHERE id = %s", (item_id,)).fetchone() is None:
             raise FaqItemNotFoundError(f"FAQ item not found: {item_id}")
         if "section" in fields and not _section_exists(conn, fields["section"]):
             raise FaqSectionNotFoundError(f"FAQ section not found: {fields['section']}")
         if fields:
-            set_clause = ", ".join(f"{name} = ?" for name in fields)
+            set_clause = ", ".join(f"{name} = %s" for name in fields)
             conn.execute(
-                f"UPDATE faq_items SET {set_clause} WHERE id = ?",  # noqa: S608
+                f"UPDATE faq_items SET {set_clause} WHERE id = %s",  # noqa: S608
                 [*fields.values(), item_id],
             )
         return _get_admin_item(conn, item_id)
@@ -204,7 +204,7 @@ def update_item(item_id: int, updates: dict) -> dict:
 def delete_item(item_id: int) -> None:
     """Delete an FAQ item permanently."""
     with get_db() as conn:
-        cursor = conn.execute("DELETE FROM faq_items WHERE id = ?", (item_id,))
+        cursor = conn.execute("DELETE FROM faq_items WHERE id = %s", (item_id,))
         if cursor.rowcount == 0:
             raise FaqItemNotFoundError(f"FAQ item not found: {item_id}")
 
@@ -222,7 +222,7 @@ def reorder_items(section: str, ordered_ids: list[int]) -> dict:
         if len(ordered_ids) != len(set(ordered_ids)):
             raise FaqValidationError("ordered_ids must not contain duplicates")
         if ordered_ids:
-            placeholders = ", ".join("?" for _ in ordered_ids)
+            placeholders = ", ".join("%s" for _ in ordered_ids)
             rows = conn.execute(
                 f"SELECT id, section FROM faq_items WHERE id IN ({placeholders})",  # noqa: S608
                 ordered_ids,
@@ -238,7 +238,7 @@ def reorder_items(section: str, ordered_ids: list[int]) -> dict:
                 raise FaqValidationError("Cannot reorder items outside the target section")
         for sort_order, item_id in enumerate(ordered_ids):
             conn.execute(
-                "UPDATE faq_items SET sort_order = ? WHERE id = ? AND section = ?",
+                "UPDATE faq_items SET sort_order = %s WHERE id = %s AND section = %s",
                 (sort_order, item_id, section),
             )
     return list_faq_admin()
@@ -253,9 +253,9 @@ def update_section(slug: str, updates: dict) -> dict:
         if not _section_exists(conn, slug):
             raise FaqSectionNotFoundError(f"FAQ section not found: {slug}")
         if fields:
-            set_clause = ", ".join(f"{name} = ?" for name in fields)
+            set_clause = ", ".join(f"{name} = %s" for name in fields)
             conn.execute(
-                f"UPDATE faq_sections SET {set_clause} WHERE slug = ?",  # noqa: S608
+                f"UPDATE faq_sections SET {set_clause} WHERE slug = %s",  # noqa: S608
                 [*fields.values(), slug],
             )
     return next(section for section in list_faq_admin()["sections"] if section["slug"] == slug)

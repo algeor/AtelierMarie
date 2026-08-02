@@ -74,7 +74,7 @@ def is_contact_rate_limited(
             """
             SELECT COUNT(*) AS count
             FROM contact_messages
-            WHERE ip_address = ?
+            WHERE ip_address = %s
               AND created_at >= datetime('now', '-1 hour')
             """,
             (ip_address,),
@@ -112,7 +112,7 @@ def create_contact_message(
         cursor = conn.execute(
             """
             INSERT INTO contact_messages (name, email, message, locale, ip_address, email_status)
-            VALUES (?, ?, ?, ?, ?, 'queued')
+            VALUES (%s, %s, %s, %s, %s, 'queued')
             """,
             (body.name, str(body.email).lower(), body.message, body.locale, ip_address),
         )
@@ -132,7 +132,7 @@ def cleanup_old_contact_messages(retention_days: int = CONTACT_MESSAGE_RETENTION
         cursor = conn.execute(
             """
             DELETE FROM contact_messages
-            WHERE created_at < datetime('now', ?)
+            WHERE created_at < datetime('now', %s)
             """,
             (f"-{retention_days} days",),
         )
@@ -166,7 +166,7 @@ def _claim_contact_row(row_id: int) -> ContactMessageRow | None:
                 SELECT id, name, email, message, locale, ip_address, email_attempts, created_at,
                        email_status, email_next_attempt_at, email_claimed_until
                 FROM contact_messages
-                WHERE id = ?
+                WHERE id = %s
                 """,
                 (row_id,),
             ).fetchone()
@@ -190,8 +190,8 @@ def _claim_contact_row(row_id: int) -> ContactMessageRow | None:
             conn.execute(
                 """
                 UPDATE contact_messages
-                SET email_status = 'in_flight', email_claimed_until = ?, email_error = NULL
-                WHERE id = ?
+                SET email_status = 'in_flight', email_claimed_until = %s, email_error = NULL
+                WHERE id = %s
                 """,
                 (lease_s, row_id),
             )
@@ -221,23 +221,23 @@ def _mark_contact_email(
     sent_at: str | None = None,
 ) -> None:
     fields = [
-        "email_status = ?",
-        "email_error = ?",
-        "email_next_attempt_at = ?",
+        "email_status = %s",
+        "email_error = %s",
+        "email_next_attempt_at = %s",
         "email_claimed_until = NULL",
     ]
     params: list[object] = [status, error, next_attempt_at]
     if attempts is not None:
-        fields.append("email_attempts = ?")
+        fields.append("email_attempts = %s")
         params.append(attempts)
     if sent_at is not None:
-        fields.append("email_sent_at = ?")
+        fields.append("email_sent_at = %s")
         params.append(sent_at)
     params.append(row_id)
 
     with get_db() as conn:
         conn.execute(
-            f"UPDATE contact_messages SET {', '.join(fields)} WHERE id = ?",  # noqa: S608
+            f"UPDATE contact_messages SET {', '.join(fields)} WHERE id = %s",  # noqa: S608
             params,
         )
 
@@ -338,15 +338,15 @@ def drain_contact_message_emails(
         rows = conn.execute(
             """
             SELECT id FROM contact_messages
-            WHERE email_attempts < ?
+            WHERE email_attempts < %s
               AND (
                 (email_status IN ('queued', 'failed')
-                 AND (email_next_attempt_at IS NULL OR email_next_attempt_at <= ?))
+                 AND (email_next_attempt_at IS NULL OR email_next_attempt_at <= %s))
                 OR (email_status = 'in_flight'
-                    AND (email_claimed_until IS NULL OR email_claimed_until < ?))
+                    AND (email_claimed_until IS NULL OR email_claimed_until < %s))
               )
             ORDER BY id
-            LIMIT ?
+            LIMIT %s
             """,
             (MAX_CONTACT_EMAIL_ATTEMPTS, now_s, now_s, _SWEEP_BATCH_LIMIT),
         ).fetchall()

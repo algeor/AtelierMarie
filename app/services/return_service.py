@@ -121,7 +121,7 @@ def _append_return_event(
         INSERT INTO order_return_events (
             id, order_return_id, order_id, event_type, source, payload_json,
             admin_user_id, admin_email
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             str(uuid.uuid4()),
@@ -137,7 +137,7 @@ def _append_return_event(
 
 
 def _get_return_case(conn: sqlite3.Connection, return_id: str) -> sqlite3.Row:
-    row = conn.execute("SELECT * FROM order_returns WHERE id = ?", (return_id,)).fetchone()
+    row = conn.execute("SELECT * FROM order_returns WHERE id = %s", (return_id,)).fetchone()
     if row is None:
         raise ReturnCaseNotFoundError(return_id)
     return row
@@ -151,7 +151,7 @@ def get_return_case(conn: sqlite3.Connection, return_id: str) -> dict[str, Any]:
 def list_return_cases_for_order(conn: sqlite3.Connection, order_id: str) -> list[dict[str, Any]]:
     """List return cases for admin order detail payloads."""
     rows = conn.execute(
-        "SELECT * FROM order_returns WHERE order_id = ? ORDER BY created_at ASC, id ASC",
+        "SELECT * FROM order_returns WHERE order_id = %s ORDER BY created_at ASC, id ASC",
         (order_id,),
     ).fetchall()
     return [_row_to_dict(row) for row in rows]
@@ -162,7 +162,7 @@ def list_return_events_for_order(conn: sqlite3.Connection, order_id: str) -> lis
     rows = conn.execute(
         """
         SELECT * FROM order_return_events
-        WHERE order_id = ?
+        WHERE order_id = %s
         ORDER BY created_at ASC, id ASC
         """,
         (order_id,),
@@ -175,7 +175,7 @@ def list_refunds_for_order(conn: sqlite3.Connection, order_id: str) -> list[dict
     rows = conn.execute(
         """
         SELECT * FROM payment_refunds
-        WHERE order_id = ?
+        WHERE order_id = %s
         ORDER BY created_at ASC, id ASC
         """,
         (order_id,),
@@ -185,14 +185,14 @@ def list_refunds_for_order(conn: sqlite3.Connection, order_id: str) -> list[dict
 
 def get_cod_settlement_for_order(conn: sqlite3.Connection, order_id: str) -> dict[str, Any] | None:
     """Return a COD settlement row for admin order detail payloads."""
-    row = conn.execute("SELECT * FROM cod_settlements WHERE order_id = ?", (order_id,)).fetchone()
+    row = conn.execute("SELECT * FROM cod_settlements WHERE order_id = %s", (order_id,)).fetchone()
     return _row_to_dict(row) if row is not None else None
 
 
 def cod_settlement_required_for_order(conn: sqlite3.Connection, order_id: str) -> bool:
     """Return True when a delivered COD order has no explicit settlement record."""
     row = conn.execute(
-        "SELECT status, payment_method FROM orders WHERE id = ?",
+        "SELECT status, payment_method FROM orders WHERE id = %s",
         (order_id,),
     ).fetchone()
     if row is None:
@@ -200,7 +200,7 @@ def cod_settlement_required_for_order(conn: sqlite3.Connection, order_id: str) -
     if row["payment_method"] != "cod" or row["status"] != "delivered":
         return False
     settlement = conn.execute(
-        "SELECT 1 FROM cod_settlements WHERE order_id = ?",
+        "SELECT 1 FROM cod_settlements WHERE order_id = %s",
         (order_id,),
     ).fetchone()
     return settlement is None
@@ -222,7 +222,7 @@ def record_cod_settlement(
     if not settlement_date:
         raise InvalidReturnValueError("settlement_date", settlement_date)
     order = conn.execute(
-        "SELECT id, status, payment_method, total_cents FROM orders WHERE id = ?",
+        "SELECT id, status, payment_method, total_cents FROM orders WHERE id = %s",
         (order_id,),
     ).fetchone()
     if order is None:
@@ -240,7 +240,7 @@ def record_cod_settlement(
         INSERT INTO cod_settlements (
             id, order_id, amount_cents, settlement_date, courier_reference, notes,
             mismatch_review, created_by_admin_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT(order_id) DO UPDATE SET
             amount_cents = excluded.amount_cents,
             settlement_date = excluded.settlement_date,
@@ -263,7 +263,7 @@ def record_cod_settlement(
             now,
         ),
     )
-    row = conn.execute("SELECT * FROM cod_settlements WHERE order_id = ?", (order_id,)).fetchone()
+    row = conn.execute("SELECT * FROM cod_settlements WHERE order_id = %s", (order_id,)).fetchone()
     return _row_to_dict(row)
 
 
@@ -281,18 +281,18 @@ def update_return_accounting(
 ) -> dict[str, Any]:
     """Record courier fee and manual claim details without calling courier APIs."""
     row = _get_return_case(conn, return_id)
-    assignments = ["updated_by_admin_id = ?"]
+    assignments = ["updated_by_admin_id = %s"]
     params: list[Any] = [admin_id]
     payload: dict[str, Any] = {}
 
     if courier_return_fee_cents is not None:
         if courier_return_fee_cents < 0:
             raise InvalidReturnValueError("courier_return_fee_cents", str(courier_return_fee_cents))
-        assignments.append("courier_return_fee_cents = ?")
+        assignments.append("courier_return_fee_cents = %s")
         params.append(courier_return_fee_cents)
         payload["courier_return_fee_cents"] = courier_return_fee_cents
     if courier_claim_id is not None:
-        assignments.append("courier_claim_id = ?")
+        assignments.append("courier_claim_id = %s")
         params.append(courier_claim_id)
         payload["courier_claim_id"] = courier_claim_id
     if courier_claim_status is not None:
@@ -301,17 +301,19 @@ def update_return_accounting(
             courier_claim_status,
             frozenset({"none", "filed", "approved", "rejected", "paid"}),
         )
-        assignments.append("courier_claim_status = ?")
+        assignments.append("courier_claim_status = %s")
         params.append(courier_claim_status)
         payload["courier_claim_status"] = courier_claim_status
     if courier_claim_amount_cents is not None:
         if courier_claim_amount_cents < 0:
-            raise InvalidReturnValueError("courier_claim_amount_cents", str(courier_claim_amount_cents))
-        assignments.append("courier_claim_amount_cents = ?")
+            raise InvalidReturnValueError(
+                "courier_claim_amount_cents", str(courier_claim_amount_cents)
+            )
+        assignments.append("courier_claim_amount_cents = %s")
         params.append(courier_claim_amount_cents)
         payload["courier_claim_amount_cents"] = courier_claim_amount_cents
     if notes is not None:
-        assignments.append("notes = ?")
+        assignments.append("notes = %s")
         params.append(notes)
         payload["notes"] = notes
 
@@ -320,7 +322,7 @@ def update_return_accounting(
 
     params.append(return_id)
     conn.execute(
-        f"UPDATE order_returns SET {', '.join(assignments)} WHERE id = ?",  # noqa: S608
+        f"UPDATE order_returns SET {', '.join(assignments)} WHERE id = %s",  # noqa: S608
         params,
     )
     _append_return_event(
@@ -368,7 +370,7 @@ def create_return_case(
     if courier_claim_amount_cents is not None and courier_claim_amount_cents < 0:
         raise InvalidReturnValueError("courier_claim_amount_cents", str(courier_claim_amount_cents))
 
-    order = conn.execute("SELECT id FROM orders WHERE id = ?", (order_id,)).fetchone()
+    order = conn.execute("SELECT id FROM orders WHERE id = %s", (order_id,)).fetchone()
     if order is None:
         raise InvalidReturnValueError("order_id", order_id)
 
@@ -382,7 +384,7 @@ def create_return_case(
             courier_return_fee_cents, courier_claim_id, courier_claim_status,
             courier_claim_amount_cents, restock_decision, returned_at, notes,
             created_by_admin_id, updated_by_admin_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s, %s, %s, %s)
         """,
         (
             return_id,
@@ -431,14 +433,14 @@ def _transition_return_case(
     if new_status not in RETURN_TRANSITIONS.get(current_status, set()):
         raise InvalidReturnTransitionError(return_id, current_status, new_status)
 
-    assignments = ["status = ?", "updated_by_admin_id = ?"]
+    assignments = ["status = %s", "updated_by_admin_id = %s"]
     params: list[Any] = [new_status, admin_id]
     if timestamp_column:
-        assignments.append(f"{timestamp_column} = COALESCE({timestamp_column}, ?)")
+        assignments.append(f"{timestamp_column} = COALESCE({timestamp_column}, %s)")
         params.append(_now())
     params.append(return_id)
     conn.execute(
-        f"UPDATE order_returns SET {', '.join(assignments)} WHERE id = ?",  # noqa: S608
+        f"UPDATE order_returns SET {', '.join(assignments)} WHERE id = %s",  # noqa: S608
         params,
     )
     _append_return_event(
@@ -476,7 +478,7 @@ def receive_return_case(
 
 def _ordered_quantities(conn: sqlite3.Connection, order_id: str) -> dict[str, int]:
     rows = conn.execute(
-        "SELECT product_id, quantity FROM order_items WHERE order_id = ?",
+        "SELECT product_id, quantity FROM order_items WHERE order_id = %s",
         (order_id,),
     ).fetchall()
     return {row["product_id"]: row["quantity"] for row in rows}
@@ -551,7 +553,7 @@ def inspect_return_case(
             )
         else:
             cursor = conn.execute(
-                "UPDATE products SET stock = stock + ? WHERE id = ?",
+                "UPDATE products SET stock = stock + %s WHERE id = %s",
                 (quantity, product_id),
             )
             if cursor.rowcount == 0:
@@ -561,7 +563,7 @@ def inspect_return_case(
                 INSERT INTO inventory_adjustments (
                     id, order_id, order_return_id, product_id, quantity, reason,
                     source, notes, created_by_admin_id
-                ) VALUES (?, ?, ?, ?, ?, ?, 'admin', ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, 'admin', %s, %s)
                 """,
                 (
                     str(uuid.uuid4()),
@@ -627,9 +629,9 @@ def inspect_return_case(
     conn.execute(
         """
         UPDATE order_returns
-        SET status = 'inspected', restock_decision = ?, inspected_at = COALESCE(inspected_at, ?),
-            notes = COALESCE(?, notes), updated_by_admin_id = ?
-        WHERE id = ?
+        SET status = 'inspected', restock_decision = %s, inspected_at = COALESCE(inspected_at, %s),
+            notes = COALESCE(%s, notes), updated_by_admin_id = %s
+        WHERE id = %s
         """,
         (restock_decision, now, notes, admin_id, return_id),
     )

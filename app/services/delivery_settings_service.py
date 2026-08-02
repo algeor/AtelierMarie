@@ -28,7 +28,7 @@ def _row_to_settings(row: sqlite3.Row) -> dict:
 
 def _get_row(conn: sqlite3.Connection) -> sqlite3.Row:
     row = conn.execute(
-        "SELECT * FROM delivery_settings WHERE id = ?",
+        "SELECT * FROM delivery_settings WHERE id = %s",
         (_SETTINGS_ID,),
     ).fetchone()
     if row is None:
@@ -38,12 +38,12 @@ def _get_row(conn: sqlite3.Connection) -> sqlite3.Row:
                 id, speedy_office_enabled, speedy_door_enabled,
                 econt_office_enabled, econt_door_enabled,
                 cod_enabled, card_enabled, bank_transfer_enabled, updated_at
-            ) VALUES (?, 1, 1, 1, 1, 1, 1, 1, ?)
+            ) VALUES (%s, 1, 1, 1, 1, 1, 1, 1, %s)
             """,
             (_SETTINGS_ID, pricing.now_utc()),
         )
         row = conn.execute(
-            "SELECT * FROM delivery_settings WHERE id = ?",
+            "SELECT * FROM delivery_settings WHERE id = %s",
             (_SETTINGS_ID,),
         ).fetchone()
     return row
@@ -64,11 +64,11 @@ def update_delivery_settings(data: dict) -> dict:
         conn.execute(
             """
             UPDATE delivery_settings
-            SET speedy_office_enabled = ?, speedy_door_enabled = ?,
-                econt_office_enabled = ?, econt_door_enabled = ?,
-                cod_enabled = ?, card_enabled = ?, bank_transfer_enabled = ?,
-                updated_at = ?
-            WHERE id = ?
+            SET speedy_office_enabled = %s, speedy_door_enabled = %s,
+                econt_office_enabled = %s, econt_door_enabled = %s,
+                cod_enabled = %s, card_enabled = %s, bank_transfer_enabled = %s,
+                updated_at = %s
+            WHERE id = %s
             """,
             (
                 1 if data.get("speedy_office_enabled") else 0,

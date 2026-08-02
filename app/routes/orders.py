@@ -165,7 +165,7 @@ async def create_order(
             row = conn.execute(
                 "SELECT s.user_id, s.preferred_locale, u.email AS user_email "
                 "FROM sessions s LEFT JOIN users u ON u.id = s.user_id "
-                "WHERE s.id = ?",
+                "WHERE s.id = %s",
                 (session_id,),
             ).fetchone()
             user_id = row["user_id"] if row else None
@@ -363,7 +363,7 @@ async def create_stripe_retry_session(
 
     with get_db() as conn:
         # Ownership check.
-        row = conn.execute("SELECT user_id FROM sessions WHERE id = ?", (session_id,)).fetchone()
+        row = conn.execute("SELECT user_id FROM sessions WHERE id = %s", (session_id,)).fetchone()
         user_id = row["user_id"] if row else None
         try:
             get_order(conn=conn, order_id=order_id, session_id=session_id, user_id=user_id)
@@ -428,7 +428,7 @@ def list_my_orders(
 ) -> OrderListResponse:
     """List orders for the current session/user."""
     with get_db() as conn:
-        row = conn.execute("SELECT user_id FROM sessions WHERE id = ?", (session_id,)).fetchone()
+        row = conn.execute("SELECT user_id FROM sessions WHERE id = %s", (session_id,)).fetchone()
         user_id = row["user_id"] if row else None
 
         result = list_orders(
@@ -480,7 +480,7 @@ def get_order_detail(
             )
 
     with get_db() as conn:
-        row = conn.execute("SELECT user_id FROM sessions WHERE id = ?", (session_id,)).fetchone()
+        row = conn.execute("SELECT user_id FROM sessions WHERE id = %s", (session_id,)).fetchone()
         user_id = row["user_id"] if row else None
 
         order_data = get_order(

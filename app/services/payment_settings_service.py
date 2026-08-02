@@ -84,7 +84,7 @@ def ensure_payment_settings(conn: sqlite3.Connection) -> None:
         conn.execute(
             """
             INSERT OR IGNORE INTO site_settings (key, value, value_type, is_public)
-            VALUES (?, ?, 'json', 1)
+            VALUES (%s, %s, 'json', 1)
             """,
             (key, _encode(value)),
         )
@@ -94,7 +94,7 @@ def get_payment_settings(conn: sqlite3.Connection) -> dict[str, Any]:
     """Return payment settings, applying DB defaults lazily."""
     ensure_payment_settings(conn)
     rows = conn.execute(
-        "SELECT key, value FROM site_settings WHERE key IN (?, ?, ?)",
+        "SELECT key, value FROM site_settings WHERE key IN (%s, %s, %s)",
         tuple(_DEFAULT_SETTINGS.keys()),
     ).fetchall()
     values = dict(_DEFAULT_SETTINGS)
@@ -139,8 +139,8 @@ def update_payment_settings(
         conn.execute(
             """
             UPDATE site_settings
-            SET value = ?, value_type = 'json', is_public = 1
-            WHERE key = ?
+            SET value = %s, value_type = 'json', is_public = 1
+            WHERE key = %s
             """,
             (_encode(new_value), key),
         )
@@ -148,7 +148,7 @@ def update_payment_settings(
             """
             INSERT INTO site_setting_events (
                 setting_key, old_value, new_value, admin_id, admin_email, request_id
-            ) VALUES (?, ?, ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s, %s)
             """,
             (key, _encode(old_value), _encode(new_value), admin_id, admin_email, request_id),
         )

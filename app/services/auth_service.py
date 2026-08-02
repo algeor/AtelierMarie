@@ -346,7 +346,7 @@ def upsert_user(
 
     # Check if user already exists
     existing = conn.execute(
-        "SELECT id, email, name, avatar_url, is_admin FROM users WHERE google_id = ?",
+        "SELECT id, email, name, avatar_url, is_admin FROM users WHERE google_id = %s",
         (google_id,),
     ).fetchone()
 
@@ -357,7 +357,7 @@ def upsert_user(
         next_name = name if name is not None else existing_name
         next_avatar_url = avatar_url if avatar_url is not None else existing_avatar_url
         conn.execute(
-            "UPDATE users SET name = ?, avatar_url = ?, last_login_at = ? WHERE google_id = ?",
+            "UPDATE users SET name = %s, avatar_url = %s, last_login_at = %s WHERE google_id = %s",
             (next_name, next_avatar_url, now, google_id),
         )
         return UserResponse(
@@ -377,7 +377,7 @@ def upsert_user(
         user_id = str(uuid.uuid4())
         conn.execute(
             "INSERT INTO users (id, google_id, email, name, avatar_url, is_admin, last_login_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
             (user_id, google_id, email, name, avatar_url, is_admin, now),
         )
         conn.execute("COMMIT")
@@ -444,7 +444,7 @@ def get_user_from_session(conn: sqlite3.Connection, session_id: str) -> UserResp
     row = conn.execute(
         "SELECT u.id, u.email, u.name, u.avatar_url, u.is_admin "
         "FROM sessions s JOIN users u ON s.user_id = u.id "
-        "WHERE s.id = ?",
+        "WHERE s.id = %s",
         (session_id,),
     ).fetchone()
 

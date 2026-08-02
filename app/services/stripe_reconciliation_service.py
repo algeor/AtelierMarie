@@ -123,7 +123,7 @@ def _matching_local_amount(conn: sqlite3.Connection, row: sqlite3.Row) -> int | 
         payment = conn.execute(
             """
             SELECT amount_cents FROM payments
-            WHERE provider = 'stripe' AND stripe_payment_intent_id = ?
+            WHERE provider = 'stripe' AND stripe_payment_intent_id = %s
             ORDER BY created_at DESC LIMIT 1
             """,
             (row["payment_intent_id"],),
@@ -134,7 +134,7 @@ def _matching_local_amount(conn: sqlite3.Connection, row: sqlite3.Row) -> int | 
         refund = conn.execute(
             """
             SELECT amount_cents FROM payment_refunds
-            WHERE provider = 'stripe' AND provider_refund_id = ?
+            WHERE provider = 'stripe' AND provider_refund_id = %s
             ORDER BY created_at DESC LIMIT 1
             """,
             (row["provider_refund_id"],),
@@ -145,7 +145,9 @@ def _matching_local_amount(conn: sqlite3.Connection, row: sqlite3.Row) -> int | 
 
 
 def _reconcile_row(conn: sqlite3.Connection, row_id: str) -> str:
-    row = conn.execute("SELECT * FROM stripe_balance_transactions WHERE id = ?", (row_id,)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM stripe_balance_transactions WHERE id = %s", (row_id,)
+    ).fetchone()
     if row is None:
         return "unmatched"
     if row["match_status"] in {"duplicate", "ignored"}:
@@ -162,8 +164,8 @@ def _reconcile_row(conn: sqlite3.Connection, row_id: str) -> str:
     conn.execute(
         """
         UPDATE stripe_balance_transactions
-        SET match_status = ?, status = ?
-        WHERE id = ?
+        SET match_status = %s, status = %s
+        WHERE id = %s
         """,
         (match_status, "matched" if match_status == "matched" else "unmatched", row_id),
     )
@@ -194,7 +196,7 @@ def import_balance_rows(
                     """
                     UPDATE stripe_balance_transactions
                     SET match_status = 'duplicate', status = 'duplicate'
-                    WHERE balance_transaction_id = ?
+                    WHERE balance_transaction_id = %s
                     """,
                     (item["balance_transaction_id"],),
                 )
@@ -203,7 +205,7 @@ def import_balance_rows(
             existing = conn.execute(
                 """
                 SELECT id FROM stripe_balance_transactions
-                WHERE balance_transaction_id = ?
+                WHERE balance_transaction_id = %s
                 """,
                 (item["balance_transaction_id"],),
             ).fetchone()
@@ -212,13 +214,13 @@ def import_balance_rows(
                 conn.execute(
                     """
                     UPDATE stripe_balance_transactions
-                    SET reporting_category = ?, transaction_type = ?, provider_created_at = ?,
-                        available_on = ?, gross_amount_cents = ?, fee_amount_cents = ?,
-                        net_amount_cents = ?, currency = ?, payment_intent_id = ?, charge_id = ?,
-                        provider_refund_id = ?, dispute_id = ?, payout_id = ?,
-                        payout_effective_at = ?, payout_arrival_at = ?, payout_status = ?,
-                        trace_id = ?, raw_row_json = ?, imported_at = ?
-                    WHERE id = ?
+                    SET reporting_category = %s, transaction_type = %s, provider_created_at = %s,
+                        available_on = %s, gross_amount_cents = %s, fee_amount_cents = %s,
+                        net_amount_cents = %s, currency = %s, payment_intent_id = %s, charge_id = %s,
+                        provider_refund_id = %s, dispute_id = %s, payout_id = %s,
+                        payout_effective_at = %s, payout_arrival_at = %s, payout_status = %s,
+                        trace_id = %s, raw_row_json = %s, imported_at = %s
+                    WHERE id = %s
                     """,
                     (
                         item["reporting_category"],
@@ -255,7 +257,7 @@ def import_balance_rows(
                         charge_id, provider_refund_id, dispute_id, payout_id,
                         payout_effective_at, payout_arrival_at, payout_status, trace_id,
                         raw_row_json, imported_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         row_id,
@@ -338,11 +340,15 @@ def sync_from_stripe(
     """Sync Stripe balance transactions via the Stripe SDK when configured."""
     settings = get_settings()
     if not settings.stripe_secret_key:
-        raise FinancePeriodError(422, "STRIPE_NOT_CONFIGURED", "Stripe secret key is not configured.")
+        raise FinancePeriodError(
+            422, "STRIPE_NOT_CONFIGURED", "Stripe secret key is not configured."
+        )
     try:
         import stripe
     except ImportError as exc:
-        raise FinancePeriodError(503, "STRIPE_SDK_UNAVAILABLE", "Stripe SDK is unavailable.") from exc
+        raise FinancePeriodError(
+            503, "STRIPE_SDK_UNAVAILABLE", "Stripe SDK is unavailable."
+        ) from exc
     stripe.api_key = settings.stripe_secret_key
     try:
         provider_rows = stripe.BalanceTransaction.list(limit=limit)
@@ -351,7 +357,11 @@ def sync_from_stripe(
 
     rows: list[dict[str, Any]] = []
     for item in getattr(provider_rows, "data", provider_rows):
-        getter = item.get if isinstance(item, dict) else lambda key, default=None: getattr(item, key, default)
+        getter = (
+            item.get
+            if isinstance(item, dict)
+            else lambda key, default=None: getattr(item, key, default)
+        )
         source = getter("source")
         rows.append(
             {
@@ -418,7 +428,7 @@ def review_match(
         row = conn.execute(
             """
             SELECT * FROM stripe_balance_transactions
-            WHERE balance_transaction_id = ? OR id = ?
+            WHERE balance_transaction_id = %s OR id = %s
             """,
             (balance_transaction_id, balance_transaction_id),
         ).fetchone()
@@ -441,8 +451,8 @@ def review_match(
         conn.execute(
             """
             UPDATE stripe_balance_transactions
-            SET match_status = ?, status = ?, raw_row_json = ?
-            WHERE id = ?
+            SET match_status = %s, status = %s, raw_row_json = %s
+            WHERE id = %s
             """,
             (
                 body.match_status,
@@ -454,7 +464,7 @@ def review_match(
             ),
         )
         updated = conn.execute(
-            "SELECT * FROM stripe_balance_transactions WHERE id = ?", (row["id"],)
+            "SELECT * FROM stripe_balance_transactions WHERE id = %s", (row["id"],)
         ).fetchone()
         accounting_config_service.write_finance_audit_event(
             conn,

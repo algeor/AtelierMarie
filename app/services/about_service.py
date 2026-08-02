@@ -169,7 +169,7 @@ def get_public_about(locale: str = "en") -> dict:
         by_slug = {section["slug"]: section for section in sections}
 
         if by_slug:
-            placeholders = ", ".join("?" for _ in by_slug)
+            placeholders = ", ".join("%s" for _ in by_slug)
             item_rows = conn.execute(
                 f"""
                 SELECT id, section, {item_select}, image_id, link_href
@@ -212,14 +212,14 @@ def list_admin_about() -> dict:
 
 
 def _ensure_section_exists(conn: sqlite3.Connection, slug: str) -> None:
-    row = conn.execute("SELECT 1 FROM about_sections WHERE slug = ?", (slug,)).fetchone()
+    row = conn.execute("SELECT 1 FROM about_sections WHERE slug = %s", (slug,)).fetchone()
     if row is None:
         raise AboutSectionNotFoundError(f"About section not found: {slug}")
 
 
 def _ensure_item_exists(conn: sqlite3.Connection, section: str, item_id: int) -> None:
     row = conn.execute(
-        "SELECT 1 FROM about_items WHERE section = ? AND id = ?", (section, item_id)
+        "SELECT 1 FROM about_items WHERE section = %s AND id = %s", (section, item_id)
     ).fetchone()
     if row is None:
         raise AboutItemNotFoundError(f"About item not found: {item_id}")
@@ -241,13 +241,13 @@ def update_section_text(slug: str, updates: dict) -> dict:
     with get_db() as conn:
         _ensure_section_exists(conn, slug)
         if fields:
-            fields["updated_at"] = "datetime('now')"
+            fields["updated_at"] = "CURRENT_TIMESTAMP"
             set_clause = ", ".join(
-                f"{key} = datetime('now')" if key == "updated_at" else f"{key} = ?"
+                f"{key} = CURRENT_TIMESTAMP" if key == "updated_at" else f"{key} = %s"
                 for key in fields
             )
             values = [value for key, value in fields.items() if key != "updated_at"]
-            conn.execute(f"UPDATE about_sections SET {set_clause} WHERE slug = ?", [*values, slug])
+            conn.execute(f"UPDATE about_sections SET {set_clause} WHERE slug = %s", [*values, slug])
     return next(s for s in list_admin_about()["sections"] if s["slug"] == slug)
 
 
@@ -264,7 +264,7 @@ def create_item(section: str, payload: dict) -> dict:
     with get_db() as conn:
         _ensure_section_exists(conn, section)
         row = conn.execute(
-            "SELECT COALESCE(MAX(sort_order), -1) AS max_order FROM about_items WHERE section = ?",
+            "SELECT COALESCE(MAX(sort_order), -1) AS max_order FROM about_items WHERE section = %s",
             (section,),
         ).fetchone()
         sort_order = int(row["max_order"]) + 1
@@ -273,7 +273,7 @@ def create_item(section: str, payload: dict) -> dict:
             INSERT INTO about_items (
                 section, title_en, title_bg, text_en, text_bg, link_href,
                 sort_order, is_published, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """,
             (
                 section,
@@ -295,7 +295,7 @@ def create_item(section: str, payload: dict) -> dict:
 def get_admin_item(section: str, item_id: int) -> dict:
     with get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM about_items WHERE section = ? AND id = ?", (section, item_id)
+            "SELECT * FROM about_items WHERE section = %s AND id = %s", (section, item_id)
         ).fetchone()
         if row is None:
             raise AboutItemNotFoundError(f"About item not found: {item_id}")
@@ -320,10 +320,10 @@ def update_item(section: str, item_id: int, updates: dict) -> dict:
     with get_db() as conn:
         _ensure_item_exists(conn, section, item_id)
         if fields:
-            set_clause = ", ".join(f"{key} = ?" for key in fields)
+            set_clause = ", ".join(f"{key} = %s" for key in fields)
             conn.execute(
-                f"UPDATE about_items SET {set_clause}, updated_at = datetime('now') "
-                "WHERE section = ? AND id = ?",
+                f"UPDATE about_items SET {set_clause}, updated_at = CURRENT_TIMESTAMP "
+                "WHERE section = %s AND id = %s",
                 [*fields.values(), section, item_id],
             )
     return get_admin_item(section, item_id)
@@ -332,7 +332,7 @@ def update_item(section: str, item_id: int, updates: dict) -> dict:
 def delete_item(section: str, item_id: int) -> None:
     with get_db() as conn:
         _ensure_item_exists(conn, section, item_id)
-        conn.execute("DELETE FROM about_items WHERE section = ? AND id = ?", (section, item_id))
+        conn.execute("DELETE FROM about_items WHERE section = %s AND id = %s", (section, item_id))
 
 
 def reorder_sections(slugs: list[str]) -> list[dict]:
@@ -344,8 +344,8 @@ def reorder_sections(slugs: list[str]) -> list[dict]:
             raise AboutReorderError("slugs must match all about sections")
         for sort_order, slug in enumerate(slugs):
             conn.execute(
-                "UPDATE about_sections SET sort_order = ?, updated_at = datetime('now') "
-                "WHERE slug = ?",
+                "UPDATE about_sections SET sort_order = %s, updated_at = CURRENT_TIMESTAMP "
+                "WHERE slug = %s",
                 (sort_order, slug),
             )
     return list_admin_about()["sections"]
@@ -356,15 +356,15 @@ def reorder_items(section: str, ids: list[int]) -> list[dict]:
     with get_db() as conn:
         _ensure_section_exists(conn, section)
         rows = conn.execute(
-            "SELECT id FROM about_items WHERE section = ? ORDER BY sort_order, id", (section,)
+            "SELECT id FROM about_items WHERE section = %s ORDER BY sort_order, id", (section,)
         ).fetchall()
         current = [int(row["id"]) for row in rows]
         if set(current) != set(ids) or len(current) != len(ids):
             raise AboutReorderError("ids must match all items for the section")
         for sort_order, item_id in enumerate(ids):
             conn.execute(
-                "UPDATE about_items SET sort_order = ?, updated_at = datetime('now') "
-                "WHERE section = ? AND id = ?",
+                "UPDATE about_items SET sort_order = %s, updated_at = CURRENT_TIMESTAMP "
+                "WHERE section = %s AND id = %s",
                 (sort_order, section, item_id),
             )
     return [
@@ -376,8 +376,8 @@ def set_section_published(slug: str, is_published: bool) -> dict:
     with get_db() as conn:
         _ensure_section_exists(conn, slug)
         conn.execute(
-            "UPDATE about_sections SET is_published = ?, updated_at = datetime('now') "
-            "WHERE slug = ?",
+            "UPDATE about_sections SET is_published = %s, updated_at = CURRENT_TIMESTAMP "
+            "WHERE slug = %s",
             (1 if is_published else 0, slug),
         )
     return next(s for s in list_admin_about()["sections"] if s["slug"] == slug)
@@ -387,8 +387,8 @@ def set_item_published(section: str, item_id: int, is_published: bool) -> dict:
     with get_db() as conn:
         _ensure_item_exists(conn, section, item_id)
         conn.execute(
-            "UPDATE about_items SET is_published = ?, updated_at = datetime('now') "
-            "WHERE section = ? AND id = ?",
+            "UPDATE about_items SET is_published = %s, updated_at = CURRENT_TIMESTAMP "
+            "WHERE section = %s AND id = %s",
             (1 if is_published else 0, section, item_id),
         )
     return get_admin_item(section, item_id)
@@ -402,7 +402,7 @@ def set_section_image(slug: str, file_bytes: bytes) -> dict:
         _ensure_section_exists(conn, slug)
         process_image(file_bytes, owner_slug, image_id=image_id)
         conn.execute(
-            "UPDATE about_sections SET image_id = ?, updated_at = datetime('now') WHERE slug = ?",
+            "UPDATE about_sections SET image_id = %s, updated_at = CURRENT_TIMESTAMP WHERE slug = %s",
             (image_id, slug),
         )
     return next(s for s in list_admin_about()["sections"] if s["slug"] == slug)
@@ -412,8 +412,8 @@ def clear_section_image(slug: str) -> dict:
     with get_db() as conn:
         _ensure_section_exists(conn, slug)
         conn.execute(
-            "UPDATE about_sections SET image_id = NULL, updated_at = datetime('now') "
-            "WHERE slug = ?",
+            "UPDATE about_sections SET image_id = NULL, updated_at = CURRENT_TIMESTAMP "
+            "WHERE slug = %s",
             (slug,),
         )
     return next(s for s in list_admin_about()["sections"] if s["slug"] == slug)
@@ -427,8 +427,8 @@ def set_item_image(section: str, item_id: int, file_bytes: bytes) -> dict:
         _ensure_item_exists(conn, section, item_id)
         process_image(file_bytes, owner_slug, image_id=image_id)
         conn.execute(
-            "UPDATE about_items SET image_id = ?, updated_at = datetime('now') "
-            "WHERE section = ? AND id = ?",
+            "UPDATE about_items SET image_id = %s, updated_at = CURRENT_TIMESTAMP "
+            "WHERE section = %s AND id = %s",
             (image_id, section, item_id),
         )
     return get_admin_item(section, item_id)
@@ -438,8 +438,8 @@ def clear_item_image(section: str, item_id: int) -> dict:
     with get_db() as conn:
         _ensure_item_exists(conn, section, item_id)
         conn.execute(
-            "UPDATE about_items SET image_id = NULL, updated_at = datetime('now') "
-            "WHERE section = ? AND id = ?",
+            "UPDATE about_items SET image_id = NULL, updated_at = CURRENT_TIMESTAMP "
+            "WHERE section = %s AND id = %s",
             (section, item_id),
         )
     return get_admin_item(section, item_id)
