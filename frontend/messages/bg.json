@@ -352,7 +352,12 @@
     "removeFromCart": "Премахни {name} от кошницата",
     "decreaseQuantity": "Намали количеството",
     "increaseQuantity": "Увеличи количеството",
-    "dismissError": "Затвори грешката"
+    "dismissError": "Затвори грешката",
+    "stockLimit": "Налични са само {count}",
+    "unavailableTitle": "Неналични артикули",
+    "unavailableReason": "Вече не е наличен: {reason}",
+    "amountToFreeShipping": "Добави още {amount} за безплатна доставка",
+    "freeShippingUnlocked": "Безплатната доставка е отключена"
   },
   "checkout": {
     "title": "Плащане",
@@ -1308,6 +1313,14 @@
     "ordersToday": "Поръчки днес",
     "revenueThisWeek": "Приходи тази седмица",
     "activeProducts": "Активни продукти",
+    "workQueue": "Дневна работна опашка",
+    "queue": {
+      "pendingOrders": "Поръчки за потвърждение",
+      "paymentAttention": "Плащания за преглед",
+      "readyToShip": "Готови за изпращане",
+      "lowStock": "Продукти с ниска наличност",
+      "contactMessages": "Съобщения от контакт"
+    },
     "backToStore": "Обратно към магазина",
     "openNavMenu": "Отвори менюто за навигация",
     "closeNavMenu": "Затвори менюто за навигация",
@@ -1327,6 +1340,10 @@
     "inactive": "Неактивен",
     "activate": "Активирай",
     "deactivate": "Деактивирай",
+    "media": "Медия",
+    "mediaReady": "Готово",
+    "mediaMissing": "Липсва изображение",
+    "mediaRequiredToActivate": "Добавете поне едно продуктово изображение, преди да активирате продукта.",
     "all": "Всички",
     "orderId": "Код на поръчка",
     "orderDetail": "Поръчка #{id}",
@@ -1650,6 +1667,7 @@
       "videoType": "Качете видео файл",
       "videoSize": "Видеото трябва да е 200MB или по-малко",
       "maxImages": "Продуктът може да има до 6 изображения",
+      "activeProductNeedsImage": "Активните продукти трябва да имат поне едно продуктово изображение.",
       "productTypeRequired": "Типът продукт е задължителен",
       "discountPercentRange": "Отстъпката трябва да е между 1 и 99",
       "discountWindowOrder": "Началото на отстъпката трябва да е преди края",
@@ -1673,8 +1691,11 @@
       "urlAuto": "Създава се автоматично от куриер + номер",
       "urlPreview": "Преглед на линка",
       "customUrlPlaceholder": "https://…",
+      "deliveryCourier": "Клиентът избра доставка с {courier}",
+      "carrierMismatch": "Избраният куриер за проследяване ({selected}) не съвпада с куриера за доставка ({delivery}). Натиснете отново, за да потвърдите, че това е умишлено.",
       "cancel": "Отказ",
       "confirm": "Отбележи като изпратена",
+      "confirmMismatch": "Потвърди различието",
       "trackingRequired": "Товарителницата е задължителна"
     },
     "taxonomy": {

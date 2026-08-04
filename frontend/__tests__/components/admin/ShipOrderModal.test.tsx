@@ -41,6 +41,32 @@ describe("ShipOrderModal", () => {
     ).toBeInTheDocument();
   });
 
+  it("defaults the tracking carrier from the order delivery courier", () => {
+    setup({ deliveryCourier: "econt" });
+    expect(screen.getByLabelText("Carrier")).toHaveValue("econt");
+    expect(screen.getByText("Customer selected Econt delivery")).toBeInTheDocument();
+  });
+
+  it("requires explicit confirmation when tracking carrier differs from delivery courier", () => {
+    const { onConfirm } = setup({ deliveryCourier: "econt" });
+    fireEvent.change(screen.getByLabelText("Carrier"), {
+      target: { value: "speedy" },
+    });
+    fireEvent.change(screen.getByLabelText("Tracking number"), {
+      target: { value: "123456" },
+    });
+
+    expect(screen.getByText(/does not match the customer's delivery courier/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Mark as shipped" }));
+    expect(onConfirm).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm mismatch" }));
+    expect(onConfirm).toHaveBeenCalledWith({
+      tracking_number: "123456",
+      tracking_carrier: "speedy",
+    });
+  });
+
   it("confirms with tracking data for a known carrier (no explicit URL)", () => {
     const { onConfirm } = setup();
     fireEvent.change(screen.getByLabelText("Carrier"), {

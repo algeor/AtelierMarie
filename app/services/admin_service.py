@@ -53,6 +53,14 @@ def get_dashboard_stats() -> dict:
             "SELECT COUNT(*) as count FROM products WHERE is_active = 1 AND stock <= 5"
         ).fetchone()
 
+        contact_attention_row = conn.execute(
+            """
+            SELECT COUNT(*) as count
+            FROM contact_messages
+            WHERE email_status != 'sent'
+            """
+        ).fetchone()
+
     orders_by_status = {row["status"]: row["count"] for row in status_rows}
     orders_by_payment_status = {row["payment_status"]: row["count"] for row in payment_status_rows}
 
@@ -71,4 +79,5 @@ def get_dashboard_stats() -> dict:
         "orders_today": today_row["count"],
         "revenue_this_week_cents": week_revenue_row["revenue_cents"],
         "active_product_count": product_row["active"] or 0,
+        "contact_messages_needing_attention": contact_attention_row["count"],
     }

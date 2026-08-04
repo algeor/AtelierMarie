@@ -31,6 +31,7 @@ import { CartDrawer } from "@/components/cart/CartDrawer";
 
 const baseCartState = {
   items: [],
+  unavailable_items: [],
   total_cents: 0,
   item_count: 0,
   isLoading: false,
@@ -107,5 +108,54 @@ describe("CartDrawer", () => {
     });
     renderWithIntl(<CartDrawer />);
     expect(screen.getByText("Test Candle")).toBeInTheDocument();
+    expect(document.querySelector('img[src="/img/test.jpg"]')).toBeInTheDocument();
+  });
+
+  it("shows unavailable items with a remove action", () => {
+    const removeItem = vi.fn();
+    mockUseCart.mockReturnValue({
+      ...baseCartState,
+      isDrawerOpen: true,
+      unavailable_items: [
+        { product_id: "old-candle", product_name: "Old Candle", reason: "deactivated" },
+      ],
+      removeItem,
+    });
+    renderWithIntl(<CartDrawer />);
+    expect(screen.getByText("Unavailable items")).toBeInTheDocument();
+    expect(screen.getByText("Old Candle")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    expect(removeItem).toHaveBeenCalledWith("old-candle");
+  });
+
+  it("caps quantity increments at available stock", () => {
+    mockUseCart.mockReturnValue({
+      ...baseCartState,
+      isDrawerOpen: true,
+      items: [
+        {
+          product_id: "limited-candle",
+          product: {
+            id: "limited-candle",
+            name: "Limited Candle",
+            price_cents: 3000,
+            effective_price_cents: 3000,
+            discount_percent: null,
+            discount_active: false,
+            images: [],
+            primary_image_url: null,
+            primary_thumbnail_url: null,
+            stock: 5,
+          },
+          quantity: 5,
+          added_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+      total_cents: 15000,
+      item_count: 5,
+    });
+    renderWithIntl(<CartDrawer />);
+    expect(screen.getByRole("button", { name: "Increase quantity" })).toBeDisabled();
+    expect(screen.getByText("Only 5 available")).toBeInTheDocument();
   });
 });

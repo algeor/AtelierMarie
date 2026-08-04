@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { Link, useRouter } from "@/i18n/navigation";
 import { useCart } from "@/contexts/CartContext";
@@ -17,6 +18,7 @@ import { useLocalizedError } from "@/lib/useLocalizedError";
 import { useCookieConsent } from "@/contexts/CookieConsentContext";
 import { policyPath } from "@/lib/legal";
 import { formatPrice } from "@/lib/utils";
+import { resolveMediaUrl } from "@/lib/media";
 import { FREE_SHIPPING_THRESHOLD_CENTS } from "@/lib/constants";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -72,7 +74,7 @@ export default function CheckoutPage() {
   const tCart = useTranslations("cart");
   const getLocalizedError = useLocalizedError();
   const router = useRouter();
-  const { items, total_cents, isLoading, refreshCart } = useCart();
+  const { items, unavailable_items, total_cents, isLoading, refreshCart, removeItem } = useCart();
   const { analytics: analyticsConsent } = useCookieConsent();
   const { user } = useAuth();
 
@@ -389,6 +391,10 @@ export default function CheckoutPage() {
 
       const emailError = validateEmail(email);
       const nameError = validateName(name);
+      if (unavailable_items.length > 0) {
+        setSubmitError(t("unavailableItems"));
+        return;
+      }
       if (emailError || nameError) {
         setErrors({
           ...(emailError ? { email: emailError } : {}),
@@ -493,6 +499,7 @@ export default function CheckoutPage() {
       total_cents,
       qualifiesForFreeShipping,
       selectedQuote,
+      unavailable_items,
     ],
   );
 
@@ -561,6 +568,33 @@ export default function CheckoutPage() {
               </div>
             )}
           </div>
+
+          {unavailable_items.length > 0 && (
+            <div className="mb-6 rounded-brand border border-amber-200 bg-amber-50 px-4 py-3" role="alert">
+              <h2 className="text-sm font-medium text-amber-900">
+                {t("unavailableItems")}
+              </h2>
+              <ul className="mt-2 divide-y divide-amber-200/70">
+                {unavailable_items.map((item) => (
+                  <li key={item.product_id} className="flex items-center justify-between gap-3 py-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-charcoal">
+                        {item.product_name}
+                      </p>
+                      <p className="text-xs text-amber-800">{item.reason}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeItem(item.product_id)}
+                      className="min-h-[44px] shrink-0 rounded-brand px-3 text-sm font-medium text-amber-900 underline underline-offset-4 hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700 focus-visible:ring-offset-2 focus-visible:ring-offset-amber-50"
+                    >
+                      {tCart("remove")}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* Email */}
           <div className="mb-6">
@@ -711,12 +745,6 @@ export default function CheckoutPage() {
             )}
           </div>
 
-          <div className="lg:hidden">
-            <Button type="submit" variant="primary" size="lg" isLoading={isSubmitting} className="w-full">
-              {isSubmitting ? t("placingOrder") : t("placeOrder")}
-            </Button>
-            {renderLegalDisclosure()}
-          </div>
         </form>
 
         <aside className="lg:sticky lg:top-24 lg:self-start">
@@ -724,19 +752,33 @@ export default function CheckoutPage() {
             <h2 className="mb-4 font-heading text-xl text-charcoal">{t("orderSummary")}</h2>
 
             <ul className="divide-y divide-champagne-beige">
-              {items.map((item) => (
-                <li key={item.product_id} className="flex items-center justify-between py-3 text-sm">
-                  <div className="flex-1 pr-4">
-                    <p className="font-medium text-charcoal">{item.product.name}</p>
-                    <p className="text-soft-brown">
-                      {item.quantity} &times; {formatPrice(item.product.effective_price_cents)}
+              {items.map((item) => {
+                const thumbnailUrl = resolveMediaUrl(
+                  item.product.primary_thumbnail_url ?? item.product.primary_image_url
+                );
+                return (
+                  <li key={item.product_id} className="flex items-center justify-between gap-3 py-3 text-sm">
+                    <div className="h-14 w-14 shrink-0 overflow-hidden rounded-brand border border-champagne-beige bg-cream">
+                      {thumbnailUrl ? (
+                        <Image src={thumbnailUrl} alt="" width={56} height={56} className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center px-1 text-center font-heading text-[9px] leading-tight text-soft-brown/70">
+                          {item.product.name}
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1 pr-2">
+                      <p className="truncate font-medium text-charcoal">{item.product.name}</p>
+                      <p className="text-soft-brown">
+                        {item.quantity} &times; {formatPrice(item.product.effective_price_cents)}
+                      </p>
+                    </div>
+                    <p className="shrink-0 font-medium text-charcoal">
+                      {formatPrice(item.product.effective_price_cents * item.quantity)}
                     </p>
-                  </div>
-                  <p className="font-medium text-charcoal">
-                    {formatPrice(item.product.effective_price_cents * item.quantity)}
-                  </p>
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ul>
 
             <div className="mt-4 border-t border-champagne-beige pt-4">
@@ -748,7 +790,7 @@ export default function CheckoutPage() {
               />
             </div>
 
-            <div className="mt-6 hidden lg:block">
+            <div className="mt-6">
               <Button
                 type="submit"
                 form="checkout-form"
