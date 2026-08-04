@@ -207,7 +207,6 @@ def queue_video_upload_path(
         probe = video_service.validate_video_upload(temp_path, product_id)
         old_files: tuple[str | None, str | None, str | None] = (None, None, None)
         with get_db() as conn:
-            conn.execute("BEGIN IMMEDIATE")
             _ensure_product_exists(conn, product_id)
             existing = conn.execute(
                 "SELECT * FROM product_videos WHERE product_id = %s",
@@ -254,7 +253,6 @@ def get_video(product_id: str) -> dict:
 def delete_video(product_id: str) -> None:
     """Delete a product video row and unlink all associated files."""
     with get_db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             "SELECT * FROM product_videos WHERE product_id = %s", (product_id,)
         ).fetchone()
@@ -277,7 +275,6 @@ def delete_video_if_exists(product_id: str) -> None:
 def update_sort_order(product_id: str, sort_order: int) -> dict:
     """Set the insertion index used by the frontend gallery merge."""
     with get_db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
         _ensure_product_exists(conn, product_id)
         cursor = conn.execute(
             """
@@ -423,7 +420,6 @@ def _claim_one_queued(conn: sqlite3.Connection) -> sqlite3.Row | None:
 def drain_video_transcodes() -> int:
     """Run one video transcode job if available; return changed row count."""
     with get_db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
         changed, cleanup_files = _mark_expired_transcodes_failed(conn)
         claimed = _claim_one_queued(conn)
 

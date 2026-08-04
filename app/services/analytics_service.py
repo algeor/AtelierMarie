@@ -223,9 +223,9 @@ def initialize_storage() -> None:
             conn.execute(
                 """
                 INSERT INTO analytics_delivery_health
-                SELECT %s, 0, %s
+                SELECT ?, 0, ?
                 WHERE NOT EXISTS (
-                    SELECT 1 FROM analytics_delivery_health WHERE metric = %s
+                    SELECT 1 FROM analytics_delivery_health WHERE metric = ?
                 )
                 """,
                 (metric, _utc_now(), metric),
@@ -236,8 +236,8 @@ def initialize_storage() -> None:
 def _set_state(key: str, value: str) -> None:
     settings = get_settings()
     with _duckdb_connect(settings.analytics_duckdb_path) as conn:
-        conn.execute("DELETE FROM analytics_state WHERE key = %s", (key,))
-        conn.execute("INSERT INTO analytics_state VALUES (%s, %s, %s)", (key, value, _utc_now()))
+        conn.execute("DELETE FROM analytics_state WHERE key = ?", (key,))
+        conn.execute("INSERT INTO analytics_state VALUES (?, ?, ?)", (key, value, _utc_now()))
 
 
 def _increment_metric(metric: str, amount: int = 1) -> None:
@@ -248,9 +248,9 @@ def _increment_metric(metric: str, amount: int = 1) -> None:
             conn.execute(
                 """
                 INSERT INTO analytics_delivery_health
-                SELECT %s, 0, %s
+                SELECT ?, 0, ?
                 WHERE NOT EXISTS (
-                    SELECT 1 FROM analytics_delivery_health WHERE metric = %s
+                    SELECT 1 FROM analytics_delivery_health WHERE metric = ?
                 )
                 """,
                 (metric, _utc_now(), metric),
@@ -258,8 +258,8 @@ def _increment_metric(metric: str, amount: int = 1) -> None:
             conn.execute(
                 """
                 UPDATE analytics_delivery_health
-                SET value = value + %s, updated_at = %s
-                WHERE metric = %s
+                SET value = value + ?, updated_at = ?
+                WHERE metric = ?
                 """,
                 (amount, _utc_now(), metric),
             )
@@ -335,7 +335,7 @@ def _event_exists(event_id: str, session_id: str) -> bool:
         row = conn.execute(
             """
             SELECT 1 FROM analytics_events
-            WHERE event_id = %s AND session_id = %s
+            WHERE event_id = ? AND session_id = ?
             LIMIT 1
             """,
             (event_id, session_id),
@@ -360,9 +360,9 @@ def _insert_duckdb(event: dict[str, Any]) -> None:
         conn.execute(
             """
             INSERT INTO analytics_events
-            SELECT %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             WHERE NOT EXISTS (
-                SELECT 1 FROM analytics_events WHERE event_id = %s AND session_id = %s
+                SELECT 1 FROM analytics_events WHERE event_id = ? AND session_id = ?
             )
             """,
             (
@@ -554,13 +554,13 @@ def cleanup_expired_events(retention_days: int | None = None) -> int:
 
     with _duckdb_connect(settings.analytics_duckdb_path) as conn:
         row = conn.execute(
-            "SELECT COUNT(*) FROM analytics_events WHERE occurred_at < %s",
+            "SELECT COUNT(*) FROM analytics_events WHERE occurred_at < ?",
             (cutoff.isoformat(),),
         ).fetchone()
         duckdb_removed = int(row[0] if row else 0)
         if duckdb_removed:
             conn.execute(
-                "DELETE FROM analytics_events WHERE occurred_at < %s",
+                "DELETE FROM analytics_events WHERE occurred_at < ?",
                 (cutoff.isoformat(),),
             )
 
@@ -603,7 +603,7 @@ def get_funnel(
             """
             SELECT event_type, COUNT(*) AS count
             FROM analytics_events
-            WHERE occurred_at >= %s AND occurred_at < %s AND anonymized = false
+            WHERE occurred_at >= ? AND occurred_at < ? AND anonymized = false
             GROUP BY event_type
             """,
             (start, end_exclusive),
@@ -654,7 +654,7 @@ def get_summary(start_date: str | None = None, end_date: str | None = None) -> d
             """
             SELECT COUNT(*) AS events, COUNT(DISTINCT session_id) AS sessions
             FROM analytics_events
-            WHERE occurred_at >= %s AND occurred_at < %s AND anonymized = false
+            WHERE occurred_at >= ? AND occurred_at < ? AND anonymized = false
             """,
             (start, end_exclusive),
         ).fetchone()
@@ -663,7 +663,7 @@ def get_summary(start_date: str | None = None, end_date: str | None = None) -> d
             SELECT COUNT(*) AS purchases, COALESCE(SUM(value_cents), 0) AS revenue
             FROM analytics_events
             WHERE event_type = 'purchase_confirmed'
-              AND occurred_at >= %s AND occurred_at < %s AND anonymized = false
+              AND occurred_at >= ? AND occurred_at < ? AND anonymized = false
             """,
             (start, end_exclusive),
         ).fetchone()
@@ -714,7 +714,7 @@ def get_product_metrics(
                    SUM(CASE WHEN event_type = 'add_to_cart' THEN 1 ELSE 0 END) AS add_to_cart
             FROM analytics_events
             WHERE product_id IS NOT NULL
-              AND occurred_at >= %s AND occurred_at < %s AND anonymized = false
+              AND occurred_at >= ? AND occurred_at < ? AND anonymized = false
             GROUP BY product_id
             """,
             (start, end_exclusive),
@@ -725,7 +725,7 @@ def get_product_metrics(
             FROM analytics_events
             WHERE event_type = 'purchase_confirmed'
               AND order_id IS NOT NULL
-              AND occurred_at >= %s AND occurred_at < %s AND anonymized = false
+              AND occurred_at >= ? AND occurred_at < ? AND anonymized = false
             """,
             (start, end_exclusive),
         ).fetchall()
@@ -814,7 +814,7 @@ def get_checkout_metrics(
                 """
                 SELECT event_type, COUNT(*)
                 FROM analytics_events
-                WHERE occurred_at >= %s AND occurred_at < %s AND anonymized = false
+                WHERE occurred_at >= ? AND occurred_at < ? AND anonymized = false
                 GROUP BY event_type
                 """,
                 (start, end_exclusive),
@@ -825,7 +825,7 @@ def get_checkout_metrics(
                 """
                 SELECT delivery_method, COUNT(*)
                 FROM analytics_events
-                WHERE delivery_method IS NOT NULL AND occurred_at >= %s AND occurred_at < %s
+                WHERE delivery_method IS NOT NULL AND occurred_at >= ? AND occurred_at < ?
                   AND anonymized = false
                 GROUP BY delivery_method
                 """,
@@ -837,7 +837,7 @@ def get_checkout_metrics(
                 """
                 SELECT delivery_courier, COUNT(*)
                 FROM analytics_events
-                WHERE delivery_courier IS NOT NULL AND occurred_at >= %s AND occurred_at < %s
+                WHERE delivery_courier IS NOT NULL AND occurred_at >= ? AND occurred_at < ?
                   AND anonymized = false
                 GROUP BY delivery_courier
                 """,
@@ -849,7 +849,7 @@ def get_checkout_metrics(
                 """
                 SELECT payment_method, COUNT(*)
                 FROM analytics_events
-                WHERE payment_method IS NOT NULL AND occurred_at >= %s AND occurred_at < %s
+                WHERE payment_method IS NOT NULL AND occurred_at >= ? AND occurred_at < ?
                   AND anonymized = false
                 GROUP BY payment_method
                 """,
@@ -883,7 +883,7 @@ def anonymize_subject(
         ("order_id", order_ids or []),
     ):
         if values:
-            placeholders = ",".join("%s" for _ in values)
+            placeholders = ",".join("?" for _ in values)
             conditions.append(f"{field} IN ({placeholders})")
             params.extend(values)
     if not conditions:
@@ -899,7 +899,7 @@ def anonymize_subject(
         conn.execute(
             f"""
             UPDATE analytics_events
-            SET session_id = %s,
+            SET session_id = ?,
                 user_id = NULL,
                 order_id = NULL,
                 properties_json = '{{}}',
@@ -909,7 +909,7 @@ def anonymize_subject(
             [anon, *params],
         )
         row = conn.execute(
-            "SELECT COUNT(*) FROM analytics_events WHERE session_id = %s", (anon,)
+            "SELECT COUNT(*) FROM analytics_events WHERE session_id = ?", (anon,)
         ).fetchone()
     if jsonl_count:
         rebuild_duckdb_from_jsonl()
@@ -970,7 +970,7 @@ def count_events_by_type(
                 """
                 SELECT event_type, COUNT(*)
                 FROM analytics_events
-                WHERE occurred_at >= %s AND occurred_at < %s
+                WHERE occurred_at >= ? AND occurred_at < ?
                 GROUP BY event_type
                 """,
                 (start, end_exclusive),

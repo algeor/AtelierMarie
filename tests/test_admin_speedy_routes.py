@@ -1,9 +1,9 @@
 """Admin Speedy route tests."""
 
 import json
-import sqlite3
 import uuid
 
+import psycopg
 import pytest
 from pydantic import SecretStr
 
@@ -11,6 +11,7 @@ from app.config import get_settings
 from app.models.delivery import DeliveryInfo, DeliveryOffice
 from app.services import speedy_client
 from app.services.order_service import checkout
+from conftest import FAKE_SESSION_ID
 
 
 @pytest.fixture(autouse=True)
@@ -22,7 +23,7 @@ def speedy_settings(monkeypatch):
 
 
 def _make_speedy_order(
-    db: sqlite3.Connection,
+    db: psycopg.Connection,
     app,
     *,
     status: str = "confirmed",
@@ -33,13 +34,13 @@ def _make_speedy_order(
     db.execute(
         """
         INSERT INTO products (id, name_en, price_cents, stock, weight_grams, is_active)
-        VALUES (?, 'Route Candle', 2500, 10, 500, 1)
+        VALUES (%s, 'Route Candle', 2500, 10, 500, 1)
         """,
         (product_id,),
     )
     db.execute(
-        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, ?, 1)",
-        (app._test_session_id, product_id),
+        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (%s, %s, 1)",
+        (FAKE_SESSION_ID, product_id),
     )
     db.commit()
     delivery = DeliveryInfo(
@@ -55,21 +56,21 @@ def _make_speedy_order(
     )
     order = checkout(
         conn=db,
-        session_id=app._test_session_id,
+        session_id=FAKE_SESSION_ID,
         customer_email="speedy-route@example.com",
         customer_name="Speedy Route Buyer",
         delivery=delivery,
         payment_method="cod",
     )
-    db.execute("UPDATE orders SET status = ? WHERE id = ?", (status, order["id"]))
+    db.execute("UPDATE orders SET status = %s WHERE id = %s", (status, order["id"]))
     if tracking_number:
         db.execute(
             """
             UPDATE orders
-            SET tracking_number = ?, tracking_carrier = 'speedy',
-                tracking_url = ?, courier_provider = 'speedy',
-                courier_shipment_number = ?, courier_sync_status = 'waybill_created'
-            WHERE id = ?
+            SET tracking_number = %s, tracking_carrier = 'speedy',
+                tracking_url = %s, courier_provider = 'speedy',
+                courier_shipment_number = %s, courier_sync_status = 'waybill_created'
+            WHERE id = %s
             """,
             (
                 tracking_number,
@@ -261,7 +262,7 @@ class TestAdminSpeedyRoutes:
         order = db.execute(
             """
             SELECT tracking_number, courier_status, courier_sync_status
-            FROM orders WHERE id = ?
+            FROM orders WHERE id = %s
             """,
             (order_id,),
         ).fetchone()

@@ -8,7 +8,7 @@ Use this when touching `app/`.
 routes/      HTTP only: Depends, status codes, response models, error mapping
 services/    Business rules: transactions, external calls, data decisions
 models/      Pydantic contracts: request/response shapes and field validation
-database.py  Schema, migrations, WAL setup, connection helpers
+database.py  psycopg pool + connection helpers (schema in alembic/)
 config.py    Env-driven settings via Pydantic Settings
 ```
 
@@ -63,13 +63,13 @@ High-risk services:
 
 ## Database Rules
 
-- SQLite is the source of truth.
-- WAL mode is enabled by startup.
+- Postgres is the source of truth.
+- Connections come from a psycopg pool; sessions run with `TimeZone=UTC`.
 - Foreign keys are enabled.
 - Fresh schema may be stricter than an old local DB. Test fresh DB paths.
 - Order items are snapshots. Do not join them back to current product data for historical order display.
-- Product search uses FTS5 and sanitized query input.
-- Analytics DuckDB is separate. Do not share connections with the main SQLite app.
+- Product search uses Postgres full-text search (`to_tsvector`/`plainto_tsquery` + GIN indexes) with sanitized query input.
+- Analytics DuckDB is separate. Do not share connections with the main Postgres app.
 
 ## Config Rules
 

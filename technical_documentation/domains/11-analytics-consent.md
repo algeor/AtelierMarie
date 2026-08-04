@@ -27,7 +27,7 @@ user grants analytics consent
   -> tracking helpers emit allowed event types
   -> /v1/analytics/events validates batch
   -> event written to JSONL and DuckDB
-  -> admin reports query DuckDB and SQLite order totals
+  -> admin reports query DuckDB and Postgres order totals
 ```
 
 ## Consent Rules
@@ -54,7 +54,7 @@ Validation rejects:
 
 Storage pieces:
 
-- SQLite `analytics_consents` for consent state.
+- Postgres `analytics_consents` for consent state.
 - JSONL file for durable event log.
 - DuckDB `analytics_events` for reports.
 - DuckDB health/state tables for delivery status.

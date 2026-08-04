@@ -1,10 +1,7 @@
 """Recipe/BOM service tests."""
 
-import sqlite3
-
 import pytest
 
-from app.database import init_db
 from app.models.inventory import (
     MaterialCreateRequest,
     MaterialReceiptRequest,
@@ -19,18 +16,13 @@ from app.services.inventory_service import InventoryValidationError
 
 
 @pytest.fixture()
-def recipe_db(tmp_path) -> sqlite3.Connection:
-    path = str(tmp_path / "recipe.db")
-    init_db(path)
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute(
-        "INSERT INTO products (id, name_en, price_cents, stock) VALUES ('prod-candle', 'Candle', 2500, 0)"
+def recipe_db(db):
+    db.execute(
+        "INSERT INTO products (id, name_en, price_cents, stock) "
+        "VALUES ('prod-candle', 'Candle', 2500, 0)"
     )
-    conn.commit()
-    yield conn
-    conn.close()
+    db.commit()
+    return db
 
 
 def _material_with_cost(

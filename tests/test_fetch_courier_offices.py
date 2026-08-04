@@ -5,8 +5,8 @@ import sys
 
 from scripts import fetch_courier_offices
 from scripts.fetch_courier_offices import (
-    CourierSource,
     SOURCES,
+    CourierSource,
     _normalize_speedy_sites,
     _parse_speedy_sites_export,
     refresh_courier,

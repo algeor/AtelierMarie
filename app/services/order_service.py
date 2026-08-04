@@ -281,7 +281,8 @@ def _record_finished_good_movement(
             source_type, source_id, product_id, order_id, order_item_key,
             actor_user_id, actor_email, reason, notes, reversal_of_movement_id,
             review_state, occurred_at, metadata_json
-        ) VALUES (%s, 'finished_good', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ) VALUES (%s, 'finished_good', %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                  %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             movement_id,
@@ -770,9 +771,7 @@ def _speedy_waybill_kwargs(conn: psycopg.Connection, row: dict) -> dict:
     return kwargs
 
 
-async def _create_speedy_waybill(
-    conn: psycopg.Connection, row: dict
-) -> tuple[str, str | None]:
+async def _create_speedy_waybill(conn: psycopg.Connection, row: dict) -> tuple[str, str | None]:
     """Create a Speedy waybill from an order row."""
     from app.services import speedy_client
 
@@ -1019,8 +1018,8 @@ def checkout(
                 row["discount_percent"],
                 pricing.discount_is_active(
                     row["discount_percent"],
-                    row["discount_starts_at"],
-                    row["discount_ends_at"],
+                    _fmt_ts(row["discount_starts_at"]),
+                    _fmt_ts(row["discount_ends_at"]),
                     now,
                 ),
             )
@@ -1468,9 +1467,7 @@ def _fetch_order_with_items(conn: psycopg.Connection, order_id: str) -> OrderDat
             row["courier_last_error"] if "courier_last_error" in row_keys else None
         ),
         courier_last_synced_at=(
-            _fmt_ts(row["courier_last_synced_at"])
-            if "courier_last_synced_at" in row_keys
-            else None
+            _fmt_ts(row["courier_last_synced_at"]) if "courier_last_synced_at" in row_keys else None
         ),
         locale=(row["locale"] if "locale" in row_keys and row["locale"] else "en"),
         notes=row["notes"],
@@ -1928,7 +1925,8 @@ def list_orders_admin(
         )
     elif accounting_filter == "vat_review_required":
         conditions.append(
-            "accounting_classification_state IN ('cross_border_candidate', 'manual_review_required')"
+            "accounting_classification_state IN "
+            "('cross_border_candidate', 'manual_review_required')"
         )
     elif accounting_filter == "missing_inventory_movement":
         conditions.append(
@@ -2252,7 +2250,9 @@ def update_status(
                     _insert_inventory_exception(
                         conn,
                         exception_type="missing_sale_issue_movement",
-                        message="Ledger-managed order cancellation has no original sale issue movement.",
+                        message=(
+                            "Ledger-managed order cancellation has no original sale issue movement."
+                        ),
                         target_type="order",
                         target_id=order_id,
                         source_type="order_item",

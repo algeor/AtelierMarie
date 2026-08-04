@@ -6,6 +6,19 @@ import sqlite3
 from app.database import get_db
 from app.models.privacy import MAX_PRIVACY_TEXT_LENGTH
 
+_DT_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _fmt_ts(value: object) -> str | None:
+    """Render a timestamp column (datetime or str) as the canonical string."""
+    from datetime import datetime
+
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.strftime(_DT_FMT)
+    return str(value)
+
 
 class PrivacyNotFoundError(Exception):
     """Raised when the Privacy Policy singleton row or a section is missing."""
@@ -88,8 +101,8 @@ def _page_to_admin_dict(row: sqlite3.Row) -> dict:
         "last_updated_bg": row["last_updated_bg"],
         "controller_title_en": row["controller_title_en"],
         "controller_title_bg": row["controller_title_bg"],
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
+        "created_at": _fmt_ts(row["created_at"]),
+        "updated_at": _fmt_ts(row["updated_at"]),
     }
 
 
@@ -103,8 +116,8 @@ def _section_to_admin_dict(row: sqlite3.Row) -> dict:
         "body_en": _json_lines(row["body_en"]) or [],
         "body_bg": _json_lines(row["body_bg"]),
         "sort_order": row["sort_order"],
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
+        "created_at": _fmt_ts(row["created_at"]),
+        "updated_at": _fmt_ts(row["updated_at"]),
     }
 
 

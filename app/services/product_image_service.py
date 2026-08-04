@@ -116,7 +116,6 @@ def add_image(product_id: str, file_bytes: bytes) -> dict:
     image_id = uuid.uuid4().hex
 
     with get_db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
         _ensure_product_exists(conn, product_id)
         current = conn.execute(
             """
@@ -164,7 +163,6 @@ def add_image(product_id: str, file_bytes: bytes) -> dict:
 def delete_image(product_id: str, image_id: str) -> None:
     """Delete an image row, promote primary when needed, and unlink files."""
     with get_db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             """
             SELECT id, image_url, thumbnail_url, zoom_url, is_primary
@@ -202,7 +200,6 @@ def delete_image(product_id: str, image_id: str) -> None:
 def reorder_images(product_id: str, ordered_ids: list[str]) -> list[dict]:
     """Update image sort order without changing the primary image."""
     with get_db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
         _ensure_product_exists(conn, product_id)
         rows = conn.execute(
             """
@@ -227,7 +224,6 @@ def reorder_images(product_id: str, ordered_ids: list[str]) -> list[dict]:
 def set_primary(product_id: str, image_id: str) -> dict:
     """Set exactly one image as primary for a product."""
     with get_db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             """
             SELECT id
@@ -266,7 +262,6 @@ def add_existing_image_url(product_id: str, image_url: str) -> dict | None:
     image_id = uuid.uuid4().hex
     thumbnail_url = _derive_thumbnail_url(image_url)
     with get_db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
         _ensure_product_exists(conn, product_id)
         current = conn.execute(
             """

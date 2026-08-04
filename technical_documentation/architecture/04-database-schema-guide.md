@@ -4,13 +4,14 @@ This is the human map. For exact columns, use `docs/DATABASE_SCHEMA.md` and `app
 
 ## Storage Rules
 
-- Main database: SQLite.
-- Journal mode: WAL.
-- Foreign keys: enabled.
-- Timestamps: text, usually `datetime('now')`.
+- Main database: Postgres (via `DATABASE_URL`).
+- Schema source: Alembic migrations (`alembic upgrade head`). No runtime schema creation.
+- Foreign keys: always enforced (native Postgres, no PRAGMA).
+- Timestamps: `timestamptz`, default `CURRENT_TIMESTAMP`; pooled connections run in UTC.
 - Money: integer cents.
-- Booleans: integers `0` or `1`.
+- Booleans: integers `0` or `1` (SQLite-compatible flag semantics kept, with `CHECK (col IN (0,1))`).
 - JSON: text blobs where structure is flexible, for example delivery details.
+- `updated_at`: maintained by the shared `set_updated_at()` trigger function.
 - Analytics reports: separate DuckDB file when enabled.
 
 ## Core Table Groups
@@ -24,8 +25,6 @@ Tables:
 - `product_categories`
 - `product_labels`
 - `product_label_assignments`
-- `products_fts_en`
-- `products_fts_bg`
 
 What to remember:
 
@@ -33,7 +32,7 @@ What to remember:
 - Bilingual product fields live on `products`.
 - Managed taxonomy uses slugs.
 - Legacy `category` remains for compatibility.
-- FTS tables are synced by triggers.
+- Product search uses expression GIN indexes (`idx_products_search_en`/`_bg`) over `to_tsvector('simple', ...)`, not FTS tables.
 
 ### Product media
 
@@ -132,15 +131,15 @@ What to remember:
 
 ## Migration Style
 
-The project uses `CREATE TABLE IF NOT EXISTS` plus startup migration/backfill logic in `app/database.py`.
+The project uses Alembic. The schema lives entirely in migration scripts under `alembic/versions/`; `alembic upgrade head` builds it. The app verifies the DB is at head on startup and fails fast otherwise.
 
 Rules for schema changes:
 
-- Fresh DB must get the final desired schema.
-- Existing DB must be migrated safely.
-- Add constraints carefully. SQLite cannot alter every constraint in place.
+- Add a new Alembic revision; never mutate schema at runtime.
+- Provide a working `downgrade` where practical.
+- Fresh DB (`alembic upgrade head` from empty) must yield the final desired schema and seed rows.
 - Backfills must be idempotent.
-- Tests should cover fresh DB and old-DB-ish migration behavior when risk is high.
+- Tests should cover fresh-DB creation and schema-head validation.
 
 ## Dangerous Tables
 

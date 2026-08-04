@@ -1,13 +1,15 @@
 """Expense evidence and product-cost service tests."""
 
-import sqlite3
-
+import psycopg
 import pytest
 
+from conftest import FAKE_SESSION_ID
 
-def _seed_product_and_order(db: sqlite3.Connection, app, *, product_id: str, order_id: str) -> None:
+
+def _seed_product_and_order(db: psycopg.Connection, app, *, product_id: str, order_id: str) -> None:
     db.execute(
-        "INSERT OR IGNORE INTO products (id, name_en, price_cents, stock) VALUES (?, ?, 1000, 10)",
+        "INSERT INTO products (id, name_en, price_cents, stock) "
+        "VALUES (%s, %s, 1000, 10) ON CONFLICT (id) DO NOTHING",
         (product_id, product_id.replace("-", " ").title()),
     )
     db.execute(
@@ -16,16 +18,16 @@ def _seed_product_and_order(db: sqlite3.Connection, app, *, product_id: str, ord
             id, session_id, status, total_cents, customer_email, customer_name,
             payment_method, payment_status, accounting_classification_state,
             accounting_readiness_status, created_at, updated_at
-        ) VALUES (?, ?, 'confirmed', 1000, ?, 'Cost Buyer', 'card', 'paid',
+        ) VALUES (%s, %s, 'confirmed', 1000, %s, 'Cost Buyer', 'card', 'paid',
                   'domestic_default', 'ready', '2026-08-10 10:00:00',
                   '2026-08-10 10:00:00')
         """,
-        (order_id, app._test_session_id, f"{order_id}@example.com"),
+        (order_id, FAKE_SESSION_ID, f"{order_id}@example.com"),
     )
     db.execute(
         """
         INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity)
-        VALUES (?, ?, ?, 1000, 1)
+        VALUES (%s, %s, %s, 1000, 1)
         """,
         (order_id, product_id, product_id.replace("-", " ").title()),
     )
@@ -125,9 +127,13 @@ async def test_expense_evidence_crud_payment_status_and_exception(admin_client, 
 
 
 @pytest.mark.asyncio
-async def test_product_cost_versions_effective_lookup_and_missing_diagnostics(admin_client, db, app):
+async def test_product_cost_versions_effective_lookup_and_missing_diagnostics(
+    admin_client, db, app
+):
     _seed_product_and_order(db, app, product_id="costed-candle", order_id="costed-order")
-    _seed_product_and_order(db, app, product_id="missing-cost-candle", order_id="missing-cost-order")
+    _seed_product_and_order(
+        db, app, product_id="missing-cost-candle", order_id="missing-cost-order"
+    )
 
     create_resp = await admin_client.post(
         "/v1/admin/accounting/product-costs",
@@ -201,9 +207,7 @@ async def test_product_cost_versions_effective_lookup_and_missing_diagnostics(ad
         f"/v1/admin/accounting/product-costs/missing?period_id={period_id}"
     )
     assert missing_resp.status_code == 200
-    assert {item["product_id"] for item in missing_resp.json()["items"]} == {
-        "missing-cost-candle"
-    }
+    assert {item["product_id"] for item in missing_resp.json()["items"]} == {"missing-cost-candle"}
 
     ledger_resp = await admin_client.get(
         f"/v1/admin/accounting/periods/{period_id}/ledgers/product_costs"

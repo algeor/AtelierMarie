@@ -615,7 +615,8 @@ async def create_stripe_refund_async(
         )
         if payment_id:
             conn.execute(
-                "UPDATE payments SET provider_status = 'refund_pending', updated_at = %s WHERE id = %s",
+                "UPDATE payments SET provider_status = 'refund_pending', "
+                "updated_at = %s WHERE id = %s",
                 (now, payment_id),
             )
         _append_admin_refund_event(
@@ -654,7 +655,8 @@ async def create_stripe_refund_async(
                 (failure_reason, refund_id),
             )
             conn.execute(
-                "UPDATE orders SET payment_status = 'review_required', updated_at = %s WHERE id = %s",
+                "UPDATE orders SET payment_status = 'review_required', "
+                "updated_at = %s WHERE id = %s",
                 (failed_at, order_id),
             )
             _append_admin_refund_event(
@@ -1271,12 +1273,14 @@ def handle_refund_updated(
                 (failure_reason, refund["id"]),
             )
             conn.execute(
-                "UPDATE orders SET payment_status = 'review_required', updated_at = %s WHERE id = %s",
+                "UPDATE orders SET payment_status = 'review_required', "
+                "updated_at = %s WHERE id = %s",
                 (now, resolved_order_id),
             )
             if payment_id:
                 conn.execute(
-                    "UPDATE payments SET provider_status = 'review_required', updated_at = %s WHERE id = %s",
+                    "UPDATE payments SET provider_status = 'review_required', "
+                    "updated_at = %s WHERE id = %s",
                     (now, payment_id),
                 )
             provider_status = "failed"

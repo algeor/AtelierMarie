@@ -303,7 +303,9 @@ async def _post_operational_json(
     return body
 
 
-def _record_unexpected_shape(endpoint: str, message: str, body: Any) -> SpeedyUnexpectedResponseError:
+def _record_unexpected_shape(
+    endpoint: str, message: str, body: Any
+) -> SpeedyUnexpectedResponseError:
     _SPEEDY_OPERATIONAL_BREAKER.record_failure()
     return SpeedyUnexpectedResponseError(message, endpoint=endpoint, details={"body": body})
 
@@ -361,7 +363,9 @@ async def get_client(
     )
     client = body.get("client")
     if not isinstance(client, dict):
-        raise _record_unexpected_shape(endpoint, "Speedy client detail response missing client", body)
+        raise _record_unexpected_shape(
+            endpoint, "Speedy client detail response missing client", body
+        )
     return redact_mapping(client)
 
 
@@ -405,7 +409,9 @@ async def find_parcels_by_reference(
     if barcodes is None:
         return []
     if not isinstance(barcodes, list) or not all(isinstance(item, str) for item in barcodes):
-        raise _record_unexpected_shape(endpoint, "Speedy search response had invalid barcodes", body)
+        raise _record_unexpected_shape(
+            endpoint, "Speedy search response had invalid barcodes", body
+        )
     return barcodes
 
 

@@ -17,9 +17,7 @@ def _seed_econt_settings(conn) -> None:
     ``app.database._seed_econt_settings`` helper — the row's non-id columns take
     their DB defaults, exactly as the old ``INSERT OR IGNORE`` did.
     """
-    conn.execute(
-        "INSERT INTO econt_settings (id) VALUES ('default') ON CONFLICT (id) DO NOTHING"
-    )
+    conn.execute("INSERT INTO econt_settings (id) VALUES ('default') ON CONFLICT (id) DO NOTHING")
 
 
 @pytest.fixture(autouse=True)

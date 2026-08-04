@@ -8,6 +8,17 @@ from app.config import get_settings
 from app.database import get_db
 from app.models.cookies import MAX_COOKIE_TEXT_LENGTH
 
+_DT_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _fmt_ts(value: object) -> str | None:
+    """Render a timestamp column (datetime or str) as the canonical string."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.strftime(_DT_FMT)
+    return str(value)
+
 
 class CookiesNotFoundError(Exception):
     """Raised when the Cookie Policy singleton, inventory row, or section is missing."""
@@ -116,8 +127,8 @@ def _page_to_admin_dict(row: sqlite3.Row) -> dict:
         "header_type_bg": row["header_type_bg"],
         "header_duration_en": row["header_duration_en"],
         "header_duration_bg": row["header_duration_bg"],
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
+        "created_at": _fmt_ts(row["created_at"]),
+        "updated_at": _fmt_ts(row["updated_at"]),
     }
 
 
@@ -138,8 +149,8 @@ def _inventory_to_admin_dict(row: sqlite3.Row) -> dict:
         "is_active": bool(row["is_active"]),
         "auto_detected": bool(row["auto_detected"]),
         "sort_order": row["sort_order"],
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
+        "created_at": _fmt_ts(row["created_at"]),
+        "updated_at": _fmt_ts(row["updated_at"]),
     }
 
 
@@ -151,8 +162,8 @@ def _section_to_admin_dict(row: sqlite3.Row) -> dict:
         "body_en": _json_lines(row["body_en"]) or [],
         "body_bg": _json_lines(row["body_bg"]),
         "sort_order": row["sort_order"],
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
+        "created_at": _fmt_ts(row["created_at"]),
+        "updated_at": _fmt_ts(row["updated_at"]),
     }
 
 
@@ -302,8 +313,8 @@ def sync_detected_inventory(
 
     with get_db() as conn:
         max_order = conn.execute(
-            "SELECT COALESCE(MAX(sort_order), -1) FROM cookies_inventory"
-        ).fetchone()[0]
+            "SELECT COALESCE(MAX(sort_order), -1) AS max_order FROM cookies_inventory"
+        ).fetchone()["max_order"]
         next_order = int(max_order) + 1
         for row in cleaned.values():
             existing = conn.execute(

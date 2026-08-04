@@ -99,6 +99,7 @@ def get_public_legal_identity() -> dict[str, str]:
         accounting_config_service.get_current_seller_legal_profile()
     )
 
+
 _POLICY_PATHS: dict[PolicyKey, str] = {
     "terms": "/terms",
     "privacy": "/privacy",

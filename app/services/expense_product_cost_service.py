@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
+from datetime import date, datetime
 
 from app.database import get_db
 from app.models.accounting import (
@@ -21,6 +22,19 @@ from app.models.accounting import (
 )
 from app.services import accounting_config_service, pricing
 from app.services.finance_period_service import FinancePeriodError
+
+# TIMESTAMPTZ/DATE read policy (Decision 15): psycopg returns datetime/date
+# objects, but the accounting response models declare these fields as str.
+_DT_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _s(value: object) -> object:
+    """Render a DATE/TIMESTAMPTZ column value as its canonical string form."""
+    if isinstance(value, datetime):
+        return value.strftime(_DT_FMT)
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
 
 
 def _json_dumps(value: object | None) -> str | None:
@@ -44,9 +58,9 @@ def _expense_from_row(row: sqlite3.Row) -> ExpenseEvidenceResponse:
         supplier_name=row["supplier_name"],
         supplier_identifier=row["supplier_identifier"],
         document_number=row["document_number"],
-        document_date=row["document_date"],
-        purchase_date=row["purchase_date"],
-        payment_date=row["payment_date"],
+        document_date=_s(row["document_date"]),
+        purchase_date=_s(row["purchase_date"]),
+        payment_date=_s(row["payment_date"]),
         payment_status=row["payment_status"],
         category_key=row["category_key"],
         net_amount_cents=row["net_amount_cents"],
@@ -62,8 +76,8 @@ def _expense_from_row(row: sqlite3.Row) -> ExpenseEvidenceResponse:
         notes=row["notes"],
         created_by_admin_id=row["created_by_admin_id"],
         updated_by_admin_id=row["updated_by_admin_id"],
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
+        created_at=_s(row["created_at"]),
+        updated_at=_s(row["updated_at"]),
     )
 
 
@@ -133,7 +147,8 @@ def create_expense(
                 attachment_reference, linked_product_id, linked_material_name,
                 linked_courier, linked_order_id, review_status, notes,
                 created_by_admin_id, updated_by_admin_id, created_at, updated_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                      %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 expense_id,
@@ -286,7 +301,7 @@ def _component_from_row(row: sqlite3.Row) -> ProductCostComponentResponse:
         unit_cost_cents=row["unit_cost_cents"],
         total_cost_cents=row["total_cost_cents"],
         source_expense_id=row["source_expense_id"],
-        created_at=row["created_at"],
+        created_at=_s(row["created_at"]),
     )
 
 
@@ -303,7 +318,7 @@ def _cost_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> ProductCostVer
         product_id=row["product_id"],
         sku=row["sku"],
         product_name=row["product_name"],
-        effective_date=row["effective_date"],
+        effective_date=_s(row["effective_date"]),
         costing_basis=row["costing_basis"],
         material_cost_cents=row["material_cost_cents"],
         packaging_cost_cents=row["packaging_cost_cents"],
@@ -319,8 +334,8 @@ def _cost_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> ProductCostVer
         components=[_component_from_row(component) for component in components],
         created_by_admin_id=row["created_by_admin_id"],
         updated_by_admin_id=row["updated_by_admin_id"],
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
+        created_at=_s(row["created_at"]),
+        updated_at=_s(row["updated_at"]),
     )
 
 
@@ -380,7 +395,8 @@ def list_product_costs(product_id: str | None = None) -> ProductCostVersionListR
     with get_db() as conn:
         if product_id:
             rows = conn.execute(
-                "SELECT * FROM product_cost_versions WHERE product_id = %s ORDER BY effective_date DESC",
+                "SELECT * FROM product_cost_versions WHERE product_id = %s "
+                "ORDER BY effective_date DESC",
                 (product_id,),
             ).fetchall()
         else:
@@ -412,7 +428,8 @@ def create_product_cost(
                 overhead_cost_cents, estimated_unit_cost_cents, currency, reviewed,
                 accountant_reviewed, review_status, source_expense_ids_json, notes,
                 created_by_admin_id, updated_by_admin_id, created_at, updated_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                      %s, %s, %s, %s, %s, %s)
             """,
             (
                 cost_id,
@@ -542,18 +559,18 @@ def missing_product_costs(period_id: str) -> MissingProductCostDiagnosticsRespon
             raise FinancePeriodError(404, "FINANCE_PERIOD_NOT_FOUND", "Finance period not found.")
         rows = conn.execute(
             """
-            SELECT DISTINCT o.id AS order_id, o.order_number, substr(o.created_at, 1, 10) AS order_date,
+            SELECT DISTINCT o.id AS order_id, o.order_number, o.created_at::date AS order_date,
                    oi.product_id, oi.product_name
             FROM orders o
             JOIN order_items oi ON oi.order_id = o.id
-            WHERE substr(o.created_at, 1, 10) BETWEEN %s AND %s
+            WHERE o.created_at::date BETWEEN %s AND %s
               AND NOT EXISTS (
                   SELECT 1 FROM product_cost_versions pc
                   WHERE pc.product_id = oi.product_id
-                    AND pc.effective_date <= substr(o.created_at, 1, 10)
+                    AND pc.effective_date <= o.created_at::date
                     AND pc.review_status != 'archived'
               )
-            ORDER BY o.created_at, o.id, oi.product_id
+            ORDER BY order_date, order_id, oi.product_id
             """,
             (period["period_start"], period["period_end"]),
         ).fetchall()
@@ -561,7 +578,7 @@ def missing_product_costs(period_id: str) -> MissingProductCostDiagnosticsRespon
         MissingProductCostDiagnostic(
             order_id=row["order_id"],
             order_number=row["order_number"],
-            order_date=row["order_date"],
+            order_date=_s(row["order_date"]),
             product_id=row["product_id"],
             product_name=row["product_name"],
         )

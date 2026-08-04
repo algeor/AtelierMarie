@@ -46,7 +46,7 @@ Those belong in `tests/realapp/` or session-specific tests.
 - `make_session(conn)`: inserts a session row.
 - `seed_products(conn)`: inserts default product rows.
 - `admin_client`: async client with admin Bearer header.
-- `service_db`: raw SQLite connection for service tests without app setup.
+- `service_db`: raw psycopg (dict_row) connection for service tests without app setup.
 
 ## Cleanup
 

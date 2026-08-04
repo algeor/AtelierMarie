@@ -1,40 +1,46 @@
 """Finance period lifecycle and exception engine tests."""
 
 import json
-import sqlite3
 
+import psycopg
 import pytest
+
+from conftest import FAKE_SESSION_ID
 
 
 def _seed_reviewed_settings(
-    db: sqlite3.Connection,
+    db: psycopg.Connection,
     *,
     document_rules: dict[str, object] | None = None,
 ) -> tuple[int, int]:
-    db.execute(
-        """
-        INSERT INTO seller_legal_profile_versions (
-            effective_date, reviewed, legal_name, default_currency
-        ) VALUES ('2026-08-01', 1, 'Atelier Marie OOD', 'EUR')
-        """
+    seller_id = int(
+        db.execute(
+            """
+            INSERT INTO seller_legal_profile_versions (
+                effective_date, reviewed, legal_name, default_currency
+            ) VALUES ('2026-08-01', 1, 'Atelier Marie OOD', 'EUR')
+            RETURNING id
+            """
+        ).fetchone()["id"]
     )
-    seller_id = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
-    db.execute(
-        """
-        INSERT INTO vat_fiscal_settings_versions (
-            effective_date, reviewed, vat_mode, fiscal_document_mode,
-            document_rules_json, tolerance_cents
-        ) VALUES ('2026-08-01', 1, 'registered', 'external_reference', ?, 1)
-        """,
-        (json.dumps(document_rules or {}),),
+    vat_id = int(
+        db.execute(
+            """
+            INSERT INTO vat_fiscal_settings_versions (
+                effective_date, reviewed, vat_mode, fiscal_document_mode,
+                document_rules_json, tolerance_cents
+            ) VALUES ('2026-08-01', 1, 'registered', 'external_reference', %s, 1)
+            RETURNING id
+            """,
+            (json.dumps(document_rules or {}),),
+        ).fetchone()["id"]
     )
-    vat_id = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
     db.commit()
     return seller_id, vat_id
 
 
 def _insert_order(
-    db: sqlite3.Connection,
+    db: psycopg.Connection,
     app,
     *,
     order_id: str,
@@ -55,8 +61,9 @@ def _insert_order(
 ) -> None:
     db.execute(
         """
-        INSERT OR IGNORE INTO products (id, name_en, price_cents, stock)
-        VALUES (?, ?, ?, 10)
+        INSERT INTO products (id, name_en, price_cents, stock)
+        VALUES (%s, %s, %s, 10)
+        ON CONFLICT (id) DO NOTHING
         """,
         (product_id, product_name, price_cents),
     )
@@ -68,11 +75,11 @@ def _insert_order(
             seller_legal_profile_version_id, vat_fiscal_settings_version_id,
             accounting_classification_state, accounting_readiness_status,
             created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, 'Finance Buyer', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, %s, 'Finance Buyer', %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             order_id,
-            app._test_session_id,
+            FAKE_SESSION_ID,
             status,
             total_cents,
             f"{order_id}@example.com",
@@ -90,7 +97,7 @@ def _insert_order(
     db.execute(
         """
         INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity)
-        VALUES (?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s)
         """,
         (order_id, product_id, product_name, price_cents, quantity),
     )
@@ -155,7 +162,7 @@ async def test_finance_period_lifecycle_close_export_accept_reopen(admin_client,
     actions = [
         row["action"]
         for row in db.execute(
-            "SELECT action FROM finance_audit_events WHERE target_id = ? ORDER BY created_at",
+            "SELECT action FROM finance_audit_events WHERE target_id = %s ORDER BY created_at",
             (period_id,),
         ).fetchall()
     ]
@@ -209,9 +216,7 @@ async def test_finance_period_close_blocks_until_exception_waived(admin_client, 
         assert waive_resp.status_code == 200
         assert waive_resp.json()["status"] == "waived"
 
-    close_after_waiver = await admin_client.post(
-        f"/v1/admin/accounting/periods/{period_id}/close"
-    )
+    close_after_waiver = await admin_client.post(f"/v1/admin/accounting/periods/{period_id}/close")
     assert close_after_waiver.status_code == 200
     assert close_after_waiver.json()["status"] == "closed"
 
@@ -380,8 +385,10 @@ async def test_finance_summary_includes_inventory_valuation_totals(admin_client,
     db.execute(
         """
         INSERT INTO product_inventory_profiles (
-            product_id, inventory_mode, stock_source, opening_balance_state, valuation_readiness
-        ) VALUES ('inventory-summary-candle', 'ledger_managed', 'inventory_ledger', 'reviewed', 'ready')
+            product_id, inventory_mode, stock_source, opening_balance_state,
+            valuation_readiness
+        ) VALUES ('inventory-summary-candle', 'ledger_managed', 'inventory_ledger',
+                  'reviewed', 'ready')
         """
     )
     db.execute(

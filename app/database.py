@@ -104,12 +104,24 @@ def _verify_migration_head(conn: Connection) -> None:
         raise RuntimeError(msg)
 
 
-def init_db(url: str) -> None:
+def init_db(
+    url: str,
+    *,
+    min_size: int = 2,
+    max_size: int = 20,
+    timeout: float = 8.0,
+) -> None:
     """Open the connection pool and verify the DB is at the Alembic head.
 
     Replaces the former SQLite schema-creation path: schema now comes only from
     ``alembic upgrade head``. This opens a module-global pool against ``url``,
     then fails fast if the connected database is behind head (Decision 3).
+
+    Pool sizing (Decision 14) is passed in from the app lifespan so it stays a
+    ``config.py`` setting; the defaults here mirror the production seed and keep
+    per-worker test pools small. ``timeout`` is the pool-wait ceiling: under burst
+    a caller waits up to this long for a free connection, then raises rather than
+    hanging (bursts queue then fail clean).
     """
     global _pool  # noqa: PLW0603
 
@@ -118,13 +130,14 @@ def init_db(url: str) -> None:
 
     _pool = ConnectionPool(
         conninfo=url,
-        min_size=1,
         # A single request can hold one connection and, within that scope, call
         # a service that opens its own get_db() (e.g. checkout -> pricing /
         # delivery_settings_service). psycopg defaults max_size to min_size, so a
-        # size-1 pool dead-locks on the nested acquire. Allow enough headroom for
-        # the deepest nesting plus concurrent requests.
-        max_size=10,
+        # size-1 pool dead-locks on the nested acquire. max_size carries headroom
+        # for the deepest nesting plus concurrent requests.
+        min_size=min_size,
+        max_size=max_size,
+        timeout=timeout,
         open=True,
         configure=_configure_connection,
         kwargs={"autocommit": False},

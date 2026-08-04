@@ -35,7 +35,7 @@ def toggle_reaction(session_id: str, product_id: str, reaction_type: str) -> boo
         # Check rate limit within same transaction
         row = conn.execute(
             "SELECT COUNT(*) as cnt FROM reaction_toggle_log "
-            "WHERE session_id = %s AND toggled_at > datetime('now', '-60 seconds')",
+            "WHERE session_id = %s AND toggled_at > CURRENT_TIMESTAMP - INTERVAL '60 seconds'",
             (session_id,),
         ).fetchone()
         if row["cnt"] >= 10:
@@ -43,8 +43,9 @@ def toggle_reaction(session_id: str, product_id: str, reaction_type: str) -> boo
 
         # Toggle reaction
         cursor = conn.execute(
-            "INSERT OR IGNORE INTO reactions (session_id, product_id, reaction_type) "
-            "VALUES (%s, %s, %s)",
+            "INSERT INTO reactions (session_id, product_id, reaction_type) "
+            "VALUES (%s, %s, %s) "
+            "ON CONFLICT (session_id, product_id, reaction_type) DO NOTHING",
             (session_id, product_id, reaction_type),
         )
         if cursor.rowcount == 1:
@@ -66,7 +67,7 @@ def toggle_reaction(session_id: str, product_id: str, reaction_type: str) -> boo
         # Lazy cleanup: remove rows older than 1 hour for this session
         conn.execute(
             "DELETE FROM reaction_toggle_log "
-            "WHERE session_id = %s AND toggled_at < datetime('now', '-1 hour')",
+            "WHERE session_id = %s AND toggled_at < CURRENT_TIMESTAMP - INTERVAL '1 hour'",
             (session_id,),
         )
 

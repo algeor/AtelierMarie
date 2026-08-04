@@ -286,7 +286,8 @@ def queue_order_email(
     order state change and survives any crash. The sweeper delivers it later.
     """
     conn.execute(
-        "INSERT INTO order_emails (order_id, event, recipient, status) VALUES (%s, %s, %s, 'queued')",
+        "INSERT INTO order_emails (order_id, event, recipient, status) "
+        "VALUES (%s, %s, %s, 'queued')",
         (order_id, event, recipient or ""),
     )
 

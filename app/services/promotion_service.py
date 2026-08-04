@@ -8,9 +8,9 @@ conservative (see `product_service.conservative_clear_discount`).
 """
 
 import json
-import sqlite3
 import time
 import uuid
+from datetime import datetime
 
 import structlog
 
@@ -18,6 +18,23 @@ from app.database import get_db
 from app.services import pricing, product_service
 
 logger = structlog.get_logger(__name__)
+
+# Canonical timestamp string shape. psycopg returns TIMESTAMPTZ columns as
+# ``datetime`` but the CampaignResponse model declares these fields as ``str``
+# (and status derivation compares against ``pricing.now_utc()`` text), so reads
+# normalise through ``_fmt_ts``.
+_DT_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _fmt_ts(value: object) -> str | None:
+    """Render a timestamp column read as the canonical ``_DT_FMT`` string.
+
+    psycopg returns TIMESTAMPTZ as ``datetime``; ``None`` and existing strings
+    pass through unchanged.
+    """
+    if isinstance(value, datetime):
+        return value.strftime(_DT_FMT)
+    return value  # type: ignore[return-value]
 
 
 class CampaignNotFoundError(Exception):
@@ -28,7 +45,7 @@ class CampaignStateError(Exception):
     """Raised when an edit is not allowed in the campaign's current state."""
 
 
-def _row_to_campaign(row: sqlite3.Row, conn: sqlite3.Connection) -> dict:
+def _row_to_campaign(row: dict, conn) -> dict:
     """Map a promotion_campaigns row to the CampaignResponse dict shape.
 
     `conn` is reused for filter-count resolution so listing many campaigns shares
@@ -52,22 +69,22 @@ def _row_to_campaign(row: sqlite3.Row, conn: sqlite3.Connection) -> dict:
         "name": row["name"],
         "note": row["note"],
         "discount_percent": row["discount_percent"],
-        "discount_starts_at": row["discount_starts_at"],
-        "discount_ends_at": row["discount_ends_at"],
+        "discount_starts_at": _fmt_ts(row["discount_starts_at"]),
+        "discount_ends_at": _fmt_ts(row["discount_ends_at"]),
         "target_type": target_type,
         "target_count": target_count,
         "target_ids": target_ids,
         "target_filter": target_filter,
         "status": _derive_status(row),
-        "applied_at": row["applied_at"],
-        "removed_at": row["removed_at"],
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
+        "applied_at": _fmt_ts(row["applied_at"]),
+        "removed_at": _fmt_ts(row["removed_at"]),
+        "created_at": _fmt_ts(row["created_at"]),
+        "updated_at": _fmt_ts(row["updated_at"]),
         "last_result": last_result,
     }
 
 
-def _derive_status(row: sqlite3.Row) -> str:
+def _derive_status(row: dict) -> str:
     """Derive a campaign's status from its window and applied/removed metadata.
 
     - removed: discount has been removed after being applied
@@ -81,8 +98,8 @@ def _derive_status(row: sqlite3.Row) -> str:
         return "removed"
 
     now = pricing.now_utc()
-    starts_at = row["discount_starts_at"]
-    ends_at = row["discount_ends_at"]
+    starts_at = _fmt_ts(row["discount_starts_at"])
+    ends_at = _fmt_ts(row["discount_ends_at"])
     if starts_at is not None and now < starts_at:
         return "scheduled"
     if ends_at is not None and now > ends_at and row["applied_at"] is not None:
@@ -93,7 +110,7 @@ def _derive_status(row: sqlite3.Row) -> str:
     return "draft"
 
 
-def _get_campaign_row(conn: sqlite3.Connection, campaign_id: str) -> sqlite3.Row:
+def _get_campaign_row(conn, campaign_id: str) -> dict:
     row = conn.execute(
         "SELECT * FROM promotion_campaigns WHERE id = %s",
         (campaign_id,),
@@ -167,8 +184,8 @@ def update_campaign(campaign_id: str, data: dict) -> dict:
         # start before end) using the effective values after the update. Run
         # request validation (422) before the state-conflict guard (409).
         merged_percent = data.get("discount_percent", row["discount_percent"])
-        merged_starts = data.get("discount_starts_at", row["discount_starts_at"])
-        merged_ends = data.get("discount_ends_at", row["discount_ends_at"])
+        merged_starts = data.get("discount_starts_at", _fmt_ts(row["discount_starts_at"]))
+        merged_ends = data.get("discount_ends_at", _fmt_ts(row["discount_ends_at"]))
         product_service._validate_merged_discount(merged_percent, merged_starts, merged_ends)
 
         discount_or_target_keys = {
@@ -247,7 +264,7 @@ def delete_campaign(campaign_id: str) -> None:
         conn.execute("DELETE FROM promotion_campaigns WHERE id = %s", (campaign_id,))
 
 
-def _resolve_targets(conn: sqlite3.Connection, row: sqlite3.Row) -> list[str]:
+def _resolve_targets(conn, row: dict) -> list[str]:
     """Resolve a campaign row's target definition to a capped list of IDs.
 
     Raises `product_service.BulkTargetLimitError` if the set exceeds the cap.

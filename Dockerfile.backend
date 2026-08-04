@@ -24,7 +24,7 @@ RUN pip install --upgrade pip \
 
 RUN addgroup --system app \
     && adduser --system --ingroup app app \
-    && mkdir -p /data/db /data/static /data/video-temp /data/analytics \
+    && mkdir -p /data/static /data/video-temp /data/analytics \
     && chown -R app:app /app /data
 
 USER app

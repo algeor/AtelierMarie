@@ -7,7 +7,7 @@ This plan compares several low-cost deployment paths, starting with the simplest
 - The frontend is a Next.js app in `frontend/`.
 - The frontend can run without the backend when `NEXT_PUBLIC_USE_MOCK_API=true`.
 - The backend is a FastAPI app in `app/`.
-- The current local database is SQLite (`atelier_marie.db`), which is fine for development but not a safe production choice on most free hosts.
+- The backend uses Postgres as its system of record (via `DATABASE_URL`). Local development runs Postgres in Docker Compose; production needs a managed/hosted Postgres instance.
 
 ## Option 1: Vercel Frontend-Only Demo
 
@@ -141,7 +141,7 @@ Use this when the store needs real API behavior, orders, admin flows, and persis
 1. Deploy the frontend to Vercel from `frontend/`.
 2. Deploy the FastAPI backend to Render.
 3. Create a hosted Postgres database in Supabase or Neon.
-4. Update the backend database configuration to use Postgres instead of local SQLite.
+4. Point the backend at it by setting `DATABASE_URL` to the hosted connection string, then run `alembic upgrade head` against it before first backend start.
 5. Set frontend environment variables:
    - `NEXT_PUBLIC_USE_MOCK_API=false`
    - `NEXT_PUBLIC_API_URL=https://<backend-domain>`
@@ -185,7 +185,7 @@ Use this when you want alternatives to Vercel while keeping a similar full-stack
 
 - More configuration work than the Vercel-only frontend demo.
 - Free-tier availability, sleep behavior, and limits can change.
-- Still requires replacing SQLite with hosted Postgres.
+- Requires provisioning a hosted Postgres instance and setting `DATABASE_URL`.
 
 ## Option 6: GitHub Pages Static Export
 
@@ -218,4 +218,4 @@ If Vercel is not preferred, use **Option 2: Netlify Frontend-Only Demo** as the 
 
 When the project needs real orders and persistent data, move to **Option 4: Vercel Frontend + Render Backend + Supabase/Neon Postgres**.
 
-Avoid treating the local SQLite database as production storage on free hosting. For real customer data, use hosted Postgres.
+For production, use a managed/hosted Postgres instance (not the local Docker Compose Postgres) and set `DATABASE_URL` accordingly.

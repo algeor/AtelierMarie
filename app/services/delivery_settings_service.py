@@ -1,7 +1,8 @@
 """Admin-managed availability switches for courier delivery methods."""
 
-import sqlite3
+from datetime import datetime
 
+import psycopg
 import structlog
 
 from app.database import get_db
@@ -10,10 +11,24 @@ from app.services import pricing
 
 logger = structlog.get_logger(__name__)
 
+# Mirror of ``order_service._fmt_ts``/``_DT_FMT`` to avoid a circular import
+# (order_service imports this module at its top level, Decision 15).
+_DT_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _fmt_ts(value: object) -> str | None:
+    """Render a TIMESTAMPTZ column read as the canonical ``_DT_FMT`` string."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.strftime(_DT_FMT)
+    return str(value)
+
+
 _SETTINGS_ID = "default"
 
 
-def _row_to_settings(row: sqlite3.Row) -> dict:
+def _row_to_settings(row: dict) -> dict:
     return {
         "speedy_office_enabled": bool(row["speedy_office_enabled"]),
         "speedy_door_enabled": bool(row["speedy_door_enabled"]),
@@ -22,11 +37,11 @@ def _row_to_settings(row: sqlite3.Row) -> dict:
         "cod_enabled": bool(row["cod_enabled"]),
         "card_enabled": bool(row["card_enabled"]),
         "bank_transfer_enabled": bool(row["bank_transfer_enabled"]),
-        "updated_at": row["updated_at"],
+        "updated_at": _fmt_ts(row["updated_at"]),
     }
 
 
-def _get_row(conn: sqlite3.Connection) -> sqlite3.Row:
+def _get_row(conn: psycopg.Connection) -> dict:
     row = conn.execute(
         "SELECT * FROM delivery_settings WHERE id = %s",
         (_SETTINGS_ID,),
@@ -34,11 +49,12 @@ def _get_row(conn: sqlite3.Connection) -> sqlite3.Row:
     if row is None:
         conn.execute(
             """
-            INSERT OR IGNORE INTO delivery_settings (
+            INSERT INTO delivery_settings (
                 id, speedy_office_enabled, speedy_door_enabled,
                 econt_office_enabled, econt_door_enabled,
                 cod_enabled, card_enabled, bank_transfer_enabled, updated_at
             ) VALUES (%s, 1, 1, 1, 1, 1, 1, 1, %s)
+            ON CONFLICT (id) DO NOTHING
             """,
             (_SETTINGS_ID, pricing.now_utc()),
         )

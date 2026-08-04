@@ -3,6 +3,7 @@
 import uuid
 
 from app.database import get_db
+from app.services.order_service import _fmt_ts
 from app.utils.sanitize import contains_blocked_word, is_url_only, sanitize_text, unsanitize_text
 
 
@@ -142,6 +143,8 @@ def _comment_row_to_dict(row) -> dict:
     data = dict(row)
     data["display_name"] = unsanitize_text(data.get("display_name"))
     data["body"] = unsanitize_text(data.get("body"))
+    if "created_at" in data:
+        data["created_at"] = _fmt_ts(data["created_at"])
     return data
 
 
@@ -151,7 +154,7 @@ def _get_comment_created_at(comment_id: str) -> str:
         row = conn.execute(
             "SELECT created_at FROM comments WHERE id = %s", (comment_id,)
         ).fetchone()
-    return row["created_at"] if row else ""
+    return _fmt_ts(row["created_at"]) if row else ""
 
 
 def list_comments(

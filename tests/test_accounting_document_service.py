@@ -1,35 +1,43 @@
 """Accounting document registry tests."""
 
 import json
-import sqlite3
 
+import psycopg
 import pytest
 
+from conftest import FAKE_SESSION_ID
 
-def _seed_settings(db: sqlite3.Connection, *, document_rules: dict[str, object] | None = None) -> tuple[int, int]:
-    db.execute(
-        """
-        INSERT INTO seller_legal_profile_versions (
-            effective_date, reviewed, legal_name, default_currency
-        ) VALUES ('2026-08-01', 1, 'Atelier Marie OOD', 'EUR')
-        """
+
+def _seed_settings(
+    db: psycopg.Connection, *, document_rules: dict[str, object] | None = None
+) -> tuple[int, int]:
+    seller_id = int(
+        db.execute(
+            """
+            INSERT INTO seller_legal_profile_versions (
+                effective_date, reviewed, legal_name, default_currency
+            ) VALUES ('2026-08-01', 1, 'Atelier Marie OOD', 'EUR')
+            RETURNING id
+            """
+        ).fetchone()["id"]
     )
-    seller_id = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
-    db.execute(
-        """
-        INSERT INTO vat_fiscal_settings_versions (
-            effective_date, reviewed, vat_mode, fiscal_document_mode, document_rules_json
-        ) VALUES ('2026-08-01', 1, 'registered', 'external_reference', ?)
-        """,
-        (json.dumps(document_rules or {}),),
+    vat_id = int(
+        db.execute(
+            """
+            INSERT INTO vat_fiscal_settings_versions (
+                effective_date, reviewed, vat_mode, fiscal_document_mode, document_rules_json
+            ) VALUES ('2026-08-01', 1, 'registered', 'external_reference', %s)
+            RETURNING id
+            """,
+            (json.dumps(document_rules or {}),),
+        ).fetchone()["id"]
     )
-    vat_id = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
     db.commit()
     return seller_id, vat_id
 
 
 def _seed_order(
-    db: sqlite3.Connection,
+    db: psycopg.Connection,
     app,
     *,
     order_id: str = "doc-order",
@@ -37,7 +45,8 @@ def _seed_order(
     vat_id: int,
 ) -> None:
     db.execute(
-        "INSERT OR IGNORE INTO products (id, name_en, price_cents, stock) VALUES ('doc-candle', 'Doc Candle', 1000, 10)"
+        "INSERT INTO products (id, name_en, price_cents, stock) "
+        "VALUES ('doc-candle', 'Doc Candle', 1000, 10) ON CONFLICT (id) DO NOTHING"
     )
     db.execute(
         """
@@ -46,23 +55,23 @@ def _seed_order(
             payment_method, payment_status, seller_legal_profile_version_id,
             vat_fiscal_settings_version_id, accounting_classification_state,
             accounting_readiness_status, created_at, updated_at
-        ) VALUES (?, ?, 'confirmed', 1000, 'doc@example.com', 'Doc Buyer',
-                  'card', 'paid', ?, ?, 'domestic_default', 'ready',
+        ) VALUES (%s, %s, 'confirmed', 1000, 'doc@example.com', 'Doc Buyer',
+                  'card', 'paid', %s, %s, 'domestic_default', 'ready',
                   '2026-08-10 10:00:00', '2026-08-10 10:00:00')
         """,
-        (order_id, app._test_session_id, seller_id, vat_id),
+        (order_id, FAKE_SESSION_ID, seller_id, vat_id),
     )
     db.execute(
         """
         INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity)
-        VALUES (?, 'doc-candle', 'Doc Candle', 1000, 1)
+        VALUES (%s, 'doc-candle', 'Doc Candle', 1000, 1)
         """,
         (order_id,),
     )
     db.execute(
         """
         INSERT INTO payments (id, order_id, provider, amount_cents, provider_status)
-        VALUES ('doc-payment', ?, 'stripe', 1000, 'paid')
+        VALUES ('doc-payment', %s, 'stripe', 1000, 'paid')
         """,
         (order_id,),
     )
@@ -138,17 +147,20 @@ async def test_accounting_document_crud_credit_note_validation_and_audit(admin_c
     update_resp = await admin_client.put(
         f"/v1/admin/accounting/documents/{invoice['id']}",
         json={
-            **{key: invoice[key] for key in (
-                "document_type",
-                "source_system",
-                "issue_date",
-                "order_id",
-                "currency",
-                "net_amount_cents",
-                "tax_amount_cents",
-                "gross_amount_cents",
-                "status",
-            )},
+            **{
+                key: invoice[key]
+                for key in (
+                    "document_type",
+                    "source_system",
+                    "issue_date",
+                    "order_id",
+                    "currency",
+                    "net_amount_cents",
+                    "tax_amount_cents",
+                    "gross_amount_cents",
+                    "status",
+                )
+            },
             "document_number": "INV-100-UPDATED",
             "vat_summary": invoice["vat_summary"],
         },
@@ -162,7 +174,9 @@ async def test_accounting_document_crud_credit_note_validation_and_audit(admin_c
 
     actions = [
         row["action"]
-        for row in db.execute("SELECT action FROM finance_audit_events ORDER BY created_at").fetchall()
+        for row in db.execute(
+            "SELECT action FROM finance_audit_events ORDER BY created_at"
+        ).fetchall()
     ]
     assert actions.count("accounting_document.create") == 2
     assert "accounting_document.update" in actions

@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import anyio.to_thread
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -211,7 +212,9 @@ def _cancel_abandoned_card_orders() -> int:
                   (reserved_until IS NOT NULL AND reserved_until < CURRENT_TIMESTAMP)
                   OR created_at < CURRENT_TIMESTAMP - INTERVAL '24 hours'
               )
-              AND status NOT IN ('cancelled', 'shipped', 'delivered', 'return_in_transit', 'returned')
+              AND status NOT IN (
+                  'cancelled', 'shipped', 'delivered', 'return_in_transit', 'returned'
+              )
             """
         ).fetchall()
 
@@ -373,7 +376,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: initialize database on startup, run background tasks."""
     settings = get_settings()
     configure_logging(settings.environment)
-    init_db(settings.database_url)
+    # Size the threadpool that runs sync `def` handlers and run_in_threadpool DB
+    # work (Decision 14). Must be set inside the running loop, before traffic.
+    anyio.to_thread.current_default_thread_limiter().total_tokens = settings.server_threadpool_size
+    init_db(
+        settings.database_url,
+        min_size=settings.db_pool_min_size,
+        max_size=settings.db_pool_max_size,
+        timeout=settings.db_pool_timeout_seconds,
+    )
     if settings.analytics_enabled:
         await asyncio.to_thread(initialize_storage)
 

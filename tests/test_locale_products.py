@@ -8,19 +8,15 @@ Tests cover:
 - 9.5 Session preferred_locale persistence
 """
 
-import sqlite3
-from pathlib import Path
-
 import pytest
 
-from app.database import init_db
+from app.database import get_db
 from app.services import product_service
 
 
 @pytest.fixture()
-def _seeded_bilingual(db_path):
-    """Initialize DB and seed with bilingual products."""
-    init_db(db_path)
+def _seeded_bilingual(db):
+    """Seed with bilingual products (root db fixture provides migrated Postgres)."""
     product_service.create_product(
         {
             "id": "lavender-dream-300ml",
@@ -181,8 +177,8 @@ class TestCSVImportBilingual:
     """Tests for CSV import with bilingual columns."""
 
     @pytest.fixture(autouse=True)
-    def _init_db(self, db_path):
-        init_db(db_path)
+    def _init_db(self, db):
+        pass
 
     def test_import_with_both_languages(self, admin_client):
         """CSV with both EN and BG columns creates bilingual products."""
@@ -242,161 +238,65 @@ class TestCSVImportBilingual:
 class TestSessionPreferredLocale:
     """Tests for session preferred_locale storage."""
 
-    def test_session_stores_preferred_locale(self, db_path):
+    def test_session_stores_preferred_locale(self, db):
         """Sessions table stores and returns preferred_locale."""
-        init_db(db_path)
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-
-        # Insert a session with preferred_locale
         from datetime import UTC, datetime, timedelta
 
-        now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
-        expires = (datetime.now(UTC) + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+        now = datetime.now(UTC)
+        expires = now + timedelta(days=30)
 
-        conn.execute(
-            "INSERT INTO sessions (id, preferred_locale, created_at, expires_at)"
-            " VALUES (?, ?, ?, ?)",
-            ("test-session-bg", "bg", now, expires),
-        )
-        conn.commit()
-
-        row = conn.execute(
-            "SELECT preferred_locale FROM sessions WHERE id = ?",
-            ("test-session-bg",),
-        ).fetchone()
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO sessions (id, preferred_locale, created_at, expires_at)"
+                " VALUES (%s, %s, %s, %s)",
+                ("test-session-bg", "bg", now, expires),
+            )
+            row = conn.execute(
+                "SELECT preferred_locale FROM sessions WHERE id = %s",
+                ("test-session-bg",),
+            ).fetchone()
         assert row["preferred_locale"] == "bg"
-        conn.close()
 
 
-class TestBilingualSchemaMigration:
-    """Tests for migrating pre-bilingual SQLite schemas."""
+class TestSessionDefaultLocale:
+    """Tests for session preferred_locale default and update."""
 
-    def test_legacy_products_and_sessions_are_migrated(self, db_path):
-        Path(db_path).unlink(missing_ok=True)
-        conn = sqlite3.connect(db_path)
-        conn.executescript(
-            """
-            CREATE TABLE products (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT,
-                price_cents INTEGER NOT NULL CHECK (price_cents > 0),
-                category TEXT,
-                image_url TEXT,
-                stock INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
-                is_active INTEGER NOT NULL DEFAULT 1,
-                is_featured INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-            );
-            INSERT INTO products (
-                id, name, description, price_cents, category, stock, is_active
-            ) VALUES (
-                'legacy-candle', 'Legacy Candle', 'Legacy description', 2100, 'Floral', 5, 1
-            );
-
-            CREATE TABLE sessions (
-                id TEXT PRIMARY KEY,
-                user_id TEXT,
-                created_at TEXT NOT NULL,
-                expires_at TEXT NOT NULL
-            );
-            INSERT INTO sessions (id, created_at, expires_at)
-            VALUES ('legacy-session', datetime('now'), datetime('now', '+30 days'));
-            """
-        )
-        conn.close()
-
-        init_db(db_path)
-
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        product_columns = {row[1] for row in conn.execute("PRAGMA table_info(products)")}
-        assert "name" not in product_columns
-        assert "description" not in product_columns
-        assert {"name_en", "name_bg", "description_en", "description_bg"}.issubset(product_columns)
-
-        legacy = conn.execute(
-            "SELECT name_en, description_en, name_bg, description_bg FROM products WHERE id = ?",
-            ("legacy-candle",),
-        ).fetchone()
-        assert legacy["name_en"] == "Legacy Candle"
-        assert legacy["description_en"] == "Legacy description"
-        assert legacy["name_bg"] is None
-        assert legacy["description_bg"] is None
-
-        session = conn.execute(
-            "SELECT preferred_locale FROM sessions WHERE id = ?",
-            ("legacy-session",),
-        ).fetchone()
-        assert session["preferred_locale"] == "en"
-        conn.close()
-
-        product_service.create_product(
-            {
-                "id": "new-bilingual-candle",
-                "name_en": "New Candle",
-                "name_bg": "Нова свещ",
-                "price_cents": 2500,
-                "labels": ["floral"],
-                "stock": 4,
-            }
-        )
-        assert product_service.get_product("legacy-candle", locale="en")["name"] == "Legacy Candle"
-        assert (
-            product_service.get_product("new-bilingual-candle", locale="bg")["name"] == "Нова свещ"
-        )
-        assert product_service.search_products("Legacy", locale="en")[0]["id"] == "legacy-candle"
-
-    def test_session_default_locale_is_en(self, db_path):
+    def test_session_default_locale_is_en(self, db):
         """Default preferred_locale is 'en'."""
-        init_db(db_path)
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-
         from datetime import UTC, datetime, timedelta
 
-        now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
-        expires = (datetime.now(UTC) + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+        now = datetime.now(UTC)
+        expires = now + timedelta(days=30)
 
-        conn.execute(
-            "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
-            ("test-session-default", now, expires),
-        )
-        conn.commit()
-
-        row = conn.execute(
-            "SELECT preferred_locale FROM sessions WHERE id = ?",
-            ("test-session-default",),
-        ).fetchone()
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO sessions (id, created_at, expires_at) VALUES (%s, %s, %s)",
+                ("test-session-default", now, expires),
+            )
+            row = conn.execute(
+                "SELECT preferred_locale FROM sessions WHERE id = %s",
+                ("test-session-default",),
+            ).fetchone()
         assert row["preferred_locale"] == "en"
-        conn.close()
 
-    def test_update_session_locale(self, db_path):
+    def test_update_session_locale(self, db):
         """Can update preferred_locale on an existing session."""
-        init_db(db_path)
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-
         from datetime import UTC, datetime, timedelta
 
-        now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
-        expires = (datetime.now(UTC) + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+        now = datetime.now(UTC)
+        expires = now + timedelta(days=30)
 
-        conn.execute(
-            "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
-            ("test-session-update", now, expires),
-        )
-        conn.execute(
-            "UPDATE sessions SET preferred_locale = ? WHERE id = ?",
-            ("bg", "test-session-update"),
-        )
-        conn.commit()
-
-        row = conn.execute(
-            "SELECT preferred_locale FROM sessions WHERE id = ?",
-            ("test-session-update",),
-        ).fetchone()
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO sessions (id, created_at, expires_at) VALUES (%s, %s, %s)",
+                ("test-session-update", now, expires),
+            )
+            conn.execute(
+                "UPDATE sessions SET preferred_locale = %s WHERE id = %s",
+                ("bg", "test-session-update"),
+            )
+            row = conn.execute(
+                "SELECT preferred_locale FROM sessions WHERE id = %s",
+                ("test-session-update",),
+            ).fetchone()
         assert row["preferred_locale"] == "bg"
-        conn.close()

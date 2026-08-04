@@ -107,10 +107,27 @@ _SEED_TABLES: frozenset[str] = frozenset(
         "site_banners",
         "delivery_settings",
         "econt_settings",
-        "inventory_settings",
         "about_sections",
         "about_items",
     }
+)
+
+# ``inventory_settings`` holds a seeded ``default`` singleton, but several tests
+# mutate it (enabling valuation / marking accountant-reviewed). Because
+# truncation excludes seed tables, that mutation would leak across tests on the
+# same worker and break isolation-sensitive assertions (valuation disabled by
+# default). Per Decision 15, such a mutated singleton moves into the volatile
+# set AND gets an explicit per-table re-seed after truncation.
+_INVENTORY_SETTINGS_RESEED = (
+    "INSERT INTO inventory_settings "
+    "(id, ledger_mode, valuation_enabled, valuation_method, effective_date, "
+    "cogs_date_basis, rounding_policy, missing_cost_behavior, "
+    "included_cost_components_json, write_off_mapping_json, currency, "
+    "settings_version, accountant_reviewed, reviewed_by_admin_id, "
+    "reviewed_by_name, reviewed_at, review_notes) "
+    "VALUES ('default', 'setup', 0, 'weighted_average', '2026-08-02', "
+    "'order_date', 'half_up_2dp', 'block_official', NULL, NULL, 'EUR', 1, 0, "
+    "NULL, NULL, NULL, NULL) ON CONFLICT DO NOTHING"
 )
 
 _NEVER_TRUNCATE: frozenset[str] = _SEED_TABLES | {"alembic_version"}
@@ -542,6 +559,7 @@ def _clean_tables(
                 )
             )
         _insert_fake_session(conn)
+        conn.execute(_INVENTORY_SETTINGS_RESEED)
     yield
 
 

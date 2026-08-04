@@ -9,6 +9,44 @@ active seed terms so shared taxonomy state stays clean.
 
 import pytest
 
+_SEED_TAXONOMY_TABLES = ("product_types", "product_categories", "product_labels")
+
+
+@pytest.fixture(autouse=True)
+def _restore_taxonomy_seeds(app):
+    """Snapshot and restore seed taxonomy tables around each test.
+
+    The Postgres template-clone model bakes the seed terms into each worker DB
+    and the root ``_clean_tables`` autouse skips the seed tables, so a test that
+    deactivates or deletes a seed term (e.g. the default-product-type tests)
+    would leak that mutation into later tests. Restore the baked seed rows after
+    every test to keep the shared taxonomy state clean.
+    """
+    from app.database import get_db
+
+    with get_db() as conn:
+        snapshots = {
+            table: [dict(r) for r in conn.execute(f"SELECT * FROM {table}").fetchall()]  # noqa: S608
+            for table in _SEED_TAXONOMY_TABLES
+        }
+    yield
+    with get_db() as conn:
+        conn.execute("DELETE FROM product_label_assignments")
+        conn.execute("DELETE FROM products")
+        for table in _SEED_TAXONOMY_TABLES:
+            rows = snapshots[table]
+            conn.execute(f"DELETE FROM {table}")  # noqa: S608
+            if not rows:
+                continue
+            columns = list(rows[0].keys())
+            placeholders = ", ".join("%s" for _ in columns)
+            col_list = ", ".join(columns)
+            with conn.cursor() as cur:
+                cur.executemany(
+                    f"INSERT INTO {table} ({col_list}) VALUES ({placeholders})",  # noqa: S608
+                    [tuple(row[c] for c in columns) for row in rows],
+                )
+
 
 @pytest.fixture()
 def _tax_products(app, db_path):

@@ -1,28 +1,21 @@
 """Tests for the Speedy admin service orchestration layer."""
 
 import json
-import sqlite3
 import uuid
 
+import psycopg
 import pytest
 from pydantic import SecretStr
 
 from app.config import get_settings
-from app.database import init_db
 from app.models.delivery import DeliveryInfo, DeliveryOffice
 from app.services import return_service, speedy_admin_service, speedy_client
 from app.services.order_service import checkout
 
 
 @pytest.fixture()
-def conn(tmp_path):
-    db_path = str(tmp_path / "speedy-admin-service.db")
-    init_db(db_path)
-    db = sqlite3.connect(db_path)
-    db.row_factory = sqlite3.Row
-    db.execute("PRAGMA foreign_keys=ON")
-    yield db
-    db.close()
+def conn(db):
+    return db
 
 
 @pytest.fixture(autouse=True)
@@ -34,7 +27,7 @@ def speedy_settings(monkeypatch):
 
 
 def _make_order(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     courier: str = "speedy",
     status: str = "confirmed",
@@ -43,18 +36,18 @@ def _make_order(
     session_id = uuid.uuid4().hex
     product_id = f"speedy-admin-{uuid.uuid4().hex[:8]}"
     conn.execute(
-        "INSERT INTO sessions (id, expires_at) VALUES (?, datetime('now', '+1 day'))",
+        "INSERT INTO sessions (id, expires_at) VALUES (%s, CURRENT_TIMESTAMP + INTERVAL '1 day')",
         (session_id,),
     )
     conn.execute(
         """
         INSERT INTO products (id, name_en, price_cents, stock, weight_grams, is_active)
-        VALUES (?, 'Courier Candle', 2500, 10, 500, 1)
+        VALUES (%s, 'Courier Candle', 2500, 10, 500, 1)
         """,
         (product_id,),
     )
     conn.execute(
-        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, ?, 1)",
+        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (%s, %s, 1)",
         (session_id, product_id),
     )
     conn.commit()
@@ -77,15 +70,15 @@ def _make_order(
         delivery=delivery,
         payment_method="cod",
     )
-    conn.execute("UPDATE orders SET status = ? WHERE id = ?", (status, order["id"]))
+    conn.execute("UPDATE orders SET status = %s WHERE id = %s", (status, order["id"]))
     if tracking_number:
         conn.execute(
             """
             UPDATE orders
-            SET tracking_number = ?, tracking_carrier = 'speedy',
-                tracking_url = ?, courier_provider = 'speedy',
-                courier_shipment_number = ?, courier_sync_status = 'waybill_created'
-            WHERE id = ?
+            SET tracking_number = %s, tracking_carrier = 'speedy',
+                tracking_url = %s, courier_provider = 'speedy',
+                courier_shipment_number = %s, courier_sync_status = 'waybill_created'
+            WHERE id = %s
             """,
             (
                 tracking_number,
@@ -124,9 +117,7 @@ class TestSpeedyAdminHealthAndQueues:
         }
 
     @pytest.mark.asyncio
-    async def test_health_uses_client_service_and_persists_safe_success(
-        self, conn, monkeypatch
-    ):
+    async def test_health_uses_client_service_and_persists_safe_success(self, conn, monkeypatch):
         async def fake_client_id(**kwargs):
             assert kwargs["username"] == "speedy-user"
             assert kwargs["password"] == "speedy-secret"
@@ -181,7 +172,7 @@ class TestSpeedyAdminActions:
             """
             SELECT status, tracking_number, tracking_carrier, courier_provider,
                    courier_shipment_number, courier_sync_status
-            FROM orders WHERE id = ?
+            FROM orders WHERE id = %s
             """,
             (order_id,),
         ).fetchone()
@@ -259,7 +250,7 @@ class TestSpeedyAdminActions:
         row = conn.execute(
             """
             SELECT status, tracking_number, courier_status, courier_sync_status
-            FROM orders WHERE id = ?
+            FROM orders WHERE id = %s
             """,
             (order_id,),
         ).fetchone()
@@ -269,9 +260,7 @@ class TestSpeedyAdminActions:
         assert row["courier_sync_status"] == "shipment_cancelled"
 
     @pytest.mark.asyncio
-    async def test_cancel_rejection_preserves_tracking_and_redacts_error(
-        self, conn, monkeypatch
-    ):
+    async def test_cancel_rejection_preserves_tracking_and_redacts_error(self, conn, monkeypatch):
         order_id = _make_order(conn, status="shipped", tracking_number="63689182611")
 
         async def fail_cancel(*_args, **_kwargs):
@@ -287,7 +276,7 @@ class TestSpeedyAdminActions:
             await speedy_admin_service.cancel_order_shipment(conn, order_id)
 
         row = conn.execute(
-            "SELECT tracking_number, courier_status, courier_sync_status FROM orders WHERE id = ?",
+            "SELECT tracking_number, courier_status, courier_sync_status FROM orders WHERE id = %s",
             (order_id,),
         ).fetchone()
         assert row["tracking_number"] == "63689182611"
@@ -360,7 +349,7 @@ class TestSpeedyAdminActions:
         )
 
         cases = conn.execute(
-            "SELECT reason, source, status FROM order_returns WHERE order_id = ?",
+            "SELECT reason, source, status FROM order_returns WHERE order_id = %s",
             (order_id,),
         ).fetchall()
         assert [dict(case) for case in cases] == [
@@ -374,9 +363,7 @@ class TestSpeedyAdminActions:
             "parcels": [
                 {
                     "id": "63689182611",
-                    "operations": [
-                        {"description": "Returned to sender", "operationCode": 42}
-                    ],
+                    "operations": [{"description": "Returned to sender", "operationCode": 42}],
                 }
             ]
         }
@@ -406,7 +393,7 @@ class TestSpeedyAdminActions:
             FROM orders o
             JOIN order_items oi ON oi.order_id = o.id
             JOIN products p ON p.id = oi.product_id
-            WHERE o.id = ?
+            WHERE o.id = %s
             """,
             (order_id,),
         ).fetchone()
@@ -426,7 +413,7 @@ class TestSpeedyAdminActions:
             FROM orders o
             JOIN order_items oi ON oi.order_id = o.id
             JOIN products p ON p.id = oi.product_id
-            WHERE o.id = ?
+            WHERE o.id = %s
             """,
             (order_id,),
         ).fetchone()
@@ -435,7 +422,7 @@ class TestSpeedyAdminActions:
         assert after["stock"] == before["stock"]
         assert after["courier_status"] == "failed"
         case = conn.execute(
-            "SELECT reason, source, status FROM order_returns WHERE order_id = ?",
+            "SELECT reason, source, status FROM order_returns WHERE order_id = %s",
             (order_id,),
         ).fetchone()
         assert dict(case) == {"reason": "other", "source": "speedy", "status": "requested"}
@@ -463,7 +450,7 @@ class TestSpeedyAdminActions:
         cases = conn.execute(
             """
             SELECT id, status, received_at, inspected_at, closed_at
-            FROM order_returns WHERE order_id = ?
+            FROM order_returns WHERE order_id = %s
             """,
             (order_id,),
         ).fetchall()

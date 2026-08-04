@@ -7,6 +7,19 @@ from app.database import get_db
 from app.services.image_service import process_image, validate_image_file
 from app.utils.sanitize import is_safe_http_or_relative_url, sanitize_text, unsanitize_text
 
+_DT_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _fmt_ts(value: object) -> str | None:
+    """Render a timestamp column (datetime or str) as the canonical string."""
+    from datetime import datetime
+
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.strftime(_DT_FMT)
+    return str(value)
+
 
 class AboutSectionNotFoundError(Exception):
     """Raised when an about section slug does not exist."""
@@ -110,8 +123,8 @@ def _admin_item_dict(row: sqlite3.Row) -> dict:
         "link_href": row["link_href"],
         "sort_order": row["sort_order"],
         "is_published": bool(row["is_published"]),
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
+        "created_at": _fmt_ts(row["created_at"]),
+        "updated_at": _fmt_ts(row["updated_at"]),
     }
 
 
@@ -132,8 +145,8 @@ def _admin_section_dict(row: sqlite3.Row) -> dict:
         "image": _image_url(_section_owner_slug(row["slug"]), row["image_id"]),
         "sort_order": row["sort_order"],
         "is_published": bool(row["is_published"]),
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
+        "created_at": _fmt_ts(row["created_at"]),
+        "updated_at": _fmt_ts(row["updated_at"]),
         "items": [],
     }
 
@@ -274,6 +287,7 @@ def create_item(section: str, payload: dict) -> dict:
                 section, title_en, title_bg, text_en, text_bg, link_href,
                 sort_order, is_published, created_at, updated_at
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            RETURNING id
             """,
             (
                 section,
@@ -286,7 +300,8 @@ def create_item(section: str, payload: dict) -> dict:
                 fields["is_published"],
             ),
         )
-        item_id = cursor.lastrowid
+        inserted = cursor.fetchone()
+        item_id = inserted["id"] if inserted else None
         if item_id is None:
             raise RuntimeError("About item insert did not return an id")
     return get_admin_item(section, item_id)
@@ -402,7 +417,8 @@ def set_section_image(slug: str, file_bytes: bytes) -> dict:
         _ensure_section_exists(conn, slug)
         process_image(file_bytes, owner_slug, image_id=image_id)
         conn.execute(
-            "UPDATE about_sections SET image_id = %s, updated_at = CURRENT_TIMESTAMP WHERE slug = %s",
+            "UPDATE about_sections SET image_id = %s, updated_at = CURRENT_TIMESTAMP "
+            "WHERE slug = %s",
             (image_id, slug),
         )
     return next(s for s in list_admin_about()["sections"] if s["slug"] == slug)

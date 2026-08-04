@@ -1,10 +1,7 @@
 """Inventory valuation and COGS service tests."""
 
-import sqlite3
-
 import pytest
 
-from app.database import init_db
 from app.models.inventory import (
     InventoryValuationSettingsRequest,
     MaterialAdjustmentRequest,
@@ -16,18 +13,13 @@ from app.services import inventory_service
 
 
 @pytest.fixture()
-def valuation_db(tmp_path) -> sqlite3.Connection:
-    path = str(tmp_path / "valuation.db")
-    init_db(path)
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute(
-        "INSERT INTO products (id, name_en, price_cents, stock) VALUES ('prod-value', 'Value Candle', 2500, 10)"
+def valuation_db(db):
+    db.execute(
+        "INSERT INTO products (id, name_en, price_cents, stock) "
+        "VALUES ('prod-value', 'Value Candle', 2500, 10)"
     )
-    conn.commit()
-    yield conn
-    conn.close()
+    db.commit()
+    return db
 
 
 def test_valuation_settings_review_and_fifo_warning(valuation_db):
@@ -108,9 +100,10 @@ def test_opening_balance_and_weighted_average_layers(valuation_db):
     assert opening is not None
     assert opening.total_value_cents == 2000
     profile = valuation_db.execute(
-        "SELECT opening_balance_state FROM product_inventory_profiles WHERE product_id = 'prod-value'"
+        "SELECT opening_balance_state FROM product_inventory_profiles "
+        "WHERE product_id = 'prod-value'"
     ).fetchone()
-    assert profile[0] == "reviewed"
+    assert profile["opening_balance_state"] == "reviewed"
 
 
 def test_cogs_generation_and_close_preview(valuation_db):

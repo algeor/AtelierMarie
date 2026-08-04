@@ -53,6 +53,18 @@ class LedgerManagedStockEditError(Exception):
 BULK_DISCOUNT_TARGET_LIMIT = 500
 
 
+def _fmt_discount_ts(value: object) -> str | None:
+    """Normalise a discount-bound read to the canonical ``_DT_FMT`` string.
+
+    psycopg returns TIMESTAMPTZ columns as ``datetime``; ``None`` and existing
+    strings pass through unchanged. Used to keep merge/window comparisons from
+    mixing ``datetime`` (persisted) with ``str`` (patch).
+    """
+    if isinstance(value, datetime):
+        return value.strftime(_DT_FMT)
+    return value  # type: ignore[return-value]
+
+
 def _validate_merged_discount(
     percent: int | None, starts_at: str | None, ends_at: str | None
 ) -> None:
@@ -75,6 +87,12 @@ def merge_discount_update(existing: dict, data: dict) -> dict:
     `discount_percent=None` clears all three together. Raises
     `DiscountValidationError` on an invalid merged result.
     """
+    # ``existing`` is read straight from Postgres, so its TIMESTAMPTZ discount
+    # bounds arrive as ``datetime``; the patch (``data``) carries canonical
+    # ``_DT_FMT`` strings. Normalise the persisted bounds to the same string
+    # shape so the merge and window comparison never mix datetime with str.
+    existing_starts = _fmt_discount_ts(existing.get("discount_starts_at"))
+    existing_ends = _fmt_discount_ts(existing.get("discount_ends_at"))
     if "discount_percent" in data and data["discount_percent"] is None:
         # Clearing the discount clears all three fields together.
         merged_percent = merged_starts = merged_ends = None
@@ -83,13 +101,9 @@ def merge_discount_update(existing: dict, data: dict) -> dict:
             data["discount_percent"] if "discount_percent" in data else existing["discount_percent"]
         )
         merged_starts = (
-            data["discount_starts_at"]
-            if "discount_starts_at" in data
-            else existing["discount_starts_at"]
+            data["discount_starts_at"] if "discount_starts_at" in data else existing_starts
         )
-        merged_ends = (
-            data["discount_ends_at"] if "discount_ends_at" in data else existing["discount_ends_at"]
-        )
+        merged_ends = data["discount_ends_at"] if "discount_ends_at" in data else existing_ends
         # A date without a resulting percent is invalid.
         if merged_percent is None and (merged_starts is not None or merged_ends is not None):
             raise DiscountValidationError(
@@ -224,16 +238,26 @@ def _attach_admin_inventory_context(conn: psycopg.Connection, products: list[dic
         product["latest_batch_id"] = batch["id"] if batch else None
         product["latest_batch_number"] = batch["batch_number"] if batch else None
         product["latest_batch_status"] = batch["status"] if batch else None
-        product["latest_batch_date"] = batch["production_date"] if batch else None
+        product["latest_batch_date"] = (
+            batch["production_date"].isoformat()
+            if batch and hasattr(batch["production_date"], "isoformat")
+            else (batch["production_date"] if batch else None)
+        )
         product["inventory_exception_count"] = int(exception_counts.get(product_id, 0))
         product["inventory_exceptions"] = exceptions_by_product.get(product_id, [])
         product["inventory_links"] = {
             "recipes_href": f"/admin/inventory/recipes?product_id={product_id}",
             "batches_href": f"/admin/inventory/batches?product_id={product_id}",
-            "movements_href": f"/admin/inventory/movements?item_type=finished_good&item_id={product_id}",
-            "valuation_href": f"/admin/inventory/valuation/layers?item_type=finished_good&item_id={product_id}",
+            "movements_href": (
+                f"/admin/inventory/movements?item_type=finished_good&item_id={product_id}"
+            ),
+            "valuation_href": (
+                f"/admin/inventory/valuation/layers?item_type=finished_good&item_id={product_id}"
+            ),
             "cogs_href": f"/admin/inventory/valuation/cogs?product_id={product_id}",
-            "exceptions_href": f"/admin/inventory/valuation/exceptions?target_type=product&target_id={product_id}",
+            "exceptions_href": (
+                f"/admin/inventory/valuation/exceptions?target_type=product&target_id={product_id}"
+            ),
         }
 
 
@@ -269,20 +293,14 @@ def _now_utc() -> str:
 
 
 def _sanitize_fts5_query(query: str) -> str:
-    """Sanitize user input for FTS5 MATCH expressions.
+    """Normalize user input for a Postgres ``plainto_tsquery`` search.
 
-    Strategy: Split on whitespace, wrap each token in double quotes to
-    escape all FTS5 special characters (*, OR, AND, NOT, NEAR, etc.),
-    then rejoin with spaces (implicit AND).
-
-    Returns an empty string if no valid tokens remain.
+    ``plainto_tsquery`` tokenizes and AND-combines the terms itself and treats
+    the argument purely as data (bound as a parameter), so no manual escaping of
+    query operators is needed — we only collapse whitespace and return "" when
+    there is nothing searchable.
     """
-    tokens = query.strip().split()
-    if not tokens:
-        return ""
-    # Remove any embedded double quotes from individual tokens
-    sanitized = [f'"{token.replace(chr(34), "")}"' for token in tokens if token.replace('"', "")]
-    return " ".join(sanitized)
+    return " ".join(query.split())
 
 
 def _clamp_pagination(page: int, limit: int) -> tuple[int, int]:
@@ -856,9 +874,20 @@ def deactivate_product(product_id: str) -> dict:
     return product_video_service.attach_video_fields_one(product, public_only=False)
 
 
+def _fts_expression(locale: Locale) -> str:
+    """Postgres tsvector expression matching the GIN search index for a locale.
+
+    Mirrors idx_products_search_{en,bg} exactly so the index is usable.
+    """
+    return (
+        f"to_tsvector('simple', COALESCE(p.name_{locale}, '') || ' ' "
+        f"|| COALESCE(p.description_{locale}, ''))"
+    )
+
+
 def _build_search_conditions(
     sanitized: str,
-    fts_table: str,
+    locale: Locale,
     *,
     product_type: str | None,
     category: str | None,
@@ -869,7 +898,10 @@ def _build_search_conditions(
 
     Returns (conditions, params) covering only the WHERE clause (no LIMIT/OFFSET).
     """
-    conditions = [f"{fts_table} MATCH %s", "p.is_active = 1"]
+    conditions = [
+        f"{_fts_expression(locale)} @@ plainto_tsquery('simple', %s)",
+        "p.is_active = 1",
+    ]
     params: list = [sanitized]
 
     if product_type:
@@ -917,10 +949,9 @@ def count_search_products(
     if not sanitized:
         return 0
 
-    fts_table = f"products_fts_{locale}"
     conditions, params = _build_search_conditions(
         sanitized,
-        fts_table,
+        locale,
         product_type=product_type,
         category=category,
         labels=labels,
@@ -931,8 +962,7 @@ def count_search_products(
         row = conn.execute(
             f"""
             SELECT COUNT(*) AS cnt
-            FROM {fts_table} fts
-            JOIN products p ON p.rowid = fts.rowid
+            FROM products p
             WHERE {where_clause}
             """,  # noqa: S608
             params,
@@ -972,16 +1002,16 @@ def search_products(
     if not sanitized:
         return []
 
-    fts_table = f"products_fts_{locale}"
     conditions, params = _build_search_conditions(
         sanitized,
-        fts_table,
+        locale,
         product_type=product_type,
         category=category,
         labels=labels,
         in_stock=in_stock,
     )
     where_clause = " AND ".join(conditions)
+    rank_expr = f"ts_rank({_fts_expression(locale)}, plainto_tsquery('simple', %s))"
 
     now = pricing.now_utc()
     price_sort = sort in ("price_asc", "price_desc")
@@ -992,24 +1022,22 @@ def search_products(
             rows = conn.execute(
                 f"""
                 SELECT p.*
-                FROM {fts_table} fts
-                JOIN products p ON p.rowid = fts.rowid
+                FROM products p
                 WHERE {where_clause}
-                ORDER BY rank
+                ORDER BY {rank_expr} DESC, p.id
                 """,  # noqa: S608
-                params,
+                [*params, sanitized],
             ).fetchall()
         else:
             rows = conn.execute(
                 f"""
                 SELECT p.*
-                FROM {fts_table} fts
-                JOIN products p ON p.rowid = fts.rowid
+                FROM products p
                 WHERE {where_clause}
-                ORDER BY rank
+                ORDER BY {rank_expr} DESC, p.id
                 LIMIT %s OFFSET %s
                 """,  # noqa: S608
-                [*params, limit, offset],
+                [*params, sanitized, limit, offset],
             ).fetchall()
 
         products = [_resolve_locale_fields(_row_to_dict(r), locale) for r in rows]

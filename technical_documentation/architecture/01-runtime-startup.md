@@ -8,7 +8,7 @@ App startup does four jobs:
 
 1. Load settings from env.
 2. Configure FastAPI, middleware, routers, and static files.
-3. Initialize SQLite schema during lifespan startup.
+3. Open the psycopg connection pool and verify the DB is at Alembic head (no schema creation) during lifespan startup.
 4. Start background loops for cleanup, email, and video work.
 
 ## Main Files

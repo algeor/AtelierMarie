@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import csv
-from hashlib import sha256
 import json
-from pathlib import Path
 import sqlite3
 import uuid
-from typing import Any
+from datetime import date, datetime
+from hashlib import sha256
+from pathlib import Path
 
 from openpyxl import Workbook
 
-from app.config import get_settings
 from app.database import get_db
 from app.models.accounting import (
     AccountantAcceptanceRequest,
@@ -20,6 +19,7 @@ from app.models.accounting import (
     FinanceExportPackageResponse,
 )
 from app.services import accounting_config_service, accounting_ledger_service, pricing
+from app.services.accounting_config_service import _fmt_ts
 from app.services.finance_period_service import FinancePeriodError, calculate_summary_totals
 
 _SCHEMA_VERSION = "accounting-finance-hub.v1"
@@ -50,7 +50,7 @@ def _json_loads(value: str | None) -> dict[str, object] | None:
 
 
 def _json_dumps(value: object) -> str:
-    return json.dumps(value, indent=2, sort_keys=True)
+    return json.dumps(value, indent=2, sort_keys=True, default=_fmt_ts)
 
 
 def _package_from_row(row: sqlite3.Row) -> FinanceExportPackageResponse:
@@ -64,9 +64,9 @@ def _package_from_row(row: sqlite3.Row) -> FinanceExportPackageResponse:
         manifest_path=row["manifest_path"],
         manifest=_json_loads(row["manifest_json"]),
         generated_by_admin_id=row["generated_by_admin_id"],
-        generated_at=row["generated_at"],
+        generated_at=_fmt_ts(row["generated_at"]),
         accepted_by_admin_id=row["accepted_by_admin_id"],
-        accepted_at=row["accepted_at"],
+        accepted_at=_fmt_ts(row["accepted_at"]),
         accountant_name=row["accountant_name"],
         accountant_reference=row["accountant_reference"],
         acceptance_note=row["acceptance_note"],
@@ -102,7 +102,9 @@ def _cell(value: object) -> object:
         return ""
     if isinstance(value, (str, int, float, bool)):
         return value
-    return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    if isinstance(value, (datetime, date)):
+        return _fmt_ts(value)
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, default=_fmt_ts)
 
 
 def _headers(rows: list[dict[str, object]]) -> list[str]:
@@ -153,7 +155,8 @@ def _settings_rows() -> list[dict[str, object]]:
 
 def _exception_rows(conn: sqlite3.Connection, period_id: str) -> list[dict[str, object]]:
     rows = conn.execute(
-        "SELECT * FROM finance_exceptions WHERE period_id = %s ORDER BY status, severity, created_at",
+        "SELECT * FROM finance_exceptions WHERE period_id = %s "
+        "ORDER BY status, severity, created_at",
         (period_id,),
     ).fetchall()
     return [{key: row[key] for key in row.keys()} for row in rows]
@@ -205,7 +208,7 @@ def _material_on_hand_rows(
                    FROM inventory_movements im
                    WHERE im.item_type = 'material'
                      AND im.item_id = m.id
-                     AND substr(im.occurred_at, 1, 10) <= %s
+                     AND (im.occurred_at)::date <= %s
                ), 0) AS on_hand_quantity,
                COALESCE((
                    SELECT SUM(CASE WHEN vl.quantity >= 0
@@ -213,7 +216,7 @@ def _material_on_hand_rows(
                    FROM inventory_valuation_layers vl
                    WHERE vl.item_type = 'material'
                      AND vl.item_id = m.id
-                     AND substr(vl.valuation_date, 1, 10) <= %s
+                     AND (vl.valuation_date)::date <= %s
                      AND vl.review_state != 'reversed'
                ), 0) AS on_hand_value_cents,
                (SELECT COUNT(*) FROM inventory_exceptions ie
@@ -251,7 +254,7 @@ def _finished_goods_on_hand_rows(
                    FROM inventory_movements im
                    WHERE im.item_type = 'finished_good'
                      AND im.item_id = p.id
-                     AND substr(im.occurred_at, 1, 10) <= %s
+                     AND (im.occurred_at)::date <= %s
                ), 0) AS ledger_on_hand_quantity,
                COALESCE((
                    SELECT SUM(CASE WHEN vl.quantity >= 0
@@ -259,7 +262,7 @@ def _finished_goods_on_hand_rows(
                    FROM inventory_valuation_layers vl
                    WHERE vl.item_type = 'finished_good'
                      AND vl.item_id = p.id
-                     AND substr(vl.valuation_date, 1, 10) <= %s
+                     AND (vl.valuation_date)::date <= %s
                      AND vl.review_state != 'reversed'
                ), 0) AS on_hand_value_cents,
                pip.opening_balance_state, pip.valuation_readiness,
@@ -306,7 +309,7 @@ def _inventory_valuation_rows(
         LEFT JOIN inventory_movements im ON im.id = vl.movement_id
         LEFT JOIN materials m ON vl.item_type = 'material' AND m.id = vl.item_id
         LEFT JOIN products p ON vl.item_type = 'finished_good' AND p.id = vl.item_id
-        WHERE substr(vl.valuation_date, 1, 10) BETWEEN %s AND %s
+        WHERE (vl.valuation_date)::date BETWEEN %s AND %s
         ORDER BY vl.valuation_date, vl.created_at, vl.id
         """,
         (period["period_start"], period["period_end"]),
@@ -326,7 +329,7 @@ def _cogs_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, 
                c.source_finished_batch_id, c.review_state, c.reversal_cogs_id
         FROM cogs_ledger c
         LEFT JOIN products p ON p.id = c.product_id
-        WHERE substr(c.cogs_date, 1, 10) BETWEEN %s AND %s
+        WHERE (c.cogs_date)::date BETWEEN %s AND %s
         ORDER BY c.cogs_date, c.created_at, c.id
         """,
         (period["period_start"], period["period_end"]),
@@ -352,7 +355,7 @@ def _inventory_writeoff_rows(
         LEFT JOIN inventory_valuation_layers vl ON vl.movement_id = im.id
         LEFT JOIN materials m ON im.item_type = 'material' AND m.id = im.item_id
         LEFT JOIN products p ON im.item_type = 'finished_good' AND p.id = im.item_id
-        WHERE substr(im.occurred_at, 1, 10) BETWEEN %s AND %s
+        WHERE (im.occurred_at)::date BETWEEN %s AND %s
           AND im.movement_type IN (
               'return_write_off', 'write_off', 'spoilage',
               'stock_count_correction', 'adjustment'
@@ -430,7 +433,8 @@ def generate_export_package(
                 "Final export packages can only be generated for closed finance periods.",
             )
         version_row = conn.execute(
-            "SELECT COALESCE(MAX(version), 0) + 1 AS next_version FROM finance_export_packages WHERE period_id = %s",
+            "SELECT COALESCE(MAX(version), 0) + 1 AS next_version FROM finance_export_packages "
+            "WHERE period_id = %s",
             (period_id,),
         ).fetchone()
         version = int(version_row["next_version"])
@@ -503,7 +507,8 @@ def generate_export_package(
             ),
         )
         conn.execute(
-            "UPDATE finance_periods SET status = 'exported', updated_by_admin_id = %s, updated_at = %s WHERE id = %s",
+            "UPDATE finance_periods SET status = 'exported', updated_by_admin_id = %s, "
+            "updated_at = %s WHERE id = %s",
             (actor_user_id, pricing.now_utc(), period_id),
         )
         row = _get_package_row(conn, export_id)
@@ -550,7 +555,8 @@ def accept_export_package(
         after = _get_package_row(conn, export_id)
         if bool(after["current_final"]):
             conn.execute(
-                "UPDATE finance_periods SET status = 'accepted', accepted_at = %s, updated_by_admin_id = %s, updated_at = %s WHERE id = %s",
+                "UPDATE finance_periods SET status = 'accepted', accepted_at = %s, "
+                "updated_by_admin_id = %s, updated_at = %s WHERE id = %s",
                 (now, actor_user_id, now, after["period_id"]),
             )
         accounting_config_service.write_finance_audit_event(

@@ -1,56 +1,18 @@
 """Route tests for admin comment moderation endpoints."""
 
 import uuid
-from collections.abc import AsyncGenerator
 
 import pytest
-from httpx import ASGITransport, AsyncClient
 
-from app.config import get_settings
-from app.database import get_db, init_db
-
-ADMIN_API_KEY = "test-admin-key"  # pragma: allowlist secret
+from app.database import get_db
 
 
 @pytest.fixture()
-def db_path(tmp_path) -> str:
-    return str(tmp_path / "test.db")
-
-
-@pytest.fixture()
-def app(db_path, monkeypatch):
-    monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.setenv("ADMIN_API_KEY", ADMIN_API_KEY)
-    get_settings.cache_clear()
-    init_db(db_path)
-    from app.main import create_app
-
-    test_app = create_app()
-    yield test_app
-    get_settings.cache_clear()
-
-
-@pytest.fixture()
-async def admin_client(app) -> AsyncGenerator[AsyncClient, None]:
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        c.headers["Authorization"] = f"Bearer {ADMIN_API_KEY}"
-        yield c
-
-
-@pytest.fixture()
-async def client(app) -> AsyncGenerator[AsyncClient, None]:
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
-
-
-@pytest.fixture()
-def active_product(db_path):
+def active_product(db):
     with get_db() as conn:
         conn.execute(
             "INSERT INTO products (id, name_en, price_cents, stock, is_active)"
-            " VALUES (?, ?, ?, ?, ?)",
+            " VALUES (%s, %s, %s, %s, %s)",
             ("test-candle", "Test Candle", 2500, 10, 1),
         )
     return "test-candle"
@@ -62,7 +24,7 @@ def sample_comment(active_product):
     with get_db() as conn:
         conn.execute(
             "INSERT INTO comments (id, product_id, session_id, display_name, body) "
-            "VALUES (?, ?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s, %s)",
             (comment_id, active_product, "session-1", "Marie", "Great candle!"),
         )
     return comment_id
@@ -156,16 +118,16 @@ class TestIntegration:
 
         # Hard delete the product (direct DB since we only soft-delete via API)
         with get_db() as conn:
-            conn.execute("DELETE FROM products WHERE id = ?", (active_product,))
+            conn.execute("DELETE FROM products WHERE id = %s", (active_product,))
 
         # Verify reactions and comments are gone
         with get_db() as conn:
             r_count = conn.execute(
-                "SELECT COUNT(*) as cnt FROM reactions WHERE product_id = ?",
+                "SELECT COUNT(*) as cnt FROM reactions WHERE product_id = %s",
                 (active_product,),
             ).fetchone()["cnt"]
             c_count = conn.execute(
-                "SELECT COUNT(*) as cnt FROM comments WHERE product_id = ?",
+                "SELECT COUNT(*) as cnt FROM comments WHERE product_id = %s",
                 (active_product,),
             ).fetchone()["cnt"]
 

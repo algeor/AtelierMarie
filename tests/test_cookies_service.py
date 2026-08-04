@@ -1,22 +1,13 @@
 """Service and audit-sync tests for admin-managed Cookie Policy content."""
 
-import sqlite3
-
 import pytest
 
-from app.database import get_db, init_db
+from app.database import get_db
 from app.services import cookies_service
 from app.services.cookies_service import CookiesNotFoundError, CookiesValidationError
 
 
-@pytest.fixture()
-def cookies_db(tmp_path) -> str:
-    path = str(tmp_path / "cookies.db")
-    init_db(path)
-    return path
-
-
-def test_seed_matches_existing_cookie_copy_and_public_locale(cookies_db):
+def test_seed_matches_existing_cookie_copy_and_public_locale(db):
     en = cookies_service.get_public_cookies("en")
     assert en["title"] == "Cookie Policy"
     assert {item["name"] for item in en["cookies"]} >= {
@@ -31,7 +22,7 @@ def test_seed_matches_existing_cookie_copy_and_public_locale(cookies_db):
     assert bg["headers"]["purpose"] == "Цел"
 
 
-def test_admin_update_page_and_section(cookies_db):
+def test_admin_update_page_and_section(db):
     page = cookies_service.update_page(
         {"title_en": "Cookie details", "title_bg": "Данни за бисквитки"}
     )
@@ -56,7 +47,7 @@ def test_admin_update_page_and_section(cookies_db):
     assert controls["body"] == ["Първи параграф"]
 
 
-def test_detected_inventory_sync_upserts_and_hides_stale_auto_rows(cookies_db):
+def test_detected_inventory_sync_upserts_and_hides_stale_auto_rows(db):
     rows = cookies_service.sync_detected_inventory(
         [
             {
@@ -90,25 +81,25 @@ def test_detected_inventory_sync_upserts_and_hides_stale_auto_rows(cookies_db):
     assert "deploy_cookie" not in public_names
 
 
-def test_seed_runs_once_and_does_not_clobber_edits_or_deletions(tmp_path):
-    path = str(tmp_path / "seed.db")
-    init_db(path)
-
+def test_seed_runs_once_and_does_not_clobber_edits_or_deletions(db):
     with get_db() as conn:
         conn.execute("UPDATE cookies_page SET title_en = 'Edited cookies' WHERE id = 'cookies'")
         conn.execute("DELETE FROM cookies_sections WHERE slug = 'control'")
 
-    init_db(path)
+    with get_db() as conn:
+        title = conn.execute("SELECT title_en FROM cookies_page WHERE id = 'cookies'").fetchone()[
+            "title_en"
+        ]
+        assert title == "Edited cookies"
+        assert (
+            conn.execute(
+                "SELECT 1 AS present FROM cookies_sections WHERE slug = 'control'"
+            ).fetchone()
+            is None
+        )
 
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    title = conn.execute("SELECT title_en FROM cookies_page WHERE id = 'cookies'").fetchone()[0]
-    assert title == "Edited cookies"
-    assert conn.execute("SELECT 1 FROM cookies_sections WHERE slug = 'control'").fetchone() is None
-    conn.close()
 
-
-def test_invalid_cookie_updates_are_rejected(cookies_db):
+def test_invalid_cookie_updates_are_rejected(db):
     with pytest.raises(CookiesValidationError):
         cookies_service.update_page({"title_en": ""})
     with pytest.raises(CookiesValidationError):

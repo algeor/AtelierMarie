@@ -46,7 +46,7 @@ Admin selects/crops image
 
 ## Image Rules
 
-- Store URLs, not binary blobs, in SQLite.
+- Store URLs, not binary blobs, in Postgres.
 - Exactly one primary image per product.
 - Thumbnail is for cards/lists.
 - Zoom URL is for crisp lightbox/detail inspection.

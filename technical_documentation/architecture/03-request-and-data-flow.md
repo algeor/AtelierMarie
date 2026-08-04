@@ -11,7 +11,7 @@ Browser page
   -> GET /v1/products
   -> app/routes/products.py
   -> app/services/product_service.py
-  -> SQLite products + taxonomy + media/video attachers
+  -> Postgres products + taxonomy + media/video attachers
   -> ProductListResponse
   -> ProductGrid/ProductCard
 ```
@@ -133,7 +133,7 @@ cookie consent accepted
   -> POST /v1/analytics/events
   -> validate + dedupe
   -> JSONL and/or DuckDB storage
-  -> admin reports read DuckDB and SQLite order totals
+  -> admin reports read DuckDB and Postgres order totals
 ```
 
 Important details:

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import csv
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import io
 import json
 import sqlite3
 import uuid
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 from app.config import get_settings
@@ -19,6 +19,7 @@ from app.models.accounting import (
 )
 from app.services import accounting_config_service, pricing
 from app.services.finance_period_service import FinancePeriodError
+from app.services.order_service import _fmt_ts
 
 
 def _json_dumps(value: object | None) -> str | None:
@@ -113,7 +114,8 @@ def _normalize_import_row(row: dict[str, Any]) -> dict[str, Any]:
 
 def _tolerance_cents(conn: sqlite3.Connection) -> int:
     row = conn.execute(
-        "SELECT tolerance_cents FROM vat_fiscal_settings_versions ORDER BY effective_date DESC, id DESC LIMIT 1"
+        "SELECT tolerance_cents FROM vat_fiscal_settings_versions "
+        "ORDER BY effective_date DESC, id DESC LIMIT 1"
     ).fetchone()
     return int(row["tolerance_cents"] or 0) if row else 1
 
@@ -216,7 +218,8 @@ def import_balance_rows(
                     UPDATE stripe_balance_transactions
                     SET reporting_category = %s, transaction_type = %s, provider_created_at = %s,
                         available_on = %s, gross_amount_cents = %s, fee_amount_cents = %s,
-                        net_amount_cents = %s, currency = %s, payment_intent_id = %s, charge_id = %s,
+                        net_amount_cents = %s, currency = %s, payment_intent_id = %s,
+                        charge_id = %s,
                         provider_refund_id = %s, dispute_id = %s, payout_id = %s,
                         payout_effective_at = %s, payout_arrival_at = %s, payout_status = %s,
                         trace_id = %s, raw_row_json = %s, imported_at = %s
@@ -257,7 +260,8 @@ def import_balance_rows(
                         charge_id, provider_refund_id, dispute_id, payout_id,
                         payout_effective_at, payout_arrival_at, payout_status, trace_id,
                         raw_row_json, imported_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                              %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         row_id,
@@ -411,7 +415,7 @@ def import_status() -> StripePayoutImportStatusResponse:
         mismatched=int(row["mismatched"] or 0),
         duplicate=int(row["duplicate"] or 0),
         ignored=int(row["ignored"] or 0),
-        latest_imported_at=row["latest_imported_at"],
+        latest_imported_at=_fmt_ts(row["latest_imported_at"]),
     )
 
 

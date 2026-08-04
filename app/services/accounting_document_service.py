@@ -13,6 +13,7 @@ from app.models.accounting import (
     AccountingDocumentResponse,
 )
 from app.services import accounting_config_service, pricing
+from app.services.accounting_config_service import _fmt_ts
 from app.services.finance_period_service import FinancePeriodError
 
 
@@ -38,7 +39,7 @@ def _document_from_row(row: sqlite3.Row) -> AccountingDocumentResponse:
         document_type=row["document_type"],
         source_system=row["source_system"],
         document_number=row["document_number"],
-        issue_date=row["issue_date"],
+        issue_date=_fmt_ts(row["issue_date"]),
         order_id=row["order_id"],
         refund_id=row["refund_id"],
         period_id=row["period_id"],
@@ -53,8 +54,8 @@ def _document_from_row(row: sqlite3.Row) -> AccountingDocumentResponse:
         notes=row["notes"],
         created_by_admin_id=row["created_by_admin_id"],
         updated_by_admin_id=row["updated_by_admin_id"],
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
+        created_at=_fmt_ts(row["created_at"]),
+        updated_at=_fmt_ts(row["updated_at"]),
     )
 
 
@@ -154,7 +155,9 @@ def create_document(
                 tax_amount_cents, gross_amount_cents, vat_summary_json,
                 original_document_id, file_reference, status, notes,
                 created_by_admin_id, updated_by_admin_id, created_at, updated_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            )
             """,
             (
                 document_id,

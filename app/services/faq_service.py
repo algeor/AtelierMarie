@@ -5,6 +5,19 @@ from typing import Any
 
 from app.database import get_db
 
+_DT_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _fmt_ts(value: object) -> str | None:
+    """Render a timestamp column (datetime or str) as the canonical string."""
+    from datetime import datetime
+
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.strftime(_DT_FMT)
+    return str(value)
+
 
 class FaqItemNotFoundError(Exception):
     """Raised when an FAQ item id does not exist."""
@@ -37,8 +50,8 @@ def _item_to_admin_dict(row: sqlite3.Row) -> dict:
         "answer_bg": row["answer_bg"],
         "sort_order": row["sort_order"],
         "is_published": bool(row["is_published"]),
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
+        "created_at": _fmt_ts(row["created_at"]),
+        "updated_at": _fmt_ts(row["updated_at"]),
     }
 
 
@@ -49,8 +62,8 @@ def _section_to_admin_dict(row: sqlite3.Row) -> dict:
         "title_bg": row["title_bg"],
         "icon": row["icon"],
         "sort_order": row["sort_order"],
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
+        "created_at": _fmt_ts(row["created_at"]),
+        "updated_at": _fmt_ts(row["updated_at"]),
         "items": [],
     }
 
@@ -156,6 +169,7 @@ def create_item(data: dict) -> dict:
             INSERT INTO faq_items (
                 section, question_en, question_bg, answer_en, answer_bg, sort_order, is_published
             ) VALUES (%s, %s, %s, %s, %s, %s, 1)
+            RETURNING id
             """,
             (
                 section,
@@ -166,7 +180,8 @@ def create_item(data: dict) -> dict:
                 sort_order,
             ),
         )
-        item_id = cursor.lastrowid
+        inserted = cursor.fetchone()
+        item_id = inserted["id"] if inserted else None
         if item_id is None:
             raise RuntimeError("FAQ item insert did not return an id")
         return _get_admin_item(conn, item_id)

@@ -1639,7 +1639,7 @@ CREATE TABLE cogs_ledger (
     order_item_key TEXT,
     product_id TEXT REFERENCES products(id) ON DELETE SET NULL,
     quantity_sold DOUBLE PRECISION NOT NULL CHECK (quantity_sold > 0),
-    cogs_date DATE NOT NULL,
+    cogs_date TEXT NOT NULL,
     unit_cost_amount TEXT,
     total_cost_cents INTEGER NOT NULL CHECK (total_cost_cents >= 0),
     currency TEXT NOT NULL DEFAULT 'EUR',

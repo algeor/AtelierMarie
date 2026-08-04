@@ -73,9 +73,7 @@ async def test_expired_session_orphans_cart(client: AsyncClient):
     # Expire the session directly in DB
     with get_db() as conn:
         expired_at = datetime.now(UTC) - timedelta(seconds=10)
-        conn.execute(
-            "UPDATE sessions SET expires_at = %s WHERE id = %s", (expired_at, old_session)
-        )
+        conn.execute("UPDATE sessions SET expires_at = %s WHERE id = %s", (expired_at, old_session))
 
     # Next request should get a new session
     client.cookies.set(settings.session_cookie_name, old_session)

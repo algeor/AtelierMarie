@@ -1,8 +1,9 @@
 """Payment settings stored in DB; Stripe secrets stay in environment."""
 
 import json
-import psycopg
 from typing import Any
+
+import psycopg
 
 from app.config import Settings
 

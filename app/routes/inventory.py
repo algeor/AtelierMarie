@@ -7,8 +7,13 @@ from fastapi.responses import JSONResponse, Response
 
 from app.dependencies.auth import require_admin
 from app.models.inventory import (
+    COGSLedgerListResponse,
+    InventoryClosePreviewResponse,
+    InventoryExceptionResponse,
     InventoryMovementListResponse,
     InventoryMovementResponse,
+    InventoryValuationSettingsRequest,
+    InventoryValuationSettingsResponse,
     MaterialAdjustmentRequest,
     MaterialCreateRequest,
     MaterialDetailResponse,
@@ -18,6 +23,14 @@ from app.models.inventory import (
     MaterialReceiptResponse,
     MaterialResponse,
     MaterialUpdateRequest,
+    OpeningBalanceRequest,
+    ProductionBatchCorrectionRequest,
+    ProductionBatchCreateRequest,
+    ProductionBatchListResponse,
+    ProductionBatchPostRequest,
+    ProductionBatchResponse,
+    ProductionBatchUpdateRequest,
+    ProductionTraceabilityResponse,
     RecipeCostSnapshotRequest,
     RecipeCostSnapshotResponse,
     RecipeDiagnosticsListResponse,
@@ -26,19 +39,6 @@ from app.models.inventory import (
     RecipeVersionListResponse,
     RecipeVersionResponse,
     RecipeVersionUpdateRequest,
-    ProductionBatchCorrectionRequest,
-    ProductionBatchCreateRequest,
-    ProductionBatchListResponse,
-    ProductionBatchPostRequest,
-    ProductionBatchResponse,
-    ProductionBatchUpdateRequest,
-    ProductionTraceabilityResponse,
-    COGSLedgerListResponse,
-    InventoryClosePreviewResponse,
-    InventoryExceptionResponse,
-    InventoryValuationSettingsRequest,
-    InventoryValuationSettingsResponse,
-    OpeningBalanceRequest,
     ValuationLayerListResponse,
     ValuationLayerResponse,
 )
@@ -173,7 +173,9 @@ async def update_material(
         return _validation(str(exc))
 
 
-@admin_router.post("/materials/{material_id}/receipts", response_model=MaterialReceiptResponse, status_code=201)
+@admin_router.post(
+    "/materials/{material_id}/receipts", response_model=MaterialReceiptResponse, status_code=201
+)
 async def create_material_receipt(
     material_id: str,
     body: MaterialReceiptRequest,
@@ -195,7 +197,11 @@ async def create_material_receipt(
         return _validation(str(exc))
 
 
-@admin_router.post("/materials/{material_id}/adjustments", response_model=InventoryMovementResponse, status_code=201)
+@admin_router.post(
+    "/materials/{material_id}/adjustments",
+    response_model=InventoryMovementResponse,
+    status_code=201,
+)
 async def create_material_adjustment(
     material_id: str,
     body: MaterialAdjustmentRequest,
@@ -238,7 +244,9 @@ async def list_material_lots(
         return _validation(str(exc))
 
 
-@admin_router.get("/materials/{material_id}/movements", response_model=InventoryMovementListResponse)
+@admin_router.get(
+    "/materials/{material_id}/movements", response_model=InventoryMovementListResponse
+)
 async def list_material_movements(
     material_id: str,
     response: Response,
@@ -522,7 +530,9 @@ async def cancel_batch(
         return _validation(str(exc))
 
 
-@admin_router.post("/batches/{batch_id}/correct", response_model=InventoryMovementResponse, status_code=201)
+@admin_router.post(
+    "/batches/{batch_id}/correct", response_model=InventoryMovementResponse, status_code=201
+)
 async def correct_batch(
     batch_id: str,
     body: ProductionBatchCorrectionRequest,

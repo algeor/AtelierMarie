@@ -21,11 +21,24 @@ async def test_inventory_material_routes_require_admin(client):
         ("GET", "/v1/admin/inventory/materials/mat-1", None),
         ("PATCH", "/v1/admin/inventory/materials/mat-1", {"name": "Wax updated"}),
         ("POST", "/v1/admin/inventory/materials/mat-1/receipts", {"quantity": 1, "uom": "g"}),
-        ("POST", "/v1/admin/inventory/materials/mat-1/adjustments", {"movement_type": "adjustment", "quantity_delta": 1, "reason": "count"}),
+        (
+            "POST",
+            "/v1/admin/inventory/materials/mat-1/adjustments",
+            {"movement_type": "adjustment", "quantity_delta": 1, "reason": "count"},
+        ),
         ("GET", "/v1/admin/inventory/materials/mat-1/lots", None),
         ("GET", "/v1/admin/inventory/materials/mat-1/movements", None),
         ("GET", "/v1/admin/inventory/recipes", None),
-        ("POST", "/v1/admin/inventory/recipes", {"product_id": "p-1", "version_label": "v1", "effective_date": "2026-09-01", "output_quantity": 1}),
+        (
+            "POST",
+            "/v1/admin/inventory/recipes",
+            {
+                "product_id": "p-1",
+                "version_label": "v1",
+                "effective_date": "2026-09-01",
+                "output_quantity": 1,
+            },
+        ),
         ("GET", "/v1/admin/inventory/recipes/recipe-1", None),
         ("PATCH", "/v1/admin/inventory/recipes/recipe-1", {"version_label": "v2"}),
         ("POST", "/v1/admin/inventory/recipes/recipe-1/activate", {}),
@@ -36,28 +49,59 @@ async def test_inventory_material_routes_require_admin(client):
         ("GET", "/v1/admin/inventory/products/product-1/active-recipe", None),
         ("GET", "/v1/admin/inventory/products/product-1/recipe-diagnostics", None),
         ("GET", "/v1/admin/inventory/batches", None),
-        ("POST", "/v1/admin/inventory/batches", {"batch_number": "B-1", "product_id": "p-1", "planned_output_quantity": 1, "production_date": "2026-09-01"}),
+        (
+            "POST",
+            "/v1/admin/inventory/batches",
+            {
+                "batch_number": "B-1",
+                "product_id": "p-1",
+                "planned_output_quantity": 1,
+                "production_date": "2026-09-01",
+            },
+        ),
         ("GET", "/v1/admin/inventory/batches/batch-1", None),
         ("PATCH", "/v1/admin/inventory/batches/batch-1", {"planned_output_quantity": 2}),
         ("POST", "/v1/admin/inventory/batches/batch-1/post", {"actual_output_quantity": 1}),
         ("POST", "/v1/admin/inventory/batches/batch-1/cancel", {}),
-        ("POST", "/v1/admin/inventory/batches/batch-1/correct", {"item_type": "material", "item_id": "mat-1", "quantity_delta": -1, "uom": "g", "reason": "count"}),
+        (
+            "POST",
+            "/v1/admin/inventory/batches/batch-1/correct",
+            {
+                "item_type": "material",
+                "item_id": "mat-1",
+                "quantity_delta": -1,
+                "uom": "g",
+                "reason": "count",
+            },
+        ),
         ("GET", "/v1/admin/inventory/batches/batch-1/traceability", None),
         ("GET", "/v1/admin/inventory/valuation/settings", None),
         ("PUT", "/v1/admin/inventory/valuation/settings", {"effective_date": "2026-09-01"}),
-        ("POST", "/v1/admin/inventory/valuation/opening-balances", {"item_type": "material", "item_id": "mat-1", "quantity": 1, "uom": "g"}),
+        (
+            "POST",
+            "/v1/admin/inventory/valuation/opening-balances",
+            {"item_type": "material", "item_id": "mat-1", "quantity": 1, "uom": "g"},
+        ),
         ("POST", "/v1/admin/inventory/valuation/layers/generate", {}),
         ("GET", "/v1/admin/inventory/valuation/layers", None),
         ("POST", "/v1/admin/inventory/valuation/cogs/generate", {}),
         ("GET", "/v1/admin/inventory/valuation/cogs", None),
-        ("GET", "/v1/admin/inventory/valuation/close-preview?period_start=2026-09-01&period_end=2026-09-30", None),
+        (
+            "GET",
+            "/v1/admin/inventory/valuation/close-preview?period_start=2026-09-01&period_end=2026-09-30",
+            None,
+        ),
         ("GET", "/v1/admin/inventory/valuation/exceptions", None),
     ],
 )
 async def test_inventory_recipe_production_valuation_and_cogs_endpoints_require_admin(
     client, method, path, payload
 ):
-    resp = await client.request(method, path, json=payload) if payload is not None else await client.request(method, path)
+    resp = (
+        await client.request(method, path, json=payload)
+        if payload is not None
+        else await client.request(method, path)
+    )
 
     assert resp.status_code == 401
 

@@ -174,9 +174,9 @@ class OrderResponse(BaseModel):
         "unreviewed"
     )
     finance_period_id: str | None = None
-    document_reference_status: Literal[
-        "not_required", "missing", "recorded", "review_required"
-    ] = "not_required"
+    document_reference_status: Literal["not_required", "missing", "recorded", "review_required"] = (
+        "not_required"
+    )
     payment_reconciliation_status: Literal[
         "not_applicable", "pending", "matched", "mismatch", "unmatched", "review_required"
     ] = "not_applicable"

@@ -8,16 +8,22 @@ metadata policy, pickup validation, and metrics.
 from __future__ import annotations
 
 import json
-import sqlite3
 from collections import Counter
 from pathlib import Path
 from typing import Any
+
+import psycopg
 
 from app.config import get_settings
 from app.constants import tracking_url_for
 from app.services import pricing, speedy_client
 from app.services.econt_redaction import redact_mapping
-from app.services.order_service import OrderNotFoundError, get_order_admin, update_status_async
+from app.services.order_service import (
+    OrderNotFoundError,
+    _fmt_ts,
+    get_order_admin,
+    update_status_async,
+)
 
 _SITE_HEALTH_KEY = "speedy_admin_health"
 _SITE_REFRESH_KEY = "speedy_office_refresh_status"
@@ -60,7 +66,7 @@ def _loads_json(value: str | None) -> Any:
         return None
 
 
-def _set_site_json(conn: sqlite3.Connection, key: str, value: dict[str, Any]) -> None:
+def _set_site_json(conn: psycopg.Connection, key: str, value: dict[str, Any]) -> None:
     conn.execute(
         """
         INSERT INTO site_settings (key, value, value_type, is_public, updated_at)
@@ -79,14 +85,14 @@ def _set_site_json(conn: sqlite3.Connection, key: str, value: dict[str, Any]) ->
     )
 
 
-def _get_site_json(conn: sqlite3.Connection, key: str) -> dict[str, Any] | None:
+def _get_site_json(conn: psycopg.Connection, key: str) -> dict[str, Any] | None:
     row = conn.execute("SELECT value FROM site_settings WHERE key = %s", (key,)).fetchone()
     value = _loads_json(row["value"] if row else None)
     return value if isinstance(value, dict) else None
 
 
 def _record_event(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     order_id: str,
     action: str,
     status: str,
@@ -115,7 +121,7 @@ def _record_event(
 
 
 def _persist_failure(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     order_id: str,
     action: str,
     request_payload: Any,
@@ -138,7 +144,7 @@ def _persist_failure(
 
 
 def _record_failure_event(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     order_id: str,
     action: str,
     request_payload: Any,
@@ -157,7 +163,7 @@ def _record_failure_event(
     )
 
 
-def _safe_order(conn: sqlite3.Connection, order_id: str) -> dict[str, Any]:
+def _safe_order(conn: psycopg.Connection, order_id: str) -> dict[str, Any]:
     try:
         return dict(get_order_admin(conn, order_id))
     except OrderNotFoundError:
@@ -193,7 +199,7 @@ def _delivery_label(details: Any) -> str | None:
     return ", ".join(str(piece) for piece in pieces if piece) or None
 
 
-def _row_to_summary(row: sqlite3.Row) -> dict[str, Any]:
+def _row_to_summary(row: dict) -> dict[str, Any]:
     details = _loads_json(row["delivery_details"] if "delivery_details" in row.keys() else None)
     return {
         "order_id": row["id"],
@@ -209,13 +215,13 @@ def _row_to_summary(row: sqlite3.Row) -> dict[str, Any]:
         "courier_status": row["courier_status"],
         "courier_sync_status": row["courier_sync_status"],
         "courier_last_error": row["courier_last_error"],
-        "courier_last_synced_at": row["courier_last_synced_at"],
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
+        "courier_last_synced_at": _fmt_ts(row["courier_last_synced_at"]),
+        "created_at": _fmt_ts(row["created_at"]),
+        "updated_at": _fmt_ts(row["updated_at"]),
     }
 
 
-async def get_health(conn: sqlite3.Connection) -> dict[str, Any]:
+async def get_health(conn: psycopg.Connection) -> dict[str, Any]:
     """Return safe Speedy health state without creating shipments."""
     username, password, configured_client_id = _settings_credentials()
     checked_at = pricing.now_utc()
@@ -297,7 +303,7 @@ async def get_health(conn: sqlite3.Connection) -> dict[str, Any]:
     return health
 
 
-def get_queues(conn: sqlite3.Connection, *, order_id: str | None = None) -> dict[str, Any]:
+def get_queues(conn: psycopg.Connection, *, order_id: str | None = None) -> dict[str, Any]:
     params: list[Any] = []
     focus_sql = ""
     if order_id:
@@ -336,7 +342,7 @@ def get_queues(conn: sqlite3.Connection, *, order_id: str | None = None) -> dict
 
 
 async def create_or_reuse_waybill(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     order_id: str,
     *,
     actor_user_id: str | None = None,
@@ -401,7 +407,7 @@ async def create_or_reuse_waybill(
 
 
 async def print_order_label(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     order_id: str,
     *,
     actor_user_id: str | None = None,
@@ -439,7 +445,7 @@ async def print_order_label(
 
 
 async def refresh_tracking(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     order_id: str,
     *,
     actor_user_id: str | None = None,
@@ -497,7 +503,7 @@ async def refresh_tracking(
 
 
 async def search_shipments(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     reference: str,
     *,
     include_returns: bool = False,
@@ -528,7 +534,7 @@ async def search_shipments(
 
 
 async def shipment_info(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     shipment_ids: list[str],
     *,
     actor_user_id: str | None = None,
@@ -562,7 +568,7 @@ async def shipment_info(
 
 
 async def cancel_order_shipment(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     order_id: str,
     *,
     comment: str | None = None,
@@ -632,7 +638,7 @@ async def cancel_order_shipment(
 
 
 async def pickup_terms_for_shipments(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     shipment_ids: list[str],
     *,
     starting_date_utc_ms: int | None = None,
@@ -667,7 +673,7 @@ async def pickup_terms_for_shipments(
 
 
 async def request_pickup(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     shipment_ids: list[str],
     pickup_datetime: str,
@@ -713,7 +719,7 @@ async def request_pickup(
     return {"orders": orders}
 
 
-def list_events(conn: sqlite3.Connection, *, limit: int = 25) -> list[dict[str, Any]]:
+def list_events(conn: psycopg.Connection, *, limit: int = 25) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT id, order_id, action, status, request_json, response_json, error_json,
@@ -735,18 +741,18 @@ def list_events(conn: sqlite3.Connection, *, limit: int = 25) -> list[dict[str, 
             "response": _loads_json(row["response_json"]),
             "error": _loads_json(row["error_json"]),
             "actor_user_id": row["actor_user_id"],
-            "created_at": row["created_at"],
+            "created_at": _fmt_ts(row["created_at"]),
         }
         for row in rows
     ]
 
 
-def get_metrics(conn: sqlite3.Connection) -> dict[str, Any]:
+def get_metrics(conn: psycopg.Connection) -> dict[str, Any]:
     rows = conn.execute(
         """
         SELECT action, status, error_json
         FROM order_courier_events
-        WHERE courier = 'speedy' AND created_at >= datetime('now', '-30 days')
+        WHERE courier = 'speedy' AND created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'
         """
     ).fetchall()
     failures_by_category: Counter[str] = Counter()
@@ -777,7 +783,7 @@ def get_metrics(conn: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
-def get_office_refresh_status(conn: sqlite3.Connection) -> dict[str, Any]:
+def get_office_refresh_status(conn: psycopg.Connection) -> dict[str, Any]:
     stored = _get_site_json(conn, _SITE_REFRESH_KEY)
     if stored is not None:
         return stored
@@ -804,7 +810,7 @@ def get_office_refresh_status(conn: sqlite3.Connection) -> dict[str, Any]:
 
 
 def record_office_refresh_status(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     status: str,
     records: int | None = None,
@@ -817,7 +823,7 @@ def record_office_refresh_status(
     )
 
 
-async def get_overview(conn: sqlite3.Connection, *, order_id: str | None = None) -> dict[str, Any]:
+async def get_overview(conn: psycopg.Connection, *, order_id: str | None = None) -> dict[str, Any]:
     return {
         "health": await get_health(conn),
         "queues": get_queues(conn, order_id=order_id),
@@ -827,7 +833,7 @@ async def get_overview(conn: sqlite3.Connection, *, order_id: str | None = None)
     }
 
 
-def _order_id_for_shipment(conn: sqlite3.Connection, shipment_id: str) -> str | None:
+def _order_id_for_shipment(conn: psycopg.Connection, shipment_id: str) -> str | None:
     if not shipment_id:
         return None
     row = conn.execute(
@@ -843,7 +849,7 @@ def _order_id_for_shipment(conn: sqlite3.Connection, shipment_id: str) -> str | 
 
 
 def _record_search_success_if_local(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     reference: str,
     request_payload: Any,
     response_payload: Any,
@@ -866,7 +872,7 @@ def _record_search_success_if_local(
 
 
 def _record_search_failure_if_local(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     reference: str,
     request_payload: Any,
     exc: speedy_client.SpeedyError,
@@ -879,7 +885,7 @@ def _record_search_failure_if_local(
         _persist_failure(conn, row["id"], "shipment_search", request_payload, exc, actor_user_id)
 
 
-def _eligible_pickup_order_ids(conn: sqlite3.Connection, shipment_ids: list[str]) -> list[str]:
+def _eligible_pickup_order_ids(conn: psycopg.Connection, shipment_ids: list[str]) -> list[str]:
     normalized_ids = [str(item).strip() for item in shipment_ids if str(item).strip()]
     if not normalized_ids:
         raise SpeedyAdminValidationError(
@@ -911,7 +917,7 @@ def _eligible_pickup_order_ids(conn: sqlite3.Connection, shipment_ids: list[str]
 
 
 def _record_return_review_signal(
-    conn: sqlite3.Connection, order_id: str, courier_status: str
+    conn: psycopg.Connection, order_id: str, courier_status: str
 ) -> None:
     """Hook Speedy return/failed tracking into the active returns workflow.
 

@@ -10,7 +10,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.config import get_settings
-from app.database import close_db, init_db
+from app.database import init_db
 from app.services import auth_service
 
 # --- Fixtures with real middleware ---
@@ -57,7 +57,13 @@ def app(worker_database_url: str, monkeypatch_module):
 
     test_app = create_app()
     yield test_app
-    close_db()
+    # Do NOT close_db() here. ``_pool`` is a process-global owned by the
+    # root conftest's session-scoped ``app`` fixture (one pool per xdist
+    # worker). This module's ``app`` is module-scoped, so its teardown fires
+    # mid-session while other ``tests/`` modules still need the pool; calling
+    # close_db() would null the shared pool and every later test on this
+    # worker would raise "Database pool is not initialized". The root
+    # session-scoped teardown closes the pool at worker-session end.
     get_settings.cache_clear()
 
 

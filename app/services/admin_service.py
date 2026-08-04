@@ -44,7 +44,7 @@ def get_dashboard_stats() -> dict:
             """
             SELECT COALESCE(SUM(total_cents), 0) as revenue_cents
             FROM orders
-            WHERE created_at >= datetime('now', '-7 days') AND payment_status = 'paid'
+            WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days' AND payment_status = 'paid'
             """
         ).fetchone()
 

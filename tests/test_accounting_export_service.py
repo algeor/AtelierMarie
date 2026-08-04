@@ -1,36 +1,43 @@
 """Accounting export package builder tests."""
 
 from pathlib import Path
-import sqlite3
 
-from openpyxl import load_workbook
+import psycopg
 import pytest
+from openpyxl import load_workbook
+
+from conftest import FAKE_SESSION_ID
 
 
-def _seed_reviewed_settings(db: sqlite3.Connection) -> tuple[int, int]:
-    db.execute(
-        """
-        INSERT INTO seller_legal_profile_versions (
-            effective_date, reviewed, legal_name, default_currency
-        ) VALUES ('2026-08-01', 1, 'Atelier Marie OOD', 'EUR')
-        """
+def _seed_reviewed_settings(db: psycopg.Connection) -> tuple[int, int]:
+    seller_id = int(
+        db.execute(
+            """
+            INSERT INTO seller_legal_profile_versions (
+                effective_date, reviewed, legal_name, default_currency
+            ) VALUES ('2026-08-01', 1, 'Atelier Marie OOD', 'EUR')
+            RETURNING id
+            """
+        ).fetchone()["id"]
     )
-    seller_id = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
-    db.execute(
-        """
-        INSERT INTO vat_fiscal_settings_versions (
-            effective_date, reviewed, vat_mode, fiscal_document_mode
-        ) VALUES ('2026-08-01', 1, 'registered', 'external_reference')
-        """
+    vat_id = int(
+        db.execute(
+            """
+            INSERT INTO vat_fiscal_settings_versions (
+                effective_date, reviewed, vat_mode, fiscal_document_mode
+            ) VALUES ('2026-08-01', 1, 'registered', 'external_reference')
+            RETURNING id
+            """
+        ).fetchone()["id"]
     )
-    vat_id = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
     db.commit()
     return seller_id, vat_id
 
 
-def _seed_paid_order(db: sqlite3.Connection, app, *, seller_id: int, vat_id: int) -> None:
+def _seed_paid_order(db: psycopg.Connection, app, *, seller_id: int, vat_id: int) -> None:
     db.execute(
-        "INSERT OR IGNORE INTO products (id, name_en, price_cents, stock) VALUES ('export-candle', 'Export Candle', 1000, 10)"
+        "INSERT INTO products (id, name_en, price_cents, stock) "
+        "VALUES ('export-candle', 'Export Candle', 1000, 10) ON CONFLICT (id) DO NOTHING"
     )
     db.execute(
         """
@@ -39,11 +46,11 @@ def _seed_paid_order(db: sqlite3.Connection, app, *, seller_id: int, vat_id: int
             payment_method, payment_status, seller_legal_profile_version_id,
             vat_fiscal_settings_version_id, accounting_classification_state,
             accounting_readiness_status, created_at, updated_at
-        ) VALUES ('export-order', ?, 'confirmed', 1000, 'export@example.com',
-                  'Export Buyer', 'card', 'paid', ?, ?, 'domestic_default', 'ready',
+        ) VALUES ('export-order', %s, 'confirmed', 1000, 'export@example.com',
+                  'Export Buyer', 'card', 'paid', %s, %s, 'domestic_default', 'ready',
                   '2026-08-10 10:00:00', '2026-08-10 10:00:00')
         """,
-        (app._test_session_id, seller_id, vat_id),
+        (FAKE_SESSION_ID, seller_id, vat_id),
     )
     db.execute(
         """
@@ -69,7 +76,7 @@ def _seed_paid_order(db: sqlite3.Connection, app, *, seller_id: int, vat_id: int
     db.commit()
 
 
-def _seed_inventory_export_data(db: sqlite3.Connection) -> None:
+def _seed_inventory_export_data(db: psycopg.Connection) -> None:
     db.execute(
         """
         UPDATE inventory_settings
@@ -191,7 +198,9 @@ async def _closed_period(admin_client) -> str:
 
 
 @pytest.mark.asyncio
-async def test_export_package_generation_manifest_download_accept_and_versioning(admin_client, db, app):
+async def test_export_package_generation_manifest_download_accept_and_versioning(
+    admin_client, db, app
+):
     seller_id, vat_id = _seed_reviewed_settings(db)
     _seed_paid_order(db, app, seller_id=seller_id, vat_id=vat_id)
     _seed_inventory_export_data(db)

@@ -1,5 +1,13 @@
 # Payment Integration Test Plan
 
+> **Note (post Postgres migration):** The run recorded below predates the
+> Postgres migration and used a temporary SQLite file via `DATABASE_PATH`. The
+> app is now Postgres-only. To re-run this verification, point the backend at a
+> disposable Postgres database with `DATABASE_URL` (e.g. a throwaway database
+> created from the test template or a local Compose Postgres) and run
+> `alembic upgrade head` against it first. Substitute the `DATABASE_PATH=...`
+> line accordingly.
+
 ## Local Stripe CLI Webhook Verification
 
 Date: 2026-07-31

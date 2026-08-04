@@ -45,7 +45,10 @@ class EcontFulfillmentValidationError(EcontFulfillmentError):
 def _settings_row(conn: sqlite3.Connection) -> sqlite3.Row:
     row = conn.execute("SELECT * FROM econt_settings WHERE id = %s", (_SETTINGS_ID,)).fetchone()
     if row is None:
-        conn.execute("INSERT OR IGNORE INTO econt_settings (id) VALUES (%s)", (_SETTINGS_ID,))
+        conn.execute(
+            "INSERT INTO econt_settings (id) VALUES (%s) ON CONFLICT (id) DO NOTHING",
+            (_SETTINGS_ID,),
+        )
         row = conn.execute("SELECT * FROM econt_settings WHERE id = %s", (_SETTINGS_ID,)).fetchone()
     return row
 

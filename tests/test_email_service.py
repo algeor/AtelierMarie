@@ -6,14 +6,14 @@ drain entry point.
 """
 
 import json
-import sqlite3
 import uuid
 from datetime import UTC, datetime
 
+import psycopg
 import pytest
 
 from app.config import Settings
-from app.database import get_db, init_db
+from app.database import get_db
 from app.email.providers import PermanentEmailError, TransientEmailError
 from app.services.email_service import (
     MAX_ATTEMPTS,
@@ -44,10 +44,9 @@ class RecordingProvider:
 
 
 @pytest.fixture()
-def db(tmp_path):
-    """Fresh initialized DB (sets the get_db module path)."""
-    init_db(str(tmp_path / "test.db"))
-    yield
+def db(service_db):
+    """Bind to the ROOT pooled Postgres connection for this worker."""
+    return service_db
 
 
 def _settings(**overrides) -> Settings:
@@ -67,7 +66,7 @@ def _settings(**overrides) -> Settings:
 
 
 def _make_order(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     locale: str = "en",
     email: str = "buyer@example.com",
@@ -89,7 +88,7 @@ def _make_order(
                tracking_url,
                delivery_method, delivery_courier, delivery_details,
                created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
         (
             order_id,
             "sess-1",
@@ -111,7 +110,7 @@ def _make_order(
     )
     conn.execute(
         "INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity) "
-        "VALUES (?, ?, ?, ?, ?)",
+        "VALUES (%s, %s, %s, %s, %s)",
         (order_id, "lavender-dream", "Lavender Dream", 2500, 2),
     )
     return order_id
@@ -148,7 +147,7 @@ class TestSendPath:
 
         with get_db() as conn:
             row = conn.execute(
-                "SELECT status FROM order_emails WHERE order_id = ? AND event = 'placed'",
+                "SELECT status FROM order_emails WHERE order_id = %s AND event = 'placed'",
                 (order_id,),
             ).fetchone()
         assert row["status"] == "sent"
@@ -182,7 +181,7 @@ class TestSendPath:
         assert provider.sent == []
         with get_db() as conn:
             row = conn.execute(
-                "SELECT status FROM order_emails WHERE order_id = ? AND event = 'admin_new_order'",
+                "SELECT status FROM order_emails WHERE order_id = %s AND event = 'admin_new_order'",
                 (order_id,),
             ).fetchone()
         assert row["status"] == "skipped_suppressed"
@@ -232,9 +231,9 @@ class TestIdempotency:
         assert provider.call_count == 1
         with get_db() as conn:
             sent = conn.execute(
-                "SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND status = 'sent'",
+                "SELECT COUNT(*) AS n FROM order_emails WHERE order_id = %s AND status = 'sent'",
                 (order_id,),
-            ).fetchone()[0]
+            ).fetchone()["n"]
         assert sent == 1
 
     def test_live_claim_leaves_outbox_row_retryable(self, db):
@@ -245,7 +244,8 @@ class TestIdempotency:
                 """
                 INSERT INTO order_email_send_claims (
                     order_id, event, status, lease_expires_at, updated_at
-                ) VALUES (?, 'placed', 'in_flight', datetime('now', '+5 minutes'), datetime('now'))
+                ) VALUES (%s, 'placed', 'in_flight',
+                    CURRENT_TIMESTAMP + INTERVAL '5 minutes', CURRENT_TIMESTAMP)
                 """,
                 (order_id,),
             )
@@ -257,7 +257,7 @@ class TestIdempotency:
         assert provider.call_count == 0
         with get_db() as conn:
             row = conn.execute(
-                "SELECT status, reason FROM order_emails WHERE order_id = ? AND event = 'placed'",
+                "SELECT status, reason FROM order_emails WHERE order_id = %s AND event = 'placed'",
                 (order_id,),
             ).fetchone()
         assert row["status"] == "queued"
@@ -286,7 +286,7 @@ class TestRetry:
 
         with get_db() as conn:
             row = conn.execute(
-                "SELECT status, attempts, next_attempt_at FROM order_emails WHERE order_id = ?",
+                "SELECT status, attempts, next_attempt_at FROM order_emails WHERE order_id = %s",
                 (order_id,),
             ).fetchone()
         assert row["status"] == "failed"
@@ -306,7 +306,7 @@ class TestRetry:
         # Clear the backoff gate so the row is eligible again.
         with get_db() as conn:
             conn.execute(
-                "UPDATE order_emails SET next_attempt_at = NULL WHERE order_id = ?", (order_id,)
+                "UPDATE order_emails SET next_attempt_at = NULL WHERE order_id = %s", (order_id,)
             )
 
         good = RecordingProvider()
@@ -315,9 +315,9 @@ class TestRetry:
         assert good.call_count == 1
         with get_db() as conn:
             sent = conn.execute(
-                "SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND status = 'sent'",
+                "SELECT COUNT(*) AS n FROM order_emails WHERE order_id = %s AND status = 'sent'",
                 (order_id,),
-            ).fetchone()[0]
+            ).fetchone()["n"]
         assert sent == 1
 
     def test_max_attempts_marks_failed_permanent(self, db):
@@ -331,13 +331,13 @@ class TestRetry:
             drain_email_outbox(provider=provider, settings=_settings())
             with get_db() as conn:
                 conn.execute(
-                    "UPDATE order_emails SET next_attempt_at = NULL WHERE order_id = ?",
+                    "UPDATE order_emails SET next_attempt_at = NULL WHERE order_id = %s",
                     (order_id,),
                 )
 
         with get_db() as conn:
             row = conn.execute(
-                "SELECT status, attempts FROM order_emails WHERE order_id = ?",
+                "SELECT status, attempts FROM order_emails WHERE order_id = %s",
                 (order_id,),
             ).fetchone()
         assert row["status"] == "failed_permanent"
@@ -353,7 +353,7 @@ class TestRetry:
 
         with get_db() as conn:
             row = conn.execute(
-                "SELECT status FROM order_emails WHERE order_id = ?", (order_id,)
+                "SELECT status FROM order_emails WHERE order_id = %s", (order_id,)
             ).fetchone()
         assert row["status"] == "failed_permanent"
 
@@ -363,7 +363,7 @@ class TestSuppression:
         with get_db() as conn:
             order_id = _make_order(conn, email="bad@example.com")
             conn.execute(
-                "INSERT INTO suppressed_emails (email, reason) VALUES (?, 'hard_bounce')",
+                "INSERT INTO suppressed_emails (email, reason) VALUES (%s, 'hard_bounce')",
                 ("bad@example.com",),
             )
             queue_order_email(conn, order_id, "placed", "bad@example.com")
@@ -373,6 +373,6 @@ class TestSuppression:
         assert provider.sent == []
         with get_db() as conn:
             row = conn.execute(
-                "SELECT status FROM order_emails WHERE order_id = ?", (order_id,)
+                "SELECT status FROM order_emails WHERE order_id = %s", (order_id,)
             ).fetchone()
         assert row["status"] == "skipped_suppressed"

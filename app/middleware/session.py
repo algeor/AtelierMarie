@@ -238,10 +238,9 @@ def rotate_session_in_transaction(
 def rotate_session(conn: "sqlite3.Connection", old_session_id: str, user_id: str) -> str:
     """Rotate session ID on login to prevent session fixation.
 
-    IMPORTANT: Caller must pass a connection with NO active transaction.
-    This function manages its own BEGIN IMMEDIATE / COMMIT / ROLLBACK.
-    Do NOT call this inside a ``with get_db() as conn:`` block — pass a raw
-    ``sqlite3.connect()`` connection instead (with row_factory and FK enabled).
+    Wraps the three mutations in ``conn.transaction()`` so they commit together
+    on clean exit and roll back (re-raising) on any error — e.g. an FK violation
+    when ``user_id`` does not exist leaves the old session and cart intact.
 
     Steps executed atomically:
     1. INSERT new session with user_id
@@ -250,12 +249,7 @@ def rotate_session(conn: "sqlite3.Connection", old_session_id: str, user_id: str
 
     Returns the new session ID.
     """
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    with conn.transaction():
         new_session_id = rotate_session_in_transaction(conn, old_session_id, user_id)
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
 
     return new_session_id
