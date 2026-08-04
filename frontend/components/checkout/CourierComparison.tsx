@@ -63,8 +63,8 @@ export function CourierComparison({
               className={cn(
                 "flex cursor-pointer flex-col gap-1 rounded-brand border px-4 py-3 transition-colors",
                 selected
-                  ? "border-primary bg-primary/10"
-                  : "border-border bg-surface hover:border-muted/40"
+                  ? "border-primary/60 bg-primary/10"
+                  : "border-border/35 bg-surface/60 hover:border-muted/40",
               )}
             >
               <div className="flex items-center justify-between gap-3">
@@ -87,7 +87,9 @@ export function CourierComparison({
               </div>
               {quote.estimated_delivery_days !== null && (
                 <p className="ml-7 text-xs text-muted">
-                  {t("deliveryEstimate", { days: quote.estimated_delivery_days })}
+                  {t("deliveryEstimate", {
+                    days: quote.estimated_delivery_days,
+                  })}
                 </p>
               )}
             </label>

@@ -27,19 +27,23 @@ export function ShippingPriceSummary({
   const tCart = useTranslations("cart");
 
   const qualifiesForFree = itemsTotalCents >= FREE_SHIPPING_THRESHOLD_CENTS;
-  const amountToFree = Math.max(0, FREE_SHIPPING_THRESHOLD_CENTS - itemsTotalCents);
+  const amountToFree = Math.max(
+    0,
+    FREE_SHIPPING_THRESHOLD_CENTS - itemsTotalCents,
+  );
   // Shipping is still pending until we have a concrete quote (or free-shipping
   // qualification). Only then does it contribute to the grand total — showing
   // "pending" while silently adding 0 would understate the total (review S5).
   const isPending = shippingCents === null && !qualifiesForFree;
   // A 0¢ result is "free" whether it came from the threshold or a live 0 quote.
   const isFreeShipping = qualifiesForFree || shippingCents === 0;
-  const totalCents = itemsTotalCents + (isFreeShipping ? 0 : shippingCents ?? 0);
+  const totalCents =
+    itemsTotalCents + (isFreeShipping ? 0 : (shippingCents ?? 0));
 
   return (
     <div className={cn("space-y-2 text-sm", className)}>
       {!qualifiesForFree && amountToFree > 0 && (
-        <p className="rounded-brand bg-accent-soft/35 px-3 py-2 text-xs text-muted">
+        <p className="editorial-note-panel rounded-brand px-3 py-2 text-xs text-muted">
           {t("amountToFreeShipping", { amount: formatPrice(amountToFree) })}
         </p>
       )}
@@ -60,7 +64,7 @@ export function ShippingPriceSummary({
         )}
       </div>
 
-      <div className="flex items-center justify-between border-t border-border/60 pt-2">
+      <div className="flex items-center justify-between border-t editorial-divider pt-2">
         <span className="font-heading text-lg text-text">{t("total")}</span>
         <span className="font-heading text-lg text-text">
           {isPending ? "—" : formatPrice(totalCents)}

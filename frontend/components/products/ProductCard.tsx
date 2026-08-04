@@ -15,11 +15,12 @@ export function ProductCard({ product }: ProductCardProps) {
         href={`/products/${product.id}`}
         className="block rounded-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"
       >
-        <div className="motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-brand motion-safe:group-hover:scale-[1.02] motion-safe:group-focus-within:scale-[1.02]">
+        <div className="motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-brand motion-safe:group-hover:-translate-y-1 motion-safe:group-focus-within:-translate-y-1">
           <ProductImage
             name={product.name}
             imageUrl={product.video?.poster_url ?? product.primary_image_url}
             sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 25vw"
+            className="editorial-image-settle shadow-sm shadow-border/10"
           />
           <div className="mt-3 space-y-1">
             <h3 className="font-heading text-base text-charcoal line-clamp-2 leading-snug">

@@ -15,7 +15,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations, useLocale } from "next-intl";
-import { getDeliveryCities, getDeliveryConfig, getDeliveryOffices, getDeliveryPlaces } from "@/lib/api";
+import {
+  getDeliveryCities,
+  getDeliveryConfig,
+  getDeliveryOffices,
+  getDeliveryPlaces,
+} from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type {
   CityPlace,
@@ -32,7 +37,8 @@ import type {
 import type { Locale } from "@/i18n/routing";
 
 const PHONE_REGEX = /^\+?[0-9]{8,15}$/;
-const DEFAULT_ECONT_LOCATOR_URL = "https://delivery.econt.com/customer_info.php";
+const DEFAULT_ECONT_LOCATOR_URL =
+  "https://delivery.econt.com/customer_info.php";
 const DEFAULT_ECONT_LOCATOR_ORIGINS = [
   "https://delivery.econt.com",
   "https://delivery-demo.econt.com",
@@ -86,12 +92,17 @@ function readAddress(value: unknown): string {
 
 function readOfficeType(value: unknown, name: string): OfficeType {
   const raw = `${asString(value) ?? ""} ${name}`.toLowerCase();
-  return raw.includes("apt") || raw.includes("aps") || raw.includes("locker") || raw.includes("автомат")
+  return raw.includes("apt") ||
+    raw.includes("aps") ||
+    raw.includes("locker") ||
+    raw.includes("автомат")
     ? "apt"
     : "office";
 }
 
-export function normalizeEcontLocatorOfficeMessage(data: unknown): OfficeResponse | null {
+export function normalizeEcontLocatorOfficeMessage(
+  data: unknown,
+): OfficeResponse | null {
   const message = parseLocatorMessage(data);
   if (!message) return null;
 
@@ -104,9 +115,18 @@ export function normalizeEcontLocatorOfficeMessage(data: unknown): OfficeRespons
     message;
 
   const rawId =
-    asString(nested.id) ?? asString(nested.officeId) ?? asString(nested.office_id) ?? null;
-  const code = asString(nested.code) ?? asString(nested.officeCode) ?? asString(nested.office_code);
-  const name = asString(nested.name) ?? asString(nested.officeName) ?? asString(nested.office_name);
+    asString(nested.id) ??
+    asString(nested.officeId) ??
+    asString(nested.office_id) ??
+    null;
+  const code =
+    asString(nested.code) ??
+    asString(nested.officeCode) ??
+    asString(nested.office_code);
+  const name =
+    asString(nested.name) ??
+    asString(nested.officeName) ??
+    asString(nested.office_name);
   if (!rawId || !code || !name) return null;
 
   const addressRecord = asRecord(nested.address);
@@ -114,14 +134,19 @@ export function normalizeEcontLocatorOfficeMessage(data: unknown): OfficeRespons
     id: rawId.startsWith("econt-") ? rawId : `econt-${rawId}`,
     code,
     name,
-    type: readOfficeType(nested.type ?? nested.officeType ?? nested.office_type, name),
+    type: readOfficeType(
+      nested.type ?? nested.officeType ?? nested.office_type,
+      name,
+    ),
     city:
       asString(nested.city) ??
       asString(nested.cityName) ??
       asString(nested.city_name) ??
       asString(addressRecord?.city) ??
       "",
-    address: readAddress(nested.address ?? nested.fullAddress ?? nested.full_address),
+    address: readAddress(
+      nested.address ?? nested.fullAddress ?? nested.full_address,
+    ),
     working_hours:
       asString(nested.workingHours) ??
       asString(nested.working_hours) ??
@@ -131,7 +156,9 @@ export function normalizeEcontLocatorOfficeMessage(data: unknown): OfficeRespons
 }
 
 function uniqueOrigins(values: string[]): string[] {
-  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+  return Array.from(
+    new Set(values.map((value) => value.trim()).filter(Boolean)),
+  );
 }
 
 type EcontOfficeLocatorConfig = {
@@ -163,9 +190,13 @@ function buildEcontOfficeLocatorConfig(
 }
 
 function getEcontOfficeLocatorEnvConfig(): EcontOfficeLocatorConfig {
-  const enabled = process.env.NEXT_PUBLIC_ECONT_OFFICE_LOCATOR_ENABLED === "true";
-  const url = process.env.NEXT_PUBLIC_ECONT_OFFICE_LOCATOR_URL?.trim() || DEFAULT_ECONT_LOCATOR_URL;
-  const origins = process.env.NEXT_PUBLIC_ECONT_OFFICE_LOCATOR_ORIGINS?.split(",") ?? [];
+  const enabled =
+    process.env.NEXT_PUBLIC_ECONT_OFFICE_LOCATOR_ENABLED === "true";
+  const url =
+    process.env.NEXT_PUBLIC_ECONT_OFFICE_LOCATOR_URL?.trim() ||
+    DEFAULT_ECONT_LOCATOR_URL;
+  const origins =
+    process.env.NEXT_PUBLIC_ECONT_OFFICE_LOCATOR_ORIGINS?.split(",") ?? [];
   return buildEcontOfficeLocatorConfig(enabled, url, origins);
 }
 
@@ -179,7 +210,11 @@ function getEcontOfficeLocatorApiConfig(
   );
 }
 
-function buildLocatorSrc(baseUrl: string, city: string, locale: string): string {
+function buildLocatorSrc(
+  baseUrl: string,
+  city: string,
+  locale: string,
+): string {
   try {
     const url = new URL(baseUrl);
     if (city.trim()) url.searchParams.set("city", city.trim());
@@ -236,7 +271,9 @@ function availableCouriersForMethod(
   settings: DeliverySettingsResponse | null | undefined,
   method: DeliveryMethod,
 ): Courier[] {
-  return ALL_COURIERS.filter((courier) => methodEnabled(settings, courier, method));
+  return ALL_COURIERS.filter((courier) =>
+    methodEnabled(settings, courier, method),
+  );
 }
 
 // ---------------- DeliveryMethodSelector ----------------
@@ -248,23 +285,32 @@ interface DeliveryMethodSelectorProps {
   error?: string;
 }
 
-function DeliveryMethodSelector({ value, onChange, methods, error }: DeliveryMethodSelectorProps) {
+function DeliveryMethodSelector({
+  value,
+  onChange,
+  methods,
+  error,
+}: DeliveryMethodSelectorProps) {
   const t = useTranslations("checkout.delivery.method");
 
   return (
     <fieldset className="mb-6">
-      <legend className="mb-2 block text-sm font-medium text-soft-brown">
+      <legend className="mb-2 block text-sm font-medium text-muted">
         {t("label")} <span className="text-error">*</span>
       </legend>
-      <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label={t("label")}>
+      <div
+        className="grid gap-3 sm:grid-cols-2"
+        role="radiogroup"
+        aria-label={t("label")}
+      >
         {methods.map((m) => (
           <label
             key={m}
             className={cn(
               "flex cursor-pointer items-center gap-3 rounded-brand border px-4 py-3 transition-colors",
               value === m
-                ? "border-muted-gold bg-muted-gold/10"
-                : "border-champagne-beige bg-warm-ivory hover:border-soft-brown/40"
+                ? "border-primary/60 bg-primary/10"
+                : "border-border/35 bg-surface/60 hover:border-muted/40",
             )}
           >
             <input
@@ -273,9 +319,9 @@ function DeliveryMethodSelector({ value, onChange, methods, error }: DeliveryMet
               value={m}
               checked={value === m}
               onChange={() => onChange(m)}
-              className="h-4 w-4 accent-muted-gold"
+              className="h-4 w-4 accent-primary"
             />
-            <span className="text-sm text-charcoal">{t(m)}</span>
+            <span className="text-sm text-text">{t(m)}</span>
           </label>
         ))}
       </div>
@@ -297,23 +343,32 @@ interface CourierPickerProps {
   error?: string;
 }
 
-function CourierPicker({ value, onChange, couriers, error }: CourierPickerProps) {
+function CourierPicker({
+  value,
+  onChange,
+  couriers,
+  error,
+}: CourierPickerProps) {
   const t = useTranslations("checkout.delivery.courier");
 
   return (
     <fieldset className="mb-6">
-      <legend className="mb-2 block text-sm font-medium text-soft-brown">
+      <legend className="mb-2 block text-sm font-medium text-muted">
         {t("label")} <span className="text-error">*</span>
       </legend>
-      <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label={t("label")}>
+      <div
+        className="grid gap-3 sm:grid-cols-2"
+        role="radiogroup"
+        aria-label={t("label")}
+      >
         {couriers.map((c) => (
           <label
             key={c}
             className={cn(
               "flex cursor-pointer flex-col items-start gap-1 rounded-brand border px-4 py-3 transition-colors",
               value === c
-                ? "border-muted-gold bg-muted-gold/10"
-                : "border-champagne-beige bg-warm-ivory hover:border-soft-brown/40"
+                ? "border-primary/60 bg-primary/10"
+                : "border-border/35 bg-surface/60 hover:border-muted/40",
             )}
           >
             <div className="flex items-center gap-3">
@@ -323,9 +378,9 @@ function CourierPicker({ value, onChange, couriers, error }: CourierPickerProps)
                 value={c}
                 checked={value === c}
                 onChange={() => onChange(c)}
-                className="h-4 w-4 accent-muted-gold"
+                className="h-4 w-4 accent-primary"
               />
-              <span className="font-medium text-charcoal">{t(c)}</span>
+              <span className="font-medium text-text">{t(c)}</span>
             </div>
           </label>
         ))}
@@ -356,7 +411,12 @@ interface EcontOfficeLocatorProps {
   onUnavailable: () => void;
 }
 
-function EcontOfficeLocator({ city, config, onSelect, onUnavailable }: EcontOfficeLocatorProps) {
+function EcontOfficeLocator({
+  city,
+  config,
+  onSelect,
+  onUnavailable,
+}: EcontOfficeLocatorProps) {
   const t = useTranslations("checkout.delivery.office");
   const locale = useLocale();
   const [loading, setLoading] = useState(true);
@@ -380,20 +440,20 @@ function EcontOfficeLocator({ city, config, onSelect, onUnavailable }: EcontOffi
   }, [allowedOriginsKey, config.allowedOrigins, config.enabled, onSelect]);
 
   return (
-    <div className="mb-5 rounded-brand border border-champagne-beige bg-warm-ivory">
-      <div className="flex items-center justify-between gap-3 border-b border-champagne-beige px-4 py-3">
-        <p className="text-sm font-medium text-charcoal">{t("locatorTitle")}</p>
+    <div className="mb-5 rounded-brand border border-border/35 bg-surface/60">
+      <div className="flex items-center justify-between gap-3 border-b border-border/35 px-4 py-3">
+        <p className="text-sm font-medium text-text">{t("locatorTitle")}</p>
         <button
           type="button"
           onClick={onUnavailable}
-          className="text-sm text-soft-brown underline hover:text-charcoal"
+          className="text-sm text-muted underline hover:text-text"
         >
           {t("locatorFallback")}
         </button>
       </div>
-      <div className="relative h-[420px] overflow-hidden rounded-b-brand bg-champagne-beige/20">
+      <div className="relative h-[420px] overflow-hidden rounded-b-brand bg-surface/35">
         {loading && (
-          <p className="absolute inset-x-0 top-4 text-center text-sm text-soft-brown">
+          <p className="absolute inset-x-0 top-4 text-center text-sm text-muted">
             {t("locatorLoading")}
           </p>
         )}
@@ -410,7 +470,13 @@ function EcontOfficeLocator({ city, config, onSelect, onUnavailable }: EcontOffi
   );
 }
 
-function OfficePicker({ courier, selectedOffice, onSelect, error, locale }: OfficePickerProps) {
+function OfficePicker({
+  courier,
+  selectedOffice,
+  onSelect,
+  error,
+  locale,
+}: OfficePickerProps) {
   const t = useTranslations("checkout.delivery.office");
   const tType = useTranslations("checkout.delivery.officeType");
 
@@ -423,17 +489,19 @@ function OfficePicker({ courier, selectedOffice, onSelect, error, locale }: Offi
   const [loading, setLoading] = useState(false);
   const [confirmedCity, setConfirmedCity] = useState<string | null>(null);
   const [locatorUnavailable, setLocatorUnavailable] = useState(false);
-  const [locatorConfig, setLocatorConfig] = useState<EcontOfficeLocatorConfig>(() =>
-    buildEcontOfficeLocatorConfig(false, DEFAULT_ECONT_LOCATOR_URL, []),
+  const [locatorConfig, setLocatorConfig] = useState<EcontOfficeLocatorConfig>(
+    () => buildEcontOfficeLocatorConfig(false, DEFAULT_ECONT_LOCATOR_URL, []),
   );
-  const showLocator = courier === "econt" && locatorConfig.enabled && !locatorUnavailable;
+  const showLocator =
+    courier === "econt" && locatorConfig.enabled && !locatorUnavailable;
 
   useEffect(() => {
     if (courier !== "econt") return;
     let cancelled = false;
     getDeliveryConfig()
       .then((config) => {
-        if (!cancelled) setLocatorConfig(getEcontOfficeLocatorApiConfig(config));
+        if (!cancelled)
+          setLocatorConfig(getEcontOfficeLocatorApiConfig(config));
       })
       .catch(() => {
         if (!cancelled) setLocatorConfig(getEcontOfficeLocatorEnvConfig());
@@ -505,7 +573,12 @@ function OfficePicker({ courier, selectedOffice, onSelect, error, locale }: Offi
 
   const filteredOffices = offices.filter((o) => {
     if (typeFilter !== "all" && o.type !== typeFilter) return false;
-    if (officeFilter && !`${o.name} ${o.address}`.toLowerCase().includes(officeFilter.toLowerCase())) {
+    if (
+      officeFilter &&
+      !`${o.name} ${o.address}`
+        .toLowerCase()
+        .includes(officeFilter.toLowerCase())
+    ) {
       return false;
     }
     return true;
@@ -514,22 +587,26 @@ function OfficePicker({ courier, selectedOffice, onSelect, error, locale }: Offi
   // If an office is selected, show the confirmation card
   if (selectedOffice) {
     return (
-      <div className="mb-6 rounded-brand border border-muted-gold bg-muted-gold/10 p-4">
+      <div className="editorial-note-panel mb-6 rounded-brand p-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-soft-brown">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted">
               {t("selected")}
             </p>
-            <p className="mt-1 font-medium text-charcoal">
+            <p className="mt-1 font-medium text-text">
               {selectedOffice.type === "apt" ? "🔐 " : "📦 "}
               {selectedOffice.name}
             </p>
-            <p className="mt-0.5 text-sm text-soft-brown">
+            <p className="mt-0.5 text-sm text-muted">
               {selectedOffice.address} · {selectedOffice.city}
             </p>
-            <p className="mt-0.5 text-xs text-soft-brown">{selectedOffice.working_hours}</p>
+            <p className="mt-0.5 text-xs text-muted">
+              {selectedOffice.working_hours}
+            </p>
             {selectedOffice.type === "apt" && (
-              <p className="mt-1 text-xs italic text-soft-brown">{tType("lockerHint")}</p>
+              <p className="mt-1 text-xs italic text-muted">
+                {tType("lockerHint")}
+              </p>
             )}
           </div>
           <button
@@ -537,7 +614,7 @@ function OfficePicker({ courier, selectedOffice, onSelect, error, locale }: Offi
             onClick={() => {
               onSelect({ ...selectedOffice, id: "" }); // Signals a clear; parent will handle
             }}
-            className="text-sm text-soft-brown underline hover:text-charcoal"
+            className="text-sm text-muted underline hover:text-text"
           >
             {t("change")}
           </button>
@@ -558,10 +635,10 @@ function OfficePicker({ courier, selectedOffice, onSelect, error, locale }: Offi
       ) : (
         <>
           {locatorUnavailable && (
-            <p className="mb-3 text-sm text-soft-brown">{t("locatorUnavailable")}</p>
+            <p className="mb-3 text-sm text-muted">{t("locatorUnavailable")}</p>
           )}
           {/* City input with typeahead */}
-          <label className="mb-1.5 block text-sm font-medium text-soft-brown">
+          <label className="mb-1.5 block text-sm font-medium text-muted">
             {t("cityLabel")} <span className="text-error">*</span>
           </label>
           <div className="relative mb-4">
@@ -576,16 +653,16 @@ function OfficePicker({ courier, selectedOffice, onSelect, error, locale }: Offi
               onFocus={() => setShowSuggestions(true)}
               onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
               placeholder={t("cityPlaceholder")}
-              className="w-full rounded-brand border border-champagne-beige bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown"
+              className="w-full rounded-brand border border-border/35 bg-surface/60 px-4 py-3 text-text focus:outline-none focus:ring-2 focus:ring-focus"
             />
             {showSuggestions && citySuggestions.length > 0 && (
-              <ul className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-brand border border-champagne-beige bg-warm-ivory shadow-lg">
+              <ul className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-brand border border-border/35 bg-surface/60 shadow-lg">
                 {citySuggestions.map((c) => (
                   <li key={c}>
                     <button
                       type="button"
                       onClick={() => confirmCity(c)}
-                      className="block w-full px-4 py-2 text-left text-sm text-charcoal hover:bg-champagne-beige/30"
+                      className="block w-full px-4 py-2 text-left text-sm text-text hover:bg-surface/55"
                     >
                       {c}
                     </button>
@@ -596,7 +673,7 @@ function OfficePicker({ courier, selectedOffice, onSelect, error, locale }: Offi
           </div>
 
           {!confirmedCity ? (
-            <p className="text-sm italic text-soft-brown">{t("selectCityFirst")}</p>
+            <p className="text-sm italic text-muted">{t("selectCityFirst")}</p>
           ) : (
             <>
               {/* Type filter */}
@@ -609,8 +686,8 @@ function OfficePicker({ courier, selectedOffice, onSelect, error, locale }: Offi
                     className={cn(
                       "rounded-pill px-3 py-1 text-xs font-medium transition-colors",
                       typeFilter === f
-                        ? "bg-muted-gold text-charcoal"
-                        : "bg-champagne-beige/50 text-soft-brown hover:bg-champagne-beige"
+                        ? "bg-primary/75 text-primary-foreground"
+                        : "bg-surface/60 text-muted hover:bg-surface",
                     )}
                     aria-pressed={typeFilter === f}
                   >
@@ -626,28 +703,28 @@ function OfficePicker({ courier, selectedOffice, onSelect, error, locale }: Offi
                 onChange={(e) => setOfficeFilter(e.target.value)}
                 placeholder={t("searchPlaceholder")}
                 aria-label={t("searchLabel")}
-                className="mb-3 w-full rounded-brand border border-champagne-beige bg-warm-ivory px-4 py-2 text-sm text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown"
+                className="mb-3 w-full rounded-brand border border-border/35 bg-surface/60 px-4 py-2 text-sm text-text focus:outline-none focus:ring-2 focus:ring-focus"
               />
 
               {/* Office list */}
               {loading ? (
-                <p className="text-sm text-soft-brown">{t("loading")}</p>
+                <p className="text-sm text-muted">{t("loading")}</p>
               ) : filteredOffices.length === 0 ? (
-                <p className="text-sm text-soft-brown">{t("empty")}</p>
+                <p className="text-sm text-muted">{t("empty")}</p>
               ) : (
-                <ul className="max-h-72 divide-y divide-champagne-beige overflow-auto rounded-brand border border-champagne-beige">
+                <ul className="max-h-72 divide-y divide-border/30 overflow-auto rounded-brand border border-border/35">
                   {filteredOffices.map((office) => (
                     <li key={office.id}>
                       <button
                         type="button"
                         onClick={() => onSelect(office)}
-                        className="block w-full px-4 py-3 text-left transition-colors hover:bg-champagne-beige/30"
+                        className="block w-full px-4 py-3 text-left transition-colors hover:bg-surface/55"
                       >
-                        <p className="text-sm font-medium text-charcoal">
+                        <p className="text-sm font-medium text-text">
                           {office.type === "apt" ? "🔐 " : "📦 "}
                           {office.name}
                         </p>
-                        <p className="mt-0.5 text-xs text-soft-brown">
+                        <p className="mt-0.5 text-xs text-muted">
                           {office.address} · {office.working_hours}
                         </p>
                       </button>
@@ -678,7 +755,12 @@ interface DoorAddressFormProps {
   locale: Locale;
 }
 
-function DoorAddressForm({ value, onChange, errors, locale }: DoorAddressFormProps) {
+function DoorAddressForm({
+  value,
+  onChange,
+  errors,
+  locale,
+}: DoorAddressFormProps) {
   const t = useTranslations("checkout.delivery.door");
   const courier = value.courier ?? "speedy";
 
@@ -694,7 +776,10 @@ function DoorAddressForm({ value, onChange, errors, locale }: DoorAddressFormPro
     const errorId = `${inputId}-error`;
     return (
       <div className="mb-4">
-        <label htmlFor={inputId} className="mb-1.5 block text-sm font-medium text-soft-brown">
+        <label
+          htmlFor={inputId}
+          className="mb-1.5 block text-sm font-medium text-muted"
+        >
           {t(`${key}Label`)}
           {required && <span className="text-error"> *</span>}
         </label>
@@ -717,9 +802,9 @@ function DoorAddressForm({ value, onChange, errors, locale }: DoorAddressFormPro
           aria-invalid={err ? "true" : undefined}
           aria-describedby={err ? errorId : undefined}
           className={cn(
-            "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
+            "w-full rounded-brand border bg-surface/60 px-4 py-3 text-text focus:outline-none focus:ring-2 focus:ring-focus",
             readOnly && "cursor-not-allowed opacity-70",
-            err ? "border-error" : "border-champagne-beige"
+            err ? "border-error" : "border-border/35",
           )}
         />
         {err && (
@@ -819,7 +904,10 @@ function DoorPlaceField({
   return (
     <>
       <div className="mb-4">
-        <label htmlFor="delivery-door-city" className="mb-1.5 block text-sm font-medium text-soft-brown">
+        <label
+          htmlFor="delivery-door-city"
+          className="mb-1.5 block text-sm font-medium text-muted"
+        >
           {t("cityLabel")} <span className="text-error">*</span>
         </label>
         <div className="relative">
@@ -840,20 +928,22 @@ function DoorPlaceField({
             aria-invalid={error ? "true" : undefined}
             aria-describedby={error ? "delivery-door-city-error" : undefined}
             className={cn(
-              "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
-              error ? "border-error" : "border-champagne-beige"
+              "w-full rounded-brand border bg-surface/60 px-4 py-3 text-text focus:outline-none focus:ring-2 focus:ring-focus",
+              error ? "border-error" : "border-border/35",
             )}
           />
           {showSuggestions && suggestions.length > 0 && (
-            <ul className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-brand border border-champagne-beige bg-warm-ivory shadow-lg">
+            <ul className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-brand border border-border/35 bg-surface/60 shadow-lg">
               {suggestions.map((place) => (
                 <li key={`${place.name}-${place.postal_code}`}>
                   <button
                     type="button"
                     onClick={() => confirmPlace(place)}
-                    className="block w-full px-4 py-2 text-left text-sm text-charcoal hover:bg-champagne-beige/30"
+                    className="block w-full px-4 py-2 text-left text-sm text-text hover:bg-surface/55"
                   >
-                    {place.region ? `${place.name} — ${place.region}` : place.name}
+                    {place.region
+                      ? `${place.name} — ${place.region}`
+                      : place.name}
                   </button>
                 </li>
               ))}
@@ -861,13 +951,20 @@ function DoorPlaceField({
           )}
         </div>
         {error && (
-          <p id="delivery-door-city-error" className="mt-1 text-sm text-error" role="alert">
+          <p
+            id="delivery-door-city-error"
+            className="mt-1 text-sm text-error"
+            role="alert"
+          >
             {error}
           </p>
         )}
       </div>
       <div className="mb-4">
-        <label htmlFor="delivery-door-postal-code" className="mb-1.5 block text-sm font-medium text-soft-brown">
+        <label
+          htmlFor="delivery-door-postal-code"
+          className="mb-1.5 block text-sm font-medium text-muted"
+        >
           {t("postalCodeLabel")} <span className="text-error">*</span>
         </label>
         <input
@@ -878,15 +975,21 @@ function DoorPlaceField({
           onChange={(e) => onPostalCodeChange(e.target.value)}
           placeholder={t("postalCodePlaceholder")}
           aria-invalid={postalCodeError ? "true" : undefined}
-          aria-describedby={postalCodeError ? "delivery-door-postal-code-error" : undefined}
+          aria-describedby={
+            postalCodeError ? "delivery-door-postal-code-error" : undefined
+          }
           className={cn(
-            "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
-            postalCodeError ? "border-error" : "border-champagne-beige",
-            postalCodeLocked && "cursor-not-allowed opacity-70 focus:ring-0"
+            "w-full rounded-brand border bg-surface/60 px-4 py-3 text-text focus:outline-none focus:ring-2 focus:ring-focus",
+            postalCodeError ? "border-error" : "border-border/35",
+            postalCodeLocked && "cursor-not-allowed opacity-70 focus:ring-0",
           )}
         />
         {postalCodeError && (
-          <p id="delivery-door-postal-code-error" className="mt-1 text-sm text-error" role="alert">
+          <p
+            id="delivery-door-postal-code-error"
+            className="mt-1 text-sm text-error"
+            role="alert"
+          >
             {postalCodeError}
           </p>
         )}
@@ -907,7 +1010,7 @@ function PhoneField({ value, onChange, error }: PhoneFieldProps) {
   const t = useTranslations("checkout.delivery");
   return (
     <div className="mb-6">
-      <label className="mb-1.5 block text-sm font-medium text-soft-brown">
+      <label className="mb-1.5 block text-sm font-medium text-muted">
         {t("phoneLabel")} <span className="text-error">*</span>
       </label>
       <input
@@ -917,8 +1020,8 @@ function PhoneField({ value, onChange, error }: PhoneFieldProps) {
         placeholder={t("phonePlaceholder")}
         aria-invalid={error ? "true" : undefined}
         className={cn(
-          "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
-          error ? "border-error" : "border-champagne-beige"
+          "w-full rounded-brand border bg-surface/60 px-4 py-3 text-text focus:outline-none focus:ring-2 focus:ring-focus",
+          error ? "border-error" : "border-border/35",
         )}
       />
       {error && (
@@ -944,7 +1047,10 @@ export function DeliverySection({
   const office = value.office ?? undefined;
   const door = value.door ?? undefined;
   const availableMethods = useMemo(
-    () => ALL_METHODS.filter((m) => availableCouriersForMethod(deliverySettings, m).length > 0),
+    () =>
+      ALL_METHODS.filter(
+        (m) => availableCouriersForMethod(deliverySettings, m).length > 0,
+      ),
     [deliverySettings],
   );
   const availableCouriers = useMemo(
@@ -957,14 +1063,17 @@ export function DeliverySection({
   // Remember the full OfficeResponse (city/address/working_hours) for the selected office.
   // The checkout payload only stores the id/name/type/courier/phone the backend needs,
   // so we cache display fields here to keep the "selected" card populated after selection.
-  const [selectedOfficeFull, setSelectedOfficeFull] = useState<OfficeResponse | null>(null);
+  const [selectedOfficeFull, setSelectedOfficeFull] =
+    useState<OfficeResponse | null>(null);
 
   useEffect(() => {
     if (!method) return;
     if (!availableMethods.includes(method)) {
       const nextMethod = availableMethods[0];
       setSelectedOfficeFull(null);
-      onChange(nextMethod ? { method: nextMethod, office: null, door: null } : {});
+      onChange(
+        nextMethod ? { method: nextMethod, office: null, door: null } : {},
+      );
       return;
     }
     if (currentCourier && !availableCouriers.includes(currentCourier)) {
@@ -975,7 +1084,10 @@ export function DeliverySection({
       } else if (method === "office") {
         onChange({
           ...value,
-          office: { courier: nextCourier, phone: office?.phone ?? "" } as DeliveryOffice,
+          office: {
+            courier: nextCourier,
+            phone: office?.phone ?? "",
+          } as DeliveryOffice,
           door: null,
         });
       } else {
@@ -1018,7 +1130,11 @@ export function DeliverySection({
       if (office?.courier !== c) setSelectedOfficeFull(null);
       onChange({ ...value, office: next as DeliveryOffice, door: null });
     } else if (method === "door") {
-      onChange({ ...value, door: { ...(door ?? {}), courier: c } as DeliveryDoor, office: null });
+      onChange({
+        ...value,
+        door: { ...(door ?? {}), courier: c } as DeliveryDoor,
+        office: null,
+      });
     }
   };
 
@@ -1058,7 +1174,10 @@ export function DeliverySection({
   const patchDoor = (patch: Partial<DeliveryDoor>) => {
     onChange({
       ...value,
-      door: { ...(door ?? { courier: currentCourier ?? "speedy" }), ...patch } as DeliveryDoor,
+      door: {
+        ...(door ?? { courier: currentCourier ?? "speedy" }),
+        ...patch,
+      } as DeliveryDoor,
     });
   };
 
@@ -1070,14 +1189,15 @@ export function DeliverySection({
     }
   };
 
-  const phone = method === "office" ? office?.phone ?? "" : door?.phone ?? "";
+  const phone =
+    method === "office" ? (office?.phone ?? "") : (door?.phone ?? "");
   // Prefer the cached full record if its id still matches the payload; otherwise
   // fall back to a payload-only reconstruction so a page reload doesn't lose
   // the selected state (address/city/hours will simply be blank until re-picked).
   const selectedOffice: OfficeResponse | null =
     method === "office" && office?.office_id
       ? selectedOfficeFull && selectedOfficeFull.id === office.office_id
-          ? selectedOfficeFull
+        ? selectedOfficeFull
         : {
             id: office.office_id,
             code: office.office_code ?? null,
@@ -1091,7 +1211,9 @@ export function DeliverySection({
 
   return (
     <section className="mb-8">
-      <h2 className="mb-4 font-heading text-xl text-text">{t("sectionTitle")}</h2>
+      <h2 className="mb-4 font-heading text-xl text-text">
+        {t("sectionTitle")}
+      </h2>
 
       {availableMethods.length === 0 ? (
         <p className="mb-6 rounded-brand border border-error/20 bg-error/10 px-4 py-3 text-sm text-error">
@@ -1126,7 +1248,12 @@ export function DeliverySection({
       )}
 
       {method === "door" && currentCourier && (
-        <DoorAddressForm value={door ?? { courier: currentCourier }} onChange={patchDoor} errors={errors} locale={locale} />
+        <DoorAddressForm
+          value={door ?? { courier: currentCourier }}
+          onChange={patchDoor}
+          errors={errors}
+          locale={locale}
+        />
       )}
 
       {method && currentCourier && (method !== "office" || selectedOffice) && (
@@ -1141,7 +1268,11 @@ export function DeliverySection({
 export function validateDelivery(
   delivery: Partial<DeliveryInfo>,
   t: (key: string) => string,
-): { valid: boolean; errors: DeliveryValidationErrors; normalized?: DeliveryInfo } {
+): {
+  valid: boolean;
+  errors: DeliveryValidationErrors;
+  normalized?: DeliveryInfo;
+} {
   const errors: DeliveryValidationErrors = {};
 
   if (!delivery.method) {
@@ -1183,7 +1314,8 @@ export function validateDelivery(
     errors.courier = t("checkout.delivery.courier.required");
   }
   if (!d?.city) errors.city = t("checkout.delivery.door.cityRequired");
-  if (!d?.postal_code) errors.postalCode = t("checkout.delivery.door.postalCodeRequired");
+  if (!d?.postal_code)
+    errors.postalCode = t("checkout.delivery.door.postalCodeRequired");
   if (!d?.street) errors.street = t("checkout.delivery.door.streetRequired");
   const normalizedDoorPhone = d?.phone ? normalizePhone(d.phone) : "";
   if (!d?.phone) {

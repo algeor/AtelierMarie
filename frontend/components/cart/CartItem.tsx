@@ -18,14 +18,16 @@ export function CartItem({ item, onUpdateQuantity, onRemove }: CartItemProps) {
   const t = useTranslations("cart");
   const { product, quantity, product_id } = item;
   const lineTotal = product.effective_price_cents * quantity;
-  const thumbnailUrl = resolveMediaUrl(product.primary_thumbnail_url ?? product.primary_image_url);
+  const thumbnailUrl = resolveMediaUrl(
+    product.primary_thumbnail_url ?? product.primary_image_url,
+  );
   const maxQuantity = Math.max(0, Math.min(10, product.stock));
   const canDecrement = quantity > 1;
   const canIncrement = quantity < maxQuantity;
 
   return (
-    <div className="flex gap-4 border-b border-border/60 py-4 last:border-b-0">
-      <div className="h-16 w-16 shrink-0 overflow-hidden rounded-brand border border-border/60 bg-surface">
+    <div className="flex gap-4 border-b editorial-divider py-4 last:border-b-0">
+      <div className="h-16 w-16 shrink-0 overflow-hidden rounded-brand border border-border/30 bg-surface/70">
         {thumbnailUrl ? (
           <Image
             src={thumbnailUrl}
@@ -50,16 +52,18 @@ export function CartItem({ item, onUpdateQuantity, onRemove }: CartItemProps) {
 
         <div className="mt-2 flex items-center gap-2">
           <button
-            onClick={() => canDecrement && onUpdateQuantity(product_id, quantity - 1)}
+            onClick={() =>
+              canDecrement && onUpdateQuantity(product_id, quantity - 1)
+            }
             disabled={!canDecrement}
             aria-label={t("decreaseQuantity")}
             className={cn(
-              "inline-flex h-7 w-7 items-center justify-center rounded-brand border border-border/70 text-sm font-medium",
+              "inline-flex h-7 w-7 items-center justify-center rounded-brand border border-border/40 text-sm font-medium",
               "transition-colors duration-fast",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page",
               canDecrement
                 ? "text-text hover:bg-surface"
-                : "cursor-not-allowed text-muted/40"
+                : "cursor-not-allowed text-muted/40",
             )}
           >
             −
@@ -72,17 +76,23 @@ export function CartItem({ item, onUpdateQuantity, onRemove }: CartItemProps) {
             {quantity}
           </span>
           <button
-            onClick={() => canIncrement && onUpdateQuantity(product_id, quantity + 1)}
+            onClick={() =>
+              canIncrement && onUpdateQuantity(product_id, quantity + 1)
+            }
             disabled={!canIncrement}
             aria-label={t("increaseQuantity")}
-            title={!canIncrement && maxQuantity > 0 ? t("stockLimit", { count: maxQuantity }) : undefined}
+            title={
+              !canIncrement && maxQuantity > 0
+                ? t("stockLimit", { count: maxQuantity })
+                : undefined
+            }
             className={cn(
-              "inline-flex h-7 w-7 items-center justify-center rounded-brand border border-border/70 text-sm font-medium",
+              "inline-flex h-7 w-7 items-center justify-center rounded-brand border border-border/40 text-sm font-medium",
               "transition-colors duration-fast",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page",
               canIncrement
                 ? "text-text hover:bg-surface"
-                : "cursor-not-allowed text-muted/40"
+                : "cursor-not-allowed text-muted/40",
             )}
           >
             +

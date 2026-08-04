@@ -11,7 +11,10 @@ import "yet-another-react-lightbox/styles.css";
 import "yet-another-react-lightbox/plugins/thumbnails.css";
 import { resolveMediaUrl } from "@/lib/media";
 import { cn } from "@/lib/utils";
-import type { ProductImage as ProductImageModel, ProductVideo } from "@/lib/types";
+import type {
+  ProductImage as ProductImageModel,
+  ProductVideo,
+} from "@/lib/types";
 import { ProductImage } from "./ProductImage";
 
 interface ProductGalleryProps {
@@ -25,7 +28,12 @@ type GalleryItem =
   | { kind: "image"; id: string; image: ProductImageModel }
   | { kind: "video"; id: string; video: ProductVideo };
 
-export function ProductGallery({ name, images, video, primaryImageUrl }: ProductGalleryProps) {
+export function ProductGallery({
+  name,
+  images,
+  video,
+  primaryImageUrl,
+}: ProductGalleryProps) {
   const t = useTranslations("products");
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
@@ -44,7 +52,7 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
 
   const orderedImages = useMemo(
     () => [...images].sort((a, b) => a.sort_order - b.sort_order),
-    [images]
+    [images],
   );
 
   const galleryItems = useMemo<GalleryItem[]>(() => {
@@ -54,15 +62,24 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
       image,
     }));
     if (video?.status === "ready" && video.video_url) {
-      const insertionIndex = Math.min(Math.max(video.sort_order, 0), items.length);
-      items.splice(insertionIndex, 0, { kind: "video", id: `video-${video.id}`, video });
+      const insertionIndex = Math.min(
+        Math.max(video.sort_order, 0),
+        items.length,
+      );
+      items.splice(insertionIndex, 0, {
+        kind: "video",
+        id: `video-${video.id}`,
+        video,
+      });
     }
     return items;
   }, [orderedImages, video]);
 
   const initialItemId =
-    galleryItems.find((item) => item.kind === "image" && item.image.image_url === primaryImageUrl)
-      ?.id ??
+    galleryItems.find(
+      (item) =>
+        item.kind === "image" && item.image.image_url === primaryImageUrl,
+    )?.id ??
     galleryItems[0]?.id ??
     null;
 
@@ -71,15 +88,20 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
       setSelectedItemId(initialItemId);
       return;
     }
-    if (selectedItemId && !galleryItems.some((item) => item.id === selectedItemId)) {
+    if (
+      selectedItemId &&
+      !galleryItems.some((item) => item.id === selectedItemId)
+    ) {
       setSelectedItemId(initialItemId);
     }
   }, [galleryItems, initialItemId, selectedItemId]);
 
   const selectedItem =
     galleryItems.find((item) => item.id === selectedItemId) ?? galleryItems[0];
-  const selectedImage = selectedItem?.kind === "image" ? selectedItem.image : null;
-  const selectedVideo = selectedItem?.kind === "video" ? selectedItem.video : null;
+  const selectedImage =
+    selectedItem?.kind === "image" ? selectedItem.image : null;
+  const selectedVideo =
+    selectedItem?.kind === "video" ? selectedItem.video : null;
 
   // One ordered slide array covering every image and the video, mirroring the
   // gallery order. Image slides use the high-res zoom derivative (falling back
@@ -93,21 +115,25 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
             type: "video",
             poster: resolveMediaUrl(item.video.poster_url) ?? undefined,
             sources: [
-              { src: resolveMediaUrl(item.video.video_url) ?? "", type: "video/mp4" },
+              {
+                src: resolveMediaUrl(item.video.video_url) ?? "",
+                type: "video/mp4",
+              },
             ],
           };
         }
         return {
-          src: resolveMediaUrl(item.image.zoom_url ?? item.image.image_url) ?? "",
+          src:
+            resolveMediaUrl(item.image.zoom_url ?? item.image.image_url) ?? "",
           alt: name,
         };
       }),
-    [galleryItems, name]
+    [galleryItems, name],
   );
 
   const selectedIndex = Math.max(
     0,
-    galleryItems.findIndex((item) => item.id === selectedItem?.id)
+    galleryItems.findIndex((item) => item.id === selectedItem?.id),
   );
 
   if (!selectedItem) {
@@ -122,13 +148,13 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {selectedVideo ? (
         <button
           type="button"
           aria-label={name}
           onClick={() => setLightboxIndex(selectedIndex)}
-          className="group relative block w-full overflow-hidden rounded-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
+          className="editorial-image-settle group relative block w-full overflow-hidden rounded-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
         >
           {prefersReducedMotion ? (
             <ProductImage
@@ -157,13 +183,14 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
           type="button"
           aria-label={t("zoomImage")}
           onClick={() => setLightboxIndex(selectedIndex)}
-          className="group relative block w-full rounded-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
+          className="editorial-image-settle group relative block w-full rounded-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
         >
           <ProductImage
             name={name}
             imageUrl={selectedImage.image_url}
             sizes="(max-width: 1024px) 100vw, 50vw"
             priority
+            className="shadow-sm shadow-border/10"
           />
           <span className="absolute bottom-3 right-3 rounded-brand bg-text/85 px-3 py-1.5 text-sm font-medium text-page opacity-95 transition group-hover:bg-muted">
             {t("zoom")}
@@ -175,7 +202,9 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
         <div className="grid grid-cols-6 gap-2">
           {galleryItems.map((item) => {
             const thumbnailUrl = resolveMediaUrl(
-              item.kind === "video" ? item.video.poster_url : item.image.thumbnail_url
+              item.kind === "video"
+                ? item.video.poster_url
+                : item.image.thumbnail_url,
             );
             const isSelected = item.id === selectedItem.id;
             return (
@@ -186,12 +215,18 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
                 aria-pressed={isSelected}
                 onClick={() => setSelectedItemId(item.id)}
                 className={cn(
-                  "relative aspect-[4/5] overflow-hidden rounded-brand border bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page",
-                  isSelected ? "border-text" : "border-border/70"
+                  "relative aspect-[4/5] overflow-hidden rounded-brand border bg-surface/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page",
+                  isSelected ? "border-text/70" : "border-border/30",
                 )}
               >
                 {thumbnailUrl ? (
-                  <Image src={thumbnailUrl} alt="" fill sizes="96px" className="object-cover" />
+                  <Image
+                    src={thumbnailUrl}
+                    alt=""
+                    fill
+                    sizes="96px"
+                    className="object-cover"
+                  />
                 ) : (
                   <span className="sr-only">{name}</span>
                 )}

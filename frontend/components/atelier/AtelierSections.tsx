@@ -11,12 +11,28 @@ const FALLBACK_IMAGES: Record<string, string> = {
 };
 
 function imageFor(section: AboutSection, itemImage?: string | null) {
-  return itemImage || section.image || FALLBACK_IMAGES[section.slug] || FALLBACK_IMAGES.hero;
+  return (
+    itemImage ||
+    section.image ||
+    FALLBACK_IMAGES[section.slug] ||
+    FALLBACK_IMAGES.hero
+  );
 }
 
-function SectionShell({ section, children, className = "" }: { section: AboutSection; children: React.ReactNode; className?: string }) {
+function SectionShell({
+  section,
+  children,
+  className = "",
+}: {
+  section: AboutSection;
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
-    <section id={section.slug} className={`scroll-mt-24 py-16 sm:py-20 lg:py-28 ${className}`}>
+    <section
+      id={section.slug}
+      className={`scroll-mt-24 py-16 sm:py-20 lg:py-28 ${className}`}
+    >
       {children}
     </section>
   );
@@ -48,7 +64,10 @@ function normalizeInternalHref(href: string) {
 
 export function Hero({ section }: { section: AboutSection }) {
   return (
-    <SectionShell section={section} className="relative overflow-hidden bg-text py-0 text-page">
+    <SectionShell
+      section={section}
+      className="relative overflow-hidden bg-text py-0 text-page"
+    >
       <div className="relative min-h-[82vh]">
         <img
           src={imageFor(section)}
@@ -67,7 +86,9 @@ export function Hero({ section }: { section: AboutSection }) {
                   {section.subheading}
                 </p>
               )}
-              <div className="mt-8"><Cta section={section} /></div>
+              <div className="mt-8">
+                <Cta section={section} />
+              </div>
             </div>
           </div>
         </div>
@@ -85,13 +106,21 @@ export function TextImage({ section }: { section: AboutSection }) {
   return (
     <SectionShell section={section} className="bg-page">
       <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 sm:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:gap-16 lg:px-8">
-        <div className="overflow-hidden rounded-brand bg-surface shadow-sm ring-1 ring-border/60">
-          <img src={imageFor(section)} alt="" className="aspect-[4/5] w-full object-cover" />
+        <div className="editorial-image-settle overflow-hidden rounded-brand bg-surface shadow-sm shadow-border/10">
+          <img
+            src={imageFor(section)}
+            alt=""
+            className="aspect-[4/5] w-full object-cover"
+          />
         </div>
         <div>
           <Eyebrow>{null}</Eyebrow>
-          <h2 className="font-heading text-4xl text-text sm:text-5xl">{section.heading}</h2>
-          {section.subheading && <p className="mt-4 text-lg text-accent">{section.subheading}</p>}
+          <h2 className="font-heading text-4xl text-text sm:text-5xl">
+            {section.heading}
+          </h2>
+          {section.subheading && (
+            <p className="mt-4 text-lg text-accent">{section.subheading}</p>
+          )}
           <BodyRenderer body={section.body} className="mt-8" />
         </div>
       </div>
@@ -104,10 +133,16 @@ export function TextBand({ section }: { section: AboutSection }) {
     <SectionShell section={section} className="bg-surface">
       <div className="mx-auto max-w-4xl px-4 text-center sm:px-6 lg:px-8">
         <div className="mx-auto mb-5 h-0.5 w-14 bg-accent" aria-hidden="true" />
-        <h2 className="font-heading text-4xl text-text sm:text-5xl">{section.heading}</h2>
-        {section.subheading && <p className="mt-4 text-lg text-accent">{section.subheading}</p>}
+        <h2 className="font-heading text-4xl text-text sm:text-5xl">
+          {section.heading}
+        </h2>
+        {section.subheading && (
+          <p className="mt-4 text-lg text-accent">{section.subheading}</p>
+        )}
         <BodyRenderer body={section.body} className="mt-8" />
-        <div className="mt-9"><Cta section={section} /></div>
+        <div className="mt-9">
+          <Cta section={section} />
+        </div>
       </div>
     </SectionShell>
   );
@@ -119,14 +154,23 @@ export function CardGrid({ section }: { section: AboutSection }) {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="max-w-3xl">
           <Eyebrow>{null}</Eyebrow>
-          <h2 className="font-heading text-4xl text-text sm:text-5xl">{section.heading}</h2>
-          {section.subheading && <p className="mt-4 text-lg text-accent">{section.subheading}</p>}
+          <h2 className="font-heading text-4xl text-text sm:text-5xl">
+            {section.heading}
+          </h2>
+          {section.subheading && (
+            <p className="mt-4 text-lg text-accent">{section.subheading}</p>
+          )}
         </div>
-        <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-10 grid gap-7 sm:grid-cols-2 lg:grid-cols-4">
           {section.items.map((item) => (
-            <article key={item.id} className="rounded-brand bg-surface p-6 shadow-sm ring-1 ring-border/60">
+            <article
+              key={item.id}
+              className="border-l border-accent/35 bg-surface-elevated/30 px-5 py-2"
+            >
               <h3 className="font-heading text-2xl text-text">{item.title}</h3>
-              {item.text && <p className="mt-4 text-sm leading-7 text-muted">{item.text}</p>}
+              {item.text && (
+                <p className="mt-4 text-sm leading-7 text-muted">{item.text}</p>
+              )}
             </article>
           ))}
         </div>
@@ -142,19 +186,32 @@ export function ProcessTimeline({ section }: { section: AboutSection }) {
         <div className="grid gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:gap-16">
           <div>
             <Eyebrow>{null}</Eyebrow>
-            <h2 className="font-heading text-4xl text-text sm:text-5xl">{section.heading}</h2>
-            {section.subheading && <p className="mt-4 text-lg text-accent">{section.subheading}</p>}
+            <h2 className="font-heading text-4xl text-text sm:text-5xl">
+              {section.heading}
+            </h2>
+            {section.subheading && (
+              <p className="mt-4 text-lg text-accent">{section.subheading}</p>
+            )}
             <BodyRenderer body={section.body} className="mt-8" />
           </div>
-          <div className="space-y-4">
+          <div className="space-y-5 border-l editorial-divider pl-5 sm:pl-7">
             {section.items.map((item, index) => (
-              <article key={item.id} className="grid grid-cols-[3rem_1fr] gap-4 rounded-brand bg-page p-5 shadow-sm ring-1 ring-border/60">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-accent text-sm font-semibold text-accent-foreground">
+              <article
+                key={item.id}
+                className="grid grid-cols-[3rem_1fr] gap-4 bg-page/35 py-2"
+              >
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-accent text-sm font-semibold text-accent-foreground shadow-sm shadow-accent/15">
                   {String(index + 1).padStart(2, "0")}
                 </div>
                 <div>
-                  <h3 className="font-heading text-2xl text-text">{item.title}</h3>
-                  {item.text && <p className="mt-2 text-sm leading-7 text-muted">{item.text}</p>}
+                  <h3 className="font-heading text-2xl text-text">
+                    {item.title}
+                  </h3>
+                  {item.text && (
+                    <p className="mt-2 text-sm leading-7 text-muted">
+                      {item.text}
+                    </p>
+                  )}
                 </div>
               </article>
             ))}
@@ -171,21 +228,41 @@ export function CollectionsGrid({ section }: { section: AboutSection }) {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="max-w-3xl">
           <Eyebrow>{null}</Eyebrow>
-          <h2 className="font-heading text-4xl text-text sm:text-5xl">{section.heading}</h2>
-          {section.subheading && <p className="mt-4 text-lg text-accent">{section.subheading}</p>}
+          <h2 className="font-heading text-4xl text-text sm:text-5xl">
+            {section.heading}
+          </h2>
+          {section.subheading && (
+            <p className="mt-4 text-lg text-accent">{section.subheading}</p>
+          )}
         </div>
         <div className="mt-10 grid gap-6 md:grid-cols-3">
           {section.items.map((item) => {
             const content = (
-              <article className="group overflow-hidden rounded-brand bg-surface shadow-sm ring-1 ring-border/60">
-                <img src={imageFor(section, item.image)} alt="" className="aspect-[4/3] w-full object-cover transition-transform duration-300 group-hover:scale-105 motion-reduce:transition-none motion-reduce:group-hover:scale-100" />
+              <article className="group overflow-hidden rounded-brand bg-surface/45 shadow-sm shadow-border/10">
+                <img
+                  src={imageFor(section, item.image)}
+                  alt=""
+                  className="aspect-[4/3] w-full object-cover transition-transform duration-300 group-hover:scale-105 motion-reduce:transition-none motion-reduce:group-hover:scale-100"
+                />
                 <div className="p-6">
-                  <h3 className="font-heading text-2xl text-text">{item.title}</h3>
-                  {item.text && <p className="mt-3 text-sm leading-7 text-muted">{item.text}</p>}
+                  <h3 className="font-heading text-2xl text-text">
+                    {item.title}
+                  </h3>
+                  {item.text && (
+                    <p className="mt-3 text-sm leading-7 text-muted">
+                      {item.text}
+                    </p>
+                  )}
                 </div>
               </article>
             );
-            return item.link ? <Link key={item.id} href={item.link}>{content}</Link> : <div key={item.id}>{content}</div>;
+            return item.link ? (
+              <Link key={item.id} href={item.link}>
+                {content}
+              </Link>
+            ) : (
+              <div key={item.id}>{content}</div>
+            );
           })}
         </div>
       </div>
@@ -197,9 +274,13 @@ export function CtaBand({ section }: { section: AboutSection }) {
   return (
     <SectionShell section={section} className="bg-text text-page">
       <div className="mx-auto max-w-4xl px-4 text-center sm:px-6 lg:px-8">
-        <h2 className="font-heading text-4xl text-page sm:text-5xl">{section.heading}</h2>
+        <h2 className="font-heading text-4xl text-page sm:text-5xl">
+          {section.heading}
+        </h2>
         <BodyRenderer body={section.body} className="mt-6 text-surface" />
-        <div className="mt-9"><Cta section={section} /></div>
+        <div className="mt-9">
+          <Cta section={section} />
+        </div>
       </div>
     </SectionShell>
   );

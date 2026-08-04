@@ -84,7 +84,7 @@ export default function OrderConfirmationPage() {
   if (isLoading) {
     return (
       <main className="bg-page px-4 py-12 text-text sm:px-6">
-        <div className="mx-auto max-w-2xl rounded-brand border border-border/60 bg-surface-elevated/75 p-8">
+        <div className="editorial-soft-panel mx-auto max-w-2xl rounded-brand p-8">
           <Skeleton className="mb-4 h-10 w-64" />
           <Skeleton className="mb-8 h-6 w-40" />
           <div className="space-y-4">
@@ -102,13 +102,11 @@ export default function OrderConfirmationPage() {
   if (error || !order) {
     return (
       <main className="bg-page px-4 py-12 text-text sm:px-6">
-        <div className="mx-auto max-w-2xl rounded-brand border border-border/60 bg-surface-elevated/75 p-8 text-center">
+        <div className="editorial-soft-panel mx-auto max-w-2xl rounded-brand p-8 text-center">
           <h1 className="mb-4 font-heading text-2xl text-text">
             {t("notFound")}
           </h1>
-          <p className="mb-6 text-muted">
-            {error ?? t("notFoundDescription")}
-          </p>
+          <p className="mb-6 text-muted">{error ?? t("notFoundDescription")}</p>
           <Link href="/products">
             <Button variant="primary" size="lg">
               {tCart("continueShopping")}
@@ -128,7 +126,8 @@ export default function OrderConfirmationPage() {
           : tPayment("returnPending")
       : order.payment_method === "cod"
         ? tPayment("codConfirmation")
-        : order.payment_method === "bank_transfer" && order.payment_status === "pending"
+        : order.payment_method === "bank_transfer" &&
+            order.payment_status === "pending"
           ? tPayment("bankInstructions")
           : null;
   const paymentMessageClass =
@@ -146,7 +145,7 @@ export default function OrderConfirmationPage() {
   // Success state
   return (
     <main className="bg-page px-4 py-12 text-text sm:px-6">
-      <div className="mx-auto max-w-2xl rounded-brand border border-border/60 bg-surface-elevated/75 p-8">
+      <div className="editorial-soft-panel mx-auto max-w-2xl rounded-brand p-8">
         <h1 className="mb-2 font-heading text-3xl text-text">
           {t("orderConfirmationMessage")}
         </h1>
@@ -166,16 +165,14 @@ export default function OrderConfirmationPage() {
           <h2 className="mb-3 font-heading text-lg text-text">
             {t("itemsOrdered")}
           </h2>
-          <ul className="divide-y divide-border/60 rounded-brand border border-border/60">
+          <ul className="divide-y divide-border/30 rounded-brand border border-border/30 bg-page/35">
             {order.items.map((item) => (
               <li
                 key={item.product_id}
                 className="flex items-center justify-between px-4 py-3"
               >
                 <div>
-                  <p className="font-medium text-text">
-                    {item.product_name}
-                  </p>
+                  <p className="font-medium text-text">{item.product_name}</p>
                   <p className="text-sm text-muted">
                     {t("quantityShort", { quantity: item.quantity })} &times;{" "}
                     {formatPrice(item.price_cents)}
@@ -190,7 +187,7 @@ export default function OrderConfirmationPage() {
         </div>
 
         {/* Order total */}
-        <div className="mb-6 space-y-2 border-t border-border/60 pt-4">
+        <div className="mb-6 space-y-2 border-t editorial-divider pt-4">
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted">{tCart("subtotal")}</span>
             <span className="text-text">
@@ -205,7 +202,7 @@ export default function OrderConfirmationPage() {
                 : formatPrice(order.shipping_cents)}
             </span>
           </div>
-          <div className="flex items-center justify-between border-t border-border/60 pt-2">
+          <div className="flex items-center justify-between border-t editorial-divider pt-2">
             <span className="font-heading text-xl text-text">{t("total")}</span>
             <span className="font-heading text-xl text-text">
               {formatPrice(order.total_cents)}
@@ -214,33 +211,46 @@ export default function OrderConfirmationPage() {
         </div>
 
         {showBankInstructions && (
-          <section className="mb-6 rounded-brand border border-border/60 bg-surface p-4 text-sm" aria-labelledby="bank-transfer-heading">
+          <section
+            className="editorial-note-panel mb-6 rounded-brand p-4 text-sm"
+            aria-labelledby="bank-transfer-heading"
+          >
             <h2 id="bank-transfer-heading" className="font-medium text-text">
               {tPayment("bankInstructions")}
             </h2>
             <dl className="mt-3 space-y-1.5">
               {bankDetails.name && (
                 <div className="flex flex-wrap gap-2">
-                  <dt className="font-medium text-text">{tPayment("bankName")}:</dt>
+                  <dt className="font-medium text-text">
+                    {tPayment("bankName")}:
+                  </dt>
                   <dd className="text-muted">{bankDetails.name}</dd>
                 </div>
               )}
               <div className="flex flex-wrap gap-2">
-                <dt className="font-medium text-text">{tPayment("bankIban")}:</dt>
+                <dt className="font-medium text-text">
+                  {tPayment("bankIban")}:
+                </dt>
                 <dd className="font-mono text-muted">{bankDetails.iban}</dd>
               </div>
               {bankDetails.bic && (
                 <div className="flex flex-wrap gap-2">
-                  <dt className="font-medium text-text">{tPayment("bankBic")}:</dt>
+                  <dt className="font-medium text-text">
+                    {tPayment("bankBic")}:
+                  </dt>
                   <dd className="text-muted">{bankDetails.bic}</dd>
                 </div>
               )}
               <div className="flex flex-wrap gap-2">
-                <dt className="font-medium text-text">{tPayment("bankAmount")}:</dt>
+                <dt className="font-medium text-text">
+                  {tPayment("bankAmount")}:
+                </dt>
                 <dd className="text-muted">{formatPrice(order.total_cents)}</dd>
               </div>
               <div className="flex flex-wrap gap-2">
-                <dt className="font-medium text-text">{tPayment("bankReference")}:</dt>
+                <dt className="font-medium text-text">
+                  {tPayment("bankReference")}:
+                </dt>
                 <dd className="font-mono text-muted">{order.id.slice(0, 8)}</dd>
               </div>
             </dl>
@@ -249,12 +259,18 @@ export default function OrderConfirmationPage() {
         )}
 
         <p className="mb-6 text-sm leading-6 text-muted">
-          {t("policyNote")} {" "}
-          <Link href={policyPath("terms")} className="rounded-brand font-medium underline underline-offset-4 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+          {t("policyNote")}{" "}
+          <Link
+            href={policyPath("terms")}
+            className="rounded-brand font-medium underline underline-offset-4 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+          >
             {tLegal("termsConditions")}
           </Link>{" "}
           <span aria-hidden="true">/</span>{" "}
-          <Link href={policyPath("privacy")} className="rounded-brand font-medium underline underline-offset-4 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+          <Link
+            href={policyPath("privacy")}
+            className="rounded-brand font-medium underline underline-offset-4 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+          >
             {tLegal("privacyPolicy")}
           </Link>
         </p>

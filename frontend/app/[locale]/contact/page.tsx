@@ -9,7 +9,9 @@ interface ContactPageProps {
   params: Promise<{ locale: Locale }>;
 }
 
-export async function generateMetadata({ params }: ContactPageProps): Promise<Metadata> {
+export async function generateMetadata({
+  params,
+}: ContactPageProps): Promise<Metadata> {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "contact" });
   return {
@@ -23,19 +25,23 @@ export default async function ContactPage({ params }: ContactPageProps) {
   const t = await getTranslations({ locale, namespace: "contact" });
 
   return (
-    <main className="bg-page px-4 py-10 text-text sm:px-6 lg:px-8 lg:py-16">
-      <div className="mx-auto grid max-w-5xl gap-10 lg:grid-cols-[0.85fr_1.15fr] lg:items-start">
+    <main className="editorial-band px-4 py-10 text-text sm:px-6 lg:px-8 lg:py-16">
+      <div className="mx-auto grid max-w-5xl gap-12 lg:grid-cols-[0.85fr_1.15fr] lg:items-start">
         <section className="space-y-7">
           <div>
             <BrandMark className="mb-4 h-14 w-20 text-accent" />
             <p className="mb-3 text-sm font-medium uppercase tracking-[0.08em] text-muted/70">
               {t("eyebrow")}
             </p>
-            <h1 className="font-heading text-4xl leading-tight text-text sm:text-5xl">{t("title")}</h1>
-            <p className="mt-4 max-w-prose text-base leading-7 text-muted">{t("intro")}</p>
+            <h1 className="font-heading text-4xl leading-tight text-text sm:text-5xl">
+              {t("title")}
+            </h1>
+            <p className="mt-4 max-w-prose text-base leading-7 text-muted">
+              {t("intro")}
+            </p>
           </div>
 
-          <div className="space-y-4 border-t border-border/60 pt-6">
+          <div className="space-y-4 border-t editorial-divider pt-6">
             <div>
               <p className="text-sm font-medium text-text">{t("emailLabel")}</p>
               <a
@@ -47,7 +53,9 @@ export default async function ContactPage({ params }: ContactPageProps) {
             </div>
 
             <div>
-              <p className="text-sm font-medium text-text">{t("socialLabel")}</p>
+              <p className="text-sm font-medium text-text">
+                {t("socialLabel")}
+              </p>
               <div className="mt-1 flex flex-wrap gap-4 text-sm">
                 <a
                   href={INSTAGRAM_URL}

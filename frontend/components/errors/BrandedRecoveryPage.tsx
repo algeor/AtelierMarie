@@ -43,7 +43,10 @@ export function BrandedRecoveryPage({
             {eyebrow}
           </p>
           {code ? (
-            <p className="mt-4 font-heading text-[clamp(5rem,32vw,13rem)] leading-[0.78] text-text" aria-hidden="true">
+            <p
+              className="mt-4 font-heading text-[clamp(5rem,32vw,13rem)] leading-[0.78] text-text"
+              aria-hidden="true"
+            >
               {code}
             </p>
           ) : null}
@@ -61,14 +64,19 @@ export function BrandedRecoveryPage({
               {backLabel}
             </Link>
             {onReset && tryAgainLabel ? (
-              <Button type="button" variant="secondary" size="lg" onClick={onReset}>
+              <Button
+                type="button"
+                variant="secondary"
+                size="lg"
+                onClick={onReset}
+              >
                 {tryAgainLabel}
               </Button>
             ) : null}
           </div>
         </div>
 
-        <div className="relative mx-auto aspect-[4/5] w-full max-w-sm overflow-hidden rounded-brand border border-border/60 bg-surface shadow-xl shadow-border/15 md:max-w-md">
+        <div className="editorial-image-settle relative mx-auto aspect-[4/5] w-full max-w-sm overflow-hidden rounded-brand bg-surface/60 shadow-xl shadow-border/15 ring-1 ring-border/25 md:max-w-md">
           <Image
             src="/rebrand/error-candle.webp"
             alt=""

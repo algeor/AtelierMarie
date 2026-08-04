@@ -39,7 +39,9 @@ interface TermsMessages {
 }
 
 function getStaticTermsMessages(locale: Locale): TermsMessages {
-  return (locale === "bg" ? bgMessages.terms : enMessages.terms) as TermsMessages;
+  return (
+    locale === "bg" ? bgMessages.terms : enMessages.terms
+  ) as TermsMessages;
 }
 
 function mapTermsResponse(terms: TermsResponse): TermsMessages {
@@ -76,7 +78,9 @@ async function getTermsMessages(locale: Locale): Promise<TermsMessages> {
   }
 }
 
-export async function generateMetadata({ params }: TermsPageProps): Promise<Metadata> {
+export async function generateMetadata({
+  params,
+}: TermsPageProps): Promise<Metadata> {
   const { locale } = await params;
   const terms = await getTermsMessages(locale);
 
@@ -95,7 +99,10 @@ export default async function TermsPage({ params }: TermsPageProps) {
 
   return (
     <main className="overflow-x-hidden bg-page text-text">
-      <section id="terms-top" className="mx-auto max-w-5xl scroll-mt-28 px-4 pb-8 pt-12 sm:px-6 sm:pt-16 lg:px-8">
+      <section
+        id="terms-top"
+        className="mx-auto max-w-5xl scroll-mt-28 px-4 pb-8 pt-12 sm:px-6 sm:pt-16 lg:px-8"
+      >
         <p className="text-sm font-medium uppercase tracking-[0.08em] text-accent">
           {terms.eyebrow}
         </p>
@@ -114,14 +121,17 @@ export default async function TermsPage({ params }: TermsPageProps) {
       </section>
 
       <div className="mx-auto grid max-w-5xl min-w-0 gap-10 px-4 pb-16 sm:px-6 lg:grid-cols-[220px_minmax(0,760px)] lg:px-8">
-        <aside className="min-w-0 lg:sticky lg:top-24 lg:self-start" aria-label={terms.navLabel}>
-          <nav className="border-y border-border/60 py-4 lg:border-y-0 lg:border-l lg:py-0 lg:pl-5">
+        <aside
+          className="min-w-0 lg:sticky lg:top-24 lg:self-start"
+          aria-label={terms.navLabel}
+        >
+          <nav className="border-y editorial-divider py-4 lg:border-y-0 lg:border-l lg:py-0 lg:pl-5">
             <ul className="grid min-w-0 grid-cols-2 gap-2 text-sm sm:grid-cols-3 lg:flex lg:flex-col">
               {terms.sections.map((section) => (
                 <li key={section.id} className="min-w-0">
                   <a
                     href={`#${section.id}`}
-                    className="inline-flex min-h-[48px] w-full min-w-0 items-center justify-center rounded-brand border border-border/60 bg-surface/60 px-3 py-2 text-center text-muted transition-colors hover:bg-surface hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page lg:justify-start lg:border-0 lg:bg-transparent lg:text-left"
+                    className="inline-flex min-h-[48px] w-full min-w-0 items-center justify-center rounded-brand border border-border/25 bg-surface/35 px-3 py-2 text-center text-muted transition-colors hover:bg-surface/70 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page lg:justify-start lg:border-0 lg:bg-transparent lg:text-left"
                   >
                     <span className="min-w-0 break-words">{section.nav}</span>
                   </a>
@@ -132,26 +142,61 @@ export default async function TermsPage({ params }: TermsPageProps) {
         </aside>
 
         <article className="min-w-0 space-y-10 sm:space-y-12">
-          <section className="min-w-0 rounded-brand border border-border/60 bg-surface-elevated/75 p-5 shadow-sm shadow-border/10">
-            <h2 className="font-heading text-2xl text-text">{legal.identityTitle}</h2>
+          <section className="editorial-paper-panel min-w-0 rounded-brand p-5">
+            <h2 className="font-heading text-2xl text-text">
+              {legal.identityTitle}
+            </h2>
             <dl className="mt-4 grid gap-3 text-sm text-muted sm:grid-cols-2">
-              <div><dt className="font-medium text-text">{legal.tradingName}</dt><dd>{legalIdentity.tradingName}</dd></div>
-              <div><dt className="font-medium text-text">{legal.legalName}</dt><dd>{legalIdentity.legalName}</dd></div>
-              <div><dt className="font-medium text-text">{legal.geographicAddress}</dt><dd>{legalIdentity.geographicAddress}</dd></div>
-              <div><dt className="font-medium text-text">{legal.country}</dt><dd>{legalIdentity.country}</dd></div>
-              <div><dt className="font-medium text-text">{legal.contactEmail}</dt><dd>{legalIdentity.contactEmail}</dd></div>
-              <div><dt className="font-medium text-text">{legal.registrationNumber}</dt><dd>{legalIdentity.registrationNumber}</dd></div>
-              <div><dt className="font-medium text-text">{legal.vatNumber}</dt><dd>{legalIdentity.vatNumber}</dd></div>
+              <div>
+                <dt className="font-medium text-text">{legal.tradingName}</dt>
+                <dd>{legalIdentity.tradingName}</dd>
+              </div>
+              <div>
+                <dt className="font-medium text-text">{legal.legalName}</dt>
+                <dd>{legalIdentity.legalName}</dd>
+              </div>
+              <div>
+                <dt className="font-medium text-text">
+                  {legal.geographicAddress}
+                </dt>
+                <dd>{legalIdentity.geographicAddress}</dd>
+              </div>
+              <div>
+                <dt className="font-medium text-text">{legal.country}</dt>
+                <dd>{legalIdentity.country}</dd>
+              </div>
+              <div>
+                <dt className="font-medium text-text">{legal.contactEmail}</dt>
+                <dd>{legalIdentity.contactEmail}</dd>
+              </div>
+              <div>
+                <dt className="font-medium text-text">
+                  {legal.registrationNumber}
+                </dt>
+                <dd>{legalIdentity.registrationNumber}</dd>
+              </div>
+              <div>
+                <dt className="font-medium text-text">{legal.vatNumber}</dt>
+                <dd>{legalIdentity.vatNumber}</dd>
+              </div>
             </dl>
           </section>
 
-          <section className="min-w-0 rounded-brand border border-border/60 bg-surface-elevated/75 p-5 shadow-sm shadow-border/10">
-            <h2 className="font-heading text-2xl text-text">{terms.policyLinksTitle}</h2>
+          <section className="editorial-paper-panel min-w-0 rounded-brand p-5">
+            <h2 className="font-heading text-2xl text-text">
+              {terms.policyLinksTitle}
+            </h2>
             <div className="mt-4 flex flex-wrap gap-3 text-sm">
-              <Link href={policyPath("privacy")} className="rounded-pill bg-surface px-4 py-2 text-muted underline-offset-4 hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+              <Link
+                href={policyPath("privacy")}
+                className="rounded-pill bg-surface px-4 py-2 text-muted underline-offset-4 hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+              >
                 {terms.privacyLink}
               </Link>
-              <Link href={policyPath("cookies")} className="rounded-pill bg-surface px-4 py-2 text-muted underline-offset-4 hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+              <Link
+                href={policyPath("cookies")}
+                className="rounded-pill bg-surface px-4 py-2 text-muted underline-offset-4 hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+              >
                 {terms.cookiesLink}
               </Link>
             </div>
@@ -161,7 +206,7 @@ export default async function TermsPage({ params }: TermsPageProps) {
             <section
               key={section.id}
               id={section.id}
-              className="min-w-0 scroll-mt-28 border-b border-border/60 pb-10 last:border-b-0"
+              className="min-w-0 scroll-mt-28 border-b editorial-divider pb-10 last:border-b-0"
             >
               <h2 className="break-words font-heading text-2xl text-text sm:text-3xl">
                 {section.title}
@@ -176,7 +221,7 @@ export default async function TermsPage({ params }: TermsPageProps) {
               </div>
 
               {section.modelFormLines && (
-                <div className="mt-7 max-w-full overflow-hidden rounded-brand border border-border/60 bg-surface-elevated/70 px-4 py-5 sm:px-5">
+                <div className="editorial-note-panel mt-7 max-w-full overflow-hidden rounded-brand px-4 py-5 sm:px-5">
                   <h3 className="break-words font-heading text-xl text-text">
                     {section.modelFormTitle}
                   </h3>
@@ -199,7 +244,7 @@ export default async function TermsPage({ params }: TermsPageProps) {
                 <a
                   href="#terms-top"
                   aria-label={terms.backToTop}
-                  className="inline-flex h-11 w-11 items-center justify-center rounded-brand border border-border/60 bg-surface text-muted transition-colors hover:bg-page hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-brand border border-border/30 bg-surface/65 text-muted transition-colors hover:bg-page hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
                 >
                   <span aria-hidden="true" className="text-xl leading-none">
                     ↑

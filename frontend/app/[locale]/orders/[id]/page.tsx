@@ -72,24 +72,24 @@ export default function OrderDetailPage() {
     return (
       <main className="bg-page px-4 py-12 text-text">
         <div className="mx-auto max-w-3xl">
-        <Skeleton className="mb-8 h-8 w-48" />
-        <div className="space-y-6 rounded-brand border border-border/60 bg-surface-elevated/75 p-8 shadow-sm">
-          <div className="flex items-center gap-4">
-            <Skeleton className="h-6 w-32" />
-            <Skeleton className="h-6 w-20" />
+          <Skeleton className="mb-8 h-8 w-48" />
+          <div className="editorial-soft-panel space-y-6 rounded-brand p-8">
+            <div className="flex items-center gap-4">
+              <Skeleton className="h-6 w-32" />
+              <Skeleton className="h-6 w-20" />
+            </div>
+            <div className="space-y-3">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-3/4" />
+            </div>
+            <div className="space-y-4">
+              <Skeleton className="h-3 w-3" />
+              <Skeleton className="h-3 w-3" />
+              <Skeleton className="h-3 w-3" />
+              <Skeleton className="h-3 w-3" />
+            </div>
           </div>
-          <div className="space-y-3">
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-3/4" />
-          </div>
-          <div className="space-y-4">
-            <Skeleton className="h-3 w-3" />
-            <Skeleton className="h-3 w-3" />
-            <Skeleton className="h-3 w-3" />
-            <Skeleton className="h-3 w-3" />
-          </div>
-        </div>
         </div>
       </main>
     );
@@ -99,20 +99,18 @@ export default function OrderDetailPage() {
     return (
       <main className="bg-page px-4 py-12 text-text">
         <div className="mx-auto max-w-3xl">
-        <div className="rounded-brand border border-border/60 bg-surface-elevated/75 p-8 text-center shadow-sm">
-          <h1 className="mb-4 font-heading text-2xl text-text">
-            {t("notFound")}
-          </h1>
-          <p className="mb-6 text-muted">
-            {t("notFoundDescription")}
-          </p>
-          <Link
-            href="/orders"
-            className="inline-flex items-center justify-center rounded-brand bg-primary px-6 py-3 font-medium text-primary-foreground transition-colors duration-fast hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
-          >
-            {t("backToOrders")}
-          </Link>
-        </div>
+          <div className="editorial-soft-panel rounded-brand p-8 text-center">
+            <h1 className="mb-4 font-heading text-2xl text-text">
+              {t("notFound")}
+            </h1>
+            <p className="mb-6 text-muted">{t("notFoundDescription")}</p>
+            <Link
+              href="/orders"
+              className="inline-flex items-center justify-center rounded-brand bg-primary px-6 py-3 font-medium text-primary-foreground transition-colors duration-fast hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
+            >
+              {t("backToOrders")}
+            </Link>
+          </div>
         </div>
       </main>
     );
@@ -120,11 +118,14 @@ export default function OrderDetailPage() {
 
   if (!order) return null;
 
-  const date = new Date(order.created_at).toLocaleDateString(locale === "bg" ? "bg-BG" : "en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  const date = new Date(order.created_at).toLocaleDateString(
+    locale === "bg" ? "bg-BG" : "en-US",
+    {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    },
+  );
   const paymentStatusMessage =
     order.payment_method === "card"
       ? order.payment_status === "paid"
@@ -134,131 +135,178 @@ export default function OrderDetailPage() {
           : tPayment("returnPending")
       : order.payment_method === "cod"
         ? tPayment("codConfirmation")
-        : order.payment_method === "bank_transfer" && order.payment_status === "pending"
+        : order.payment_method === "bank_transfer" &&
+            order.payment_status === "pending"
           ? tPayment("bankInstructions")
           : null;
 
   return (
     <main className="bg-page px-4 py-12 text-text">
       <div className="mx-auto max-w-3xl">
-      <Link
-        href="/orders"
-        className="mb-6 inline-block rounded-brand text-sm text-muted transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
-      >
-        {t("backToOrders")}
-      </Link>
+        <Link
+          href="/orders"
+          className="mb-6 inline-block rounded-brand text-sm text-muted transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
+        >
+          {t("backToOrders")}
+        </Link>
 
-      <div className="rounded-brand border border-border/60 bg-surface-elevated/75 p-8 shadow-sm">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
-          <div>
-            <h1 className="mb-1 font-heading text-2xl text-text">
-              {t("orderNumber", { id: order.id.slice(0, 8) })}
-            </h1>
-            <p className="text-sm text-muted">{date}</p>
+        <div className="editorial-soft-panel rounded-brand p-8">
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+            <div>
+              <h1 className="mb-1 font-heading text-2xl text-text">
+                {t("orderNumber", { id: order.id.slice(0, 8) })}
+              </h1>
+              <p className="text-sm text-muted">{date}</p>
+            </div>
+            <OrderStatusBadge status={order.status} />
           </div>
-          <OrderStatusBadge status={order.status} />
-        </div>
 
-        {/* Status Timeline */}
-        <div className="mb-8 border-b border-border/60 pb-8">
-          <h2 className="mb-4 text-sm font-medium text-text">
-            {t("progress")}
-          </h2>
-          <StatusTimeline
-            currentStatus={order.status}
-            trackingNumber={order.tracking_number}
-            trackingCarrier={order.tracking_carrier}
-            trackingUrl={order.tracking_url}
-          />
-        </div>
+          {/* Status Timeline */}
+          <div className="mb-8 border-b editorial-divider pb-8">
+            <h2 className="mb-4 text-sm font-medium text-text">
+              {t("progress")}
+            </h2>
+            <StatusTimeline
+              currentStatus={order.status}
+              trackingNumber={order.tracking_number}
+              trackingCarrier={order.tracking_carrier}
+              trackingUrl={order.tracking_url}
+            />
+          </div>
 
-        {/* Items Table */}
-        <div className="mb-8">
-          <h2 className="mb-4 text-sm font-medium text-text">{t("items")}</h2>
-          <div className="space-y-3">
-            {order.items.map((item) => (
-              <div
-                key={item.product_id}
-                className="flex items-center justify-between border-b border-border/60 py-2 last:border-0"
-              >
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-text">
-                    {item.product_name}
-                  </p>
-                  <p className="text-sm text-muted">
-                    {formatPrice(item.price_cents)} × {item.quantity}
-                  </p>
+          {/* Items Table */}
+          <div className="mb-8">
+            <h2 className="mb-4 text-sm font-medium text-text">{t("items")}</h2>
+            <div className="space-y-3">
+              {order.items.map((item) => (
+                <div
+                  key={item.product_id}
+                  className="flex items-center justify-between border-b editorial-divider py-2 last:border-0"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-text">
+                      {item.product_name}
+                    </p>
+                    <p className="text-sm text-muted">
+                      {formatPrice(item.price_cents)} × {item.quantity}
+                    </p>
+                  </div>
+                  <span className="ml-4 whitespace-nowrap font-medium text-text">
+                    {formatPrice(item.price_cents * item.quantity)}
+                  </span>
                 </div>
-                <span className="ml-4 whitespace-nowrap font-medium text-text">
-                  {formatPrice(item.price_cents * item.quantity)}
-                </span>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
 
-        {/* Total */}
-        <div className="flex items-center justify-between border-t border-border/60 pt-4">
-          <span className="font-medium text-text">{t("total")}</span>
-          <span className="font-heading text-lg text-text">
-            {formatPrice(order.total_cents)}
-          </span>
-        </div>
-
-        {/* Customer Info */}
-        <div className="mt-8 border-t border-border/60 pt-6">
-          <h2 className="mb-2 text-sm font-medium text-text">
-            {t("contact")}
-          </h2>
-          <p className="text-sm text-muted">{order.customer_email}</p>
-        </div>
-
-        {/* Payment status block */}
-        <div className="mt-6 border-t border-border/60 pt-6">
-          <h2 className="mb-3 text-sm font-medium text-text">{tPayment("sectionTitle")}</h2>
-          <div className="flex flex-wrap items-center gap-3 mb-3">
-            <span className="text-sm text-muted">
-              {tPayment(`method.${order.payment_method}` as Parameters<typeof tPayment>[0])}
-            </span>
-            <span className={`inline-flex items-center rounded-pill px-2.5 py-0.5 text-xs font-medium ${PAYMENT_STATUS_COLORS[order.payment_status]}`}>
-              {tPayment(`status.${order.payment_status}` as Parameters<typeof tPayment>[0])}
+          {/* Total */}
+          <div className="flex items-center justify-between border-t editorial-divider pt-4">
+            <span className="font-medium text-text">{t("total")}</span>
+            <span className="font-heading text-lg text-text">
+              {formatPrice(order.total_cents)}
             </span>
           </div>
-          {paymentStatusMessage && (
-            <p className="mb-3 text-sm leading-6 text-muted">{paymentStatusMessage}</p>
-          )}
 
-          {/* Retry payment link for card orders with pending/failed payment */}
-          {order.payment_method === "card" &&
-            (order.payment_status === "pending" || order.payment_status === "failed") &&
-            paymentReturnToken && (
-              <Link
-                href={`/orders/${order.id}/retry-payment?token=${encodeURIComponent(paymentReturnToken)}`}
-                className="inline-flex items-center text-sm font-medium text-accent underline underline-offset-2 transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+          {/* Customer Info */}
+          <div className="mt-8 border-t editorial-divider pt-6">
+            <h2 className="mb-2 text-sm font-medium text-text">
+              {t("contact")}
+            </h2>
+            <p className="text-sm text-muted">{order.customer_email}</p>
+          </div>
+
+          {/* Payment status block */}
+          <div className="mt-6 border-t editorial-divider pt-6">
+            <h2 className="mb-3 text-sm font-medium text-text">
+              {tPayment("sectionTitle")}
+            </h2>
+            <div className="flex flex-wrap items-center gap-3 mb-3">
+              <span className="text-sm text-muted">
+                {tPayment(
+                  `method.${order.payment_method}` as Parameters<
+                    typeof tPayment
+                  >[0],
+                )}
+              </span>
+              <span
+                className={`inline-flex items-center rounded-pill px-2.5 py-0.5 text-xs font-medium ${PAYMENT_STATUS_COLORS[order.payment_status]}`}
               >
-                {tPayment("retryPayment")}
-              </Link>
+                {tPayment(
+                  `status.${order.payment_status}` as Parameters<
+                    typeof tPayment
+                  >[0],
+                )}
+              </span>
+            </div>
+            {paymentStatusMessage && (
+              <p className="mb-3 text-sm leading-6 text-muted">
+                {paymentStatusMessage}
+              </p>
             )}
 
-          {/* IBAN instructions for bank transfer orders awaiting payment */}
-          {order.payment_method === "bank_transfer" && order.payment_status === "pending" && BANK_IBAN && (
-            <div className="mt-3 space-y-1.5 rounded-brand border border-border/60 bg-surface p-4 text-sm">
-              <p className="mb-2 font-medium text-text">{tPayment("bankInstructions")}</p>
-              <p className="text-muted"><span className="font-medium text-text">{tPayment("bankName")}:</span> {BANK_NAME}</p>
-              <p className="font-mono text-muted"><span className="font-sans font-medium text-text">{tPayment("bankIban")}:</span> {BANK_IBAN}</p>
-              <p className="text-muted"><span className="font-medium text-text">{tPayment("bankBic")}:</span> {BANK_BIC}</p>
-              <p className="text-muted"><span className="font-medium text-text">{tPayment("bankAmount")}:</span> {formatPrice(order.total_cents)}</p>
-              <p className="text-muted"><span className="font-medium text-text">{tPayment("bankReference")}:</span> {order.id.slice(0, 8)}</p>
-              <p className="mt-2 text-xs text-muted/70">{tPayment("bankNote")}</p>
-            </div>
-          )}
-        </div>
+            {/* Retry payment link for card orders with pending/failed payment */}
+            {order.payment_method === "card" &&
+              (order.payment_status === "pending" ||
+                order.payment_status === "failed") &&
+              paymentReturnToken && (
+                <Link
+                  href={`/orders/${order.id}/retry-payment?token=${encodeURIComponent(paymentReturnToken)}`}
+                  className="inline-flex items-center text-sm font-medium text-accent underline underline-offset-2 transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                >
+                  {tPayment("retryPayment")}
+                </Link>
+              )}
 
-        {/* Delivery details */}
-        <CourierTrackingSummary order={order} />
-        <DeliveryDetails order={order} />
-      </div>
+            {/* IBAN instructions for bank transfer orders awaiting payment */}
+            {order.payment_method === "bank_transfer" &&
+              order.payment_status === "pending" &&
+              BANK_IBAN && (
+                <div className="editorial-note-panel mt-3 space-y-1.5 rounded-brand p-4 text-sm">
+                  <p className="mb-2 font-medium text-text">
+                    {tPayment("bankInstructions")}
+                  </p>
+                  <p className="text-muted">
+                    <span className="font-medium text-text">
+                      {tPayment("bankName")}:
+                    </span>{" "}
+                    {BANK_NAME}
+                  </p>
+                  <p className="font-mono text-muted">
+                    <span className="font-sans font-medium text-text">
+                      {tPayment("bankIban")}:
+                    </span>{" "}
+                    {BANK_IBAN}
+                  </p>
+                  <p className="text-muted">
+                    <span className="font-medium text-text">
+                      {tPayment("bankBic")}:
+                    </span>{" "}
+                    {BANK_BIC}
+                  </p>
+                  <p className="text-muted">
+                    <span className="font-medium text-text">
+                      {tPayment("bankAmount")}:
+                    </span>{" "}
+                    {formatPrice(order.total_cents)}
+                  </p>
+                  <p className="text-muted">
+                    <span className="font-medium text-text">
+                      {tPayment("bankReference")}:
+                    </span>{" "}
+                    {order.id.slice(0, 8)}
+                  </p>
+                  <p className="mt-2 text-xs text-muted/70">
+                    {tPayment("bankNote")}
+                  </p>
+                </div>
+              )}
+          </div>
+
+          {/* Delivery details */}
+          <CourierTrackingSummary order={order} />
+          <DeliveryDetails order={order} />
+        </div>
       </div>
     </main>
   );

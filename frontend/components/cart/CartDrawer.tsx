@@ -26,7 +26,10 @@ export function CartDrawer() {
     dismissError,
   } = useCart();
   const trackedOpenRef = useRef(false);
-  const amountToFreeShipping = Math.max(0, FREE_SHIPPING_THRESHOLD_CENTS - total_cents);
+  const amountToFreeShipping = Math.max(
+    0,
+    FREE_SHIPPING_THRESHOLD_CENTS - total_cents,
+  );
   const hasAvailableItems = item_count > 0;
   const hasUnavailableItems = unavailable_items.length > 0;
 
@@ -64,7 +67,7 @@ export function CartDrawer() {
         data-testid="cart-drawer-root"
         className={cn(
           "fixed inset-0 z-[100]",
-          isDrawerOpen ? "pointer-events-auto" : "pointer-events-none"
+          isDrawerOpen ? "pointer-events-auto" : "pointer-events-none",
         )}
         aria-hidden={!isDrawerOpen}
       >
@@ -73,7 +76,7 @@ export function CartDrawer() {
           className={cn(
             "fixed inset-0 bg-text/45",
             "motion-safe:transition-opacity motion-safe:duration-normal",
-            isDrawerOpen ? "opacity-100" : "opacity-0"
+            isDrawerOpen ? "opacity-100" : "opacity-0",
           )}
           onClick={closeDrawer}
           aria-hidden="true"
@@ -86,13 +89,13 @@ export function CartDrawer() {
           aria-modal="true"
           aria-label={t("title")}
           className={cn(
-            "fixed right-0 top-0 flex h-full w-full max-w-md flex-col bg-page text-text shadow-xl",
+            "fixed right-0 top-0 flex h-full w-full max-w-md flex-col bg-page/95 text-text shadow-2xl shadow-text/18 backdrop-blur-xl",
             "motion-safe:transition-transform motion-safe:duration-normal",
-            isDrawerOpen ? "translate-x-0" : "translate-x-full"
+            isDrawerOpen ? "translate-x-0" : "translate-x-full",
           )}
         >
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-border/60 px-6 py-4">
+          <div className="flex items-center justify-between border-b editorial-divider px-6 py-4">
             <h2 className="font-heading text-xl text-text">{t("title")}</h2>
             <button
               onClick={closeDrawer}
@@ -100,7 +103,7 @@ export function CartDrawer() {
               className={cn(
                 "inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-brand",
                 "text-muted transition-colors duration-fast hover:text-text",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page",
               )}
             >
               <svg
@@ -112,7 +115,11 @@ export function CartDrawer() {
                 className="w-6 h-6"
                 aria-hidden="true"
               >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M6 18L18 6M6 6l12 12"
+                />
               </svg>
             </button>
           </div>
@@ -127,7 +134,7 @@ export function CartDrawer() {
                 className={cn(
                   "inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-brand",
                   "text-error/70 transition-colors duration-fast hover:text-error",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error focus-visible:ring-offset-2 focus-visible:ring-offset-page"
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error focus-visible:ring-offset-2 focus-visible:ring-offset-page",
                 )}
               >
                 <svg
@@ -139,7 +146,11 @@ export function CartDrawer() {
                   className="w-4 h-4"
                   aria-hidden="true"
                 >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M6 18L18 6M6 6l12 12"
+                  />
                 </svg>
               </button>
             </div>
@@ -171,7 +182,7 @@ export function CartDrawer() {
                   className={cn(
                     "inline-flex items-center justify-center rounded-brand px-4 py-2 text-sm font-medium",
                     "bg-primary text-primary-foreground transition-colors duration-fast hover:bg-primary-hover",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page",
                   )}
                 >
                   {t("continueShopping")}
@@ -188,13 +199,16 @@ export function CartDrawer() {
                   />
                 ))}
                 {hasUnavailableItems && (
-                  <div className="mt-4 rounded-brand border border-warning/25 bg-warning/10 p-3">
+                  <div className="mt-4 rounded-brand border border-warning/20 bg-warning/10 p-3">
                     <h3 className="text-sm font-medium text-warning">
                       {t("unavailableTitle")}
                     </h3>
                     <ul className="mt-2 divide-y divide-warning/20">
                       {unavailable_items.map((item) => (
-                        <li key={item.product_id} className="flex items-center justify-between gap-3 py-3">
+                        <li
+                          key={item.product_id}
+                          className="flex items-center justify-between gap-3 py-3"
+                        >
                           <div className="min-w-0">
                             <p className="truncate text-sm font-medium text-text">
                               {item.product_name}
@@ -208,7 +222,7 @@ export function CartDrawer() {
                             onClick={() => removeItem(item.product_id)}
                             className={cn(
                               "min-h-[44px] shrink-0 rounded-brand px-3 text-sm font-medium text-warning underline underline-offset-4",
-                              "hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning focus-visible:ring-offset-2 focus-visible:ring-offset-page"
+                              "hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning focus-visible:ring-offset-2 focus-visible:ring-offset-page",
                             )}
                           >
                             {t("remove")}
@@ -224,14 +238,18 @@ export function CartDrawer() {
 
           {/* Footer */}
           {hasAvailableItems && (
-            <div className="space-y-4 border-t border-border/60 px-6 py-4">
-              <div className="rounded-brand bg-accent-soft/35 px-3 py-2 text-xs text-muted">
+            <div className="space-y-4 border-t editorial-divider px-6 py-4">
+              <div className="editorial-note-panel rounded-brand px-3 py-2 text-xs text-muted">
                 {amountToFreeShipping > 0
-                  ? t("amountToFreeShipping", { amount: formatPrice(amountToFreeShipping) })
+                  ? t("amountToFreeShipping", {
+                      amount: formatPrice(amountToFreeShipping),
+                    })
                   : t("freeShippingUnlocked")}
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-muted">{t("subtotal")}</span>
+                <span className="text-sm font-medium text-muted">
+                  {t("subtotal")}
+                </span>
                 <span className="font-heading text-lg text-text">
                   {formatPrice(total_cents)}
                 </span>
@@ -242,7 +260,7 @@ export function CartDrawer() {
                 className={cn(
                   "block w-full rounded-brand px-6 py-3 text-center font-medium",
                   "bg-primary text-primary-foreground transition-colors duration-fast hover:bg-primary-hover",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page",
                 )}
               >
                 {t("proceedToCheckout")}

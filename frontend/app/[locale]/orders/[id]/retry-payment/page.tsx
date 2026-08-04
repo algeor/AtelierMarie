@@ -30,7 +30,7 @@ export default function RetryPaymentPage() {
       try {
         const { stripe_checkout_url } = await createStripeRetrySession(
           orderId,
-          paymentReturnToken
+          paymentReturnToken,
         );
         window.location.href = stripe_checkout_url;
       } catch (err) {
@@ -50,8 +50,8 @@ export default function RetryPaymentPage() {
     return (
       <main className="bg-page px-4 py-24 text-center text-text">
         <div className="mx-auto max-w-md">
-        <Skeleton className="mx-auto mb-4 h-6 w-48" />
-        <p className="text-sm text-muted">{tPayment("retryRedirecting")}</p>
+          <Skeleton className="mx-auto mb-4 h-6 w-48" />
+          <p className="text-sm text-muted">{tPayment("retryRedirecting")}</p>
         </div>
       </main>
     );
@@ -59,14 +59,14 @@ export default function RetryPaymentPage() {
 
   return (
     <main className="bg-page px-4 py-24 text-center text-text">
-      <div className="mx-auto max-w-md rounded-brand border border-border/60 bg-surface-elevated/75 p-8">
-      <p className="mb-6 text-sm text-error">{errorMessage}</p>
-      <Link
-        href={`/orders/${orderId}`}
-        className="inline-flex items-center justify-center rounded-brand bg-primary px-6 py-3 font-medium text-primary-foreground transition-colors duration-fast hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
-      >
-        {tOrders("backToOrders")}
-      </Link>
+      <div className="editorial-soft-panel mx-auto max-w-md rounded-brand p-8">
+        <p className="mb-6 text-sm text-error">{errorMessage}</p>
+        <Link
+          href={`/orders/${orderId}`}
+          className="inline-flex items-center justify-center rounded-brand bg-primary px-6 py-3 font-medium text-primary-foreground transition-colors duration-fast hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
+        >
+          {tOrders("backToOrders")}
+        </Link>
       </div>
     </main>
   );

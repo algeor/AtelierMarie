@@ -10,8 +10,7 @@ interface FaqAccordionProps {
 }
 
 type AnswerBlock =
-  | { type: "paragraph"; text: string }
-  | { type: "list"; items: string[] };
+  { type: "paragraph"; text: string } | { type: "list"; items: string[] };
 
 const MARKDOWN_LINK_RE = /\[([^\]]+)\]\((\/[^)\s]+)\)/g;
 
@@ -72,7 +71,7 @@ function renderTextWithLinks(text: string) {
         className="font-medium text-text underline underline-offset-4 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
       >
         {label}
-      </a>
+      </a>,
     );
     lastIndex = start + fullMatch.length;
   }
@@ -98,7 +97,7 @@ function Answer({ answer }: { answer: string }) {
           </ul>
         ) : (
           <p key={index}>{renderTextWithLinks(block.text)}</p>
-        )
+        ),
       )}
     </div>
   );
@@ -119,10 +118,12 @@ export function FaqAccordion({ items, staggered = false }: FaqAccordionProps) {
           <div
             key={item.id}
             className={cn(
-              "overflow-hidden rounded-brand border border-border/60 bg-surface-elevated shadow-sm shadow-border/10",
-              staggered && "rebrand-soft-panel-expand"
+              "editorial-paper-panel overflow-hidden rounded-brand",
+              staggered && "rebrand-soft-panel-expand",
             )}
-            style={staggered ? { animationDelay: `${index * 75}ms` } : undefined}
+            style={
+              staggered ? { animationDelay: `${index * 75}ms` } : undefined
+            }
           >
             <button
               id={buttonId}
@@ -130,14 +131,16 @@ export function FaqAccordion({ items, staggered = false }: FaqAccordionProps) {
               aria-expanded={isOpen}
               aria-controls={panelId}
               onClick={() => setOpenId(isOpen ? null : item.id)}
-              className="flex min-h-[56px] w-full items-center justify-between gap-4 px-5 py-4 text-left text-text transition-colors duration-normal hover:bg-page focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-surface-elevated"
+              className="flex min-h-[56px] w-full items-center justify-between gap-4 px-5 py-4 text-left text-text transition-colors duration-normal hover:bg-page/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-surface-elevated"
             >
-              <span className="text-base font-medium leading-6">{item.question}</span>
+              <span className="text-base font-medium leading-6">
+                {item.question}
+              </span>
               <span
                 aria-hidden="true"
                 className={cn(
-                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border text-lg text-muted transition-transform duration-normal",
-                  isOpen && "rotate-45"
+                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/40 bg-page/45 text-lg text-muted transition-transform duration-normal",
+                  isOpen && "rotate-45",
                 )}
               >
                 +
@@ -149,11 +152,13 @@ export function FaqAccordion({ items, staggered = false }: FaqAccordionProps) {
               aria-labelledby={buttonId}
               className={cn(
                 "grid transition-[grid-template-rows,opacity] duration-normal ease-out",
-                isOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+                isOpen
+                  ? "grid-rows-[1fr] opacity-100"
+                  : "grid-rows-[0fr] opacity-0",
               )}
             >
               <div className="overflow-hidden">
-                <div className="border-t border-border/60 bg-page/40 px-5 py-5">
+                <div className="border-t editorial-divider bg-page/35 px-5 py-5">
                   <Answer answer={item.answer} />
                 </div>
               </div>

@@ -38,7 +38,7 @@ export function AddToCartSection({ productId, stock }: AddToCartSectionProps) {
   }
 
   return (
-    <div className="flex flex-col gap-4 border-t border-border/60 pt-4">
+    <div className="flex flex-col gap-4 border-t editorial-divider pt-5">
       {!isOutOfStock && (
         <QuantitySelector
           quantity={quantity}
@@ -70,9 +70,7 @@ export function AddToCartSection({ productId, stock }: AddToCartSectionProps) {
 
       {/* Screen reader announcement */}
       <div aria-live="polite" role="status" className="sr-only">
-        {status === "success"
-          ? t("addedToCart", { count: quantity })
-          : ""}
+        {status === "success" ? t("addedToCart", { count: quantity }) : ""}
       </div>
     </div>
   );

@@ -106,4 +106,4 @@
 - [x] 11.6 Verify reduced-motion behavior across homepage, product cards, cart drawer, checkout, FAQ accordions, footer, and admin.
 - [x] 11.7 Perform a final hardcoded-color scan on touched frontend files.
 - [x] 11.8 Perform a final functionality preservation walkthrough before marking the rebrand complete.
-- [ ] 11.9 Perform a final notes-to-OpenSpec coverage audit against `docs/atelier-marie-ui-notes.md` before considering implementation complete.
+- [x] 11.9 Perform a final notes-to-OpenSpec coverage audit against `docs/atelier-marie-ui-notes.md` before considering implementation complete.
