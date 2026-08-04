@@ -26,7 +26,6 @@ const mockCartState = {
       added_at: "2026-01-01T00:00:00Z",
     },
   ],
-  unavailable_items: [] as { product_id: string; product_name: string; reason: string }[],
   total_cents: 2000,
   item_count: 1,
   isLoading: false,
@@ -158,7 +157,6 @@ describe("Checkout Page", () => {
         added_at: "2026-01-01T00:00:00Z",
       },
     ];
-    mockCartState.unavailable_items = [];
     mockCartState.item_count = 1;
   });
 
@@ -205,51 +203,22 @@ describe("Checkout Page", () => {
     renderWithIntl(<CheckoutPage />);
 
     const termsLinks = screen.getAllByRole("link", { name: "Terms & Conditions" });
-    expect(termsLinks).toHaveLength(1);
+    expect(termsLinks).toHaveLength(2);
     for (const link of termsLinks) {
       expect(link).toHaveAttribute("href", "/terms");
     }
     const privacyLinks = screen.getAllByRole("link", { name: "Privacy Policy" });
-    expect(privacyLinks).toHaveLength(1);
+    expect(privacyLinks).toHaveLength(2);
     for (const link of privacyLinks) {
       expect(link).toHaveAttribute("href", "/privacy");
     }
-    expect(screen.getAllByText(/process your contact and delivery data/i)).toHaveLength(1);
+    expect(screen.getAllByText(/process your contact and delivery data/i)).toHaveLength(2);
     await waitFor(() => {
       expect(screen.getByText("1 × €20.00")).toBeInTheDocument();
     });
     expect(screen.getAllByText("€20.00").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("Shipping")).toBeInTheDocument();
     expect(screen.getByText("Calculated at delivery step")).toBeInTheDocument();
-  });
-
-  it("renders the order summary before the submit action", async () => {
-    renderWithIntl(<CheckoutPage />);
-    const summary = await screen.findByRole("heading", { name: "Order Summary" });
-    const submit = screen.getByRole("button", { name: "Place Order" });
-
-    expect(
-      Boolean(summary.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING)
-    ).toBe(true);
-  });
-
-  it("shows unavailable cart items in checkout and blocks submission until removed", async () => {
-    mockCartState.unavailable_items = [
-      { product_id: "old-candle", product_name: "Old Candle", reason: "deactivated" },
-    ];
-    renderWithIntl(<CheckoutPage />);
-
-    expect(await screen.findByText("Old Candle")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Place Order" }));
-
-    await waitFor(() => {
-      expect(
-        screen.getAllByText("Some items are no longer available. Please review your cart.").length
-      ).toBeGreaterThanOrEqual(1);
-    });
-    expect(mockedCreateOrder).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
-    expect(mockCartState.removeItem).toHaveBeenCalledWith("old-candle");
   });
 
   it("renders enabled payment methods from backend settings", async () => {

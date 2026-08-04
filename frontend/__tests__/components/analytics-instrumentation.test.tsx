@@ -46,7 +46,6 @@ const cartItem: CartItemResponse = {
 
 const mockCartState = {
   items: [cartItem],
-  unavailable_items: [],
   total_cents: 2000,
   item_count: 1,
   isLoading: false,

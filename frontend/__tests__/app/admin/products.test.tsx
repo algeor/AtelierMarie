@@ -28,13 +28,6 @@ vi.mock("@/lib/api", () => ({
   updateProduct: vi.fn(),
   createProduct: vi.fn(),
   uploadProductImage: vi.fn(),
-  deleteProductImage: vi.fn(),
-  deleteProductVideo: vi.fn(),
-  getProductVideo: vi.fn(),
-  reorderProductImages: vi.fn(),
-  setPrimaryProductImage: vi.fn(),
-  updateProductVideoSortOrder: vi.fn(),
-  uploadProductVideo: vi.fn(),
 }));
 
 import {
@@ -130,22 +123,6 @@ const MOCK_PRODUCT: AdminProductResponse = {
   updated_at: "2024-06-01T10:00:00Z",
 };
 
-const MOCK_PRODUCT_WITH_IMAGE: AdminProductResponse = {
-  ...MOCK_PRODUCT,
-  images: [
-    {
-      id: "image-1",
-      image_url: "/media/lavender.jpg",
-      thumbnail_url: "/media/lavender-thumb.jpg",
-      zoom_url: null,
-      sort_order: 0,
-      is_primary: true,
-    },
-  ],
-  primary_image_url: "/media/lavender.jpg",
-  primary_thumbnail_url: "/media/lavender-thumb.jpg",
-};
-
 const MOCK_PRODUCT_INACTIVE: AdminProductResponse = {
   ...MOCK_PRODUCT,
   id: "vanilla-bourbon-300ml",
@@ -193,7 +170,6 @@ describe("Admin Products List", () => {
     expect(screen.getByText("€38.00")).toBeInTheDocument();
     expect(screen.getByText("Active")).toBeInTheDocument();
     expect(screen.getByText("Inactive")).toBeInTheDocument();
-    expect(screen.getAllByText("Missing image").length).toBeGreaterThanOrEqual(2);
   });
 
   it("shows Create Product button", async () => {
@@ -244,28 +220,6 @@ describe("Admin Products List", () => {
         is_active: false,
       });
     });
-  });
-
-  it("disables activation for products missing media", async () => {
-    mockedGetAdminProducts.mockResolvedValue(MOCK_PRODUCT_LIST);
-
-    const { AdminProvider } = await import("@/contexts/AdminContext");
-    const { AdminGuard } = await import("@/components/admin/AdminGuard");
-    const AdminProductsPage = (await import("@/app/[locale]/admin/products/page")).default;
-
-    renderWithIntl(
-      <AdminProvider>
-        <AdminGuard>
-          <AdminProductsPage />
-        </AdminGuard>
-      </AdminProvider>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("Vanilla Bourbon")).toBeInTheDocument();
-    });
-
-    expect(screen.getByRole("button", { name: "Activate" })).toBeDisabled();
   });
 
   it("shows loading skeletons on initial load", async () => {
@@ -447,18 +401,18 @@ describe("Admin Product Form Validation", () => {
     // by testing the form component directly or noting that Math.max prevents negatives.
     // For completeness, test that submitting with stock=0 (valid) and other fields valid passes.
 
-    fireEvent.click(screen.getByLabelText("Active (visible in the store)"));
-
     const submitButton = screen.getByRole("button", { name: "Create Product" });
     fireEvent.click(submitButton);
 
+    // Since stock defaults to 0 and can't go negative via the input, validation won't trigger.
+    // Instead verify that all other validations pass and form submission proceeds
     await waitFor(() => {
       expect(mockedCreateProduct).toHaveBeenCalled();
     });
   });
 
   it("redirects with success=created after successful creation", async () => {
-    mockedCreateProduct.mockResolvedValue(MOCK_PRODUCT_WITH_IMAGE);
+    mockedCreateProduct.mockResolvedValue(MOCK_PRODUCT);
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
@@ -490,8 +444,6 @@ describe("Admin Product Form Validation", () => {
     fireEvent.change(priceInput, { target: { value: "25.00" } });
     fireEvent.blur(priceInput);
 
-    fireEvent.click(screen.getByLabelText("Active (visible in the store)"));
-
     const submitButton = screen.getByRole("button", { name: "Create Product" });
     fireEvent.click(submitButton);
 
@@ -501,8 +453,8 @@ describe("Admin Product Form Validation", () => {
   });
 
   it("redirects with success=updated after successful edit", async () => {
-    mockedGetAdminProduct.mockResolvedValue(MOCK_PRODUCT_WITH_IMAGE);
-    mockedUpdateProduct.mockResolvedValue(MOCK_PRODUCT_WITH_IMAGE);
+    mockedGetAdminProduct.mockResolvedValue(MOCK_PRODUCT);
+    mockedUpdateProduct.mockResolvedValue(MOCK_PRODUCT);
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
@@ -529,7 +481,7 @@ describe("Admin Product Form Validation", () => {
   });
 
   it("pre-fills form when editing existing product", async () => {
-    mockedGetAdminProduct.mockResolvedValue(MOCK_PRODUCT_WITH_IMAGE);
+    mockedGetAdminProduct.mockResolvedValue(MOCK_PRODUCT);
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
@@ -575,7 +527,7 @@ describe("Admin Product Form Validation", () => {
   });
 
   it("submits weight_grams and is_active from the create form", async () => {
-    mockedCreateProduct.mockResolvedValue(MOCK_PRODUCT_WITH_IMAGE);
+    mockedCreateProduct.mockResolvedValue(MOCK_PRODUCT);
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
@@ -651,8 +603,8 @@ describe("Admin Product Form Validation", () => {
     expect(weightInput.value).toBe("2");
   });
 
-  it("blocks default active product creation until media is attached", async () => {
-    mockedCreateProduct.mockResolvedValue(MOCK_PRODUCT_WITH_IMAGE);
+  it("submits default is_active=true when the toggle is left untouched", async () => {
+    mockedCreateProduct.mockResolvedValue(MOCK_PRODUCT);
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");
@@ -687,16 +639,16 @@ describe("Admin Product Form Validation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create Product" }));
 
     await waitFor(() => {
-      expect(
-        screen.getAllByText("Active products need at least one product image.")
-      ).toHaveLength(2);
+      expect(mockedCreateProduct).toHaveBeenCalled();
     });
-    expect(mockedCreateProduct).not.toHaveBeenCalled();
+    const payload = mockedCreateProduct.mock.calls.at(0)?.[0];
+    expect(payload?.is_active).toBe(true);
+    expect(payload?.weight_grams).toBe(300);
   });
 
   it("pre-fills weight and active state when editing", async () => {
     mockedGetAdminProduct.mockResolvedValue({
-      ...MOCK_PRODUCT_WITH_IMAGE,
+      ...MOCK_PRODUCT,
       weight_grams: 480,
       is_active: false,
     });

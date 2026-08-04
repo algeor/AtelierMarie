@@ -4,7 +4,6 @@ import { useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { cn, formatPrice } from "@/lib/utils";
-import { FREE_SHIPPING_THRESHOLD_CENTS } from "@/lib/constants";
 import { useCart } from "@/contexts/CartContext";
 import { useFocusTrap } from "@/lib/useFocusTrap";
 import { Portal } from "@/components/ui/Portal";
@@ -15,7 +14,6 @@ export function CartDrawer() {
   const t = useTranslations("cart");
   const {
     items,
-    unavailable_items,
     total_cents,
     item_count,
     isDrawerOpen,
@@ -26,9 +24,6 @@ export function CartDrawer() {
     dismissError,
   } = useCart();
   const trackedOpenRef = useRef(false);
-  const amountToFreeShipping = Math.max(0, FREE_SHIPPING_THRESHOLD_CENTS - total_cents);
-  const hasAvailableItems = item_count > 0;
-  const hasUnavailableItems = unavailable_items.length > 0;
 
   // Escape-to-close, Tab focus trap, focus save/restore, and body scroll lock —
   // all keyed off isDrawerOpen. The ref goes on the drawer panel below.
@@ -124,11 +119,7 @@ export function CartDrawer() {
               <button
                 onClick={dismissError}
                 aria-label={t("dismissError")}
-                className={cn(
-                  "min-h-[44px] min-w-[44px] shrink-0 inline-flex items-center justify-center rounded-brand",
-                  "text-red-800/70 hover:text-red-800 transition-colors duration-fast",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-700 focus-visible:ring-offset-2 focus-visible:ring-offset-red-50"
-                )}
+                className="shrink-0 text-red-800/70 hover:text-red-800 transition-colors duration-fast"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -147,7 +138,7 @@ export function CartDrawer() {
 
           {/* Content */}
           <div className="flex-1 overflow-y-auto px-6 py-4">
-            {!hasAvailableItems && !hasUnavailableItems ? (
+            {item_count === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-center">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -187,49 +178,13 @@ export function CartDrawer() {
                     onRemove={removeItem}
                   />
                 ))}
-                {hasUnavailableItems && (
-                  <div className="mt-4 rounded-brand border border-amber-200 bg-amber-50 p-3">
-                    <h3 className="text-sm font-medium text-amber-900">
-                      {t("unavailableTitle")}
-                    </h3>
-                    <ul className="mt-2 divide-y divide-amber-200/70">
-                      {unavailable_items.map((item) => (
-                        <li key={item.product_id} className="flex items-center justify-between gap-3 py-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium text-charcoal">
-                              {item.product_name}
-                            </p>
-                            <p className="mt-0.5 text-xs text-amber-800">
-                              {t("unavailableReason", { reason: item.reason })}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => removeItem(item.product_id)}
-                            className={cn(
-                              "min-h-[44px] shrink-0 rounded-brand px-3 text-sm font-medium text-amber-900 underline underline-offset-4",
-                              "hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700 focus-visible:ring-offset-2 focus-visible:ring-offset-amber-50"
-                            )}
-                          >
-                            {t("remove")}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
               </div>
             )}
           </div>
 
           {/* Footer */}
-          {hasAvailableItems && (
+          {item_count > 0 && (
             <div className="border-t border-champagne-beige px-6 py-4 space-y-4">
-              <div className="rounded-brand bg-muted-gold/10 px-3 py-2 text-xs text-soft-brown">
-                {amountToFreeShipping > 0
-                  ? t("amountToFreeShipping", { amount: formatPrice(amountToFreeShipping) })
-                  : t("freeShippingUnlocked")}
-              </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-soft-brown">{t("subtotal")}</span>
                 <span className="text-lg font-heading text-charcoal">

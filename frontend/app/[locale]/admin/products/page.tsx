@@ -65,10 +65,6 @@ export default function AdminProductsPage() {
 
   async function toggleActive(product: AdminProductResponse) {
     const previousActive = product.is_active;
-    if (!previousActive && product.images.length === 0) {
-      setError(t("mediaRequiredToActivate"));
-      return;
-    }
     setTogglingId(product.id);
 
     // Optimistic update
@@ -196,7 +192,6 @@ export default function AdminProductsPage() {
               <th className="px-4 py-3 font-medium text-charcoal">{t("price")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("stock")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("inventoryColumn")}</th>
-              <th className="px-4 py-3 font-medium text-charcoal">{t("media")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("status")}</th>
               <th className="px-4 py-3 font-medium text-charcoal">{t("actions")}</th>
             </tr>
@@ -212,13 +207,12 @@ export default function AdminProductsPage() {
                   <td className="px-4 py-3"><Skeleton className="h-4 w-10" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-5 w-28" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-5 w-16" /></td>
-                  <td className="px-4 py-3"><Skeleton className="h-5 w-16" /></td>
                   <td className="px-4 py-3"><Skeleton className="h-8 w-24" /></td>
                 </tr>
               ))
             ) : products.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-soft-brown">
+                <td colSpan={8} className="px-4 py-8 text-center text-soft-brown">
                   {t("noProducts")}
                 </td>
               </tr>
@@ -266,13 +260,6 @@ export default function AdminProductsPage() {
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    {product.images.length > 0 ? (
-                      <Badge variant="success">{t("mediaReady")}</Badge>
-                    ) : (
-                      <Badge variant="warning">{t("mediaMissing")}</Badge>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
                     <Badge variant={product.is_active ? "success" : "warning"}>
                       {product.is_active ? t("active") : t("inactive")}
                     </Badge>
@@ -289,7 +276,6 @@ export default function AdminProductsPage() {
                         variant="secondary"
                         size="sm"
                         isLoading={togglingId === product.id}
-                        disabled={!product.is_active && product.images.length === 0}
                         onClick={() => toggleActive(product)}
                       >
                         {product.is_active ? t("deactivate") : t("activate")}

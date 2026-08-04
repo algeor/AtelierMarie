@@ -690,16 +690,13 @@ function DoorAddressForm({ value, onChange, errors, locale }: DoorAddressFormPro
     readOnly = false,
   ) => {
     const err = errorKey ? errors[errorKey] : undefined;
-    const inputId = `delivery-door-${fieldKey.replace(/_/g, "-")}`;
-    const errorId = `${inputId}-error`;
     return (
       <div className="mb-4">
-        <label htmlFor={inputId} className="mb-1.5 block text-sm font-medium text-soft-brown">
+        <label className="mb-1.5 block text-sm font-medium text-soft-brown">
           {t(`${key}Label`)}
           {required && <span className="text-red-700"> *</span>}
         </label>
         <input
-          id={inputId}
           type="text"
           value={(value[fieldKey] as string | null | undefined) ?? ""}
           onChange={(e) => onChange({ [fieldKey]: e.target.value })}
@@ -715,7 +712,6 @@ function DoorAddressForm({ value, onChange, errors, locale }: DoorAddressFormPro
                   : 100
           }
           aria-invalid={err ? "true" : undefined}
-          aria-describedby={err ? errorId : undefined}
           className={cn(
             "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
             readOnly && "cursor-not-allowed opacity-70",
@@ -723,7 +719,7 @@ function DoorAddressForm({ value, onChange, errors, locale }: DoorAddressFormPro
           )}
         />
         {err && (
-          <p id={errorId} className="mt-1 text-sm text-red-700" role="alert">
+          <p className="mt-1 text-sm text-red-700" role="alert">
             {err}
           </p>
         )}
@@ -743,7 +739,6 @@ function DoorAddressForm({ value, onChange, errors, locale }: DoorAddressFormPro
         }
         onPostalCodeChange={(postal_code) => onChange({ postal_code })}
         error={errors.city}
-        postalCodeError={errors.postalCode}
       />
       {field("street", "street", true, "street")}
       <div className="grid gap-4 sm:grid-cols-2">
@@ -764,7 +759,6 @@ interface DoorPlaceFieldProps {
   onSelect: (place: CityPlace) => void;
   onPostalCodeChange: (postalCode: string) => void;
   error?: string;
-  postalCodeError?: string;
 }
 
 // Debounced place typeahead for courier door delivery — mirrors the OfficePicker
@@ -779,7 +773,6 @@ function DoorPlaceField({
   onSelect,
   onPostalCodeChange,
   error,
-  postalCodeError,
 }: DoorPlaceFieldProps) {
   const t = useTranslations("checkout.delivery.door");
   const [query, setQuery] = useState(city);
@@ -819,12 +812,11 @@ function DoorPlaceField({
   return (
     <>
       <div className="mb-4">
-        <label htmlFor="delivery-door-city" className="mb-1.5 block text-sm font-medium text-soft-brown">
+        <label className="mb-1.5 block text-sm font-medium text-soft-brown">
           {t("cityLabel")} <span className="text-red-700">*</span>
         </label>
         <div className="relative">
           <input
-            id="delivery-door-city"
             type="text"
             value={query}
             onChange={(e) => {
@@ -838,7 +830,6 @@ function DoorPlaceField({
             placeholder={t("cityPlaceholder")}
             maxLength={100}
             aria-invalid={error ? "true" : undefined}
-            aria-describedby={error ? "delivery-door-city-error" : undefined}
             className={cn(
               "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
               error ? "border-red-700" : "border-champagne-beige"
@@ -861,35 +852,26 @@ function DoorPlaceField({
           )}
         </div>
         {error && (
-          <p id="delivery-door-city-error" className="mt-1 text-sm text-red-700" role="alert">
+          <p className="mt-1 text-sm text-red-700" role="alert">
             {error}
           </p>
         )}
       </div>
       <div className="mb-4">
-        <label htmlFor="delivery-door-postal-code" className="mb-1.5 block text-sm font-medium text-soft-brown">
+        <label className="mb-1.5 block text-sm font-medium text-soft-brown">
           {t("postalCodeLabel")} <span className="text-red-700">*</span>
         </label>
         <input
-          id="delivery-door-postal-code"
           type="text"
           value={postalCode}
           readOnly={postalCodeLocked}
           onChange={(e) => onPostalCodeChange(e.target.value)}
           placeholder={t("postalCodePlaceholder")}
-          aria-invalid={postalCodeError ? "true" : undefined}
-          aria-describedby={postalCodeError ? "delivery-door-postal-code-error" : undefined}
           className={cn(
-            "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
-            postalCodeError ? "border-red-700" : "border-champagne-beige",
+            "w-full rounded-brand border border-champagne-beige bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
             postalCodeLocked && "cursor-not-allowed opacity-70 focus:ring-0"
           )}
         />
-        {postalCodeError && (
-          <p id="delivery-door-postal-code-error" className="mt-1 text-sm text-red-700" role="alert">
-            {postalCodeError}
-          </p>
-        )}
       </div>
     </>
   );

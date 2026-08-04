@@ -391,9 +391,7 @@ def _atomic_write_mapping(path: Path, payload: dict) -> None:
     os.replace(tmp, path)
 
 
-def _update_refresh_status(
-    source_name: str, status: str, *, records: int | None = None, error: str | None = None
-) -> None:
+def _update_refresh_status(source_name: str, status: str, *, records: int | None = None, error: str | None = None) -> None:
     """Persist last refresh status for admin diagnostics."""
     try:
         current = json.loads(REFRESH_STATUS_PATH.read_text(encoding="utf-8"))

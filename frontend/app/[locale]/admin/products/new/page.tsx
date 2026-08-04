@@ -1,14 +1,13 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { createProduct, updateProduct, updateProductVideoSortOrder, uploadProductImage, uploadProductVideo } from "@/lib/api";
+import { createProduct, updateProductVideoSortOrder, uploadProductImage, uploadProductVideo } from "@/lib/api";
 import { ProductForm, type ProductFormData } from "@/components/admin/ProductForm";
 
 export default function CreateProductPage() {
   const t = useTranslations("admin");
 
   async function handleSubmit(data: ProductFormData) {
-    const publishAfterMedia = data.is_active;
     const product = await createProduct({
       id: data.id,
       name_en: data.name_en,
@@ -27,7 +26,7 @@ export default function CreateProductPage() {
       labels: data.labels,
       stock: data.stock,
       weight_grams: data.weight_grams,
-      is_active: data.image_files.length > 0 ? false : data.is_active,
+      is_active: data.is_active,
       is_featured: data.is_featured,
       discount_percent: data.discount_percent,
       discount_starts_at: data.discount_starts_at,
@@ -39,9 +38,6 @@ export default function CreateProductPage() {
     if (data.video_file) {
       await uploadProductVideo(product.id, data.video_file);
       await updateProductVideoSortOrder(product.id, data.video_sort_order);
-    }
-    if (publishAfterMedia) {
-      await updateProduct(product.id, { is_active: true });
     }
   }
 

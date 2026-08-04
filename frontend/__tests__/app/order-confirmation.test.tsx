@@ -40,9 +40,6 @@ const mockedGetOrder = vi.mocked(getOrder);
 describe("Order Confirmation Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubEnv("NEXT_PUBLIC_BANK_IBAN", "BG80BNBG96611020345678");
-    vi.stubEnv("NEXT_PUBLIC_BANK_BIC", "BNBGBGSD");
-    vi.stubEnv("NEXT_PUBLIC_BANK_NAME", "Test Bank");
   });
 
   it("shows loading skeleton initially", () => {
@@ -151,46 +148,6 @@ describe("Order Confirmation Page", () => {
     renderWithIntl(<OrderConfirmationPage />);
 
     expect(await screen.findByText(message)).toBeInTheDocument();
-  });
-
-  it("shows bank-transfer instructions for pending bank transfer orders", async () => {
-    mockedGetOrder.mockResolvedValue({
-      id: "bank-order-123456",
-      status: "pending",
-      payment_method: "bank_transfer",
-      payment_status: "pending",
-      stripe_checkout_url: null,
-      items_total_cents: 2500,
-      shipping_cents: 500,
-      shipping_price_source: "live",
-      shipping_is_fallback: false,
-      total_cents: 3000,
-      customer_email: "buyer@example.com",
-      customer_name: "Test Buyer",
-      delivery_method: null,
-      delivery_courier: null,
-      delivery_details: null,
-      notes: null,
-      items: [
-        { product_id: "candle-1", product_name: "Rose Candle", price_cents: 2500, quantity: 1 },
-      ],
-      tracking_number: null,
-      tracking_carrier: null,
-      tracking_url: null,
-      courier_status: null,
-      label_url: null,
-      created_at: "2026-07-01T00:00:00Z",
-      updated_at: "2026-07-01T00:00:00Z",
-    });
-
-    renderWithIntl(<OrderConfirmationPage />);
-
-    expect(await screen.findByRole("heading", { name: "Bank transfer instructions" })).toBeInTheDocument();
-    expect(screen.getByText("Test Bank")).toBeInTheDocument();
-    expect(screen.getByText("BG80BNBG96611020345678")).toBeInTheDocument();
-    expect(screen.getByText("BNBGBGSD")).toBeInTheDocument();
-    expect(screen.getAllByText("€30.00").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("bank-ord")).toBeInTheDocument();
   });
 
   it("shows 'Order not found' on error", async () => {

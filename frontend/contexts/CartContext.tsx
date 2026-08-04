@@ -9,7 +9,7 @@ import {
   useRef,
 } from "react";
 import type { Locale } from "@/i18n/routing";
-import type { CartItemResponse, CartResponse, UnavailableCartItem } from "@/lib/types";
+import type { CartItemResponse, CartResponse } from "@/lib/types";
 import { addToCart, getCart, removeFromCart, updateCartItem } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
@@ -18,7 +18,6 @@ import { useLocalizedError } from "@/lib/useLocalizedError";
 
 interface CartState {
   items: CartItemResponse[];
-  unavailable_items: UnavailableCartItem[];
   total_cents: number;
   item_count: number;
   isLoading: boolean;
@@ -28,7 +27,6 @@ interface CartState {
 
 const INITIAL_STATE: CartState = {
   items: [],
-  unavailable_items: [],
   total_cents: 0,
   item_count: 0,
   isLoading: true,
@@ -62,7 +60,6 @@ function cartReducer(state: CartState, action: CartAction): CartState {
       return {
         ...state,
         items: action.payload.items,
-        unavailable_items: action.payload.unavailable_items ?? [],
         total_cents: action.payload.total_cents,
         item_count: action.payload.item_count,
         isLoading: false,
@@ -88,7 +85,6 @@ function cartReducer(state: CartState, action: CartAction): CartState {
       return {
         ...state,
         items: updatedItems,
-        unavailable_items: state.unavailable_items,
         item_count: updatedItems.reduce((sum, item) => sum + item.quantity, 0),
       };
     }
@@ -100,12 +96,9 @@ function cartReducer(state: CartState, action: CartAction): CartState {
       return {
         ...state,
         items: filteredItems,
-        unavailable_items: state.unavailable_items.filter(
-          (item) => item.product_id !== action.payload.productId
-        ),
         item_count: filteredItems.reduce((sum, item) => sum + item.quantity, 0),
         total_cents: filteredItems.reduce(
-          (sum, item) => sum + item.product.effective_price_cents * item.quantity,
+          (sum, item) => sum + item.product.price_cents * item.quantity,
           0
         ),
       };
@@ -115,7 +108,6 @@ function cartReducer(state: CartState, action: CartAction): CartState {
       return {
         ...state,
         items: action.payload.items,
-        unavailable_items: action.payload.unavailable_items ?? [],
         total_cents: action.payload.total_cents,
         item_count: action.payload.item_count,
         error: null,
@@ -145,7 +137,6 @@ function cartReducer(state: CartState, action: CartAction): CartState {
 
 interface CartContextValue {
   items: CartItemResponse[];
-  unavailable_items: UnavailableCartItem[];
   total_cents: number;
   item_count: number;
   isLoading: boolean;
@@ -320,7 +311,6 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   const value: CartContextValue = {
     items: state.items,
-    unavailable_items: state.unavailable_items,
     total_cents: state.total_cents,
     item_count: state.item_count,
     isLoading: state.isLoading,

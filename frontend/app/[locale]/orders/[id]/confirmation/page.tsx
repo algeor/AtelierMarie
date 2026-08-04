@@ -16,14 +16,6 @@ import { CourierTrackingSummary } from "@/components/orders/CourierTrackingSumma
 import { DeliveryDetails } from "@/components/checkout/DeliveryDetails";
 import type { OrderResponse } from "@/lib/types";
 
-function getBankDetails() {
-  return {
-    iban: process.env.NEXT_PUBLIC_BANK_IBAN ?? "",
-    bic: process.env.NEXT_PUBLIC_BANK_BIC ?? "",
-    name: process.env.NEXT_PUBLIC_BANK_NAME ?? "",
-  };
-}
-
 export default function OrderConfirmationPage() {
   const t = useTranslations("orders");
   const tPayment = useTranslations("orders.payment");
@@ -128,20 +120,13 @@ export default function OrderConfirmationPage() {
           : tPayment("returnPending")
       : order.payment_method === "cod"
         ? tPayment("codConfirmation")
-        : order.payment_method === "bank_transfer" && order.payment_status === "pending"
-          ? tPayment("bankInstructions")
-          : null;
+        : null;
   const paymentMessageClass =
     order.payment_status === "paid"
       ? "border-green-200 bg-green-50 text-green-800"
       : order.payment_status === "failed"
         ? "border-red-200 bg-red-50 text-red-700"
         : "border-amber-200 bg-amber-50 text-amber-800";
-  const bankDetails = getBankDetails();
-  const showBankInstructions =
-    order.payment_method === "bank_transfer" &&
-    order.payment_status === "pending" &&
-    Boolean(bankDetails.iban);
 
   // Success state
   return (
@@ -212,41 +197,6 @@ export default function OrderConfirmationPage() {
             </span>
           </div>
         </div>
-
-        {showBankInstructions && (
-          <section className="mb-6 rounded-brand border border-champagne-beige bg-cream p-4 text-sm" aria-labelledby="bank-transfer-heading">
-            <h2 id="bank-transfer-heading" className="font-medium text-charcoal">
-              {tPayment("bankInstructions")}
-            </h2>
-            <dl className="mt-3 space-y-1.5">
-              {bankDetails.name && (
-                <div className="flex flex-wrap gap-2">
-                  <dt className="font-medium text-charcoal">{tPayment("bankName")}:</dt>
-                  <dd className="text-soft-brown">{bankDetails.name}</dd>
-                </div>
-              )}
-              <div className="flex flex-wrap gap-2">
-                <dt className="font-medium text-charcoal">{tPayment("bankIban")}:</dt>
-                <dd className="font-mono text-soft-brown">{bankDetails.iban}</dd>
-              </div>
-              {bankDetails.bic && (
-                <div className="flex flex-wrap gap-2">
-                  <dt className="font-medium text-charcoal">{tPayment("bankBic")}:</dt>
-                  <dd className="text-soft-brown">{bankDetails.bic}</dd>
-                </div>
-              )}
-              <div className="flex flex-wrap gap-2">
-                <dt className="font-medium text-charcoal">{tPayment("bankAmount")}:</dt>
-                <dd className="text-soft-brown">{formatPrice(order.total_cents)}</dd>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <dt className="font-medium text-charcoal">{tPayment("bankReference")}:</dt>
-                <dd className="font-mono text-soft-brown">{order.id.slice(0, 8)}</dd>
-              </div>
-            </dl>
-            <p className="mt-3 text-xs text-soft-brown/70">{tPayment("bankNote")}</p>
-          </section>
-        )}
 
         <p className="mb-6 text-sm leading-6 text-soft-brown">
           {t("policyNote")} {" "}

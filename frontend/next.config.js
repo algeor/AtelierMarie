@@ -6,10 +6,6 @@ const distDir = process.env.NEXT_DIST_DIR;
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // The build/start npm scripts set NEXT_DIST_DIR (=.next-build for build/start,
-  // .next-dev for dev); the Docker build relies on the same. Next.js only honors
-  // the output dir via `distDir` here, so read the env var. When unset, omit the
-  // key so Next.js uses its default `.next`.
   ...(distDir ? { distDir } : {}),
   // Two lockfiles exist (repo-root workspace wrapper + this app). Pin the trace
   // root to this directory so Next.js stops guessing and warning about it.

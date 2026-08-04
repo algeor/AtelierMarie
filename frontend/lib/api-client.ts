@@ -1,31 +1,12 @@
 /**
  * Typed fetch wrapper for communicating with the backend API.
- *
- * URL resolution:
- * - Browser (client) requests use NEXT_PUBLIC_API_URL — the publicly reachable
- *   origin (default: http://localhost:8000).
- * - Server-side requests (Server Components, route handlers) prefer
- *   API_INTERNAL_URL when set, so that in containerized/split deployments the
- *   server can reach the backend over the internal network (e.g.
- *   http://backend:8001) instead of a public origin that resolves to the
- *   frontend container's own loopback.
- *
- * API_INTERNAL_URL is NOT a NEXT_PUBLIC_ var: it is read only on the server and
- * is never bundled into client JavaScript.
+ * Uses NEXT_PUBLIC_API_URL (default: http://localhost:8000).
  */
 
 import type { ErrorResponse } from "./types";
 
-const PUBLIC_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-// On the server, prefer the internal URL when provided; fall back to the public
-// one. In the browser, `process.env.API_INTERNAL_URL` is undefined (not a
-// NEXT_PUBLIC_ var), so this always resolves to the public URL there.
 const BASE_URL =
-  typeof window === "undefined"
-    ? process.env.API_INTERNAL_URL || PUBLIC_BASE_URL
-    : PUBLIC_BASE_URL;
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export class ApiError extends Error {
   code: string;

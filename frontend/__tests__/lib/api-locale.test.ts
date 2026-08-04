@@ -62,18 +62,6 @@ describe("API locale contracts", () => {
       orders_today: 5,
       revenue_this_week_cents: 22000,
       active_product_count: 3,
-      low_stock_count: 2,
-      contact_messages_needing_attention: 0,
-      orders: {
-        total: 5,
-        revenue_cents: 22000,
-        by_status: {},
-        by_payment_status: {},
-      },
-      products: {
-        total: 4,
-        active: 3,
-      },
     });
   });
 

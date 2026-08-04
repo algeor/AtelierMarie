@@ -957,18 +957,6 @@ export async function getAdminStats(): Promise<AdminStats> {
     revenue_this_week_cents:
       stats.revenue_this_week_cents ?? stats.orders?.revenue_cents ?? 0,
     active_product_count: stats.active_product_count ?? stats.products?.active ?? 0,
-    low_stock_count: stats.low_stock_count ?? 0,
-    contact_messages_needing_attention: stats.contact_messages_needing_attention ?? 0,
-    orders: {
-      total: stats.orders?.total ?? 0,
-      revenue_cents: stats.orders?.revenue_cents ?? 0,
-      by_status: stats.orders?.by_status ?? {},
-      by_payment_status: stats.orders?.by_payment_status ?? {},
-    },
-    products: {
-      total: stats.products?.total ?? 0,
-      active: stats.products?.active ?? stats.active_product_count ?? 0,
-    },
   };
 }
 
