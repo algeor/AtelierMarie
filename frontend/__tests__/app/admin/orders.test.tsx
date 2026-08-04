@@ -128,6 +128,54 @@ const MOCK_ORDER_LIST: OrderListResponse = {
   limit: 100,
 };
 
+const PREVIOUS_STATUS_FILTER_VALUES = [
+  "",
+  "pending",
+  "confirmed",
+  "shipped",
+  "delivered",
+  "return_in_transit",
+  "returned",
+  "cancelled",
+];
+
+const PREVIOUS_PAYMENT_STATUS_FILTER_VALUES = [
+  "",
+  "pending",
+  "paid",
+  "cod_pending",
+  "failed",
+  "refunded",
+];
+
+const PREVIOUS_PAYMENT_METHOD_FILTER_VALUES = ["", "card", "cod", "bank_transfer"];
+
+const PREVIOUS_ACCOUNTING_FILTER_VALUES = [
+  "",
+  "missing_document_reference",
+  "unresolved_exception",
+  "payout_mismatch",
+  "cod_settlement_pending",
+  "refund_document_missing",
+  "vat_review_required",
+  "missing_batch_assignment",
+  "missing_inventory_movement",
+  "missing_cogs_row",
+  "valuation_exception",
+  "return_inventory_review_pending",
+];
+
+async function filterMenuOptionValues(name: string): Promise<string[]> {
+  fireEvent.click(screen.getByRole("button", { name }));
+  const options = await screen.findAllByRole("menuitemradio");
+  const values = options.map((option) => option.getAttribute("data-value") ?? "");
+  fireEvent.keyDown(document, { key: "Escape" });
+  await waitFor(() => {
+    expect(screen.queryByRole("menuitemradio")).not.toBeInTheDocument();
+  });
+  return values;
+}
+
 async function openStatusMenu(index = 0) {
   const statusMenus = screen.getAllByRole("button", {
     name: /Update status for order/i,
@@ -173,7 +221,7 @@ describe("Admin Orders List", () => {
     expect(screen.getAllByText("Confirmed").length).toBeGreaterThan(0);
   });
 
-  it("shows status filter pills", async () => {
+  it("shows compact order filters", async () => {
     mockedGetAdminOrders.mockResolvedValue(MOCK_ORDER_LIST);
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
@@ -192,21 +240,52 @@ describe("Admin Orders List", () => {
       expect(screen.getByText("Orders")).toBeInTheDocument();
     });
 
-    // Check filter pill buttons by aria-pressed attribute
-    const allButton = screen.getAllByRole("button", { name: "All" })[0]!;
-    const pendingButton = screen.getByRole("button", { name: "Pending" });
-    const shippedButton = screen.getByRole("button", { name: "Shipped" });
-    const deliveredButton = screen.getByRole("button", { name: "Delivered" });
-    const cancelledButton = screen.getByRole("button", { name: "Cancelled" });
-
-    expect(allButton).toHaveAttribute("aria-pressed", "true");
-    expect(pendingButton).toHaveAttribute("aria-pressed", "false");
-    expect(shippedButton).toHaveAttribute("aria-pressed", "false");
-    expect(deliveredButton).toHaveAttribute("aria-pressed", "false");
-    expect(cancelledButton).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "All orders" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Needs attention" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("searchbox", { name: "Search" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Date range" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Date range" })).toHaveTextContent("All dates");
+    expect(screen.getByRole("button", { name: "Status" })).toHaveTextContent("All");
+    expect(screen.getByRole("button", { name: "Payment status" })).toHaveTextContent("All");
   });
 
-  it("filters orders by status when pill clicked", async () => {
+  it("keeps every previous filter option reachable", async () => {
+    mockedGetAdminOrders.mockResolvedValue(MOCK_ORDER_LIST);
+
+    const { AdminProvider } = await import("@/contexts/AdminContext");
+    const { AdminGuard } = await import("@/components/admin/AdminGuard");
+    const AdminOrdersPage = (await import("@/app/[locale]/admin/orders/page")).default;
+
+    renderWithIntl(
+      <AdminProvider>
+        <AdminGuard>
+          <AdminOrdersPage />
+        </AdminGuard>
+      </AdminProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Orders")).toBeInTheDocument();
+    });
+
+    expect(await filterMenuOptionValues("Status")).toEqual(
+      PREVIOUS_STATUS_FILTER_VALUES
+    );
+    expect(await filterMenuOptionValues("Payment status")).toEqual(
+      expect.arrayContaining(PREVIOUS_PAYMENT_STATUS_FILTER_VALUES)
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+
+    expect(await filterMenuOptionValues("Payment method")).toEqual(
+      PREVIOUS_PAYMENT_METHOD_FILTER_VALUES
+    );
+    expect(await filterMenuOptionValues("Accounting filter")).toEqual(
+      PREVIOUS_ACCOUNTING_FILTER_VALUES
+    );
+  });
+
+  it("filters orders by status when selected", async () => {
     mockedGetAdminOrders.mockResolvedValue(MOCK_ORDER_LIST);
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
@@ -225,8 +304,8 @@ describe("Admin Orders List", () => {
       expect(screen.getByText("a***@example.com")).toBeInTheDocument();
     });
 
-    const pendingPill = screen.getByRole("button", { name: "Pending" });
-    fireEvent.click(pendingPill);
+    fireEvent.click(screen.getByRole("button", { name: "Status" }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Pending" }));
 
     await waitFor(() => {
       expect(mockedGetAdminOrders).toHaveBeenCalledWith(1, 100, "pending");
@@ -252,7 +331,9 @@ describe("Admin Orders List", () => {
       expect(screen.getByText("a***@example.com")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Missing sold cost" }));
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+    fireEvent.click(screen.getByRole("button", { name: "Accounting filter" }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Missing sold cost" }));
 
     await waitFor(() => {
       expect(mockedGetAdminOrders).toHaveBeenCalledWith(

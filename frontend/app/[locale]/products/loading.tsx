@@ -2,7 +2,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 
 export default function ProductsLoading() {
   return (
-    <div className="editorial-band px-4 py-12 sm:px-6 lg:px-8">
+    <main className="editorial-band px-4 py-12 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
         {/* Heading skeleton */}
         <Skeleton className="h-10 w-64 mb-8" />
@@ -25,6 +25,6 @@ export default function ProductsLoading() {
           ))}
         </div>
       </div>
-    </div>
+    </main>
   );
 }

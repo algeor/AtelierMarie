@@ -7,15 +7,10 @@ import { AdminSidebar } from "@/components/admin/AdminSidebar";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
 
-function getDefaultSidebarOpen() {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return true;
-  return window.matchMedia("(min-width: 1024px)").matches;
-}
-
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const tAdmin = useTranslations("admin");
   const tCommon = useTranslations("common");
-  const [sidebarOpen, setSidebarOpen] = useState(getDefaultSidebarOpen);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
     if (typeof window.matchMedia !== "function") return;

@@ -70,17 +70,20 @@ export function FeaturedProductsShowcase({ products }: FeaturedProductsShowcaseP
               className="featured-carousel-track flex"
               style={{ transform: `translateX(-${activeIndex * 100}%)` }}
             >
-            {featuredProducts.map((product, index) => (
-              <div key={product.id} className="min-w-full px-0 sm:px-10 lg:px-16">
-                <FeaturedProductCard
-                  product={product}
-                  index={index}
-                  active={activeIndex === index}
-                  className="mx-auto w-full max-w-[24rem] lg:max-w-5xl"
-                  onActivate={() => chooseProduct(index, false)}
-                />
-              </div>
-            ))}
+            {featuredProducts.map((product, index) => {
+              const isActive = activeIndex === index;
+              return (
+                <div key={product.id} className="min-w-full px-0 sm:px-10 lg:px-16">
+                  <FeaturedProductCard
+                    product={product}
+                    index={index}
+                    active={isActive}
+                    className="mx-auto w-full max-w-[24rem] lg:max-w-5xl"
+                    onActivate={() => chooseProduct(index, false)}
+                  />
+                </div>
+              );
+            })}
             </div>
           </div>
 
@@ -156,20 +159,24 @@ function FeaturedProductCard({
 }) {
   const t = useTranslations("home");
   const descriptor = productDescriptor(product);
+  const inactiveTabIndex = active ? undefined : -1;
 
   return (
     <article
       className={cn(
         "featured-preview-card landing-scroll-reveal group relative",
         active && "featured-preview-card--active",
+        !active && "pointer-events-none",
         className
       )}
+      aria-hidden={!active ? true : undefined}
       style={{ animationDelay: `${index * 110}ms` }}
       onMouseEnter={onActivate}
       onFocus={onActivate}
     >
       <Link
         href={`/products/${product.id}`}
+        tabIndex={inactiveTabIndex}
         className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
       >
         <ProductImage
@@ -184,6 +191,7 @@ function FeaturedProductCard({
         <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-accent">{descriptor}</p>
         <Link
           href={`/products/${product.id}`}
+          tabIndex={inactiveTabIndex}
           className="mt-1.5 block font-heading text-xl leading-tight text-text transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
         >
           {product.name}
@@ -195,10 +203,13 @@ function FeaturedProductCard({
           <AddToCartButton
             productId={product.id}
             stock={product.stock}
+            disabled={!active}
+            tabIndex={inactiveTabIndex}
             className="min-h-[42px] text-sm min-[420px]:w-auto min-[420px]:flex-1"
           />
           <Link
             href={`/products/${product.id}`}
+            tabIndex={inactiveTabIndex}
             className="inline-flex min-h-[42px] items-center justify-center rounded-brand border border-border/70 bg-surface-elevated/80 px-4 py-2 text-sm font-semibold text-text transition-colors hover:bg-page focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page min-[420px]:shrink-0"
           >
             {t("viewProduct")}

@@ -129,7 +129,7 @@ export default async function HomePage({ params }: { params: Promise<{ locale: L
   ] as const;
 
   return (
-    <>
+    <main className="bg-page text-text">
       <HeroSection product={heroProduct} />
 
       {featured.length > 0 ? <FeaturedProductsShowcase products={featured} /> : null}
@@ -204,6 +204,6 @@ export default async function HomePage({ params }: { params: Promise<{ locale: L
           </div>
         </section>
       ) : null}
-    </>
+    </main>
   );
 }

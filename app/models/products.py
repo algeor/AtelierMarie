@@ -145,6 +145,7 @@ class ProductAdminListResponse(BaseModel):
     total: int
     page: int
     limit: int
+    applied_filters: dict[str, str | int | bool | list[str] | None] = Field(default_factory=dict)
 
 
 class ProductImage(BaseModel):

@@ -8,6 +8,7 @@ import type { Locale } from "@/i18n/routing";
 import type {
   AdminProductListResponse,
   AdminProductResponse,
+  AdminProductFilters,
   AdminOrderDetailResponse,
   AdminStats,
   AdminTaxonomyTerm,
@@ -1060,10 +1061,36 @@ export function getAdminAnalyticsExportUrl(startDate?: string, endDate?: string)
 
 export async function getAdminProducts(
   page = 1,
-  limit = 20
+  limit = 20,
+  filters: AdminProductFilters = {}
 ): Promise<AdminProductListResponse> {
-  if (USE_MOCK) return (await getMock()).getAdminProducts(page, limit);
+  if (USE_MOCK) return (await getMock()).getAdminProducts(page, limit, filters);
   const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (filters.q?.trim()) params.set("q", filters.q.trim());
+  if (filters.status && filters.status !== "all") params.set("status", filters.status);
+  if (filters.media && filters.media !== "any") params.set("media", filters.media);
+  if (filters.stock && filters.stock !== "any") params.set("stock", filters.stock);
+  if (filters.product_type) params.set("product_type", filters.product_type);
+  if (filters.category) params.set("category", filters.category);
+  for (const label of filters.label ?? []) {
+    if (label) params.append("label", label);
+  }
+  if (filters.featured !== null && filters.featured !== undefined) {
+    params.set("featured", String(filters.featured));
+  }
+  if (filters.discount && filters.discount !== "any") params.set("discount", filters.discount);
+  if (filters.inventory_mode) params.set("inventory_mode", filters.inventory_mode);
+  if (filters.recipe_status) params.set("recipe_status", filters.recipe_status);
+  if (
+    filters.has_inventory_exceptions !== null &&
+    filters.has_inventory_exceptions !== undefined
+  ) {
+    params.set("has_inventory_exceptions", String(filters.has_inventory_exceptions));
+  }
+  if (filters.stock === "low" && filters.low_stock_threshold !== undefined) {
+    params.set("low_stock_threshold", String(filters.low_stock_threshold));
+  }
+  if (filters.sort) params.set("sort", filters.sort);
   return apiClient.get<AdminProductListResponse>(`/v1/admin/products?${params}`);
 }
 
@@ -1085,6 +1112,13 @@ export async function updateProduct(
   return apiClient.patch<AdminProductResponse>(
     `/v1/admin/products/${encodeURIComponent(productId)}`,
     data
+  );
+}
+
+export async function deleteProduct(productId: string): Promise<AdminProductResponse> {
+  if (USE_MOCK) return (await getMock()).deleteProduct(productId);
+  return apiClient.del<AdminProductResponse>(
+    `/v1/admin/products/${encodeURIComponent(productId)}`
   );
 }
 

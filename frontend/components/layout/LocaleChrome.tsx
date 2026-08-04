@@ -23,7 +23,7 @@ export function LocaleChrome({ children }: { children: React.ReactNode }) {
       <AnnouncementBar />
       <Header />
       <CartDrawer />
-      <main>{children}</main>
+      {children}
       <Footer />
     </CartProvider>
   );

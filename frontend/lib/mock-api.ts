@@ -4,6 +4,7 @@
  */
 
 import type {
+  AdminProductFilters,
   AdminProductListResponse,
   AdminProductResponse,
   AdminStats,
@@ -2868,14 +2869,75 @@ function toAdminProduct(product: MockProduct): AdminProductResponse {
 
 export async function getAdminProducts(
   page = 1,
-  limit = 20
+  limit = 20,
+  filters: AdminProductFilters = {}
 ): Promise<AdminProductListResponse> {
   await delay();
+  const query = filters.q?.trim().toLowerCase() ?? "";
+  const filtered = MOCK_PRODUCTS.filter((product) => {
+    if (query) {
+      const haystack = [product.id, product.name, product.description]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      if (!haystack.includes(query)) return false;
+    }
+    if (filters.status === "active" && !product.is_active) return false;
+    if (filters.status === "inactive" && product.is_active) return false;
+    if (filters.media === "ready" && product.images.length === 0) return false;
+    if (filters.media === "missing_image" && product.images.length > 0) return false;
+    if (filters.media === "has_video" && !product.video) return false;
+    if (filters.media === "missing_video" && product.video) return false;
+    if (filters.stock === "in_stock" && product.stock <= 0) return false;
+    if (filters.stock === "out_of_stock" && product.stock !== 0) return false;
+    if (filters.stock === "low" && product.stock > (filters.low_stock_threshold ?? 5)) return false;
+    if (filters.product_type && product.product_type !== filters.product_type) return false;
+    if (filters.category && product.category !== filters.category) return false;
+    if (filters.label?.length) {
+      const productLabels = new Set(product.labels.map((label) => label.slug));
+      if (!filters.label.every((label) => productLabels.has(label))) return false;
+    }
+    if (filters.featured !== null && filters.featured !== undefined && product.is_featured !== filters.featured) return false;
+    if (filters.discount === "active" && !product.discount_active) return false;
+    if (filters.discount === "scheduled") {
+      if (!product.discount_percent || !product.discount_starts_at) return false;
+      if (new Date(product.discount_starts_at) <= new Date()) return false;
+    }
+    if (filters.discount === "none" && product.discount_percent != null) return false;
+    if (filters.inventory_mode && filters.inventory_mode !== "legacy") return false;
+    if (filters.recipe_status && filters.recipe_status !== "missing") return false;
+    if (filters.has_inventory_exceptions === true) return false;
+    return true;
+  });
+  filtered.sort((a, b) => {
+    switch (filters.sort) {
+      case "name_asc":
+        return a.name.localeCompare(b.name);
+      case "name_desc":
+        return b.name.localeCompare(a.name);
+      case "price_asc":
+        return a.price_cents - b.price_cents;
+      case "price_desc":
+        return b.price_cents - a.price_cents;
+      case "stock_asc":
+        return a.stock - b.stock;
+      case "stock_desc":
+        return b.stock - a.stock;
+      case "updated_asc":
+        return a.updated_at.localeCompare(b.updated_at);
+      case "created_asc":
+        return a.created_at.localeCompare(b.created_at);
+      case "updated_desc":
+        return b.updated_at.localeCompare(a.updated_at);
+      default:
+        return b.created_at.localeCompare(a.created_at);
+    }
+  });
   const start = (page - 1) * limit;
-  const slice = MOCK_PRODUCTS.slice(start, start + limit);
+  const slice = filtered.slice(start, start + limit);
   return {
     products: slice.map(toAdminProduct),
-    total: MOCK_PRODUCTS.length,
+    total: filtered.length,
     page,
     limit,
   };
@@ -2991,6 +3053,16 @@ export async function updateProduct(
     if (data.discount_ends_at !== undefined) product.discount_ends_at = data.discount_ends_at;
   }
   applyMockPricing(product);
+  product.updated_at = new Date().toISOString();
+  return toAdminProduct(product);
+}
+
+export async function deleteProduct(productId: string): Promise<AdminProductResponse> {
+  await delay();
+  const product = MOCK_PRODUCTS.find((p) => p.id === productId);
+  if (!product) mockError("NOT_FOUND", `Product ${productId} not found`);
+  product.is_active = false;
+  product.video = null;
   product.updated_at = new Date().toISOString();
   return toAdminProduct(product);
 }

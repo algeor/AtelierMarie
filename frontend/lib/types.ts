@@ -2675,6 +2675,42 @@ export interface AdminProductListResponse {
   total: number;
   page: number;
   limit: number;
+  applied_filters?: Record<string, string | number | boolean | string[] | null>;
+}
+
+export type AdminProductStatusFilter = "all" | "active" | "inactive";
+export type AdminProductMediaFilter = "any" | "ready" | "missing_image" | "has_video" | "missing_video";
+export type AdminProductStockFilter = "any" | "in_stock" | "out_of_stock" | "low";
+export type AdminProductDiscountFilter = "any" | "active" | "scheduled" | "none";
+export type AdminProductInventoryModeFilter = "legacy" | "fallback" | "ledger_managed";
+export type AdminProductRecipeStatusFilter = "active" | "missing" | "draft" | "archived";
+export type AdminProductSort =
+  | "created_desc"
+  | "created_asc"
+  | "updated_desc"
+  | "updated_asc"
+  | "name_asc"
+  | "name_desc"
+  | "price_asc"
+  | "price_desc"
+  | "stock_asc"
+  | "stock_desc";
+
+export interface AdminProductFilters {
+  q?: string;
+  status?: AdminProductStatusFilter;
+  media?: AdminProductMediaFilter;
+  stock?: AdminProductStockFilter;
+  product_type?: string;
+  category?: string;
+  label?: string[];
+  featured?: boolean | null;
+  discount?: AdminProductDiscountFilter;
+  inventory_mode?: AdminProductInventoryModeFilter | "";
+  recipe_status?: AdminProductRecipeStatusFilter | "";
+  has_inventory_exceptions?: boolean | null;
+  low_stock_threshold?: number;
+  sort?: AdminProductSort;
 }
 
 export interface CreateProductRequest {

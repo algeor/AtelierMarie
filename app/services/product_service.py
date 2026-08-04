@@ -11,6 +11,27 @@ from app.services import pricing, product_image_service, product_video_service, 
 
 Locale = Literal["en", "bg"]
 
+AdminProductStatusFilter = Literal["all", "active", "inactive"]
+AdminProductMediaFilter = Literal["any", "ready", "missing_image", "has_video", "missing_video"]
+AdminProductStockFilter = Literal["any", "in_stock", "out_of_stock", "low"]
+AdminProductDiscountFilter = Literal["any", "active", "scheduled", "none"]
+AdminProductInventoryModeFilter = Literal["legacy", "fallback", "ledger_managed"]
+AdminProductRecipeStatusFilter = Literal["active", "missing", "draft", "archived"]
+AdminProductSort = Literal[
+    "created_desc",
+    "created_asc",
+    "updated_desc",
+    "updated_asc",
+    "name_asc",
+    "name_desc",
+    "price_asc",
+    "price_desc",
+    "stock_asc",
+    "stock_desc",
+]
+
+DEFAULT_ADMIN_LOW_STOCK_THRESHOLD = 5
+
 
 class NotFoundError(Exception):
     """Raised when a requested product does not exist (or is inactive for public queries)."""
@@ -271,6 +292,11 @@ def _sanitize_fts5_query(query: str) -> str:
     return " ".join(sanitized)
 
 
+def _escape_like(value: str) -> str:
+    """Escape SQLite LIKE wildcards for literal admin search."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _clamp_pagination(page: int, limit: int) -> tuple[int, int]:
     """Clamp pagination values to configured bounds.
 
@@ -283,6 +309,143 @@ def _clamp_pagination(page: int, limit: int) -> tuple[int, int]:
         limit = 1
     limit = min(limit, MAX_LIMIT)
     return page, limit
+
+
+def _admin_label_condition(labels: list[str]) -> tuple[str, list]:
+    """Return an AND-semantics label condition for admin product filters."""
+    unique_labels = list(dict.fromkeys(labels))
+    placeholders = ", ".join("?" for _ in unique_labels)
+    return (
+        f"p.id IN (SELECT product_id FROM product_label_assignments "  # noqa: S608
+        f"WHERE label_slug IN ({placeholders}) "
+        "GROUP BY product_id HAVING COUNT(DISTINCT label_slug) = ?)",
+        [*unique_labels, len(unique_labels)],
+    )
+
+
+def _build_admin_product_filters(
+    *,
+    q: str | None,
+    status: AdminProductStatusFilter | None,
+    media: AdminProductMediaFilter | None,
+    stock: AdminProductStockFilter | None,
+    product_type: str | None,
+    category: str | None,
+    labels: list[str] | None,
+    featured: bool | None,
+    discount: AdminProductDiscountFilter | None,
+    inventory_mode: AdminProductInventoryModeFilter | None,
+    recipe_status: AdminProductRecipeStatusFilter | None,
+    has_inventory_exceptions: bool | None,
+    low_stock_threshold: int,
+    now: str,
+) -> tuple[list[str], list]:
+    """Build WHERE conditions + params for the admin product list."""
+    conditions: list[str] = []
+    params: list = []
+
+    if q and q.strip():
+        pattern = f"%{_escape_like(q.strip())}%"
+        conditions.append(
+            "(p.id LIKE ? ESCAPE '\\' OR p.name_en LIKE ? ESCAPE '\\' "
+            "OR COALESCE(p.name_bg, '') LIKE ? ESCAPE '\\' "
+            "OR COALESCE(p.description_en, '') LIKE ? ESCAPE '\\' "
+            "OR COALESCE(p.description_bg, '') LIKE ? ESCAPE '\\')"
+        )
+        params.extend([pattern, pattern, pattern, pattern, pattern])
+
+    if status == "active":
+        conditions.append("p.is_active = 1")
+    elif status == "inactive":
+        conditions.append("p.is_active = 0")
+
+    if media == "ready":
+        conditions.append("EXISTS (SELECT 1 FROM product_images pi WHERE pi.product_id = p.id)")
+    elif media == "missing_image":
+        conditions.append("NOT EXISTS (SELECT 1 FROM product_images pi WHERE pi.product_id = p.id)")
+    elif media == "has_video":
+        conditions.append("EXISTS (SELECT 1 FROM product_videos pv WHERE pv.product_id = p.id)")
+    elif media == "missing_video":
+        conditions.append("NOT EXISTS (SELECT 1 FROM product_videos pv WHERE pv.product_id = p.id)")
+
+    if stock == "in_stock":
+        conditions.append("p.stock > 0")
+    elif stock == "out_of_stock":
+        conditions.append("p.stock = 0")
+    elif stock == "low":
+        conditions.append("p.stock <= ?")
+        params.append(low_stock_threshold)
+
+    if product_type:
+        conditions.append("p.product_type_slug = ?")
+        params.append(product_type)
+
+    if category:
+        conditions.append("p.category_slug = ?")
+        params.append(category)
+
+    if labels:
+        condition, label_params = _admin_label_condition(labels)
+        conditions.append(condition)
+        params.extend(label_params)
+
+    if featured is not None:
+        conditions.append("p.is_featured = ?")
+        params.append(1 if featured else 0)
+
+    if discount == "active":
+        conditions.append(
+            "(p.discount_percent IS NOT NULL "
+            "AND (p.discount_starts_at IS NULL OR p.discount_starts_at <= ?) "
+            "AND (p.discount_ends_at IS NULL OR p.discount_ends_at >= ?))"
+        )
+        params.extend([now, now])
+    elif discount == "scheduled":
+        conditions.append(
+            "(p.discount_percent IS NOT NULL "
+            "AND p.discount_starts_at IS NOT NULL "
+            "AND p.discount_starts_at > ?)"
+        )
+        params.append(now)
+    elif discount == "none":
+        conditions.append("p.discount_percent IS NULL")
+
+    if inventory_mode:
+        conditions.append(
+            "COALESCE((SELECT pip.inventory_mode FROM product_inventory_profiles pip "
+            "WHERE pip.product_id = p.id), 'legacy') = ?"
+        )
+        params.append(inventory_mode)
+
+    if recipe_status == "active":
+        conditions.append(
+            "EXISTS (SELECT 1 FROM recipe_versions rv "
+            "WHERE rv.product_id = p.id AND rv.status = 'active')"
+        )
+    elif recipe_status == "missing":
+        conditions.append(
+            "NOT EXISTS (SELECT 1 FROM recipe_versions rv "
+            "WHERE rv.product_id = p.id AND rv.status = 'active')"
+        )
+    elif recipe_status in {"draft", "archived"}:
+        conditions.append(
+            "EXISTS (SELECT 1 FROM recipe_versions rv "
+            "WHERE rv.product_id = p.id AND rv.status = ?)"
+        )
+        params.append(recipe_status)
+
+    if has_inventory_exceptions is True:
+        conditions.append(
+            "EXISTS (SELECT 1 FROM inventory_exceptions ie "
+            "WHERE ie.target_type = 'product' AND ie.target_id = p.id AND ie.status = 'open')"
+        )
+    elif has_inventory_exceptions is False:
+        conditions.append(
+            "NOT EXISTS (SELECT 1 FROM inventory_exceptions ie "
+            "WHERE ie.target_type = 'product' AND ie.target_id = p.id AND ie.status = 'open')"
+        )
+
+    return conditions, params
 
 
 def list_products(
@@ -447,26 +610,76 @@ def product_exists(product_id: str) -> bool:
 
 def list_products_admin(
     *,
+    q: str | None = None,
+    status: AdminProductStatusFilter | None = None,
+    media: AdminProductMediaFilter | None = None,
+    stock: AdminProductStockFilter | None = None,
+    product_type: str | None = None,
+    category: str | None = None,
+    labels: list[str] | None = None,
+    featured: bool | None = None,
+    discount: AdminProductDiscountFilter | None = None,
+    inventory_mode: AdminProductInventoryModeFilter | None = None,
+    recipe_status: AdminProductRecipeStatusFilter | None = None,
+    has_inventory_exceptions: bool | None = None,
+    low_stock_threshold: int = DEFAULT_ADMIN_LOW_STOCK_THRESHOLD,
+    sort: AdminProductSort | None = None,
     page: int = 1,
     limit: int = 20,
 ) -> tuple[list[dict], int]:
-    """List all products (active and inactive) with pagination. For admin use."""
+    """List admin products with optional filters, sorting, and pagination."""
     offset = calculate_offset(page, limit)
+    now = pricing.now_utc()
+
+    conditions, params = _build_admin_product_filters(
+        q=q,
+        status=status,
+        media=media,
+        stock=stock,
+        product_type=product_type,
+        category=category,
+        labels=labels,
+        featured=featured,
+        discount=discount,
+        inventory_mode=inventory_mode,
+        recipe_status=recipe_status,
+        has_inventory_exceptions=has_inventory_exceptions,
+        low_stock_threshold=low_stock_threshold,
+        now=now,
+    )
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    order_by_map = {
+        "created_desc": "p.created_at DESC, p.id ASC",
+        "created_asc": "p.created_at ASC, p.id ASC",
+        "updated_desc": "p.updated_at DESC, p.id ASC",
+        "updated_asc": "p.updated_at ASC, p.id ASC",
+        "name_asc": "LOWER(p.name_en) ASC, p.id ASC",
+        "name_desc": "LOWER(p.name_en) DESC, p.id ASC",
+        "price_asc": "p.price_cents ASC, p.id ASC",
+        "price_desc": "p.price_cents DESC, p.id ASC",
+        "stock_asc": "p.stock ASC, p.id ASC",
+        "stock_desc": "p.stock DESC, p.id ASC",
+    }
+    order_by = order_by_map.get(sort or "", "p.created_at DESC, p.id ASC")
 
     with get_db() as conn:
-        count_row = conn.execute("SELECT COUNT(*) as cnt FROM products").fetchone()
+        count_row = conn.execute(
+            f"SELECT COUNT(*) as cnt FROM products p {where_clause}",  # noqa: S608
+            params,
+        ).fetchone()
         total = count_row["cnt"]
 
         rows = conn.execute(
-            "SELECT * FROM products ORDER BY created_at DESC LIMIT ? OFFSET ?",
-            (limit, offset),
+            f"SELECT p.* FROM products p {where_clause} "  # noqa: S608
+            f"ORDER BY {order_by} LIMIT ? OFFSET ?",
+            [*params, limit, offset],
         ).fetchall()
 
         products = [_row_to_dict(r) for r in rows]
         taxonomy_service.resolve_products_taxonomy(conn, products, "en")
         _attach_admin_inventory_context(conn, products)
 
-    products = [_flatten_admin_labels(p) for p in _annotate_admin(products)]
+    products = [_flatten_admin_labels(p) for p in _annotate_admin(products, now=now)]
     products = product_image_service.attach_image_fields(products)
     products = product_video_service.attach_video_fields(products, public_only=False)
     return products, total
