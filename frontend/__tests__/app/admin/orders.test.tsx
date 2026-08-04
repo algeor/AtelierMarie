@@ -128,6 +128,19 @@ const MOCK_ORDER_LIST: OrderListResponse = {
   limit: 100,
 };
 
+async function openStatusMenu(index = 0) {
+  const statusMenus = screen.getAllByRole("button", {
+    name: /Update status for order/i,
+  });
+  fireEvent.click(statusMenus[index]!);
+  return screen.findAllByRole("menuitem");
+}
+
+async function selectStatusOption(index: number, name: string) {
+  await openStatusMenu(index);
+  fireEvent.click(await screen.findByRole("menuitem", { name }));
+}
+
 describe("Admin Orders List", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -276,9 +289,7 @@ describe("Admin Orders List", () => {
       expect(screen.getByText("a***@example.com")).toBeInTheDocument();
     });
 
-    // Find the status dropdown for the pending order
-    const selects = screen.getAllByRole("combobox");
-    fireEvent.change(selects[0]!, { target: { value: "confirmed" } });
+    await selectStatusOption(0, "Confirmed");
 
     await waitFor(() => {
       expect(mockedUpdateOrderStatus).toHaveBeenCalledWith(
@@ -319,8 +330,7 @@ describe("Admin Orders List", () => {
       expect(screen.getByText("b***@example.com")).toBeInTheDocument();
     });
 
-    const selects = screen.getAllByRole("combobox");
-    fireEvent.change(selects[1]!, { target: { value: "shipped" } });
+    await selectStatusOption(1, "Shipped");
 
     await waitFor(() => {
       expect(mockedCreateAndShipEcontOrder).toHaveBeenCalledWith(MOCK_ORDERS[1]!.id);
@@ -352,8 +362,7 @@ describe("Admin Orders List", () => {
       expect(screen.getByText("a***@example.com")).toBeInTheDocument();
     });
 
-    const selects = screen.getAllByRole("combobox");
-    fireEvent.change(selects[0]!, { target: { value: "confirmed" } });
+    await selectStatusOption(0, "Confirmed");
 
     await waitFor(() => {
       expect(screen.getByText("Failed to update order status")).toBeInTheDocument();
@@ -382,17 +391,22 @@ describe("Admin Orders List", () => {
       expect(screen.getByText("a***@example.com")).toBeInTheDocument();
     });
 
-    const selects = screen.getAllByRole("combobox");
+    const pendingOptions = await openStatusMenu(0);
+    expect(pendingOptions.map((option) => option.textContent)).toEqual([
+      "Confirmed",
+      "Cancelled",
+    ]);
 
-    // First select is for "pending" order → valid transitions: confirmed, cancelled
-    const pendingOptions = selects[0]!.querySelectorAll("option");
-    const pendingValues = Array.from(pendingOptions).map((o) => o.value).filter(Boolean);
-    expect(pendingValues).toEqual(["confirmed", "cancelled"]);
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => {
+      expect(screen.queryByRole("menuitem")).not.toBeInTheDocument();
+    });
 
-    // Second select is for "confirmed" order → valid transitions: shipped, cancelled
-    const confirmedOptions = selects[1]!.querySelectorAll("option");
-    const confirmedValues = Array.from(confirmedOptions).map((o) => o.value).filter(Boolean);
-    expect(confirmedValues).toEqual(["shipped", "cancelled"]);
+    const confirmedOptions = await openStatusMenu(1);
+    expect(confirmedOptions.map((option) => option.textContent)).toEqual([
+      "Shipped",
+      "Cancelled",
+    ]);
   });
 
   it("opens the ship modal for orders without a courier integration", async () => {
@@ -427,8 +441,7 @@ describe("Admin Orders List", () => {
       expect(screen.getByText("b***@example.com")).toBeInTheDocument();
     });
 
-    const selects = screen.getAllByRole("combobox");
-    fireEvent.change(selects[0]!, { target: { value: "shipped" } });
+    await selectStatusOption(0, "Shipped");
 
     expect(screen.getByRole("dialog", { name: "Ship order" })).toBeInTheDocument();
     // Manual carrier defaults to the first tracking carrier (Speedy) when the

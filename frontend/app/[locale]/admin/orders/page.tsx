@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, type CSSProperties } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import {
@@ -12,6 +12,7 @@ import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
 import { cn, formatPrice } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { Portal } from "@/components/ui/Portal";
 import {
   ShipOrderModal,
   type ShipTrackingInput,
@@ -100,6 +101,151 @@ const PAYMENT_STATUS_COLORS: Record<PaymentStatus, string> = {
   dispute_won: "bg-green-100 text-green-800",
   dispute_lost: "bg-red-100 text-red-800",
 };
+
+type TransitionOption = {
+  status: OrderStatus;
+  label: string;
+};
+
+interface StatusTransitionMenuProps {
+  ariaLabel: string;
+  disabled: boolean;
+  label: string;
+  options: TransitionOption[];
+  onSelect: (status: OrderStatus) => void;
+}
+
+function StatusTransitionMenu({
+  ariaLabel,
+  disabled,
+  label,
+  options,
+  onSelect,
+}: StatusTransitionMenuProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (disabled) setIsOpen(false);
+  }, [disabled]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function updateMenuPosition() {
+      const trigger = triggerRef.current;
+      if (!trigger) return;
+
+      const rect = trigger.getBoundingClientRect();
+      const menuWidth = rect.width;
+      const menuHeight = Math.min(options.length * 40 + 12, 260);
+      const viewportWidth = window.innerWidth || menuWidth;
+      const viewportHeight = window.innerHeight || 720;
+      const left = Math.min(
+        Math.max(8, rect.left),
+        Math.max(8, viewportWidth - menuWidth - 8)
+      );
+      const shouldOpenUp = rect.bottom + menuHeight > viewportHeight && rect.top > menuHeight;
+      const top = shouldOpenUp ? rect.top - menuHeight + 1 : rect.bottom - 1;
+
+      setMenuStyle({
+        left,
+        position: "fixed",
+        top: Math.max(8, top),
+        width: menuWidth,
+      });
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target as Node;
+      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) {
+        return;
+      }
+      setIsOpen(false);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+        triggerRef.current?.focus();
+      }
+    }
+
+    updateMenuPosition();
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [isOpen, options.length]);
+
+  return (
+    <div className="inline-flex">
+      <button
+        ref={triggerRef}
+        type="button"
+        disabled={disabled}
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        aria-label={ariaLabel}
+        onClick={() => setIsOpen((open) => !open)}
+        className={cn(
+          "inline-flex h-9 min-w-[11.5rem] items-center justify-between gap-2 rounded-brand border border-champagne-beige/80 bg-warm-ivory px-3 text-xs font-medium text-soft-brown shadow-sm",
+          "transition-colors duration-fast hover:border-soft-brown/30 hover:bg-cream hover:text-charcoal",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory",
+          "disabled:cursor-not-allowed disabled:opacity-50",
+          isOpen && "rounded-b-none border-soft-brown/35 bg-warm-ivory shadow-none"
+        )}
+      >
+        <span className="truncate">{label}</span>
+        <span
+          aria-hidden="true"
+          className={cn(
+            "text-[10px] text-soft-brown/70 transition-transform duration-fast",
+            isOpen && "rotate-180"
+          )}
+        >
+          ▾
+        </span>
+      </button>
+
+      {isOpen && (
+        <Portal>
+          <div
+            ref={menuRef}
+            role="menu"
+            aria-label={ariaLabel}
+            style={menuStyle}
+            className="z-50 overflow-hidden rounded-b-brand border border-soft-brown/35 bg-warm-ivory py-1 shadow-xl ring-1 ring-charcoal/5"
+          >
+            {options.map((option) => (
+              <button
+                key={option.status}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setIsOpen(false);
+                  onSelect(option.status);
+                }}
+                className="flex h-9 w-full items-center px-3 text-left text-xs font-medium text-soft-brown transition-colors duration-fast hover:bg-cream/55 hover:text-charcoal focus-visible:bg-cream/55 focus-visible:text-charcoal focus-visible:outline-none"
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </Portal>
+      )}
+    </div>
+  );
+}
 
 function formatDate(iso: string, locale: string): string {
   return new Date(iso).toLocaleDateString(locale === "bg" ? "bg-BG" : "en-US", {
@@ -541,27 +687,16 @@ export default function AdminOrdersPage() {
                   </td>
                   <td className="px-4 py-3">
                     {VALID_TRANSITIONS[order.status].length > 0 ? (
-                      <select
-                        value=""
+                      <StatusTransitionMenu
+                        ariaLabel={t("updateStatusForOrder", { id: order.id.slice(0, 8) })}
                         disabled={updatingId === order.id}
-                        aria-label={t("updateStatusForOrder", { id: order.id.slice(0, 8) })}
-                        onChange={(e) => {
-                          if (e.target.value) {
-                            handleTransitionSelected(
-                              order,
-                              e.target.value as OrderStatus
-                            );
-                          }
-                        }}
-                        className="h-8 rounded-brand border border-champagne-beige bg-cream px-2 text-xs text-soft-brown focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown disabled:opacity-50"
-                      >
-                        <option value="">{t("updateStatus")}</option>
-                        {VALID_TRANSITIONS[order.status].map((s) => (
-                          <option key={s} value={s}>
-                            {tStatus(s)}
-                          </option>
-                        ))}
-                      </select>
+                        label={t("updateStatus")}
+                        options={VALID_TRANSITIONS[order.status].map((status) => ({
+                          status,
+                          label: tStatus(status),
+                        }))}
+                        onSelect={(status) => handleTransitionSelected(order, status)}
+                      />
                     ) : (
                       <span className="text-xs text-soft-brown/50">
                         {t("noActions")}
