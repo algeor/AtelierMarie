@@ -128,7 +128,7 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
           type="button"
           aria-label={name}
           onClick={() => setLightboxIndex(selectedIndex)}
-          className="group relative block w-full overflow-hidden rounded-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
+          className="group relative block w-full overflow-hidden rounded-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
         >
           {prefersReducedMotion ? (
             <ProductImage
@@ -148,8 +148,8 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
               className="aspect-[4/5] w-full rounded-brand bg-black object-cover"
             />
           )}
-          <span className="absolute inset-0 flex items-center justify-center bg-charcoal/0 transition-colors group-hover:bg-charcoal/10">
-            <span className="h-12 w-12 rounded-full bg-warm-ivory/90 shadow-soft after:ml-[18px] after:mt-[13px] after:block after:h-0 after:w-0 after:border-y-[11px] after:border-l-[16px] after:border-y-transparent after:border-l-charcoal" />
+          <span className="absolute inset-0 flex items-center justify-center bg-text/0 transition-colors group-hover:bg-text/10">
+            <span className="h-12 w-12 rounded-full bg-page/90 shadow-soft after:ml-[18px] after:mt-[13px] after:block after:h-0 after:w-0 after:border-y-[11px] after:border-l-[16px] after:border-y-transparent after:border-l-text" />
           </span>
         </button>
       ) : selectedImage ? (
@@ -157,7 +157,7 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
           type="button"
           aria-label={t("zoomImage")}
           onClick={() => setLightboxIndex(selectedIndex)}
-          className="group relative block w-full rounded-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
+          className="group relative block w-full rounded-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
         >
           <ProductImage
             name={name}
@@ -165,7 +165,7 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
             sizes="(max-width: 1024px) 100vw, 50vw"
             priority
           />
-          <span className="absolute right-3 bottom-3 rounded-brand bg-charcoal/85 px-3 py-1.5 text-sm font-medium text-warm-ivory opacity-95 transition group-hover:bg-soft-brown">
+          <span className="absolute bottom-3 right-3 rounded-brand bg-text/85 px-3 py-1.5 text-sm font-medium text-page opacity-95 transition group-hover:bg-muted">
             {t("zoom")}
           </span>
         </button>
@@ -186,8 +186,8 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
                 aria-pressed={isSelected}
                 onClick={() => setSelectedItemId(item.id)}
                 className={cn(
-                  "relative aspect-[4/5] overflow-hidden rounded-brand border bg-cream focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2",
-                  isSelected ? "border-charcoal" : "border-champagne-beige"
+                  "relative aspect-[4/5] overflow-hidden rounded-brand border bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page",
+                  isSelected ? "border-text" : "border-border/70"
                 )}
               >
                 {thumbnailUrl ? (
@@ -196,8 +196,8 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
                   <span className="sr-only">{name}</span>
                 )}
                 {item.kind === "video" && (
-                  <span className="absolute inset-0 flex items-center justify-center bg-charcoal/10">
-                    <span className="h-7 w-7 rounded-full bg-warm-ivory/90 after:ml-[11px] after:mt-[7px] after:block after:h-0 after:w-0 after:border-y-[7px] after:border-l-[10px] after:border-y-transparent after:border-l-charcoal" />
+                  <span className="absolute inset-0 flex items-center justify-center bg-text/10">
+                    <span className="h-7 w-7 rounded-full bg-page/90 after:ml-[11px] after:mt-[7px] after:block after:h-0 after:w-0 after:border-y-[7px] after:border-l-[10px] after:border-y-transparent after:border-l-text" />
                   </span>
                 )}
               </button>
@@ -230,8 +230,7 @@ export function ProductGallery({ name, images, video, primaryImageUrl }: Product
           Close: t("closeZoom"),
         }}
         styles={{
-          // Match the retired modals' luxury charcoal backdrop.
-          container: { backgroundColor: "rgba(43, 38, 34, 0.94)" },
+          container: { backgroundColor: "rgb(var(--color-text) / 0.94)" },
         }}
       />
     </div>

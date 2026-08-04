@@ -38,7 +38,7 @@ export function AddToCartSection({ productId, stock }: AddToCartSectionProps) {
   }
 
   return (
-    <div className="flex flex-col gap-4 pt-4 border-t border-champagne-beige">
+    <div className="flex flex-col gap-4 border-t border-border/60 pt-4">
       {!isOutOfStock && (
         <QuantitySelector
           quantity={quantity}
@@ -63,7 +63,7 @@ export function AddToCartSection({ productId, stock }: AddToCartSectionProps) {
 
       <Link
         href="/faq#care"
-        className="w-fit text-sm font-medium text-soft-brown underline-offset-4 transition-colors duration-fast hover:text-charcoal hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-muted-gold focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"
+        className="w-fit rounded-brand text-sm font-medium text-muted underline-offset-4 transition-colors duration-fast hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
       >
         {t("questions")}
       </Link>

@@ -126,7 +126,7 @@ function ChevronIcon({ expanded }: { expanded: boolean }) {
       viewBox="0 0 24 24"
       strokeWidth={1.5}
       stroke="currentColor"
-      className={cn("h-4 w-4 transition-transform", expanded && "rotate-180")}
+      className={cn("h-4 w-4 transition-transform motion-reduce:transition-none", expanded && "rotate-180")}
       aria-hidden="true"
     >
       <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
@@ -204,9 +204,9 @@ const NAV_GROUPS: NavGroup[] = [
 const DEFAULT_EXPANDED_GROUPS = {
   work: true,
   catalog: true,
-  inventoryProduction: true,
-  finance: true,
-  pages: true,
+  inventoryProduction: false,
+  finance: false,
+  pages: false,
 };
 
 interface AdminSidebarProps {
@@ -262,8 +262,8 @@ export function AdminSidebar({ open, onOpenChange }: AdminSidebarProps = {}) {
     const itemActive = isItemActive(item);
     const itemExpanded = Boolean(expandedItems[item.href] || itemActive);
     const linkClassName = cn(
-      "flex min-h-10 w-full items-center rounded-brand px-3 py-2.5 text-left text-sm font-medium transition-colors duration-fast",
-      itemActive ? "bg-muted-gold/10 text-charcoal" : "text-soft-brown hover:bg-champagne-beige/50 hover:text-charcoal"
+      "flex min-h-10 w-full items-center rounded-brand px-3 py-2.5 text-left text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-focus focus-visible:ring-offset-2 focus-visible:ring-offset-admin-surface motion-reduce:transition-none",
+      itemActive ? "bg-admin-accent/15 text-admin-text" : "text-admin-muted hover:bg-admin-surface-muted/50 hover:text-admin-text"
     );
 
     if (!item.children) {
@@ -295,7 +295,7 @@ export function AdminSidebar({ open, onOpenChange }: AdminSidebarProps = {}) {
           <ChevronIcon expanded={itemExpanded} />
         </button>
         {itemExpanded && (
-          <div className="ml-4 mt-1 space-y-1 border-l border-champagne-beige pl-3">
+          <div className="ml-4 mt-1 space-y-1 border-l border-admin-border/50 pl-3">
             {item.children.map((child) => {
               const childActive = isActive(child.href, child.activeHrefs);
               return (
@@ -304,8 +304,8 @@ export function AdminSidebar({ open, onOpenChange }: AdminSidebarProps = {}) {
                   href={child.href}
                   onClick={closeOnMobile}
                   className={cn(
-                    "flex min-h-9 items-center rounded-brand px-3 py-2 text-sm font-medium transition-colors duration-fast",
-                    childActive ? "bg-muted-gold/10 text-charcoal" : "text-soft-brown hover:bg-champagne-beige/50 hover:text-charcoal"
+                    "flex min-h-9 items-center rounded-brand px-3 py-2 text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-focus focus-visible:ring-offset-2 focus-visible:ring-offset-admin-surface motion-reduce:transition-none",
+                    childActive ? "bg-admin-accent/15 text-admin-text" : "text-admin-muted hover:bg-admin-surface-muted/50 hover:text-admin-text"
                   )}
                   aria-current={childActive ? "page" : undefined}
                 >
@@ -325,7 +325,7 @@ export function AdminSidebar({ open, onOpenChange }: AdminSidebarProps = {}) {
         type="button"
         onClick={() => setSidebarOpen(true)}
         className={cn(
-          "fixed left-4 top-4 z-50 inline-flex h-11 w-11 items-center justify-center rounded-brand border border-champagne-beige bg-cream text-soft-brown shadow-sm transition-colors hover:bg-champagne-beige/50 hover:text-charcoal",
+          "fixed left-4 top-4 z-50 inline-flex h-11 w-11 items-center justify-center rounded-brand border border-admin-border/60 bg-admin-surface text-admin-muted shadow-sm transition-colors hover:bg-admin-surface-muted/50 hover:text-admin-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-focus focus-visible:ring-offset-2 focus-visible:ring-offset-admin-page motion-reduce:transition-none",
           sidebarOpen && "hidden"
         )}
         aria-label={t("openNavMenu")}
@@ -337,7 +337,7 @@ export function AdminSidebar({ open, onOpenChange }: AdminSidebarProps = {}) {
 
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-40 bg-charcoal/30 lg:hidden"
+          className="fixed inset-0 z-40 bg-admin-text/35 lg:hidden"
           onClick={() => setSidebarOpen(false)}
           aria-hidden="true"
         />
@@ -345,20 +345,20 @@ export function AdminSidebar({ open, onOpenChange }: AdminSidebarProps = {}) {
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-champagne-beige bg-cream transition-transform duration-200",
+          "fixed inset-y-0 left-0 z-50 flex w-[min(20rem,calc(100vw-1rem))] flex-col border-r border-admin-border/60 bg-admin-surface shadow-xl transition-transform duration-200 motion-reduce:transition-none lg:w-72 lg:shadow-none",
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        <div className="border-b border-champagne-beige p-3">
+        <div className="border-b border-admin-border/50 p-3">
           <div className="mb-3 flex items-center justify-end">
             <button
               type="button"
               onClick={() => setSidebarOpen(false)}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-brand text-soft-brown transition-colors hover:bg-champagne-beige/50 hover:text-charcoal"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-brand text-admin-muted transition-colors hover:bg-admin-surface-muted/50 hover:text-admin-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-focus focus-visible:ring-offset-2 focus-visible:ring-offset-admin-surface motion-reduce:transition-none"
               aria-label={t("closeNavMenu")}
             >
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
               </svg>
             </button>
           </div>
@@ -376,8 +376,8 @@ export function AdminSidebar({ open, onOpenChange }: AdminSidebarProps = {}) {
                   type="button"
                   onClick={() => toggleGroup(group.key)}
                   className={cn(
-                    "flex w-full items-center gap-3 rounded-brand px-3 py-2 text-xs font-semibold uppercase tracking-wide transition-colors duration-fast",
-                    groupActive ? "bg-muted-gold/15 text-charcoal" : "text-soft-brown hover:bg-champagne-beige/50 hover:text-charcoal"
+                    "flex w-full items-center gap-3 rounded-brand px-3 py-2 text-xs font-semibold uppercase tracking-wide transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-focus focus-visible:ring-offset-2 focus-visible:ring-offset-admin-surface motion-reduce:transition-none",
+                    groupActive ? "bg-admin-accent/20 text-admin-text" : "text-admin-muted hover:bg-admin-surface-muted/50 hover:text-admin-text"
                   )}
                   aria-expanded={groupExpanded}
                   aria-label={t(groupExpanded ? "collapseNavGroup" : "expandNavGroup", { group: groupLabel })}
@@ -387,7 +387,7 @@ export function AdminSidebar({ open, onOpenChange }: AdminSidebarProps = {}) {
                   <ChevronIcon expanded={groupExpanded} />
                 </button>
                 {groupExpanded && (
-                  <div className="ml-4 mt-1 space-y-1 border-l border-champagne-beige pl-3">
+                  <div className="ml-4 mt-1 space-y-1 border-l border-admin-border/50 pl-3">
                     {group.items.map(renderItem)}
                   </div>
                 )}
@@ -396,16 +396,16 @@ export function AdminSidebar({ open, onOpenChange }: AdminSidebarProps = {}) {
           })}
         </nav>
 
-        <div className="border-t border-champagne-beige p-4">
+        <div className="border-t border-admin-border/50 p-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted-gold/20 text-sm font-medium text-muted-gold">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-admin-accent/20 text-sm font-medium text-admin-primary">
               {user?.name?.charAt(0) || "A"}
             </div>
             <div className="flex-1 truncate">
-              <p className="truncate text-sm font-medium text-charcoal">
+              <p className="truncate text-sm font-medium text-admin-text">
                 {user?.name || "Admin"}
               </p>
-              <p className="truncate text-xs text-soft-brown">
+              <p className="truncate text-xs text-admin-muted">
                 {user?.email || ""}
               </p>
             </div>

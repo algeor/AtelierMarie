@@ -48,22 +48,26 @@ export default function RetryPaymentPage() {
 
   if (state === "redirecting") {
     return (
-      <div className="max-w-md mx-auto px-4 py-24 text-center">
+      <main className="bg-page px-4 py-24 text-center text-text">
+        <div className="mx-auto max-w-md">
         <Skeleton className="mx-auto mb-4 h-6 w-48" />
-        <p className="text-soft-brown text-sm">{tPayment("retryRedirecting")}</p>
-      </div>
+        <p className="text-sm text-muted">{tPayment("retryRedirecting")}</p>
+        </div>
+      </main>
     );
   }
 
   return (
-    <div className="max-w-md mx-auto px-4 py-24 text-center">
-      <p className="mb-6 text-red-700 text-sm">{errorMessage}</p>
+    <main className="bg-page px-4 py-24 text-center text-text">
+      <div className="mx-auto max-w-md rounded-brand border border-border/60 bg-surface-elevated/75 p-8">
+      <p className="mb-6 text-sm text-error">{errorMessage}</p>
       <Link
         href={`/orders/${orderId}`}
-        className="inline-flex items-center justify-center px-6 py-3 bg-charcoal text-warm-ivory font-medium rounded-brand hover:bg-soft-brown transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
+        className="inline-flex items-center justify-center rounded-brand bg-primary px-6 py-3 font-medium text-primary-foreground transition-colors duration-fast hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
       >
         {tOrders("backToOrders")}
       </Link>
-    </div>
+      </div>
+    </main>
   );
 }

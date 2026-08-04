@@ -71,7 +71,7 @@ export function CartDrawer() {
         {/* Backdrop */}
         <div
           className={cn(
-            "fixed inset-0 bg-black/50",
+            "fixed inset-0 bg-text/45",
             "motion-safe:transition-opacity motion-safe:duration-normal",
             isDrawerOpen ? "opacity-100" : "opacity-0"
           )}
@@ -86,21 +86,21 @@ export function CartDrawer() {
           aria-modal="true"
           aria-label={t("title")}
           className={cn(
-            "fixed top-0 right-0 h-full w-full max-w-md bg-warm-ivory shadow-xl flex flex-col",
+            "fixed right-0 top-0 flex h-full w-full max-w-md flex-col bg-page text-text shadow-xl",
             "motion-safe:transition-transform motion-safe:duration-normal",
             isDrawerOpen ? "translate-x-0" : "translate-x-full"
           )}
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-champagne-beige">
-            <h2 className="font-heading text-xl text-charcoal">{t("title")}</h2>
+          <div className="flex items-center justify-between border-b border-border/60 px-6 py-4">
+            <h2 className="font-heading text-xl text-text">{t("title")}</h2>
             <button
               onClick={closeDrawer}
               aria-label={t("closeCart")}
               className={cn(
-                "min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-brand",
-                "text-soft-brown hover:text-charcoal transition-colors duration-fast",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"
+                "inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-brand",
+                "text-muted transition-colors duration-fast hover:text-text",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
               )}
             >
               <svg
@@ -119,15 +119,15 @@ export function CartDrawer() {
 
           {/* Error banner */}
           {error && (
-            <div className="mx-6 mt-4 bg-red-50 text-red-800 rounded-brand p-3 flex items-start gap-2">
+            <div className="mx-6 mt-4 flex items-start gap-2 rounded-brand border border-error/20 bg-error/10 p-3 text-error">
               <p className="flex-1 text-sm">{error}</p>
               <button
                 onClick={dismissError}
                 aria-label={t("dismissError")}
                 className={cn(
-                  "min-h-[44px] min-w-[44px] shrink-0 inline-flex items-center justify-center rounded-brand",
-                  "text-red-800/70 hover:text-red-800 transition-colors duration-fast",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-700 focus-visible:ring-offset-2 focus-visible:ring-offset-red-50"
+                  "inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-brand",
+                  "text-error/70 transition-colors duration-fast hover:text-error",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error focus-visible:ring-offset-2 focus-visible:ring-offset-page"
                 )}
               >
                 <svg
@@ -148,14 +148,14 @@ export function CartDrawer() {
           {/* Content */}
           <div className="flex-1 overflow-y-auto px-6 py-4">
             {!hasAvailableItems && !hasUnavailableItems ? (
-              <div className="flex flex-col items-center justify-center h-full text-center">
+              <div className="flex h-full flex-col items-center justify-center text-center">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   fill="none"
                   viewBox="0 0 24 24"
                   strokeWidth={1.5}
                   stroke="currentColor"
-                  className="w-12 h-12 text-champagne-beige mb-4"
+                  className="mb-4 h-12 w-12 text-border"
                   aria-hidden="true"
                 >
                   <path
@@ -164,14 +164,14 @@ export function CartDrawer() {
                     d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007zM8.625 10.5a.375.375 0 11-.75 0 .375.375 0 01.75 0zm7.5 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"
                   />
                 </svg>
-                <p className="text-soft-brown text-base mb-4">{t("empty")}</p>
+                <p className="mb-4 text-base text-muted">{t("empty")}</p>
                 <Link
                   href="/products"
                   onClick={closeDrawer}
                   className={cn(
                     "inline-flex items-center justify-center rounded-brand px-4 py-2 text-sm font-medium",
-                    "bg-muted-gold text-charcoal hover:bg-muted-gold/90 transition-colors duration-fast",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"
+                    "bg-primary text-primary-foreground transition-colors duration-fast hover:bg-primary-hover",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
                   )}
                 >
                   {t("continueShopping")}
@@ -188,18 +188,18 @@ export function CartDrawer() {
                   />
                 ))}
                 {hasUnavailableItems && (
-                  <div className="mt-4 rounded-brand border border-amber-200 bg-amber-50 p-3">
-                    <h3 className="text-sm font-medium text-amber-900">
+                  <div className="mt-4 rounded-brand border border-warning/25 bg-warning/10 p-3">
+                    <h3 className="text-sm font-medium text-warning">
                       {t("unavailableTitle")}
                     </h3>
-                    <ul className="mt-2 divide-y divide-amber-200/70">
+                    <ul className="mt-2 divide-y divide-warning/20">
                       {unavailable_items.map((item) => (
                         <li key={item.product_id} className="flex items-center justify-between gap-3 py-3">
                           <div className="min-w-0">
-                            <p className="truncate text-sm font-medium text-charcoal">
+                            <p className="truncate text-sm font-medium text-text">
                               {item.product_name}
                             </p>
-                            <p className="mt-0.5 text-xs text-amber-800">
+                            <p className="mt-0.5 text-xs text-warning">
                               {t("unavailableReason", { reason: item.reason })}
                             </p>
                           </div>
@@ -207,8 +207,8 @@ export function CartDrawer() {
                             type="button"
                             onClick={() => removeItem(item.product_id)}
                             className={cn(
-                              "min-h-[44px] shrink-0 rounded-brand px-3 text-sm font-medium text-amber-900 underline underline-offset-4",
-                              "hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700 focus-visible:ring-offset-2 focus-visible:ring-offset-amber-50"
+                              "min-h-[44px] shrink-0 rounded-brand px-3 text-sm font-medium text-warning underline underline-offset-4",
+                              "hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning focus-visible:ring-offset-2 focus-visible:ring-offset-page"
                             )}
                           >
                             {t("remove")}
@@ -224,15 +224,15 @@ export function CartDrawer() {
 
           {/* Footer */}
           {hasAvailableItems && (
-            <div className="border-t border-champagne-beige px-6 py-4 space-y-4">
-              <div className="rounded-brand bg-muted-gold/10 px-3 py-2 text-xs text-soft-brown">
+            <div className="space-y-4 border-t border-border/60 px-6 py-4">
+              <div className="rounded-brand bg-accent-soft/35 px-3 py-2 text-xs text-muted">
                 {amountToFreeShipping > 0
                   ? t("amountToFreeShipping", { amount: formatPrice(amountToFreeShipping) })
                   : t("freeShippingUnlocked")}
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-soft-brown">{t("subtotal")}</span>
-                <span className="text-lg font-heading text-charcoal">
+                <span className="text-sm font-medium text-muted">{t("subtotal")}</span>
+                <span className="font-heading text-lg text-text">
                   {formatPrice(total_cents)}
                 </span>
               </div>
@@ -240,9 +240,9 @@ export function CartDrawer() {
                 href="/checkout"
                 onClick={closeDrawer}
                 className={cn(
-                  "block w-full text-center rounded-brand px-6 py-3 font-medium",
-                  "bg-muted-gold text-charcoal hover:bg-muted-gold/90 transition-colors duration-fast",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"
+                  "block w-full rounded-brand px-6 py-3 text-center font-medium",
+                  "bg-primary text-primary-foreground transition-colors duration-fast hover:bg-primary-hover",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
                 )}
               >
                 {t("proceedToCheckout")}

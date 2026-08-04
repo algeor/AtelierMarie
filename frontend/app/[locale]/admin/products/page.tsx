@@ -164,7 +164,7 @@ export default function AdminProductsPage() {
       )}
 
       {error && (
-        <div className="mb-6 rounded-brand border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="mb-6 rounded-brand border border-error/20 bg-error/10 p-4 text-sm text-error">
           {error}
         </div>
       )}
@@ -178,7 +178,108 @@ export default function AdminProductsPage() {
         />
       )}
 
-      <div className="overflow-x-auto rounded-brand border border-champagne-beige bg-cream">
+      <div className="space-y-3 md:hidden">
+        {isLoading ? (
+          Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="rounded-brand border border-admin-border/60 bg-admin-surface p-4">
+              <Skeleton className="h-5 w-40" />
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-4 w-28" />
+                <Skeleton className="h-4 w-24" />
+              </div>
+            </div>
+          ))
+        ) : products.length === 0 ? (
+          <div className="rounded-brand border border-admin-border/60 bg-admin-surface px-4 py-8 text-center text-sm text-admin-muted">
+            {t("noProducts")}
+          </div>
+        ) : (
+          products.map((product) => (
+            <article key={product.id} className="rounded-brand border border-admin-border/60 bg-admin-surface p-4 text-sm text-admin-muted">
+              <div className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(product.id)}
+                  onChange={() => toggleSelected(product.id)}
+                  aria-label={product.name_en}
+                  className="mt-1"
+                />
+                <div className="min-w-0 flex-1">
+                  <h2 className="font-heading text-lg font-semibold text-admin-text">{product.name_en}</h2>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Badge variant={product.is_active ? "success" : "warning"}>
+                      {product.is_active ? t("active") : t("inactive")}
+                    </Badge>
+                    {product.images.length > 0 ? (
+                      <Badge variant="success">{t("mediaReady")}</Badge>
+                    ) : (
+                      <Badge variant="warning">{t("mediaMissing")}</Badge>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <dl className="mt-4 grid grid-cols-2 gap-3">
+                <div>
+                  <dt className="text-xs font-semibold uppercase text-admin-muted">{t("category")}</dt>
+                  <dd className="mt-1 text-admin-text">{product.category || "-"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-semibold uppercase text-admin-muted">{t("price")}</dt>
+                  <dd className="mt-1 text-admin-text">{formatPrice(product.price_cents)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-semibold uppercase text-admin-muted">{t("stock")}</dt>
+                  <dd className="mt-1 text-admin-text">{product.stock}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-semibold uppercase text-admin-muted">{t("inventoryColumn")}</dt>
+                  <dd className="mt-1 text-admin-text">{(product.inventory_mode ?? "legacy").replaceAll("_", " ")}</dd>
+                </div>
+              </dl>
+
+              <div className="mt-4 rounded-brand border border-admin-border/50 bg-admin-surface-muted/35 p-3 text-xs text-admin-muted">
+                <div className="flex flex-col gap-1">
+                  <span>{t("recipeStatus")}: {product.active_recipe_status ?? "missing"}</span>
+                  <span>{t("stockSource")}: {(product.stock_source ?? "product_stock").replaceAll("_", " ")}</span>
+                  {product.latest_batch_number && (
+                    <Link href={`/admin/inventory/batches?product_id=${product.id}`} className="font-medium text-admin-text underline-offset-2 hover:underline">
+                      {product.latest_batch_number}
+                    </Link>
+                  )}
+                  {Boolean(product.inventory_exception_count) && (
+                    <Link href={`/admin/inventory/valuation/exceptions?target_type=product&target_id=${product.id}`} className="font-medium text-warning underline-offset-2 hover:underline">
+                      {t("inventoryExceptions", { count: product.inventory_exception_count ?? 0 })}
+                    </Link>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <Link
+                  href={`/admin/products/${product.id}/edit`}
+                  className="inline-flex h-9 items-center justify-center rounded-brand border border-admin-border/60 px-3 text-sm font-medium text-admin-text hover:bg-admin-surface-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-focus focus-visible:ring-offset-2 focus-visible:ring-offset-admin-surface"
+                >
+                  {tCommon("edit")}
+                </Link>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  isLoading={togglingId === product.id}
+                  disabled={!product.is_active && product.images.length === 0}
+                  onClick={() => toggleActive(product)}
+                >
+                  {product.is_active ? t("deactivate") : t("activate")}
+                </Button>
+              </div>
+            </article>
+          ))
+        )}
+      </div>
+
+      <div className="hidden overflow-x-auto rounded-brand border border-champagne-beige bg-cream md:block">
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="border-b border-champagne-beige bg-champagne-beige/30">
@@ -259,7 +360,7 @@ export default function AdminProductsPage() {
                         </Link>
                       )}
                       {Boolean(product.inventory_exception_count) && (
-                        <Link href={`/admin/inventory/valuation/exceptions?target_type=product&target_id=${product.id}`} className="font-medium text-amber-800 underline-offset-2 hover:underline">
+                        <Link href={`/admin/inventory/valuation/exceptions?target_type=product&target_id=${product.id}`} className="font-medium text-warning underline-offset-2 hover:underline">
                           {t("inventoryExceptions", { count: product.inventory_exception_count ?? 0 })}
                         </Link>
                       )}

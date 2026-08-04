@@ -18,17 +18,17 @@ const BANK_BIC = process.env.NEXT_PUBLIC_BANK_BIC ?? "";
 const BANK_NAME = process.env.NEXT_PUBLIC_BANK_NAME ?? "";
 
 const PAYMENT_STATUS_COLORS: Record<PaymentStatus, string> = {
-  pending: "bg-amber-100 text-amber-800",
-  paid: "bg-green-100 text-green-800",
-  cod_pending: "bg-gray-100 text-gray-700",
-  failed: "bg-red-100 text-red-800",
-  review_required: "bg-amber-100 text-amber-800",
-  refund_pending: "bg-blue-100 text-blue-800",
-  partially_refunded: "bg-blue-100 text-blue-800",
-  refunded: "bg-blue-100 text-blue-800",
-  dispute_open: "bg-red-100 text-red-800",
-  dispute_won: "bg-green-100 text-green-800",
-  dispute_lost: "bg-red-100 text-red-800",
+  pending: "bg-warning/10 text-warning",
+  paid: "bg-success/10 text-success",
+  cod_pending: "bg-secondary text-secondary-foreground",
+  failed: "bg-error/10 text-error",
+  review_required: "bg-warning/10 text-warning",
+  refund_pending: "bg-accent-soft/40 text-accent",
+  partially_refunded: "bg-accent-soft/40 text-accent",
+  refunded: "bg-accent-soft/40 text-accent",
+  dispute_open: "bg-error/10 text-error",
+  dispute_won: "bg-success/10 text-success",
+  dispute_lost: "bg-error/10 text-error",
 };
 
 type PageState = "loading" | "success" | "not_found";
@@ -70,9 +70,10 @@ export default function OrderDetailPage() {
 
   if (state === "loading") {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-12">
-        <Skeleton className="h-8 w-48 mb-8" />
-        <div className="bg-white rounded-brand p-8 shadow-sm border border-champagne-beige space-y-6">
+      <main className="bg-page px-4 py-12 text-text">
+        <div className="mx-auto max-w-3xl">
+        <Skeleton className="mb-8 h-8 w-48" />
+        <div className="space-y-6 rounded-brand border border-border/60 bg-surface-elevated/75 p-8 shadow-sm">
           <div className="flex items-center gap-4">
             <Skeleton className="h-6 w-32" />
             <Skeleton className="h-6 w-20" />
@@ -89,28 +90,31 @@ export default function OrderDetailPage() {
             <Skeleton className="h-3 w-3" />
           </div>
         </div>
-      </div>
+        </div>
+      </main>
     );
   }
 
   if (state === "not_found") {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-12">
-        <div className="bg-white rounded-brand p-8 shadow-sm border border-champagne-beige text-center">
-          <h1 className="font-heading text-2xl text-charcoal mb-4">
+      <main className="bg-page px-4 py-12 text-text">
+        <div className="mx-auto max-w-3xl">
+        <div className="rounded-brand border border-border/60 bg-surface-elevated/75 p-8 text-center shadow-sm">
+          <h1 className="mb-4 font-heading text-2xl text-text">
             {t("notFound")}
           </h1>
-          <p className="text-soft-brown mb-6">
+          <p className="mb-6 text-muted">
             {t("notFoundDescription")}
           </p>
           <Link
             href="/orders"
-            className="inline-flex items-center justify-center px-6 py-3 bg-charcoal text-warm-ivory font-medium rounded-brand hover:bg-soft-brown transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
+            className="inline-flex items-center justify-center rounded-brand bg-primary px-6 py-3 font-medium text-primary-foreground transition-colors duration-fast hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
           >
             {t("backToOrders")}
           </Link>
         </div>
-      </div>
+        </div>
+      </main>
     );
   }
 
@@ -135,29 +139,30 @@ export default function OrderDetailPage() {
           : null;
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-12">
+    <main className="bg-page px-4 py-12 text-text">
+      <div className="mx-auto max-w-3xl">
       <Link
         href="/orders"
-        className="text-soft-brown hover:text-charcoal text-sm mb-6 inline-block transition-colors duration-fast"
+        className="mb-6 inline-block rounded-brand text-sm text-muted transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
       >
         {t("backToOrders")}
       </Link>
 
-      <div className="bg-white rounded-brand p-8 shadow-sm border border-champagne-beige">
+      <div className="rounded-brand border border-border/60 bg-surface-elevated/75 p-8 shadow-sm">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
           <div>
-            <h1 className="font-heading text-2xl text-charcoal mb-1">
+            <h1 className="mb-1 font-heading text-2xl text-text">
               {t("orderNumber", { id: order.id.slice(0, 8) })}
             </h1>
-            <p className="text-sm text-soft-brown">{date}</p>
+            <p className="text-sm text-muted">{date}</p>
           </div>
           <OrderStatusBadge status={order.status} />
         </div>
 
         {/* Status Timeline */}
-        <div className="mb-8 pb-8 border-b border-champagne-beige">
-          <h2 className="text-sm font-medium text-charcoal mb-4">
+        <div className="mb-8 border-b border-border/60 pb-8">
+          <h2 className="mb-4 text-sm font-medium text-text">
             {t("progress")}
           </h2>
           <StatusTimeline
@@ -170,22 +175,22 @@ export default function OrderDetailPage() {
 
         {/* Items Table */}
         <div className="mb-8">
-          <h2 className="text-sm font-medium text-charcoal mb-4">{t("items")}</h2>
+          <h2 className="mb-4 text-sm font-medium text-text">{t("items")}</h2>
           <div className="space-y-3">
             {order.items.map((item) => (
               <div
                 key={item.product_id}
-                className="flex items-center justify-between py-2 border-b border-champagne-beige last:border-0"
+                className="flex items-center justify-between border-b border-border/60 py-2 last:border-0"
               >
                 <div className="min-w-0">
-                  <p className="text-charcoal font-medium truncate">
+                  <p className="truncate font-medium text-text">
                     {item.product_name}
                   </p>
-                  <p className="text-sm text-soft-brown">
+                  <p className="text-sm text-muted">
                     {formatPrice(item.price_cents)} × {item.quantity}
                   </p>
                 </div>
-                <span className="text-charcoal font-medium whitespace-nowrap ml-4">
+                <span className="ml-4 whitespace-nowrap font-medium text-text">
                   {formatPrice(item.price_cents * item.quantity)}
                 </span>
               </div>
@@ -194,26 +199,26 @@ export default function OrderDetailPage() {
         </div>
 
         {/* Total */}
-        <div className="flex items-center justify-between pt-4 border-t border-champagne-beige">
-          <span className="text-charcoal font-medium">{t("total")}</span>
-          <span className="text-lg font-heading text-charcoal">
+        <div className="flex items-center justify-between border-t border-border/60 pt-4">
+          <span className="font-medium text-text">{t("total")}</span>
+          <span className="font-heading text-lg text-text">
             {formatPrice(order.total_cents)}
           </span>
         </div>
 
         {/* Customer Info */}
-        <div className="mt-8 pt-6 border-t border-champagne-beige">
-          <h2 className="text-sm font-medium text-charcoal mb-2">
+        <div className="mt-8 border-t border-border/60 pt-6">
+          <h2 className="mb-2 text-sm font-medium text-text">
             {t("contact")}
           </h2>
-          <p className="text-sm text-soft-brown">{order.customer_email}</p>
+          <p className="text-sm text-muted">{order.customer_email}</p>
         </div>
 
         {/* Payment status block */}
-        <div className="mt-6 pt-6 border-t border-champagne-beige">
-          <h2 className="text-sm font-medium text-charcoal mb-3">{tPayment("sectionTitle")}</h2>
+        <div className="mt-6 border-t border-border/60 pt-6">
+          <h2 className="mb-3 text-sm font-medium text-text">{tPayment("sectionTitle")}</h2>
           <div className="flex flex-wrap items-center gap-3 mb-3">
-            <span className="text-sm text-soft-brown">
+            <span className="text-sm text-muted">
               {tPayment(`method.${order.payment_method}` as Parameters<typeof tPayment>[0])}
             </span>
             <span className={`inline-flex items-center rounded-pill px-2.5 py-0.5 text-xs font-medium ${PAYMENT_STATUS_COLORS[order.payment_status]}`}>
@@ -221,7 +226,7 @@ export default function OrderDetailPage() {
             </span>
           </div>
           {paymentStatusMessage && (
-            <p className="mb-3 text-sm leading-6 text-soft-brown">{paymentStatusMessage}</p>
+            <p className="mb-3 text-sm leading-6 text-muted">{paymentStatusMessage}</p>
           )}
 
           {/* Retry payment link for card orders with pending/failed payment */}
@@ -230,7 +235,7 @@ export default function OrderDetailPage() {
             paymentReturnToken && (
               <Link
                 href={`/orders/${order.id}/retry-payment?token=${encodeURIComponent(paymentReturnToken)}`}
-                className="inline-flex items-center text-sm font-medium text-soft-brown underline underline-offset-2 hover:text-charcoal transition-colors duration-fast"
+                className="inline-flex items-center text-sm font-medium text-accent underline underline-offset-2 transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
               >
                 {tPayment("retryPayment")}
               </Link>
@@ -238,14 +243,14 @@ export default function OrderDetailPage() {
 
           {/* IBAN instructions for bank transfer orders awaiting payment */}
           {order.payment_method === "bank_transfer" && order.payment_status === "pending" && BANK_IBAN && (
-            <div className="mt-3 rounded-brand border border-champagne-beige bg-cream p-4 text-sm space-y-1.5">
-              <p className="font-medium text-charcoal mb-2">{tPayment("bankInstructions")}</p>
-              <p className="text-soft-brown"><span className="font-medium text-charcoal">{tPayment("bankName")}:</span> {BANK_NAME}</p>
-              <p className="text-soft-brown font-mono"><span className="font-medium text-charcoal font-sans">{tPayment("bankIban")}:</span> {BANK_IBAN}</p>
-              <p className="text-soft-brown"><span className="font-medium text-charcoal">{tPayment("bankBic")}:</span> {BANK_BIC}</p>
-              <p className="text-soft-brown"><span className="font-medium text-charcoal">{tPayment("bankAmount")}:</span> {formatPrice(order.total_cents)}</p>
-              <p className="text-soft-brown"><span className="font-medium text-charcoal">{tPayment("bankReference")}:</span> {order.id.slice(0, 8)}</p>
-              <p className="mt-2 text-xs text-soft-brown/70">{tPayment("bankNote")}</p>
+            <div className="mt-3 space-y-1.5 rounded-brand border border-border/60 bg-surface p-4 text-sm">
+              <p className="mb-2 font-medium text-text">{tPayment("bankInstructions")}</p>
+              <p className="text-muted"><span className="font-medium text-text">{tPayment("bankName")}:</span> {BANK_NAME}</p>
+              <p className="font-mono text-muted"><span className="font-sans font-medium text-text">{tPayment("bankIban")}:</span> {BANK_IBAN}</p>
+              <p className="text-muted"><span className="font-medium text-text">{tPayment("bankBic")}:</span> {BANK_BIC}</p>
+              <p className="text-muted"><span className="font-medium text-text">{tPayment("bankAmount")}:</span> {formatPrice(order.total_cents)}</p>
+              <p className="text-muted"><span className="font-medium text-text">{tPayment("bankReference")}:</span> {order.id.slice(0, 8)}</p>
+              <p className="mt-2 text-xs text-muted/70">{tPayment("bankNote")}</p>
             </div>
           )}
         </div>
@@ -254,6 +259,7 @@ export default function OrderDetailPage() {
         <CourierTrackingSummary order={order} />
         <DeliveryDetails order={order} />
       </div>
-    </div>
+      </div>
+    </main>
   );
 }

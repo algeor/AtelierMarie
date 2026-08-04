@@ -41,11 +41,40 @@
     "language": "Language"
   },
   "footer": {
+    "brandMarkTitle": "Atelier Marie signature M",
+    "editorialText": "Handmade candles, refined scents, and small-batch pieces prepared with care in the atelier.",
+    "groups": {
+      "explore": "Explore",
+      "help": "Help",
+      "account": "My Account",
+      "legal": "Legal",
+      "social": "Social"
+    },
     "handcrafted": "Handcrafted with love",
     "copyright": "© {year} Atelier Marie. All rights reserved.",
     "socialLinks": "Social links",
     "instagram": "Follow Atelier Marie on Instagram",
     "tiktok": "Follow Atelier Marie on TikTok"
+  },
+  "errorPages": {
+    "brandMarkTitle": "Atelier Marie signature M",
+    "notFound": {
+      "eyebrow": "Lost page",
+      "title": "Not Found",
+      "description": "The page you were looking for is not available. Return home to keep browsing handmade pieces.",
+      "backHome": "Back to Home"
+    },
+    "generic": {
+      "eyebrow": "A quiet pause",
+      "title": "Something went wrong.",
+      "description": "The page hit a temporary issue. Go back home, or try again if the page can be reloaded.",
+      "backHome": "Back to Home",
+      "tryAgain": "Try Again"
+    }
+  },
+  "atelierPage": {
+    "metaTitle": "The Atelier Marie | Inside Our Atelier",
+    "metaDescription": "The story, craft, and handmade process behind The Atelier Marie candles."
   },
   "contact": {
     "eyebrow": "Atelier Marie",
@@ -81,6 +110,7 @@
     "metaTitle": "FAQ | Atelier Marie",
     "metaDescription": "Answers about Atelier Marie candles, candle care, custom orders, shipping, and returns.",
     "subtitle": "Have a question? You may find the answer below. If not, we'd love to hear from you. Simply get in touch through our Contact Form, and we'll be happy to help.",
+    "categoryNavLabel": "FAQ categories",
     "contactUs": "Contact Us",
     "footerLink": "FAQ",
     "bannerTitle": "Still have a question?",
@@ -244,10 +274,59 @@
     "signingIn": "Signing you in..."
   },
   "home": {
-    "heroTitle": "Luxury Handcrafted Candles",
-    "heroSubtitle": "Each candle is lovingly made by hand, using the finest natural ingredients to bring warmth and elegance to your home.",
+    "heroAriaLabel": "Atelier Marie landing hero",
+    "heroEyebrow": "Hand-poured in small batches",
+    "brandMarkTitle": "Atelier Marie signature M",
+    "heroMediaFallback": "Atelier Marie candle",
+    "heroTitle": "Atelier Marie",
+    "heroSubtitle": "Handmade candles, soft scents, and gift-ready details crafted with a premium organic wax blend.",
     "shopCollection": "Shop Collection",
-    "featured": "Featured"
+    "trustEyebrow": "Made by hand",
+    "trustTitle": "A short note from the atelier",
+    "trustText": "Each piece is prepared in small batches with careful finishing, selected fragrance blends, and materials chosen for a refined home feel.",
+    "trustItems": {
+      "handmade": {
+        "title": "Handmade slowly",
+        "text": "Every candle is poured, finished, and checked by hand in the atelier."
+      },
+      "wax": {
+        "title": "Premium organic wax",
+        "text": "The wax blend is selected for a clean finish, elegant texture, and consistent quality."
+      },
+      "fragrance": {
+        "title": "Refined scents",
+        "text": "Fragrances are chosen to feel soft, warm, and beautiful at home."
+      },
+      "gift": {
+        "title": "Gift-ready care",
+        "text": "Presentation, finish, and support are part of the Atelier Marie experience."
+      }
+    },
+    "spotlightEyebrow": "Featured piece",
+    "viewProduct": "View product",
+    "categoriesEyebrow": "Shop by mood",
+    "categoriesTitle": "Choose a handmade category",
+    "categoriesIntro": "Discover our current handmade collections, gathered by mood and craft.",
+    "categories": {
+      "christmasBalls": "Christmas balls",
+      "customBoxes": "Custom boxes",
+      "candles": "Candles",
+      "notebooks": "Notebooks"
+    },
+    "categoryDescriptions": {
+      "christmasBalls": "Delicate festive pieces for winter gifting.",
+      "customBoxes": "Personal boxes and thoughtful made-to-order sets.",
+      "candles": "Hand-poured candles for warm, beautiful spaces.",
+      "notebooks": "Soft stationery details for personal moments."
+    },
+    "categoryCta": "Browse {count} {count, plural, one {piece} other {pieces}}",
+    "featuredEyebrow": "Editor's picks",
+    "featuredIntro": "A curated glimpse at current atelier favorites, with texture, price, and product details close at hand.",
+    "featured": "Featured pieces",
+    "featuredCarouselLabel": "Featured product slides",
+    "featuredCarouselGoTo": "Show featured product {index}",
+    "featuredCarouselPrevious": "Previous featured product",
+    "featuredCarouselNext": "Next featured product"
   },
   "products": {
     "title": "Our Collection",

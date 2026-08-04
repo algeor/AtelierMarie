@@ -46,9 +46,11 @@ describe("AdminSidebar nav", () => {
     expect(econt).toHaveAttribute("aria-current", "page");
   });
 
-  it("groups editable pages", () => {
+  it("groups editable pages", async () => {
+    const user = userEvent.setup();
     renderWithIntl(<AdminSidebar />);
 
+    await user.click(screen.getByRole("button", { name: /expand pages/i }));
     expect(screen.getByRole("button", { name: /collapse pages/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Atelier" })).toHaveAttribute("href", "/admin/atelier");
     expect(screen.getByRole("link", { name: "Terms" })).toHaveAttribute("href", "/admin/terms");
@@ -70,9 +72,11 @@ describe("AdminSidebar nav", () => {
     expect(screen.getByText("Atelier Marie")).toHaveClass("italic");
   });
 
-  it("lists stock work directly under Stock and production", () => {
+  it("lists stock work directly under Stock and production", async () => {
+    const user = userEvent.setup();
     renderWithIntl(<AdminSidebar />);
 
+    await user.click(screen.getByRole("button", { name: /expand stock and production/i }));
     expect(screen.getByRole("button", { name: /collapse stock and production/i })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Stock" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Materials" })).toHaveAttribute("href", "/admin/inventory/materials");
@@ -82,10 +86,10 @@ describe("AdminSidebar nav", () => {
     const user = userEvent.setup();
     renderWithIntl(<AdminSidebar />);
 
-    await user.click(screen.getByRole("button", { name: /collapse pages/i }));
-    expect(screen.queryByRole("link", { name: "Atelier" })).not.toBeInTheDocument();
-
     await user.click(screen.getByRole("button", { name: /expand pages/i }));
     expect(screen.getByRole("link", { name: "Atelier" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /collapse pages/i }));
+    expect(screen.queryByRole("link", { name: "Atelier" })).not.toBeInTheDocument();
   });
 });

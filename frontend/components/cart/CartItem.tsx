@@ -24,8 +24,8 @@ export function CartItem({ item, onUpdateQuantity, onRemove }: CartItemProps) {
   const canIncrement = quantity < maxQuantity;
 
   return (
-    <div className="flex gap-4 py-4 border-b border-champagne-beige last:border-b-0">
-      <div className="h-16 w-16 shrink-0 overflow-hidden rounded-brand border border-champagne-beige bg-cream">
+    <div className="flex gap-4 border-b border-border/60 py-4 last:border-b-0">
+      <div className="h-16 w-16 shrink-0 overflow-hidden rounded-brand border border-border/60 bg-surface">
         {thumbnailUrl ? (
           <Image
             src={thumbnailUrl}
@@ -35,17 +35,17 @@ export function CartItem({ item, onUpdateQuantity, onRemove }: CartItemProps) {
             className="h-full w-full object-cover"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center px-2 text-center font-heading text-[10px] leading-tight text-soft-brown/70">
+          <div className="flex h-full w-full items-center justify-center px-2 text-center font-heading text-[10px] leading-tight text-muted/70">
             {product.name}
           </div>
         )}
       </div>
-      <div className="flex-1 min-w-0">
-        <h3 className="text-sm font-medium text-charcoal truncate">
+      <div className="min-w-0 flex-1">
+        <h3 className="truncate text-sm font-medium text-text">
           {product.name}
         </h3>
-        <p className="mt-1 text-sm text-soft-brown">
-          <PriceDisplay product={product} className="text-sm text-soft-brown" />
+        <p className="mt-1 text-sm text-muted">
+          <PriceDisplay product={product} className="text-sm text-muted" />
         </p>
 
         <div className="mt-2 flex items-center gap-2">
@@ -54,18 +54,18 @@ export function CartItem({ item, onUpdateQuantity, onRemove }: CartItemProps) {
             disabled={!canDecrement}
             aria-label={t("decreaseQuantity")}
             className={cn(
-              "w-7 h-7 inline-flex items-center justify-center rounded-brand border border-champagne-beige text-sm font-medium",
+              "inline-flex h-7 w-7 items-center justify-center rounded-brand border border-border/70 text-sm font-medium",
               "transition-colors duration-fast",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page",
               canDecrement
-                ? "text-charcoal hover:bg-cream"
-                : "text-soft-brown/40 cursor-not-allowed"
+                ? "text-text hover:bg-surface"
+                : "cursor-not-allowed text-muted/40"
             )}
           >
             −
           </button>
           <span
-            className="min-w-[1.5rem] text-center text-sm font-medium text-charcoal"
+            className="min-w-[1.5rem] text-center text-sm font-medium text-text"
             aria-live="polite"
             aria-atomic="true"
           >
@@ -77,26 +77,26 @@ export function CartItem({ item, onUpdateQuantity, onRemove }: CartItemProps) {
             aria-label={t("increaseQuantity")}
             title={!canIncrement && maxQuantity > 0 ? t("stockLimit", { count: maxQuantity }) : undefined}
             className={cn(
-              "w-7 h-7 inline-flex items-center justify-center rounded-brand border border-champagne-beige text-sm font-medium",
+              "inline-flex h-7 w-7 items-center justify-center rounded-brand border border-border/70 text-sm font-medium",
               "transition-colors duration-fast",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page",
               canIncrement
-                ? "text-charcoal hover:bg-cream"
-                : "text-soft-brown/40 cursor-not-allowed"
+                ? "text-text hover:bg-surface"
+                : "cursor-not-allowed text-muted/40"
             )}
           >
             +
           </button>
         </div>
         {!canIncrement && maxQuantity > 0 && (
-          <p className="mt-1 text-xs text-soft-brown">
+          <p className="mt-1 text-xs text-muted">
             {t("stockLimit", { count: maxQuantity })}
           </p>
         )}
       </div>
 
       <div className="flex flex-col items-end justify-between">
-        <p className="text-sm font-medium text-charcoal">
+        <p className="text-sm font-medium text-text">
           {formatPrice(lineTotal)}
         </p>
         <DeleteIconButton

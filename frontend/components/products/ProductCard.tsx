@@ -15,7 +15,7 @@ export function ProductCard({ product }: ProductCardProps) {
         href={`/products/${product.id}`}
         className="block rounded-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"
       >
-        <div className="motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-brand motion-safe:group-hover:scale-[1.02]">
+        <div className="motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-brand motion-safe:group-hover:scale-[1.02] motion-safe:group-focus-within:scale-[1.02]">
           <ProductImage
             name={product.name}
             imageUrl={product.video?.poster_url ?? product.primary_image_url}

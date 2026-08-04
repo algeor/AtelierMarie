@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120" width="160" height="120" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+  <title>Christmas ball line drawing</title>
+  <path d="M39 66 C39 54 49 44 61 44 C73 44 83 54 83 66 C83 78 73 88 61 88 C49 88 39 78 39 66Z"/>
+  <path d="M56 39 H66 V45 H56Z"/>
+  <path d="M61 39 C60 31 66 27 71 31"/>
+  <path d="M76 73 C76 63 84 55 94 55 C104 55 112 63 112 73 C112 83 104 91 94 91 C84 91 76 83 76 73Z"/>
+  <path d="M89 50 H99 V56 H89Z"/>
+  <path d="M94 50 C93 43 99 40 103 43"/>
+  <path d="M55 71 C61 67 65 61 67 54"/>
+  <path d="M89 79 C96 74 101 67 103 60"/>
+</svg>

@@ -39,30 +39,30 @@ export function ShippingPriceSummary({
   return (
     <div className={cn("space-y-2 text-sm", className)}>
       {!qualifiesForFree && amountToFree > 0 && (
-        <p className="rounded-brand bg-muted-gold/10 px-3 py-2 text-xs text-soft-brown">
+        <p className="rounded-brand bg-accent-soft/35 px-3 py-2 text-xs text-muted">
           {t("amountToFreeShipping", { amount: formatPrice(amountToFree) })}
         </p>
       )}
 
       <div className="flex items-center justify-between">
-        <span className="text-soft-brown">{tCart("subtotal")}</span>
-        <span className="text-charcoal">{formatPrice(itemsTotalCents)}</span>
+        <span className="text-muted">{tCart("subtotal")}</span>
+        <span className="text-text">{formatPrice(itemsTotalCents)}</span>
       </div>
 
       <div className="flex items-center justify-between">
-        <span className="text-soft-brown">{t("shippingLabel")}</span>
+        <span className="text-muted">{t("shippingLabel")}</span>
         {isPending ? (
-          <span className="text-soft-brown">{t("shippingPending")}</span>
+          <span className="text-muted">{t("shippingPending")}</span>
         ) : isFreeShipping ? (
-          <span className="font-medium text-muted-gold">{t("freeShipping")}</span>
+          <span className="font-medium text-accent">{t("freeShipping")}</span>
         ) : (
-          <span className="text-charcoal">{formatPrice(shippingCents ?? 0)}</span>
+          <span className="text-text">{formatPrice(shippingCents ?? 0)}</span>
         )}
       </div>
 
-      <div className="flex items-center justify-between border-t border-champagne-beige pt-2">
-        <span className="font-heading text-lg text-charcoal">{t("total")}</span>
-        <span className="font-heading text-lg text-charcoal">
+      <div className="flex items-center justify-between border-t border-border/60 pt-2">
+        <span className="font-heading text-lg text-text">{t("total")}</span>
+        <span className="font-heading text-lg text-text">
           {isPending ? "—" : formatPrice(totalCents)}
         </span>
       </div>

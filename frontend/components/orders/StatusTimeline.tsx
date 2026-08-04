@@ -60,17 +60,17 @@ export function StatusTimeline({
             isCurrent={index === currentIndex}
           />
           {status === "shipped" && index <= currentIndex && hasTracking && (
-            <div className="ml-6 mt-2 space-y-1 text-sm text-soft-brown">
+            <div className="ml-6 mt-2 space-y-1 text-sm text-muted">
               {trackingCarrier && (
                 <p>
-                  <span className="font-medium text-charcoal">
+                  <span className="font-medium text-text">
                     {tTracking("carrier")}:
                   </span>{" "}
                   {carrierLabel(trackingCarrier)}
                 </p>
               )}
               <p>
-                <span className="font-medium text-charcoal">
+                <span className="font-medium text-text">
                   {tTracking("trackingNumber")}:
                 </span>{" "}
                 <span className="font-mono">{trackingNumber}</span>
@@ -80,7 +80,7 @@ export function StatusTimeline({
                   href={trackingUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-block text-muted-gold underline underline-offset-2 hover:text-charcoal transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown"
+                  className="inline-block text-accent underline underline-offset-2 transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                 >
                   {tTracking("trackPackage")}
                 </a>
@@ -107,23 +107,23 @@ function TimelineStep({
   return (
     <div className="flex items-center gap-3">
       <div
-        className={`w-3 h-3 rounded-full flex-shrink-0 ${
+        className={`h-3 w-3 flex-shrink-0 rounded-full ${
           isCancelled
-            ? "bg-red-500"
+            ? "bg-error"
             : isCompleted
-              ? "bg-green-500"
-              : "bg-gray-200"
+              ? "bg-success"
+              : "bg-disabled/40"
         }`}
       />
       <span
         className={`text-sm ${
           isCancelled
-            ? "text-red-700 font-medium"
+            ? "font-medium text-error"
             : isCurrent
-              ? "text-charcoal font-medium"
+              ? "font-medium text-text"
               : isCompleted
-                ? "text-charcoal"
-                : "text-gray-400"
+                ? "text-text"
+                : "text-muted/55"
         }`}
       >
         {label}

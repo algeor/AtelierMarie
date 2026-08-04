@@ -185,14 +185,14 @@ describe("Admin Products List", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Lavender Dreams")).toBeInTheDocument();
-      expect(screen.getByText("Vanilla Bourbon")).toBeInTheDocument();
+      expect(screen.getAllByText("Lavender Dreams").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Vanilla Bourbon").length).toBeGreaterThan(0);
     });
 
-    expect(screen.getByText("€32.00")).toBeInTheDocument();
-    expect(screen.getByText("€38.00")).toBeInTheDocument();
-    expect(screen.getByText("Active")).toBeInTheDocument();
-    expect(screen.getByText("Inactive")).toBeInTheDocument();
+    expect(screen.getAllByText("€32.00").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("€38.00").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Active").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Inactive").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Missing image").length).toBeGreaterThanOrEqual(2);
   });
 
@@ -233,7 +233,7 @@ describe("Admin Products List", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Lavender Dreams")).toBeInTheDocument();
+      expect(screen.getAllByText("Lavender Dreams").length).toBeGreaterThan(0);
     });
 
     const deactivateButtons = screen.getAllByText("Deactivate");
@@ -262,10 +262,12 @@ describe("Admin Products List", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Vanilla Bourbon")).toBeInTheDocument();
+      expect(screen.getAllByText("Vanilla Bourbon").length).toBeGreaterThan(0);
     });
 
-    expect(screen.getByRole("button", { name: "Activate" })).toBeDisabled();
+    for (const activateButton of screen.getAllByRole("button", { name: "Activate" })) {
+      expect(activateButton).toBeDisabled();
+    }
   });
 
   it("shows loading skeletons on initial load", async () => {
@@ -331,8 +333,8 @@ describe("Admin Products List", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText("No products found. Create your first product to get started.")
-      ).toBeInTheDocument();
+        screen.getAllByText("No products found. Create your first product to get started.").length
+      ).toBeGreaterThan(0);
     });
   });
 });

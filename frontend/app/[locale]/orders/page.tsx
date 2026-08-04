@@ -13,17 +13,17 @@ import type { OrderResponse, PaymentStatus } from "@/lib/types";
 type PageState = "loading" | "success" | "error";
 
 const PAYMENT_STATUS_COLORS: Record<PaymentStatus, string> = {
-  pending: "bg-amber-100 text-amber-800",
-  paid: "bg-green-100 text-green-800",
-  cod_pending: "bg-gray-100 text-gray-700",
-  failed: "bg-red-100 text-red-800",
-  review_required: "bg-amber-100 text-amber-800",
-  refund_pending: "bg-blue-100 text-blue-800",
-  partially_refunded: "bg-blue-100 text-blue-800",
-  refunded: "bg-blue-100 text-blue-800",
-  dispute_open: "bg-red-100 text-red-800",
-  dispute_won: "bg-green-100 text-green-800",
-  dispute_lost: "bg-red-100 text-red-800",
+  pending: "bg-warning/10 text-warning",
+  paid: "bg-success/10 text-success",
+  cod_pending: "bg-secondary text-secondary-foreground",
+  failed: "bg-error/10 text-error",
+  review_required: "bg-warning/10 text-warning",
+  refund_pending: "bg-accent-soft/40 text-accent",
+  partially_refunded: "bg-accent-soft/40 text-accent",
+  refunded: "bg-accent-soft/40 text-accent",
+  dispute_open: "bg-error/10 text-error",
+  dispute_won: "bg-success/10 text-success",
+  dispute_lost: "bg-error/10 text-error",
 };
 
 export default function OrdersPage() {
@@ -60,13 +60,14 @@ export default function OrdersPage() {
 
   if (state === "loading") {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-12">
-        <h1 className="font-heading text-3xl text-charcoal mb-8">{t("title")}</h1>
+      <main className="bg-page px-4 py-12 text-text">
+        <div className="mx-auto max-w-3xl">
+        <h1 className="mb-8 font-heading text-4xl leading-tight text-text">{t("title")}</h1>
         <div className="space-y-4">
           {[1, 2, 3, 4].map((i) => (
             <div
               key={i}
-              className="bg-white rounded-brand p-6 shadow-sm border border-champagne-beige"
+              className="rounded-brand border border-border/60 bg-surface-elevated/75 p-6 shadow-sm"
             >
               <div className="flex items-center justify-between">
                 <div className="space-y-2">
@@ -78,57 +79,63 @@ export default function OrdersPage() {
             </div>
           ))}
         </div>
-      </div>
+        </div>
+      </main>
     );
   }
 
   if (state === "error") {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-12">
-        <h1 className="font-heading text-3xl text-charcoal mb-8">{t("title")}</h1>
-        <div className="bg-white rounded-brand p-8 shadow-sm border border-champagne-beige text-center">
-          <p className="text-soft-brown mb-4">
+      <main className="bg-page px-4 py-12 text-text">
+        <div className="mx-auto max-w-3xl">
+        <h1 className="mb-8 font-heading text-4xl leading-tight text-text">{t("title")}</h1>
+        <div className="rounded-brand border border-border/60 bg-surface-elevated/75 p-8 text-center shadow-sm">
+          <p className="mb-4 text-muted">
             {t("loadingError")}
           </p>
           <button
             onClick={() => fetchOrders(page)}
-            className="inline-flex items-center justify-center px-6 py-3 bg-charcoal text-warm-ivory font-medium rounded-brand hover:bg-soft-brown transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
+            className="inline-flex items-center justify-center rounded-brand bg-primary px-6 py-3 font-medium text-primary-foreground transition-colors duration-fast hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
           >
             {tCommon("tryAgain")}
           </button>
         </div>
-      </div>
+        </div>
+      </main>
     );
   }
 
   if (orders.length === 0) {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-12">
-        <h1 className="font-heading text-3xl text-charcoal mb-8">{t("title")}</h1>
-        <div className="bg-white rounded-brand p-8 shadow-sm border border-champagne-beige text-center">
-          <p className="text-charcoal font-medium mb-2">{t("noOrders")}</p>
-          <p className="text-soft-brown mb-6">
+      <main className="bg-page px-4 py-12 text-text">
+        <div className="mx-auto max-w-3xl">
+        <h1 className="mb-8 font-heading text-4xl leading-tight text-text">{t("title")}</h1>
+        <div className="rounded-brand border border-border/60 bg-surface-elevated/75 p-8 text-center shadow-sm">
+          <p className="mb-2 font-medium text-text">{t("noOrders")}</p>
+          <p className="mb-6 text-muted">
             {t("noOrdersDescription")}
           </p>
           <Link
             href="/products"
-            className="inline-flex items-center justify-center px-6 py-3 bg-charcoal text-warm-ivory font-medium rounded-brand hover:bg-soft-brown transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2"
+            className="inline-flex items-center justify-center rounded-brand bg-primary px-6 py-3 font-medium text-primary-foreground transition-colors duration-fast hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
           >
             {t("startShopping")}
           </Link>
           {!isAuthenticated && (
-            <p className="text-soft-brown text-sm mt-4">
+            <p className="mt-4 text-sm text-muted">
               {tAuth("signInToSeeOrders")}
             </p>
           )}
         </div>
-      </div>
+        </div>
+      </main>
     );
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-12">
-      <h1 className="font-heading text-3xl text-charcoal mb-8">{t("title")}</h1>
+    <main className="bg-page px-4 py-12 text-text">
+      <div className="mx-auto max-w-3xl">
+      <h1 className="mb-8 font-heading text-4xl leading-tight text-text">{t("title")}</h1>
 
       <div className="space-y-4">
         {orders.map((order) => {
@@ -142,17 +149,17 @@ export default function OrdersPage() {
             <Link
               key={order.id}
               href={`/orders/${order.id}`}
-              className="block bg-white rounded-brand p-6 shadow-sm border border-champagne-beige hover:border-soft-brown transition-colors duration-fast"
+              className="block rounded-brand border border-border/60 bg-surface-elevated/75 p-6 shadow-sm transition-colors duration-fast hover:border-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
             >
               <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0">
                   <div className="flex items-center gap-3 mb-1">
-                    <span className="text-sm font-mono text-soft-brown">
+                    <span className="font-mono text-sm text-muted">
                       #{order.id.slice(0, 8)}
                     </span>
                     <OrderStatusBadge status={order.status} />
                   </div>
-                  <p className="text-sm text-soft-brown">
+                  <p className="text-sm text-muted">
                     {date} · {t("item", { count: itemCount })}
                   </p>
                   <p className="mt-2">
@@ -163,7 +170,7 @@ export default function OrdersPage() {
                     </span>
                   </p>
                 </div>
-                <span className="text-charcoal font-medium whitespace-nowrap">
+                <span className="whitespace-nowrap font-medium text-text">
                   {formatPrice(order.total_cents)}
                 </span>
               </div>
@@ -174,26 +181,27 @@ export default function OrdersPage() {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-4 mt-8">
+        <div className="mt-8 flex items-center justify-center gap-4">
           <button
             onClick={() => fetchOrders(page - 1)}
             disabled={page <= 1}
-            className="px-4 py-2 text-sm font-medium text-charcoal border border-champagne-beige rounded-brand hover:bg-cream disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-fast"
+            className="rounded-brand border border-border px-4 py-2 text-sm font-medium text-text transition-colors duration-fast hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
           >
             {tCommon("previous")}
           </button>
-          <span className="text-sm text-soft-brown">
+          <span className="text-sm text-muted">
             {tCommon("page", { current: page, total: totalPages })}
           </span>
           <button
             onClick={() => fetchOrders(page + 1)}
             disabled={page >= totalPages}
-            className="px-4 py-2 text-sm font-medium text-charcoal border border-champagne-beige rounded-brand hover:bg-cream disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-fast"
+            className="rounded-brand border border-border px-4 py-2 text-sm font-medium text-text transition-colors duration-fast hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
           >
             {tCommon("next")}
           </button>
         </div>
       )}
-    </div>
+      </div>
+    </main>
   );
 }

@@ -47,7 +47,7 @@ export function ProductListingClient({ products, taxonomy }: ProductListingClien
   // server/client hydration mismatch.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const pt = params.get("type");
+    const pt = params.get("type") ?? params.get("product_type");
     const cat = params.get("category");
     const lbls = params.get("labels");
     if (pt) {

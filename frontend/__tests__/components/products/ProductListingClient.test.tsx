@@ -144,4 +144,31 @@ describe("ProductListingClient taxonomy menu", () => {
       expect(names).toEqual(["Sale Candle", "Plain Candle"]);
     });
   });
+
+  it("hydrates supported product type and category filters from the URL", async () => {
+    window.history.replaceState(null, "", "/en/products?type=boxes&category=premium");
+
+    renderWithIntl(<ProductListingClient products={products} taxonomy={taxonomy} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Premium Gift Box" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Small Candle" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Medium Candle" })).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("button", { name: /Boxes/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Premium/ })).toBeInTheDocument();
+  });
+
+  it("falls back to all products for unsupported URL filters", async () => {
+    window.history.replaceState(null, "", "/en/products?type=missing&category=ghost");
+
+    renderWithIntl(<ProductListingClient products={products} taxonomy={taxonomy} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Small Candle" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Medium Candle" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Premium Gift Box" })).toBeInTheDocument();
+    });
+  });
 });

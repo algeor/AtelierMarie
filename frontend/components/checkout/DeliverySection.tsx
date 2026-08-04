@@ -254,7 +254,7 @@ function DeliveryMethodSelector({ value, onChange, methods, error }: DeliveryMet
   return (
     <fieldset className="mb-6">
       <legend className="mb-2 block text-sm font-medium text-soft-brown">
-        {t("label")} <span className="text-red-700">*</span>
+        {t("label")} <span className="text-error">*</span>
       </legend>
       <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label={t("label")}>
         {methods.map((m) => (
@@ -280,7 +280,7 @@ function DeliveryMethodSelector({ value, onChange, methods, error }: DeliveryMet
         ))}
       </div>
       {error && (
-        <p className="mt-1.5 text-sm text-red-700" role="alert">
+        <p className="mt-1.5 text-sm text-error" role="alert">
           {error}
         </p>
       )}
@@ -303,7 +303,7 @@ function CourierPicker({ value, onChange, couriers, error }: CourierPickerProps)
   return (
     <fieldset className="mb-6">
       <legend className="mb-2 block text-sm font-medium text-soft-brown">
-        {t("label")} <span className="text-red-700">*</span>
+        {t("label")} <span className="text-error">*</span>
       </legend>
       <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label={t("label")}>
         {couriers.map((c) => (
@@ -331,7 +331,7 @@ function CourierPicker({ value, onChange, couriers, error }: CourierPickerProps)
         ))}
       </div>
       {error && (
-        <p className="mt-1.5 text-sm text-red-700" role="alert">
+        <p className="mt-1.5 text-sm text-error" role="alert">
           {error}
         </p>
       )}
@@ -562,7 +562,7 @@ function OfficePicker({ courier, selectedOffice, onSelect, error, locale }: Offi
           )}
           {/* City input with typeahead */}
           <label className="mb-1.5 block text-sm font-medium text-soft-brown">
-            {t("cityLabel")} <span className="text-red-700">*</span>
+            {t("cityLabel")} <span className="text-error">*</span>
           </label>
           <div className="relative mb-4">
             <input
@@ -661,7 +661,7 @@ function OfficePicker({ courier, selectedOffice, onSelect, error, locale }: Offi
       )}
 
       {error && (
-        <p className="mt-2 text-sm text-red-700" role="alert">
+        <p className="mt-2 text-sm text-error" role="alert">
           {error}
         </p>
       )}
@@ -696,7 +696,7 @@ function DoorAddressForm({ value, onChange, errors, locale }: DoorAddressFormPro
       <div className="mb-4">
         <label htmlFor={inputId} className="mb-1.5 block text-sm font-medium text-soft-brown">
           {t(`${key}Label`)}
-          {required && <span className="text-red-700"> *</span>}
+          {required && <span className="text-error"> *</span>}
         </label>
         <input
           id={inputId}
@@ -719,11 +719,11 @@ function DoorAddressForm({ value, onChange, errors, locale }: DoorAddressFormPro
           className={cn(
             "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
             readOnly && "cursor-not-allowed opacity-70",
-            err ? "border-red-700" : "border-champagne-beige"
+            err ? "border-error" : "border-champagne-beige"
           )}
         />
         {err && (
-          <p id={errorId} className="mt-1 text-sm text-red-700" role="alert">
+          <p id={errorId} className="mt-1 text-sm text-error" role="alert">
             {err}
           </p>
         )}
@@ -820,7 +820,7 @@ function DoorPlaceField({
     <>
       <div className="mb-4">
         <label htmlFor="delivery-door-city" className="mb-1.5 block text-sm font-medium text-soft-brown">
-          {t("cityLabel")} <span className="text-red-700">*</span>
+          {t("cityLabel")} <span className="text-error">*</span>
         </label>
         <div className="relative">
           <input
@@ -841,7 +841,7 @@ function DoorPlaceField({
             aria-describedby={error ? "delivery-door-city-error" : undefined}
             className={cn(
               "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
-              error ? "border-red-700" : "border-champagne-beige"
+              error ? "border-error" : "border-champagne-beige"
             )}
           />
           {showSuggestions && suggestions.length > 0 && (
@@ -861,14 +861,14 @@ function DoorPlaceField({
           )}
         </div>
         {error && (
-          <p id="delivery-door-city-error" className="mt-1 text-sm text-red-700" role="alert">
+          <p id="delivery-door-city-error" className="mt-1 text-sm text-error" role="alert">
             {error}
           </p>
         )}
       </div>
       <div className="mb-4">
         <label htmlFor="delivery-door-postal-code" className="mb-1.5 block text-sm font-medium text-soft-brown">
-          {t("postalCodeLabel")} <span className="text-red-700">*</span>
+          {t("postalCodeLabel")} <span className="text-error">*</span>
         </label>
         <input
           id="delivery-door-postal-code"
@@ -881,12 +881,12 @@ function DoorPlaceField({
           aria-describedby={postalCodeError ? "delivery-door-postal-code-error" : undefined}
           className={cn(
             "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
-            postalCodeError ? "border-red-700" : "border-champagne-beige",
+            postalCodeError ? "border-error" : "border-champagne-beige",
             postalCodeLocked && "cursor-not-allowed opacity-70 focus:ring-0"
           )}
         />
         {postalCodeError && (
-          <p id="delivery-door-postal-code-error" className="mt-1 text-sm text-red-700" role="alert">
+          <p id="delivery-door-postal-code-error" className="mt-1 text-sm text-error" role="alert">
             {postalCodeError}
           </p>
         )}
@@ -908,7 +908,7 @@ function PhoneField({ value, onChange, error }: PhoneFieldProps) {
   return (
     <div className="mb-6">
       <label className="mb-1.5 block text-sm font-medium text-soft-brown">
-        {t("phoneLabel")} <span className="text-red-700">*</span>
+        {t("phoneLabel")} <span className="text-error">*</span>
       </label>
       <input
         type="tel"
@@ -918,11 +918,11 @@ function PhoneField({ value, onChange, error }: PhoneFieldProps) {
         aria-invalid={error ? "true" : undefined}
         className={cn(
           "w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal focus:outline-none focus:ring-2 focus:ring-soft-brown",
-          error ? "border-red-700" : "border-champagne-beige"
+          error ? "border-error" : "border-champagne-beige"
         )}
       />
       {error && (
-        <p className="mt-1 text-sm text-red-700" role="alert">
+        <p className="mt-1 text-sm text-error" role="alert">
           {error}
         </p>
       )}
@@ -1091,10 +1091,10 @@ export function DeliverySection({
 
   return (
     <section className="mb-8">
-      <h2 className="mb-4 font-heading text-xl text-charcoal">{t("sectionTitle")}</h2>
+      <h2 className="mb-4 font-heading text-xl text-text">{t("sectionTitle")}</h2>
 
       {availableMethods.length === 0 ? (
-        <p className="mb-6 rounded-brand border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <p className="mb-6 rounded-brand border border-error/20 bg-error/10 px-4 py-3 text-sm text-error">
           {t("unavailable")}
         </p>
       ) : (

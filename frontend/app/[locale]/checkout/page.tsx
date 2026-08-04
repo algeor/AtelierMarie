@@ -504,18 +504,18 @@ export default function CheckoutPage() {
   );
 
   const renderLegalDisclosure = () => (
-    <p className="mt-3 text-xs leading-5 text-soft-brown/75">
+    <p className="mt-3 text-xs leading-5 text-muted/75">
       {t("legalPrefix")} {" "}
       <Link
         href={policyPath("terms")}
-        className="font-medium text-soft-brown underline underline-offset-4 transition-colors hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand"
+        className="rounded-brand font-medium text-muted underline underline-offset-4 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
       >
         {t("legalTerms")}
       </Link>{" "}
       {t("legalMiddle")} {" "}
       <Link
         href={policyPath("privacy")}
-        className="font-medium text-soft-brown underline underline-offset-4 transition-colors hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand"
+        className="rounded-brand font-medium text-muted underline underline-offset-4 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
       >
         {t("legalPrivacy")}
       </Link>
@@ -534,7 +534,8 @@ export default function CheckoutPage() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+      <main className="bg-page px-4 py-12 text-text sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl">
         <Skeleton className="mb-8 h-10 w-48" />
         <div className="grid gap-12 lg:grid-cols-[1fr_400px]">
           <div className="space-y-6">
@@ -549,44 +550,46 @@ export default function CheckoutPage() {
             <Skeleton className="h-12 w-full" />
           </div>
         </div>
-      </div>
+        </div>
+      </main>
     );
   }
 
   if (items.length === 0) return null;
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-      <h1 className="mb-8 font-heading text-3xl text-charcoal">{t("title")}</h1>
+    <main className="bg-page px-4 py-10 text-text sm:px-6 lg:px-8 lg:py-12">
+      <div className="mx-auto max-w-7xl">
+      <h1 className="mb-8 font-heading text-4xl leading-tight text-text">{t("title")}</h1>
 
       <div className="grid gap-12 lg:grid-cols-[1fr_400px]">
         <form id="checkout-form" onSubmit={handleSubmit} noValidate data-delivery-phase={deliveryPhase}>
           <div aria-live="polite" className="mb-6">
             {submitError && (
-              <div className="rounded-brand border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              <div className="rounded-brand border border-error/20 bg-error/10 px-4 py-3 text-sm text-error">
                 {submitError}
               </div>
             )}
           </div>
 
           {unavailable_items.length > 0 && (
-            <div className="mb-6 rounded-brand border border-amber-200 bg-amber-50 px-4 py-3" role="alert">
-              <h2 className="text-sm font-medium text-amber-900">
+            <div className="mb-6 rounded-brand border border-warning/25 bg-warning/10 px-4 py-3" role="alert">
+              <h2 className="text-sm font-medium text-warning">
                 {t("unavailableItems")}
               </h2>
-              <ul className="mt-2 divide-y divide-amber-200/70">
+              <ul className="mt-2 divide-y divide-warning/20">
                 {unavailable_items.map((item) => (
                   <li key={item.product_id} className="flex items-center justify-between gap-3 py-2">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-charcoal">
+                      <p className="truncate text-sm font-medium text-text">
                         {item.product_name}
                       </p>
-                      <p className="text-xs text-amber-800">{item.reason}</p>
+                      <p className="text-xs text-warning">{item.reason}</p>
                     </div>
                     <button
                       type="button"
                       onClick={() => removeItem(item.product_id)}
-                      className="min-h-[44px] shrink-0 rounded-brand px-3 text-sm font-medium text-amber-900 underline underline-offset-4 hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700 focus-visible:ring-offset-2 focus-visible:ring-offset-amber-50"
+                      className="min-h-[44px] shrink-0 rounded-brand px-3 text-sm font-medium text-warning underline underline-offset-4 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning focus-visible:ring-offset-2 focus-visible:ring-offset-page"
                     >
                       {tCart("remove")}
                     </button>
@@ -598,8 +601,8 @@ export default function CheckoutPage() {
 
           {/* Email */}
           <div className="mb-6">
-            <label htmlFor="checkout-email" className="mb-1.5 block text-sm font-medium text-soft-brown">
-              {t("email")} <span className="text-red-700">*</span>
+            <label htmlFor="checkout-email" className="mb-1.5 block text-sm font-medium text-muted">
+              {t("email")} <span className="text-error">*</span>
             </label>
             <input
               ref={emailRef}
@@ -611,13 +614,13 @@ export default function CheckoutPage() {
               aria-required="true"
               aria-invalid={errors.email ? "true" : undefined}
               aria-describedby={errors.email ? "checkout-email-error" : undefined}
-              className={`w-full rounded-brand border px-4 py-3 text-charcoal bg-warm-ivory placeholder:text-soft-brown/50 focus:outline-none focus:ring-2 focus:ring-soft-brown focus:ring-offset-2 focus:ring-offset-warm-ivory ${
-                errors.email ? "border-red-700" : "border-champagne-beige"
+              className={`w-full rounded-brand border bg-surface px-4 py-3 text-text placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-focus focus:ring-offset-2 focus:ring-offset-page ${
+                errors.email ? "border-error" : "border-border"
               }`}
               placeholder={t("emailPlaceholder")}
             />
             {errors.email && (
-              <p id="checkout-email-error" className="mt-1.5 text-sm text-red-700">
+              <p id="checkout-email-error" className="mt-1.5 text-sm text-error">
                 {errors.email}
               </p>
             )}
@@ -625,8 +628,8 @@ export default function CheckoutPage() {
 
           {/* Name */}
           <div className="mb-6">
-            <label htmlFor="checkout-name" className="mb-1.5 block text-sm font-medium text-soft-brown">
-              {t("name")} <span className="text-red-700">*</span>
+            <label htmlFor="checkout-name" className="mb-1.5 block text-sm font-medium text-muted">
+              {t("name")} <span className="text-error">*</span>
             </label>
             <input
               ref={nameRef}
@@ -639,13 +642,13 @@ export default function CheckoutPage() {
               aria-invalid={errors.name ? "true" : undefined}
               aria-describedby={errors.name ? "checkout-name-error" : undefined}
               maxLength={200}
-              className={`w-full rounded-brand border px-4 py-3 text-charcoal bg-warm-ivory placeholder:text-soft-brown/50 focus:outline-none focus:ring-2 focus:ring-soft-brown focus:ring-offset-2 focus:ring-offset-warm-ivory ${
-                errors.name ? "border-red-700" : "border-champagne-beige"
+              className={`w-full rounded-brand border bg-surface px-4 py-3 text-text placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-focus focus:ring-offset-2 focus:ring-offset-page ${
+                errors.name ? "border-error" : "border-border"
               }`}
               placeholder={t("namePlaceholder")}
             />
             {errors.name && (
-              <p id="checkout-name-error" className="mt-1.5 text-sm text-red-700">
+              <p id="checkout-name-error" className="mt-1.5 text-sm text-error">
                 {errors.name}
               </p>
             )}
@@ -672,21 +675,21 @@ export default function CheckoutPage() {
 
           {/* Free-shipping celebration once the cart clears the threshold. */}
           {qualifiesForFreeShipping && method && currentCourier && (
-            <p className="mb-6 rounded-brand bg-muted-gold/10 px-4 py-3 text-sm font-medium text-muted-gold" role="status">
+            <p className="mb-6 rounded-brand bg-accent-soft/35 px-4 py-3 text-sm font-medium text-accent" role="status">
               {t("delivery.freeShippingAchieved")}
             </p>
           )}
 
           {/* Calculate failure — offer the customer a way forward. */}
           {shippingError && !quotesLoading && (
-            <div className="mb-6 rounded-brand border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+            <div className="mb-6 rounded-brand border border-error/20 bg-error/10 px-4 py-3 text-sm text-error" role="alert">
               {t("delivery.shippingError")}
             </div>
           )}
 
           {/* Order Notes */}
           <div className="mb-6">
-            <label htmlFor="checkout-notes" className="mb-1.5 block text-sm font-medium text-soft-brown">
+            <label htmlFor="checkout-notes" className="mb-1.5 block text-sm font-medium text-muted">
               {t("orderNotes")}
             </label>
             <textarea
@@ -695,17 +698,17 @@ export default function CheckoutPage() {
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               maxLength={500}
-              className="w-full rounded-brand border border-champagne-beige px-4 py-3 text-charcoal bg-warm-ivory placeholder:text-soft-brown/50 focus:outline-none focus:ring-2 focus:ring-soft-brown focus:ring-offset-2 focus:ring-offset-warm-ivory"
+              className="w-full rounded-brand border border-border bg-surface px-4 py-3 text-text placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-focus focus:ring-offset-2 focus:ring-offset-page"
               placeholder={t("notesPlaceholder")}
             />
           </div>
 
           <div className="mb-6">
-            <p className="mb-2 text-sm font-medium text-soft-brown">{t("paymentMethod.label")}</p>
+            <p className="mb-2 text-sm font-medium text-muted">{t("paymentMethod.label")}</p>
             {paymentSettingsLoading ? (
               <Skeleton className="h-12 w-full" />
             ) : showPaymentUnavailable ? (
-              <div className="rounded-brand border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+              <div className="rounded-brand border border-error/20 bg-error/10 px-4 py-3 text-sm text-error" role="alert">
                 {t("paymentMethod.unavailable")}
               </div>
             ) : (
@@ -713,7 +716,14 @@ export default function CheckoutPage() {
                 {availablePaymentMethods.map((method) => {
                   const label = t(`paymentMethod.${method}`);
                   return (
-                    <label key={method} className="flex cursor-pointer items-start gap-3 rounded-brand border border-champagne-beige px-4 py-3">
+                    <label
+                      key={method}
+                      className={`flex cursor-pointer items-start gap-3 rounded-brand border px-4 py-3 transition-colors ${
+                        paymentMethod === method
+                          ? "border-primary bg-primary/10"
+                          : "border-border bg-surface hover:border-muted/40"
+                      }`}
+                    >
                       <input
                         type="radio"
                         name="payment_method"
@@ -721,17 +731,17 @@ export default function CheckoutPage() {
                         checked={paymentMethod === method}
                         onChange={() => handlePaymentMethodChange(method)}
                         aria-label={label}
-                        className="mt-1 accent-soft-brown"
+                        className="mt-1 accent-primary"
                       />
                       <span>
-                        <span className="block text-sm font-medium text-charcoal">{label}</span>
+                        <span className="block text-sm font-medium text-text">{label}</span>
                         {method === "card" && (
-                          <span className="mt-1 block text-xs leading-5 text-soft-brown/75">
+                          <span className="mt-1 block text-xs leading-5 text-muted/75">
                             {t("paymentMethod.cardCopy")}
                           </span>
                         )}
                         {method === "cod" && (
-                          <span className="mt-1 block text-xs leading-5 text-soft-brown/75">
+                          <span className="mt-1 block text-xs leading-5 text-muted/75">
                             {t("paymentMethod.codCopy", {
                               amount: formatPrice(paymentSettings?.pay_on_delivery_max_cents ?? 5000),
                             })}
@@ -748,32 +758,32 @@ export default function CheckoutPage() {
         </form>
 
         <aside className="lg:sticky lg:top-24 lg:self-start">
-          <div className="rounded-brand border border-champagne-beige bg-warm-ivory p-6">
-            <h2 className="mb-4 font-heading text-xl text-charcoal">{t("orderSummary")}</h2>
+          <div className="rounded-brand border border-border/60 bg-surface-elevated/75 p-6">
+            <h2 className="mb-4 font-heading text-xl text-text">{t("orderSummary")}</h2>
 
-            <ul className="divide-y divide-champagne-beige">
+            <ul className="divide-y divide-border/60">
               {items.map((item) => {
                 const thumbnailUrl = resolveMediaUrl(
                   item.product.primary_thumbnail_url ?? item.product.primary_image_url
                 );
                 return (
                   <li key={item.product_id} className="flex items-center justify-between gap-3 py-3 text-sm">
-                    <div className="h-14 w-14 shrink-0 overflow-hidden rounded-brand border border-champagne-beige bg-cream">
+                    <div className="h-14 w-14 shrink-0 overflow-hidden rounded-brand border border-border/60 bg-surface">
                       {thumbnailUrl ? (
                         <Image src={thumbnailUrl} alt="" width={56} height={56} className="h-full w-full object-cover" />
                       ) : (
-                        <div className="flex h-full w-full items-center justify-center px-1 text-center font-heading text-[9px] leading-tight text-soft-brown/70">
+                        <div className="flex h-full w-full items-center justify-center px-1 text-center font-heading text-[9px] leading-tight text-muted/70">
                           {item.product.name}
                         </div>
                       )}
                     </div>
                     <div className="min-w-0 flex-1 pr-2">
-                      <p className="truncate font-medium text-charcoal">{item.product.name}</p>
-                      <p className="text-soft-brown">
+                      <p className="truncate font-medium text-text">{item.product.name}</p>
+                      <p className="text-muted">
                         {item.quantity} &times; {formatPrice(item.product.effective_price_cents)}
                       </p>
                     </div>
-                    <p className="shrink-0 font-medium text-charcoal">
+                    <p className="shrink-0 font-medium text-text">
                       {formatPrice(item.product.effective_price_cents * item.quantity)}
                     </p>
                   </li>
@@ -781,7 +791,7 @@ export default function CheckoutPage() {
               })}
             </ul>
 
-            <div className="mt-4 border-t border-champagne-beige pt-4">
+            <div className="mt-4 border-t border-border/60 pt-4">
               <ShippingPriceSummary
                 itemsTotalCents={total_cents}
                 shippingCents={
@@ -806,6 +816,7 @@ export default function CheckoutPage() {
           </div>
         </aside>
       </div>
-    </div>
+      </div>
+    </main>
   );
 }
