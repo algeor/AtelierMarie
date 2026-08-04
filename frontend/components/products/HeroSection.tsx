@@ -1,17 +1,19 @@
 import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import { BrandMark } from "@/components/rebrand";
-import type { ProductResponse } from "@/lib/types";
+import type { ProductResponse, SiteMediaMap } from "@/lib/types";
 import { ProductImage } from "./ProductImage";
 
 interface HeroSectionProps {
   product?: ProductResponse | null;
+  siteMedia?: SiteMediaMap | null;
 }
 
-export async function HeroSection({ product }: HeroSectionProps) {
+export async function HeroSection({ product, siteMedia }: HeroSectionProps) {
   const t = await getTranslations("home");
-  const heroImage = product?.video?.poster_url ?? product?.primary_image_url ?? "/rebrand/error-candle.webp";
-  const heroImageName = product?.name ?? t("heroMediaFallback");
+  const heroOverride = siteMedia?.home_hero ?? null;
+  const heroImage = heroOverride ?? product?.video?.poster_url ?? product?.primary_image_url ?? siteMedia?.home_hero_fallback ?? "/rebrand/error-candle.webp";
+  const heroImageName = heroOverride ? t("heroMediaFallback") : (product?.name ?? t("heroMediaFallback"));
 
   return (
     <section

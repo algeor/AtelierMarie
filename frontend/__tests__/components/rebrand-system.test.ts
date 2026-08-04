@@ -38,7 +38,7 @@ describe("rebrand system", () => {
 
   it("keeps decorative rebrand motion behind reduced-motion fallbacks", () => {
     expect(globalsCss).toContain("@media (prefers-reduced-motion: reduce)");
-    expect(globalsCss).toContain(".signature-mark--draw");
+    expect(globalsCss).toContain(".signature-mark--reveal");
     expect(globalsCss).toContain(".rebrand-line-draw");
     expect(globalsCss).toContain(".rebrand-slow-reveal");
     expect(globalsCss).toContain(".rebrand-soft-panel-expand");

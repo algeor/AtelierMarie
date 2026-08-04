@@ -1,5 +1,5 @@
 import { Link } from "@/i18n/navigation";
-import type { AboutSection } from "@/lib/types";
+import type { AboutSection, SiteMediaKey, SiteMediaMap } from "@/lib/types";
 import { BodyRenderer } from "./BodyRenderer";
 
 const FALLBACK_IMAGES: Record<string, string> = {
@@ -10,10 +10,20 @@ const FALLBACK_IMAGES: Record<string, string> = {
   process: "/rebrand/error-candle.webp",
 };
 
-function imageFor(section: AboutSection, itemImage?: string | null) {
+const FALLBACK_KEYS: Record<string, SiteMediaKey> = {
+  hero: "atelier_hero_fallback",
+  story: "atelier_story_fallback",
+  atelier: "atelier_atelier_fallback",
+  collections: "atelier_collections_fallback",
+  process: "atelier_process_fallback",
+};
+
+function imageFor(section: AboutSection, itemImage?: string | null, siteMedia?: SiteMediaMap | null) {
+  const mediaKey = FALLBACK_KEYS[section.slug];
   return (
     itemImage ||
     section.image ||
+    (mediaKey ? siteMedia?.[mediaKey] : null) ||
     FALLBACK_IMAGES[section.slug] ||
     FALLBACK_IMAGES.hero
   );
@@ -23,15 +33,19 @@ function SectionShell({
   section,
   children,
   className = "",
+  flush = false,
 }: {
   section: AboutSection;
   children: React.ReactNode;
   className?: string;
+  flush?: boolean;
 }) {
+  const spacing = flush ? "" : "py-16 sm:py-20 lg:py-28";
+
   return (
     <section
       id={section.slug}
-      className={`scroll-mt-24 py-16 sm:py-20 lg:py-28 ${className}`}
+      className={`scroll-mt-24 ${spacing} ${className}`}
     >
       {children}
     </section>
@@ -62,19 +76,23 @@ function normalizeInternalHref(href: string) {
   return `/${trimmed}`;
 }
 
-export function Hero({ section }: { section: AboutSection }) {
+export function Hero({ section, siteMedia }: { section: AboutSection; siteMedia?: SiteMediaMap | null }) {
   return (
     <SectionShell
       section={section}
-      className="relative overflow-hidden bg-text py-0 text-page"
+      className="relative overflow-hidden bg-text text-page"
+      flush
     >
-      <div className="relative min-h-[82vh]">
+      <div className="relative min-h-[82vh] overflow-hidden">
         <img
-          src={imageFor(section)}
+          src={imageFor(section, null, siteMedia)}
           alt=""
-          className="absolute inset-0 h-full w-full object-cover opacity-55"
+          className="absolute inset-0 h-full w-full object-cover object-center"
         />
-        <div className="absolute inset-0 bg-text/35" aria-hidden="true" />
+        <div
+          className="absolute inset-0 bg-[linear-gradient(180deg,rgb(var(--color-text)/0.34)_0%,rgb(var(--color-text)/0.38)_46%,rgb(var(--color-text)/0.58)_100%)] md:bg-[linear-gradient(90deg,rgb(var(--color-text)/0.62)_0%,rgb(var(--color-text)/0.42)_48%,rgb(var(--color-text)/0.32)_100%)]"
+          aria-hidden="true"
+        />
         <div className="relative z-10 flex min-h-[82vh] items-end px-4 pb-16 sm:px-6 lg:px-8">
           <div className="mx-auto w-full max-w-7xl">
             <div className="max-w-3xl">
@@ -93,7 +111,7 @@ export function Hero({ section }: { section: AboutSection }) {
           </div>
         </div>
       </div>
-      <div className="bg-page px-4 py-14 text-text sm:px-6 lg:px-8">
+      <div className="bg-surface px-4 py-14 text-text sm:px-6 lg:px-8">
         <div className="mx-auto max-w-3xl text-center">
           <BodyRenderer body={section.body} />
         </div>
@@ -102,13 +120,13 @@ export function Hero({ section }: { section: AboutSection }) {
   );
 }
 
-export function TextImage({ section }: { section: AboutSection }) {
+export function TextImage({ section, siteMedia }: { section: AboutSection; siteMedia?: SiteMediaMap | null }) {
   return (
     <SectionShell section={section} className="bg-page">
       <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 sm:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:gap-16 lg:px-8">
         <div className="editorial-image-settle overflow-hidden rounded-brand bg-surface shadow-sm shadow-border/10">
           <img
-            src={imageFor(section)}
+            src={imageFor(section, null, siteMedia)}
             alt=""
             className="aspect-[4/5] w-full object-cover"
           />
@@ -222,7 +240,7 @@ export function ProcessTimeline({ section }: { section: AboutSection }) {
   );
 }
 
-export function CollectionsGrid({ section }: { section: AboutSection }) {
+export function CollectionsGrid({ section, siteMedia }: { section: AboutSection; siteMedia?: SiteMediaMap | null }) {
   return (
     <SectionShell section={section} className="bg-page">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -240,7 +258,7 @@ export function CollectionsGrid({ section }: { section: AboutSection }) {
             const content = (
               <article className="group overflow-hidden rounded-brand bg-surface/45 shadow-sm shadow-border/10">
                 <img
-                  src={imageFor(section, item.image)}
+                  src={imageFor(section, item.image, siteMedia)}
                   alt=""
                   className="aspect-[4/3] w-full object-cover transition-transform duration-300 group-hover:scale-105 motion-reduce:transition-none motion-reduce:group-hover:scale-100"
                 />
@@ -286,12 +304,12 @@ export function CtaBand({ section }: { section: AboutSection }) {
   );
 }
 
-export function renderAtelierSection(section: AboutSection) {
+export function renderAtelierSection(section: AboutSection, siteMedia?: SiteMediaMap | null) {
   switch (section.type) {
     case "hero":
-      return <Hero key={section.slug} section={section} />;
+      return <Hero key={section.slug} section={section} siteMedia={siteMedia} />;
     case "text_image":
-      return <TextImage key={section.slug} section={section} />;
+      return <TextImage key={section.slug} section={section} siteMedia={siteMedia} />;
     case "text_band":
       return <TextBand key={section.slug} section={section} />;
     case "cards":
@@ -299,7 +317,7 @@ export function renderAtelierSection(section: AboutSection) {
     case "timeline":
       return <ProcessTimeline key={section.slug} section={section} />;
     case "collections":
-      return <CollectionsGrid key={section.slug} section={section} />;
+      return <CollectionsGrid key={section.slug} section={section} siteMedia={siteMedia} />;
     case "cta_band":
       return <CtaBand key={section.slug} section={section} />;
     default:

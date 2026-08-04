@@ -7,7 +7,7 @@ describe("rebrand assets", () => {
     render(<BrandMark title="Atelier Marie signature M" animated />);
 
     const mark = screen.getByRole("img", { name: "Atelier Marie signature M" });
-    expect(mark).toHaveClass("signature-mark--draw");
+    expect(mark).toHaveClass("signature-mark--reveal");
     expect(mark).toHaveAttribute("viewBox", "0 0 96 72");
     expect(mark).toHaveAttribute("width", "96");
     expect(mark).toHaveAttribute("height", "72");
@@ -19,7 +19,7 @@ describe("rebrand assets", () => {
 
     const mark = screen.getByRole("img", { name: "Small Atelier Marie signature M" });
     expect(mark).toHaveClass("signature-mark--small");
-    expect(mark).not.toHaveClass("signature-mark--draw");
+    expect(mark).not.toHaveClass("signature-mark--reveal");
     expect(mark).toHaveAttribute("width", "48");
     expect(mark).toHaveAttribute("height", "36");
   });

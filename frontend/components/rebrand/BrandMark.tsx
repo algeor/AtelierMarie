@@ -35,7 +35,7 @@ export function BrandMark({
       focusable="false"
       className={cn(
         "signature-mark",
-        animated && "signature-mark--draw",
+        animated && "signature-mark--reveal",
         isSmall && "signature-mark--small",
         className
       )}
@@ -44,7 +44,6 @@ export function BrandMark({
       <path
         className="signature-mark__stroke"
         d={isSmall ? smallPath : signaturePath}
-        pathLength={1}
         fill="none"
         stroke="currentColor"
         strokeWidth={isSmall ? 5.25 : 4.75}
@@ -55,7 +54,6 @@ export function BrandMark({
         <path
           className="signature-mark__flourish"
           d={signatureFlourish}
-          pathLength={1}
           fill="none"
           stroke="currentColor"
           strokeWidth={2.75}

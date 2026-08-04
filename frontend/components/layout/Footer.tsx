@@ -5,6 +5,7 @@ import { policyPath } from "@/lib/legal";
 import { CookieSettingsButton } from "@/components/layout/CookieSettingsButton";
 import { LoginButton } from "@/components/auth/LoginButton";
 import { BrandMark } from "@/components/rebrand";
+import { cn } from "@/lib/utils";
 
 const footerLinkClass =
   "inline-flex min-h-[36px] items-center py-1 text-left text-sm font-semibold leading-snug text-muted transition-colors duration-fast hover:text-accent active:text-accent focus-visible:outline-none focus-visible:text-accent focus-visible:underline focus-visible:underline-offset-4";
@@ -43,7 +44,7 @@ function TikTokIcon({ className }: { className?: string }) {
   );
 }
 
-export function Footer() {
+export function Footer({ isAtelierPage = false }: { isAtelierPage?: boolean }) {
   const t = useTranslations();
   const currentYear = new Date().getFullYear();
 
@@ -81,7 +82,13 @@ export function Footer() {
   ];
 
   return (
-    <footer className="relative mt-16 overflow-hidden bg-accent py-12 text-text lg:py-16" role="contentinfo">
+    <footer
+      className={cn(
+        "relative overflow-hidden py-12 text-text lg:py-16",
+        isAtelierPage ? "bg-text" : "bg-accent"
+      )}
+      role="contentinfo"
+    >
       <div className="pointer-events-none absolute -bottom-5 left-1/2 z-0 -translate-x-1/2 whitespace-nowrap font-heading text-[17vw] leading-none text-accent-foreground/10 rebrand-footer-wordmark-reveal">
         ATELIER MARIE
       </div>

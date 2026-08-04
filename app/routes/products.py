@@ -1,13 +1,22 @@
-"""Public product endpoints — listing and detail."""
+"""Public product endpoints — listing, detail, and saved products."""
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
-from app.models.products import Locale, ProductListResponse, ProductResponse
+from app.database import get_db
+from app.dependencies.auth import require_auth
+from app.models.products import (
+    Locale,
+    ProductListResponse,
+    ProductResponse,
+    SavedProductListResponse,
+    SavedProductStatusResponse,
+)
+from app.models.users import UserResponse
 from app.responses import error_response
-from app.services import product_service
+from app.services import product_service, saved_products_service
 from app.services.product_service import NotFoundError
 
 router = APIRouter()
@@ -131,6 +140,85 @@ async def list_products(
         page=page,
         limit=limit,
     )
+
+
+@router.get(
+    "/saved",
+    response_model=SavedProductListResponse,
+    summary="List saved products",
+    description="List the current authenticated user's saved active products.",
+)
+async def list_saved_products(
+    current_user: Annotated[UserResponse, Depends(require_auth)],
+    page: int = Query(default=1, ge=1, description="Page number"),
+    limit: int = Query(default=100, ge=1, le=100, description="Items per page (max 100)"),
+    locale: Locale = Query(default="en", description="Content locale (en or bg)"),
+) -> SavedProductListResponse:
+    """List saved products for the current user."""
+    with get_db() as conn:
+        result = saved_products_service.list_saved_products(
+            conn,
+            user_id=current_user.id,
+            page=page,
+            limit=limit,
+            locale=locale,
+        )
+
+    return SavedProductListResponse(
+        products=[ProductResponse(**p) for p in result["products"]],
+        product_ids=result["product_ids"],
+        total=result["total"],
+        page=result["page"],
+        limit=result["limit"],
+    )
+
+
+@router.post(
+    "/{product_id}/saved",
+    response_model=SavedProductStatusResponse,
+    status_code=201,
+    summary="Save product",
+    description="Save an active product to the current authenticated user's shortlist.",
+)
+async def save_product(
+    product_id: str,
+    current_user: Annotated[UserResponse, Depends(require_auth)],
+) -> SavedProductStatusResponse | JSONResponse:
+    """Save a product for the current user."""
+    try:
+        with get_db() as conn:
+            saved_products_service.save_product(
+                conn,
+                user_id=current_user.id,
+                product_id=product_id,
+            )
+            conn.commit()
+    except NotFoundError:
+        return error_response(404, "NOT_FOUND", "Product not found")
+
+    return SavedProductStatusResponse(product_id=product_id, saved=True)
+
+
+@router.delete(
+    "/{product_id}/saved",
+    response_model=SavedProductStatusResponse,
+    summary="Unsave product",
+    description="Remove a product from the current authenticated user's shortlist.",
+)
+async def unsave_product(
+    product_id: str,
+    current_user: Annotated[UserResponse, Depends(require_auth)],
+) -> SavedProductStatusResponse:
+    """Unsave a product for the current user."""
+    with get_db() as conn:
+        saved_products_service.unsave_product(
+            conn,
+            user_id=current_user.id,
+            product_id=product_id,
+        )
+        conn.commit()
+
+    return SavedProductStatusResponse(product_id=product_id, saved=False)
 
 
 @router.get(

@@ -13,6 +13,7 @@ function isAdminPath(pathname: string): boolean {
 
 export function LocaleChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const isAtelierPage = pathname === "/atelier" || pathname.startsWith("/atelier/");
 
   if (isAdminPath(pathname)) {
     return <>{children}</>;
@@ -24,7 +25,7 @@ export function LocaleChrome({ children }: { children: React.ReactNode }) {
       <Header />
       <CartDrawer />
       {children}
-      <Footer />
+      <Footer isAtelierPage={isAtelierPage} />
     </CartProvider>
   );
 }

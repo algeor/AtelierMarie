@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import enMessages from "@/messages/en.json";
 import type { ProductResponse } from "@/lib/types";
-import { getProducts } from "@/lib/api";
+import { getProducts, getPublicSiteMedia } from "@/lib/api";
 import HomePage from "@/app/[locale]/page";
 
 vi.mock("@/i18n/navigation", () => ({
@@ -14,6 +14,7 @@ vi.mock("@/i18n/navigation", () => ({
 
 vi.mock("@/lib/api", () => ({
   getProducts: vi.fn(),
+  getPublicSiteMedia: vi.fn(),
 }));
 
 vi.mock("@/components/products/HeroSection", () => ({
@@ -70,10 +71,24 @@ function product(overrides: Partial<ProductResponse>): ProductResponse {
 }
 
 const mockedGetProducts = vi.mocked(getProducts);
+const mockedGetPublicSiteMedia = vi.mocked(getPublicSiteMedia);
 
 describe("homepage rebrand", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockedGetPublicSiteMedia.mockResolvedValue({
+      assets: {
+        home_hero: null,
+        home_hero_fallback: "/rebrand/error-candle.webp",
+        atelier_hero_fallback: "/rebrand/error-candle.webp",
+        atelier_story_fallback: "/rebrand/error-candle.webp",
+        atelier_atelier_fallback: "/rebrand/error-candle.webp",
+        atelier_collections_fallback: "/rebrand/error-candle.webp",
+        atelier_process_fallback: "/rebrand/error-candle.webp",
+        error_page_image: "/rebrand/error-candle.webp",
+        page_background: "/rebrand/watercolor-page-bg.webp",
+      },
+    });
   });
 
   it("renders landing categories only when matching products exist", async () => {

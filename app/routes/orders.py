@@ -423,6 +423,20 @@ async def create_stripe_retry_session(
 )
 def list_my_orders(
     session_id: Annotated[str, Depends(require_session)],
+    q: str | None = Query(
+        default=None,
+        max_length=200,
+        description="Search order number or product",
+    ),
+    view: Literal["all", "active", "needs_action", "delivered"] = Query(
+        default="all", description="Customer-friendly order view"
+    ),
+    date_range: Literal["all", "last_30_days", "last_6_months"] = Query(
+        default="all", description="Order date range"
+    ),
+    sort: Literal["newest", "oldest", "highest"] = Query(
+        default="newest", description="Sort order"
+    ),
     page: int = Query(default=1, ge=1, description="Page number"),
     limit: int = Query(default=20, ge=1, le=100, description="Items per page"),
 ) -> OrderListResponse:
@@ -435,6 +449,10 @@ def list_my_orders(
             conn=conn,
             session_id=session_id,
             user_id=user_id,
+            q=q,
+            view=view,
+            date_range=date_range,
+            sort=sort,
             page=page,
             limit=limit,
         )

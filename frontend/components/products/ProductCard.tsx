@@ -1,6 +1,7 @@
 import { Link } from "@/i18n/navigation";
 import { ProductImage } from "./ProductImage";
 import { PriceDisplay } from "./PriceDisplay";
+import { SaveProductButton } from "./SaveProductButton";
 import { AddToCartButton } from "@/components/cart/AddToCartButton";
 import type { ProductResponse } from "@/lib/types";
 
@@ -10,7 +11,7 @@ interface ProductCardProps {
 
 export function ProductCard({ product }: ProductCardProps) {
   return (
-    <div className="group">
+    <div className="group relative">
       <Link
         href={`/products/${product.id}`}
         className="block rounded-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"
@@ -32,6 +33,10 @@ export function ProductCard({ product }: ProductCardProps) {
           </div>
         </div>
       </Link>
+      <SaveProductButton
+        productId={product.id}
+        className="absolute right-3 top-3 z-10"
+      />
       <div className="mt-3">
         <AddToCartButton
           productId={product.id}

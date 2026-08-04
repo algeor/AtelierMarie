@@ -237,7 +237,7 @@ export function ProductListingClient({
     const validProductTypes = new Set(
       productTypeSections.map((section) => section.type.slug),
     );
-    const validLabels = new Set(visibleLabels.map((term) => term.slug));
+    const validLabels = new Set(taxonomy.labels.map((term) => term.slug));
     const scopedProducts = productType
       ? products.filter((product) => product.product_type === productType)
       : products;
@@ -265,7 +265,7 @@ export function ProductListingClient({
     productType,
     productTypeSections,
     products,
-    visibleLabels,
+    taxonomy.labels,
   ]);
 
   const filtered = useMemo(() => {

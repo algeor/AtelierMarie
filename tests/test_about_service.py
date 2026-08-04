@@ -26,6 +26,92 @@ def test_seed_has_expected_sections_and_items_and_is_idempotent(about_db):
         assert conn.execute("SELECT COUNT(*) FROM about_items").fetchone()[0] == 17
 
 
+def test_seeded_collection_cards_link_to_label_filters(about_db):
+    with get_db() as conn:
+        links = [
+            row[0]
+            for row in conn.execute(
+                "SELECT link_href FROM about_items "
+                "WHERE section = 'collections' ORDER BY sort_order"
+            )
+        ]
+
+    assert links == [
+        "/products?labels=floral",
+        "/products?labels=sculptural",
+        "/products?labels=bespoke",
+    ]
+
+
+def test_existing_collection_cards_migrate_from_category_to_label_filters(about_db):
+    with get_db() as conn:
+        conn.execute("DELETE FROM schema_migrations WHERE name = 'collection_label_filters_v1'")
+        conn.execute("DELETE FROM product_labels WHERE slug IN ('sculptural', 'bespoke')")
+        conn.execute(
+            "UPDATE about_items SET link_href = '/products?category=floral' "
+            "WHERE section = 'collections' AND title_en = 'Floral Collection'"
+        )
+        conn.execute(
+            "UPDATE about_items SET link_href = '/products?category=sculptural' "
+            "WHERE section = 'collections' AND title_en = 'Sculptural Collection'"
+        )
+        conn.execute(
+            "UPDATE about_items SET link_href = '/products?category=bespoke' "
+            "WHERE section = 'collections' AND title_en = 'Bespoke Collection'"
+        )
+
+    init_db(about_db)
+
+    with get_db() as conn:
+        links = [
+            row[0]
+            for row in conn.execute(
+                "SELECT link_href FROM about_items "
+                "WHERE section = 'collections' ORDER BY sort_order"
+            )
+        ]
+        labels = {
+            row[0]
+            for row in conn.execute(
+                "SELECT slug FROM product_labels WHERE slug IN ('floral', 'sculptural', 'bespoke')"
+            )
+        }
+
+    assert links == [
+        "/products?labels=floral",
+        "/products?labels=sculptural",
+        "/products?labels=bespoke",
+    ]
+    assert labels == {"floral", "sculptural", "bespoke"}
+
+
+def test_collection_product_label_migration_assigns_known_catalogue_products(about_db):
+    with get_db() as conn:
+        conn.execute("DELETE FROM schema_migrations WHERE name = 'collection_product_labels_v1'")
+        conn.executemany(
+            "INSERT INTO products (id, name_en, price_cents, stock) VALUES (?, ?, 1000, 5)",
+            [
+                ("floral-ball-purple-candle", "Floral ball candle"),
+                ("spring-blossom-duo", "Spring blossom duo"),
+                ("plain-candle", "Plain candle"),
+            ],
+        )
+
+    init_db(about_db)
+
+    with get_db() as conn:
+        assignments = {
+            (row[0], row[1])
+            for row in conn.execute("SELECT product_id, label_slug FROM product_label_assignments")
+        }
+
+    assert ("floral-ball-purple-candle", "floral") in assignments
+    assert ("floral-ball-purple-candle", "sculptural") in assignments
+    assert ("spring-blossom-duo", "floral") in assignments
+    assert not any(product_id == "plain-candle" for product_id, _ in assignments)
+    assert not any(label_slug == "bespoke" for _, label_slug in assignments)
+
+
 def test_bg_locale_falls_back_to_english(about_db):
     with get_db() as conn:
         conn.execute("UPDATE about_sections SET heading_bg = NULL WHERE slug = 'hero'")

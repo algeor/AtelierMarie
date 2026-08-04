@@ -1,6 +1,37 @@
 """Integration tests for public product endpoints."""
 
+import sqlite3
+
 import pytest
+
+from app.config import get_settings
+from app.models.users import UserResponse
+from app.services import auth_service
+
+
+def _authenticate_client(client, db_path: str, app) -> None:
+    """Attach a valid JWT for the fake middleware session used by route tests."""
+    user = UserResponse(
+        id="saved-user",
+        email="saved@example.com",
+        name="Saved User",
+        avatar_url=None,
+        is_admin=False,
+    )
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO users (id, google_id, email, name) VALUES (?, ?, ?, ?)",
+        (user.id, "google-saved", user.email, user.name),
+    )
+    conn.execute("UPDATE sessions SET user_id = ? WHERE id = ?", (user.id, app._test_session_id))
+    conn.commit()
+    conn.close()
+
+    client.cookies.clear()
+    client.cookies.set(
+        get_settings().jwt_cookie_name,
+        auth_service.create_jwt(user, app._test_session_id),
+    )
 
 
 @pytest.fixture()
@@ -227,3 +258,51 @@ class TestGetProduct:
         product_service.deactivate_product("lavender-dream-300ml")
         response = await client.get("/v1/products/lavender-dream-300ml")
         assert response.status_code == 404
+
+
+class TestSavedProducts:
+    """Tests for authenticated saved-product endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_saved_products_require_auth(self, client, _products):
+        client.cookies.clear()
+        response = await client.get("/v1/products/saved")
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_save_list_and_unsave_product(self, client, db_path, app, _products):
+        _authenticate_client(client, db_path, app)
+
+        save_response = await client.post("/v1/products/lavender-dream-300ml/saved")
+        assert save_response.status_code == 201
+        assert save_response.json() == {
+            "product_id": "lavender-dream-300ml",
+            "saved": True,
+        }
+
+        list_response = await client.get("/v1/products/saved")
+        assert list_response.status_code == 200
+        body = list_response.json()
+        assert body["total"] == 1
+        assert body["product_ids"] == ["lavender-dream-300ml"]
+        assert body["products"][0]["id"] == "lavender-dream-300ml"
+
+        delete_response = await client.delete("/v1/products/lavender-dream-300ml/saved")
+        assert delete_response.status_code == 200
+        assert delete_response.json() == {
+            "product_id": "lavender-dream-300ml",
+            "saved": False,
+        }
+
+        empty_response = await client.get("/v1/products/saved")
+        assert empty_response.status_code == 200
+        assert empty_response.json()["total"] == 0
+
+    @pytest.mark.asyncio
+    async def test_save_missing_product_returns_404(self, client, db_path, app, _products):
+        _authenticate_client(client, db_path, app)
+
+        response = await client.post("/v1/products/missing/saved")
+
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "NOT_FOUND"

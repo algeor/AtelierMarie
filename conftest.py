@@ -303,6 +303,7 @@ def _clean_tables(db_path, app):
         "vat_fiscal_settings_versions",
         "seller_legal_profile_versions",
         "cart_items",
+        "user_saved_products",
         "product_videos",
         "product_images",
         "promotion_campaign_products",

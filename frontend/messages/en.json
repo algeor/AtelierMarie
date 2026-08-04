@@ -261,6 +261,10 @@
     "signOut": "Sign Out",
     "myAccount": "My Account",
     "myOrders": "My Orders",
+    "savedProducts": "Saved Products",
+    "savedProductsCount": "{count, plural, =0 {No saved products yet} one {# saved product} other {# saved products}}",
+    "noSavedProducts": "Bookmark products you love and they will appear here.",
+    "browseProducts": "Browse products",
     "signInToSeeOrders": "Sign in to see all your orders",
     "signInToViewAccount": "Sign in to view your account and order history",
     "userAvatar": "User avatar",
@@ -336,6 +340,10 @@
     "showing": "Showing {count} {count, plural, one {product} other {products}}",
     "outOfStock": "Out of Stock",
     "addToCart": "Add to Cart",
+    "save": "Save",
+    "saved": "Saved",
+    "saveProduct": "Save product",
+    "removeSavedProduct": "Remove from saved products",
     "added": "Added",
     "addedToCart": "Added {count} {count, plural, one {item} other {items}} to cart",
     "each": "{price} each",
@@ -564,6 +572,32 @@
     "noOrdersDescription": "Browse our collection and place your first order.",
     "startShopping": "Start Shopping",
     "loadingError": "Something went wrong loading your orders",
+    "filters": {
+      "searchLabel": "Search orders",
+      "searchPlaceholder": "Order number or product name...",
+      "viewLabel": "Order views",
+      "views": {
+        "all": "All",
+        "active": "Active",
+        "needs_action": "Needs action",
+        "delivered": "Delivered"
+      },
+      "dateLabel": "Date",
+      "dateRanges": {
+        "all": "All time",
+        "last_30_days": "Last 30 days",
+        "last_6_months": "Last 6 months"
+      },
+      "sortLabel": "Sort",
+      "sorts": {
+        "newest": "Newest first",
+        "oldest": "Oldest first",
+        "highest": "Highest total"
+      },
+      "results": "{count, plural, =0 {No orders} one {# order} other {# orders}}",
+      "clear": "Clear filters",
+      "noMatch": "No orders match these filters."
+    },
     "item": "{count} {count, plural, one {item} other {items}}",
     "orderNumber": "Order #{id}",
     "orderConfirmation": "Order Confirmed",
@@ -676,177 +710,617 @@
         "dashboard": {
           "title": "Dashboard",
           "purpose": "A quick store overview: orders, products, and important signals.",
-          "steps": ["Check whether there are new orders.", "Open problem areas from the left menu.", "Use the dashboard as a starting point, not as the place to edit data."],
-          "watch": ["A zero value does not always mean a problem; there may be no data yet.", "To make a real change, open the specific page."],
-          "glossary": [{ "term": "Dashboard", "meaning": "The starting screen with summary information." }, { "term": "Signal", "meaning": "Something that needs attention." }, { "term": "Admin", "meaning": "The working area of the site, hidden from customers." }]
+          "steps": [
+            "Check whether there are new orders.",
+            "Open problem areas from the left menu.",
+            "Use the dashboard as a starting point, not as the place to edit data."
+          ],
+          "watch": [
+            "A zero value does not always mean a problem; there may be no data yet.",
+            "To make a real change, open the specific page."
+          ],
+          "glossary": [
+            {
+              "term": "Dashboard",
+              "meaning": "The starting screen with summary information."
+            },
+            { "term": "Signal", "meaning": "Something that needs attention." },
+            {
+              "term": "Admin",
+              "meaning": "The working area of the site, hidden from customers."
+            }
+          ]
         },
         "products": {
           "title": "Products",
           "purpose": "Manage the products customers see in the shop.",
-          "steps": ["Check name, price, images, and active status.", "Open a product if it needs editing.", "Hide a product by making it inactive instead of deleting it."],
-          "watch": ["Price and stock affect the shop immediately.", "If a product is stock-managed, change stock from Stock."],
-          "glossary": [{ "term": "Active product", "meaning": "Visible to customers." }, { "term": "Category", "meaning": "The group where customers find the product." }, { "term": "Stock", "meaning": "How many units can be sold." }]
+          "steps": [
+            "Check name, price, images, and active status.",
+            "Open a product if it needs editing.",
+            "Hide a product by making it inactive instead of deleting it."
+          ],
+          "watch": [
+            "Price and stock affect the shop immediately.",
+            "If a product is stock-managed, change stock from Stock."
+          ],
+          "glossary": [
+            { "term": "Active product", "meaning": "Visible to customers." },
+            {
+              "term": "Category",
+              "meaning": "The group where customers find the product."
+            },
+            { "term": "Stock", "meaning": "How many units can be sold." }
+          ]
         },
         "productNew": {
           "title": "New product",
           "purpose": "Create a new shop item.",
-          "steps": ["Fill in code, names, price, and description.", "Add clear images and required safety text.", "Keep the product inactive if it is not ready for sale yet."],
-          "watch": ["The product code should stay stable because links and orders use it.", "Do not publish without price, image, and text in both languages."],
-          "glossary": [{ "term": "Product code", "meaning": "Internal identifier, for example lavender-dream-300ml." }, { "term": "Featured", "meaning": "Can appear more prominently in the shop." }, { "term": "Safety", "meaning": "Instructions and warnings for the customer." }]
+          "steps": [
+            "Fill in code, names, price, and description.",
+            "Add clear images and required safety text.",
+            "Keep the product inactive if it is not ready for sale yet."
+          ],
+          "watch": [
+            "The product code should stay stable because links and orders use it.",
+            "Do not publish without price, image, and text in both languages."
+          ],
+          "glossary": [
+            {
+              "term": "Product code",
+              "meaning": "Internal identifier, for example lavender-dream-300ml."
+            },
+            {
+              "term": "Featured",
+              "meaning": "Can appear more prominently in the shop."
+            },
+            {
+              "term": "Safety",
+              "meaning": "Instructions and warnings for the customer."
+            }
+          ]
         },
         "productEdit": {
           "title": "Edit product",
           "purpose": "Change an existing product without losing its history.",
-          "steps": ["Change only the fields that need updating.", "Check both languages after editing.", "Save and review the product in the shop."],
-          "watch": ["Price and active status changes take effect immediately.", "Do not change the code unless there is a strong reason."],
-          "glossary": [{ "term": "Edit", "meaning": "Change an existing record." }, { "term": "Stale text", "meaning": "Text that can remain visible if it is not translated." }, { "term": "Stock links", "meaning": "Links to batches, movements, and value for the product." }]
+          "steps": [
+            "Change only the fields that need updating.",
+            "Check both languages after editing.",
+            "Save and review the product in the shop."
+          ],
+          "watch": [
+            "Price and active status changes take effect immediately.",
+            "Do not change the code unless there is a strong reason."
+          ],
+          "glossary": [
+            { "term": "Edit", "meaning": "Change an existing record." },
+            {
+              "term": "Stale text",
+              "meaning": "Text that can remain visible if it is not translated."
+            },
+            {
+              "term": "Stock links",
+              "meaning": "Links to batches, movements, and value for the product."
+            }
+          ]
         },
         "orders": {
           "title": "Orders",
           "purpose": "Track customer orders from creation through payment, shipping, return, or cancellation.",
-          "steps": ["Filter by fulfillment, payment, or accounting issue.", "Open an order for details.", "Move status only when the real-world step happened."],
-          "watch": ["Payment and delivery have separate statuses.", "A return or cancellation can affect stock and accounting."],
-          "glossary": [{ "term": "Status", "meaning": "The fulfillment stage of the order." }, { "term": "Payment status", "meaning": "Whether money is received, waiting, failed, or refunded." }, { "term": "Accounting issue", "meaning": "A missing document, payment, or stock movement that needs review." }]
+          "steps": [
+            "Filter by fulfillment, payment, or accounting issue.",
+            "Open an order for details.",
+            "Move status only when the real-world step happened."
+          ],
+          "watch": [
+            "Payment and delivery have separate statuses.",
+            "A return or cancellation can affect stock and accounting."
+          ],
+          "glossary": [
+            {
+              "term": "Status",
+              "meaning": "The fulfillment stage of the order."
+            },
+            {
+              "term": "Payment status",
+              "meaning": "Whether money is received, waiting, failed, or refunded."
+            },
+            {
+              "term": "Accounting issue",
+              "meaning": "A missing document, payment, or stock movement that needs review."
+            }
+          ]
         },
         "orderDetail": {
           "title": "Order detail",
           "purpose": "See everything for one order: customer, products, payment, delivery, stock, and returns.",
-          "steps": ["Check payment and address.", "Create or update delivery when the order is ready.", "Use the section that shows the problem if something needs attention."],
-          "watch": ["Do not mark paid without real confirmation.", "Changing an order can create email, stock, or accounting effects."],
-          "glossary": [{ "term": "Cash on delivery", "meaning": "The customer pays the courier." }, { "term": "Shipping label", "meaning": "Courier document for the shipment." }, { "term": "Refund", "meaning": "Money returned to the customer." }]
+          "steps": [
+            "Check payment and address.",
+            "Create or update delivery when the order is ready.",
+            "Use the section that shows the problem if something needs attention."
+          ],
+          "watch": [
+            "Do not mark paid without real confirmation.",
+            "Changing an order can create email, stock, or accounting effects."
+          ],
+          "glossary": [
+            {
+              "term": "Cash on delivery",
+              "meaning": "The customer pays the courier."
+            },
+            {
+              "term": "Shipping label",
+              "meaning": "Courier document for the shipment."
+            },
+            { "term": "Refund", "meaning": "Money returned to the customer." }
+          ]
         },
         "inventory": {
           "title": "Stock",
           "purpose": "Stock tracks materials, recipes, production, movements, and inventory value.",
-          "steps": ["Start with Materials.", "Then create Recipes for products.", "After that, record Production batches and movements."],
-          "watch": ["Do not confuse a shop product with a production material.", "Stock value is guidance until reviewed."],
-          "glossary": [{ "term": "Material", "meaning": "Raw material or packaging, such as wax, wick, or jar." }, { "term": "Recipe", "meaning": "List of materials needed for a product." }, { "term": "Movement", "meaning": "Any stock increase or decrease." }]
+          "steps": [
+            "Start with Materials.",
+            "Then create Recipes for products.",
+            "After that, record Production batches and movements."
+          ],
+          "watch": [
+            "Do not confuse a shop product with a production material.",
+            "Stock value is guidance until reviewed."
+          ],
+          "glossary": [
+            {
+              "term": "Material",
+              "meaning": "Raw material or packaging, such as wax, wick, or jar."
+            },
+            {
+              "term": "Recipe",
+              "meaning": "List of materials needed for a product."
+            },
+            { "term": "Movement", "meaning": "Any stock increase or decrease." }
+          ]
         },
         "inventoryMaterials": {
           "title": "Stock: Materials",
           "purpose": "Create raw materials and packaging, then record receipts, corrections, and write-offs.",
-          "steps": ["Create a material with a name and stock unit.", "Select the material from the table.", "Record a receipt or correction from the right panel."],
-          "watch": ["The reorder threshold uses the stock unit.", "If you track lots or expiry, fill them in on each receipt."],
-          "glossary": [{ "term": "Stock unit", "meaning": "The unit used to count stock, such as g or pcs." }, { "term": "Lot", "meaning": "Supplier batch number for traceability." }, { "term": "Write-off", "meaning": "Removing stock because of damage, loss, or error." }]
+          "steps": [
+            "Create a material with a name and stock unit.",
+            "Select the material from the table.",
+            "Record a receipt or correction from the right panel."
+          ],
+          "watch": [
+            "The reorder threshold uses the stock unit.",
+            "If you track lots or expiry, fill them in on each receipt."
+          ],
+          "glossary": [
+            {
+              "term": "Stock unit",
+              "meaning": "The unit used to count stock, such as g or pcs."
+            },
+            {
+              "term": "Lot",
+              "meaning": "Supplier batch number for traceability."
+            },
+            {
+              "term": "Write-off",
+              "meaning": "Removing stock because of damage, loss, or error."
+            }
+          ]
         },
         "inventoryRecipes": {
           "title": "Stock: Recipes",
           "purpose": "Recipes define which materials and quantities make one product.",
-          "steps": ["Choose the product code.", "Add materials one line at a time.", "Activate the recipe when it is ready for production."],
-          "watch": ["A recipe without components should not be activated.", "Create a new version instead of losing the old logic."],
-          "glossary": [{ "term": "Component", "meaning": "A material in the recipe." }, { "term": "Wastage", "meaning": "Expected production loss." }, { "term": "Active recipe", "meaning": "The version used for new batches." }]
+          "steps": [
+            "Choose the product code.",
+            "Add materials one line at a time.",
+            "Activate the recipe when it is ready for production."
+          ],
+          "watch": [
+            "A recipe without components should not be activated.",
+            "Create a new version instead of losing the old logic."
+          ],
+          "glossary": [
+            { "term": "Component", "meaning": "A material in the recipe." },
+            { "term": "Wastage", "meaning": "Expected production loss." },
+            {
+              "term": "Active recipe",
+              "meaning": "The version used for new batches."
+            }
+          ]
         },
         "inventoryBatches": {
           "title": "Stock: Production batches",
           "purpose": "A batch records one production run: planned output, consumed materials, and produced quantity.",
-          "steps": ["Create a batch for a product.", "Check the planned quantity.", "Mark produced only when the items are really ready."],
-          "watch": ["Marking as produced changes stock.", "Corrections after production must have a reason."],
-          "glossary": [{ "term": "Production batch", "meaning": "One specific production run with a number." }, { "term": "Planned output", "meaning": "How many units you expect to make." }, { "term": "Actual output", "meaning": "How many units were really produced." }]
+          "steps": [
+            "Create a batch for a product.",
+            "Check the planned quantity.",
+            "Mark produced only when the items are really ready."
+          ],
+          "watch": [
+            "Marking as produced changes stock.",
+            "Corrections after production must have a reason."
+          ],
+          "glossary": [
+            {
+              "term": "Production batch",
+              "meaning": "One specific production run with a number."
+            },
+            {
+              "term": "Planned output",
+              "meaning": "How many units you expect to make."
+            },
+            {
+              "term": "Actual output",
+              "meaning": "How many units were really produced."
+            }
+          ]
         },
         "inventoryValuation": {
           "title": "Stock: Stock value",
           "purpose": "Calculate estimated or official value of materials, finished goods, and cost of goods sold.",
-          "steps": ["Check method and currency settings.", "Record opening balance if you already have stock before using the ledger.", "Generate value rows and review warnings."],
-          "watch": ["Official numbers should be reviewed by an accountant.", "Missing cost creates warnings or blocking issues."],
-          "glossary": [{ "term": "Cost of goods sold", "meaning": "How much the sold product cost to make or buy." }, { "term": "Opening balance", "meaning": "Stock and value before systematic tracking started." }, { "term": "FIFO", "meaning": "Method that consumes the oldest stock first." }]
+          "steps": [
+            "Check method and currency settings.",
+            "Record opening balance if you already have stock before using the ledger.",
+            "Generate value rows and review warnings."
+          ],
+          "watch": [
+            "Official numbers should be reviewed by an accountant.",
+            "Missing cost creates warnings or blocking issues."
+          ],
+          "glossary": [
+            {
+              "term": "Cost of goods sold",
+              "meaning": "How much the sold product cost to make or buy."
+            },
+            {
+              "term": "Opening balance",
+              "meaning": "Stock and value before systematic tracking started."
+            },
+            {
+              "term": "FIFO",
+              "meaning": "Method that consumes the oldest stock first."
+            }
+          ]
         },
         "inventoryMovements": {
           "title": "Stock: Changes",
           "purpose": "History of all stock movements: receipts, production, sales, corrections, and write-offs.",
-          "steps": ["Filter by material, product, or source.", "Check date and quantity.", "Open the related batch or order if you need context."],
-          "watch": ["Movements are history, not free text for editing.", "Negative quantity means stock was removed."],
-          "glossary": [{ "term": "Source", "meaning": "Where the movement came from, such as receipt or batch." }, { "term": "Change type", "meaning": "The reason for the movement." }, { "term": "Negative quantity", "meaning": "Stock issue or decrease." }]
+          "steps": [
+            "Filter by material, product, or source.",
+            "Check date and quantity.",
+            "Open the related batch or order if you need context."
+          ],
+          "watch": [
+            "Movements are history, not free text for editing.",
+            "Negative quantity means stock was removed."
+          ],
+          "glossary": [
+            {
+              "term": "Source",
+              "meaning": "Where the movement came from, such as receipt or batch."
+            },
+            {
+              "term": "Change type",
+              "meaning": "The reason for the movement."
+            },
+            {
+              "term": "Negative quantity",
+              "meaning": "Stock issue or decrease."
+            }
+          ]
         },
         "accounting": {
           "title": "Accounting",
           "purpose": "Collect sales, payments, expenses, documents, product cost, and accountant export files.",
-          "steps": ["Choose a period.", "Review exceptions and missing documents.", "Generate exports only after the data is checked."],
-          "watch": ["Do not accept a period with blocking issues.", "Product cost can be an estimate if stock is not reviewed."],
-          "glossary": [{ "term": "Period", "meaning": "Month or date range for accounting review." }, { "term": "Export", "meaning": "File package for the accountant." }, { "term": "Exception", "meaning": "Problem that must be resolved or waived." }]
+          "steps": [
+            "Choose a period.",
+            "Review exceptions and missing documents.",
+            "Generate exports only after the data is checked."
+          ],
+          "watch": [
+            "Do not accept a period with blocking issues.",
+            "Product cost can be an estimate if stock is not reviewed."
+          ],
+          "glossary": [
+            {
+              "term": "Period",
+              "meaning": "Month or date range for accounting review."
+            },
+            { "term": "Export", "meaning": "File package for the accountant." },
+            {
+              "term": "Exception",
+              "meaning": "Problem that must be resolved or waived."
+            }
+          ]
         },
         "analytics": {
           "title": "Analytics",
           "purpose": "Shows how visitors move through the shop and where they drop before purchase.",
-          "steps": ["Choose a date range.", "Check funnel and product rows.", "Compare counted orders with real orders."],
-          "watch": ["Analytics depends on tracking consent.", "Orders are the more reliable source for revenue."],
-          "glossary": [{ "term": "Session", "meaning": "One visit to the site." }, { "term": "Funnel", "meaning": "The sequence of steps toward purchase." }, { "term": "Conversion", "meaning": "Percent of visitors that reach the next step." }]
+          "steps": [
+            "Choose a date range.",
+            "Check funnel and product rows.",
+            "Compare counted orders with real orders."
+          ],
+          "watch": [
+            "Analytics depends on tracking consent.",
+            "Orders are the more reliable source for revenue."
+          ],
+          "glossary": [
+            { "term": "Session", "meaning": "One visit to the site." },
+            {
+              "term": "Funnel",
+              "meaning": "The sequence of steps toward purchase."
+            },
+            {
+              "term": "Conversion",
+              "meaning": "Percent of visitors that reach the next step."
+            }
+          ]
         },
         "delivery": {
           "title": "Delivery",
           "purpose": "Manage delivery methods and rules shown to customers during checkout.",
-          "steps": ["Check which methods are enabled.", "Set prices and rules.", "Test checkout after changing delivery settings."],
-          "watch": ["Disabled methods are not offered to customers.", "Courier settings affect real shipments."],
-          "glossary": [{ "term": "Delivery method", "meaning": "Office or address, Econt or Speedy." }, { "term": "Delivery price", "meaning": "Amount shown to the customer at checkout." }, { "term": "Courier", "meaning": "External company delivering the shipment." }]
+          "steps": [
+            "Check which methods are enabled.",
+            "Set prices and rules.",
+            "Test checkout after changing delivery settings."
+          ],
+          "watch": [
+            "Disabled methods are not offered to customers.",
+            "Courier settings affect real shipments."
+          ],
+          "glossary": [
+            {
+              "term": "Delivery method",
+              "meaning": "Office or address, Econt or Speedy."
+            },
+            {
+              "term": "Delivery price",
+              "meaning": "Amount shown to the customer at checkout."
+            },
+            {
+              "term": "Courier",
+              "meaning": "External company delivering the shipment."
+            }
+          ]
         },
         "deliveryEcont": {
           "title": "Econt",
           "purpose": "Configure Econt connection and readiness for shipping labels.",
-          "steps": ["Check company and API settings.", "Save changes only if you know they are correct.", "Test with an order before real use."],
-          "watch": ["Wrong keys or addresses can stop label creation.", "Do not expose sensitive settings publicly."],
-          "glossary": [{ "term": "API key", "meaning": "Secret setting used to connect to Econt." }, { "term": "Shipping label", "meaning": "Courier document for a shipment." }, { "term": "COD", "meaning": "Cash on delivery." }]
+          "steps": [
+            "Check company and API settings.",
+            "Save changes only if you know they are correct.",
+            "Test with an order before real use."
+          ],
+          "watch": [
+            "Wrong keys or addresses can stop label creation.",
+            "Do not expose sensitive settings publicly."
+          ],
+          "glossary": [
+            {
+              "term": "API key",
+              "meaning": "Secret setting used to connect to Econt."
+            },
+            {
+              "term": "Shipping label",
+              "meaning": "Courier document for a shipment."
+            },
+            { "term": "COD", "meaning": "Cash on delivery." }
+          ]
         },
         "deliverySpeedy": {
           "title": "Speedy",
           "purpose": "Track and manage Speedy shipments and labels from admin.",
-          "steps": ["Check waiting orders.", "Create or open a label when the shipment is ready.", "Cancel only if the shipment will not be sent."],
-          "watch": ["Cancellation may affect the courier system.", "The label must match the customer's address and method."],
-          "glossary": [{ "term": "Label", "meaning": "Printable file for the shipment." }, { "term": "Shipment", "meaning": "Courier delivery to the customer." }, { "term": "Status", "meaning": "Current state of the shipment." }]
+          "steps": [
+            "Check waiting orders.",
+            "Create or open a label when the shipment is ready.",
+            "Cancel only if the shipment will not be sent."
+          ],
+          "watch": [
+            "Cancellation may affect the courier system.",
+            "The label must match the customer's address and method."
+          ],
+          "glossary": [
+            { "term": "Label", "meaning": "Printable file for the shipment." },
+            {
+              "term": "Shipment",
+              "meaning": "Courier delivery to the customer."
+            },
+            { "term": "Status", "meaning": "Current state of the shipment." }
+          ]
         },
         "paymentSettings": {
           "title": "Payments",
           "purpose": "Enable payment methods and configure Stripe, cash on delivery, and bank transfer.",
-          "steps": ["Check which methods are active.", "Fill in required limits and instructions.", "Test checkout after changes."],
-          "watch": ["Disabled methods are not offered to customers.", "Stripe keys and bank details must be exact."],
-          "glossary": [{ "term": "Stripe", "meaning": "Card payment provider." }, { "term": "Cash on delivery", "meaning": "Customer pays the courier." }, { "term": "Bank transfer", "meaning": "Customer pays to an IBAN." }]
+          "steps": [
+            "Check which methods are active.",
+            "Fill in required limits and instructions.",
+            "Test checkout after changes."
+          ],
+          "watch": [
+            "Disabled methods are not offered to customers.",
+            "Stripe keys and bank details must be exact."
+          ],
+          "glossary": [
+            { "term": "Stripe", "meaning": "Card payment provider." },
+            {
+              "term": "Cash on delivery",
+              "meaning": "Customer pays the courier."
+            },
+            { "term": "Bank transfer", "meaning": "Customer pays to an IBAN." }
+          ]
         },
         "taxonomy": {
           "title": "Categories and labels",
           "purpose": "Manage product types, categories, and labels used in the catalog.",
-          "steps": ["Edit names in both languages.", "Order what should appear first.", "Do not delete a term already used by products."],
-          "watch": ["Changes here affect filters and product pages.", "Inactive terms can remain on old products."],
-          "glossary": [{ "term": "Product type", "meaning": "Main kind, such as candle or set." }, { "term": "Category", "meaning": "Browsing group in the shop." }, { "term": "Label", "meaning": "Extra characteristic, such as gift or seasonal." }]
+          "steps": [
+            "Edit names in both languages.",
+            "Order what should appear first.",
+            "Do not delete a term already used by products."
+          ],
+          "watch": [
+            "Changes here affect filters and product pages.",
+            "Inactive terms can remain on old products."
+          ],
+          "glossary": [
+            {
+              "term": "Product type",
+              "meaning": "Main kind, such as candle or set."
+            },
+            { "term": "Category", "meaning": "Browsing group in the shop." },
+            {
+              "term": "Label",
+              "meaning": "Extra characteristic, such as gift or seasonal."
+            }
+          ]
+        },
+        "siteMedia": {
+          "title": "Site media",
+          "purpose": "Manage reusable storefront images that are not product or Atelier section photos.",
+          "steps": [
+            "Choose the image slot.",
+            "Upload a JPEG or PNG.",
+            "Check the affected public page after saving."
+          ],
+          "watch": [
+            "Homepage hero override replaces the product-led hero image.",
+            "Clearing a slot restores its default or leaves it empty."
+          ],
+          "glossary": [
+            { "term": "Slot", "meaning": "A fixed place in the UI where an image can appear." },
+            { "term": "Default", "meaning": "Bundled image used when no custom upload exists." },
+            { "term": "Override", "meaning": "Uploaded image that replaces the default behavior." }
+          ]
         },
         "atelier": {
           "title": "Atelier",
           "purpose": "Edit the public page about the Atelier Marie story and process.",
-          "steps": ["Edit copy carefully.", "Upload images that show the real brand style.", "Check the page in both languages."],
-          "watch": ["This is a public page customers can see.", "Do not leave stale or incomplete translation."],
-          "glossary": [{ "term": "Section", "meaning": "One block of the page." }, { "term": "Published", "meaning": "Visible to customers." }, { "term": "Translation", "meaning": "Text in the other language." }]
+          "steps": [
+            "Edit copy carefully.",
+            "Upload images that show the real brand style.",
+            "Check the page in both languages."
+          ],
+          "watch": [
+            "This is a public page customers can see.",
+            "Do not leave stale or incomplete translation."
+          ],
+          "glossary": [
+            { "term": "Section", "meaning": "One block of the page." },
+            { "term": "Published", "meaning": "Visible to customers." },
+            { "term": "Translation", "meaning": "Text in the other language." }
+          ]
         },
         "terms": {
           "title": "Terms",
           "purpose": "Edit the public Terms & Conditions page in both languages.",
-          "steps": ["Edit the page-level copy.", "Update sections in English and Bulgarian.", "Review the public page after saving."],
-          "watch": ["This is a public legal page customers can see.", "Do not change legal meaning without review."],
-          "glossary": [{ "term": "Section", "meaning": "One block of the terms." }, { "term": "Anchor", "meaning": "Permanent link to a specific section." }, { "term": "Translation", "meaning": "Text in the other language." }]
+          "steps": [
+            "Edit the page-level copy.",
+            "Update sections in English and Bulgarian.",
+            "Review the public page after saving."
+          ],
+          "watch": [
+            "This is a public legal page customers can see.",
+            "Do not change legal meaning without review."
+          ],
+          "glossary": [
+            { "term": "Section", "meaning": "One block of the terms." },
+            {
+              "term": "Anchor",
+              "meaning": "Permanent link to a specific section."
+            },
+            { "term": "Translation", "meaning": "Text in the other language." }
+          ]
         },
         "cookies": {
           "title": "Cookies",
           "purpose": "Edit Cookie Policy copy while the inventory is populated by the deploy audit.",
-          "steps": ["Edit page-level copy in both languages.", "Check the auto-detected inventory after deploy.", "Update explanatory sections when policy wording changes."],
-          "watch": ["Inventory rows come from the audit job, not manual editing.", "Run the audit after successful deployment."],
-          "glossary": [{ "term": "Inventory", "meaning": "The list of cookies and browser storage currently detected." }, { "term": "Audit", "meaning": "A browser check that records what the storefront stores." }, { "term": "Consent", "meaning": "The customer's cookie/analytics choice." }]
+          "steps": [
+            "Edit page-level copy in both languages.",
+            "Check the auto-detected inventory after deploy.",
+            "Update explanatory sections when policy wording changes."
+          ],
+          "watch": [
+            "Inventory rows come from the audit job, not manual editing.",
+            "Run the audit after successful deployment."
+          ],
+          "glossary": [
+            {
+              "term": "Inventory",
+              "meaning": "The list of cookies and browser storage currently detected."
+            },
+            {
+              "term": "Audit",
+              "meaning": "A browser check that records what the storefront stores."
+            },
+            {
+              "term": "Consent",
+              "meaning": "The customer's cookie/analytics choice."
+            }
+          ]
         },
         "legal": {
           "title": "Legal identity",
           "purpose": "Edit the business identity shown on public legal and product safety blocks.",
-          "steps": ["Enter the owner-confirmed business details.", "Mark reviewed only after legal/accounting confirmation.", "Save and check Terms, Privacy, and a product page."],
-          "watch": ["These values are public.", "Placeholders should be replaced before launch."],
-          "glossary": [{ "term": "Trading name", "meaning": "Customer-facing shop name." }, { "term": "Legal name", "meaning": "Registered business entity name." }, { "term": "UIC/EIK", "meaning": "Bulgarian registration identifier when available." }]
+          "steps": [
+            "Enter the owner-confirmed business details.",
+            "Mark reviewed only after legal/accounting confirmation.",
+            "Save and check Terms, Privacy, and a product page."
+          ],
+          "watch": [
+            "These values are public.",
+            "Placeholders should be replaced before launch."
+          ],
+          "glossary": [
+            { "term": "Trading name", "meaning": "Customer-facing shop name." },
+            {
+              "term": "Legal name",
+              "meaning": "Registered business entity name."
+            },
+            {
+              "term": "UIC/EIK",
+              "meaning": "Bulgarian registration identifier when available."
+            }
+          ]
         },
         "faq": {
           "title": "FAQ",
           "purpose": "Manage frequently asked questions that help customers before purchase.",
-          "steps": ["Choose a section.", "Add or edit a question and answer.", "Publish only verified information."],
-          "watch": ["Answers should match the real shop policies.", "Order affects how customers read the page."],
-          "glossary": [{ "term": "FAQ", "meaning": "Frequently asked questions." }, { "term": "Section", "meaning": "Group of questions by topic." }, { "term": "Published", "meaning": "Visible to customers." }]
+          "steps": [
+            "Choose a section.",
+            "Add or edit a question and answer.",
+            "Publish only verified information."
+          ],
+          "watch": [
+            "Answers should match the real shop policies.",
+            "Order affects how customers read the page."
+          ],
+          "glossary": [
+            { "term": "FAQ", "meaning": "Frequently asked questions." },
+            { "term": "Section", "meaning": "Group of questions by topic." },
+            { "term": "Published", "meaning": "Visible to customers." }
+          ]
         },
         "promotions": {
           "title": "Promotions",
           "purpose": "Configure campaigns, banners, and discounts that affect sales.",
-          "steps": ["Check the campaign period.", "Choose products or banner content.", "Review the shop after enabling."],
-          "watch": ["Discounts affect the real price.", "The banner is public and should be clear in both languages."],
-          "glossary": [{ "term": "Campaign", "meaning": "Promotion with dates and rules." }, { "term": "Banner", "meaning": "Message shown in the shop." }, { "term": "Discount", "meaning": "Reduction from the normal price." }]
+          "steps": [
+            "Check the campaign period.",
+            "Choose products or banner content.",
+            "Review the shop after enabling."
+          ],
+          "watch": [
+            "Discounts affect the real price.",
+            "The banner is public and should be clear in both languages."
+          ],
+          "glossary": [
+            {
+              "term": "Campaign",
+              "meaning": "Promotion with dates and rules."
+            },
+            { "term": "Banner", "meaning": "Message shown in the shop." },
+            {
+              "term": "Discount",
+              "meaning": "Reduction from the normal price."
+            }
+          ]
         }
       }
     },
@@ -1085,51 +1559,51 @@
       "type": "Type",
       "severity": "Importance",
       "message": "Message",
-    "yes": "Yes",
-    "no": "No",
-    "labels": {
-      "active": "Active",
-      "accountant_reviewed": "Accountant reviewed",
-      "adjustment": "Adjustment",
-      "allow_estimate": "Allow estimate",
-      "archived": "Archived",
-      "below_threshold": "Below threshold",
-      "block_official": "Block official",
-      "blocking": "Blocking",
-      "cancelled": "Cancelled",
-      "delivery_date": "Delivery date",
-      "draft": "Draft",
-      "estimate": "Estimate",
-      "estimate_only": "Estimate only",
-      "fifo": "FIFO",
-      "finished_good": "Finished good",
-      "half_up_2dp": "Half up, 2 decimals",
-      "half_up_4dp": "Half up, 4 decimals",
-      "legacy": "Legacy",
-      "ledger_managed": "Ledger managed",
-      "material": "Material",
-      "missing": "Missing",
-      "official": "Official",
-      "ok": "OK",
-      "order_date": "Order date",
-      "payment_date": "Payment date",
-      "period_close": "Period close",
-      "piece": "Piece",
-      "pcs": "Pieces",
-      "produced": "Produced",
-      "ready": "Ready",
-      "reviewed": "Reviewed",
-      "setup": "Setup",
-      "shipment_date": "Shipment date",
-      "spoilage": "Spoilage",
-      "stock_count_correction": "Stock count correction",
-      "unit": "Unit",
-      "warn": "Warn",
-      "warning": "Warning",
-      "weighted_average": "Weighted average",
-      "write_off": "Write-off"
-    },
-    "materials": {
+      "yes": "Yes",
+      "no": "No",
+      "labels": {
+        "active": "Active",
+        "accountant_reviewed": "Accountant reviewed",
+        "adjustment": "Adjustment",
+        "allow_estimate": "Allow estimate",
+        "archived": "Archived",
+        "below_threshold": "Below threshold",
+        "block_official": "Block official",
+        "blocking": "Blocking",
+        "cancelled": "Cancelled",
+        "delivery_date": "Delivery date",
+        "draft": "Draft",
+        "estimate": "Estimate",
+        "estimate_only": "Estimate only",
+        "fifo": "FIFO",
+        "finished_good": "Finished good",
+        "half_up_2dp": "Half up, 2 decimals",
+        "half_up_4dp": "Half up, 4 decimals",
+        "legacy": "Legacy",
+        "ledger_managed": "Ledger managed",
+        "material": "Material",
+        "missing": "Missing",
+        "official": "Official",
+        "ok": "OK",
+        "order_date": "Order date",
+        "payment_date": "Payment date",
+        "period_close": "Period close",
+        "piece": "Piece",
+        "pcs": "Pieces",
+        "produced": "Produced",
+        "ready": "Ready",
+        "reviewed": "Reviewed",
+        "setup": "Setup",
+        "shipment_date": "Shipment date",
+        "spoilage": "Spoilage",
+        "stock_count_correction": "Stock count correction",
+        "unit": "Unit",
+        "warn": "Warn",
+        "warning": "Warning",
+        "weighted_average": "Weighted average",
+        "write_off": "Write-off"
+      },
+      "materials": {
         "createTitle": "Create material",
         "createSubtitle": "Materials and packaging used to make products.",
         "name": "Name",
@@ -1349,6 +1823,7 @@
     },
     "deliveryNav": "Delivery",
     "paymentSettingsNav": "Payments",
+    "siteMediaNav": "Site media",
     "atelierNav": "Atelier",
     "termsNav": "Terms",
     "privacyNav": "Privacy",

@@ -42,6 +42,10 @@ _ORDER_NUMBER_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 _VALID_PRICE_SOURCES: frozenset[str] = frozenset(get_args(ShippingPriceSource))
 _DEFAULT_SHIPMENT_WEIGHT_GRAMS = 300
 
+OrderListView = Literal["all", "active", "needs_action", "delivered"]
+OrderDateRange = Literal["all", "last_30_days", "last_6_months"]
+OrderSort = Literal["newest", "oldest", "highest"]
+
 
 class AccountingAdminFields(TypedDict):
     accounting_readiness_status: str
@@ -1698,6 +1702,10 @@ def list_orders(
     conn: sqlite3.Connection,
     session_id: str,
     user_id: str | None = None,
+    q: str | None = None,
+    view: OrderListView = "all",
+    date_range: OrderDateRange = "all",
+    sort: OrderSort = "newest",
     page: int = 1,
     limit: int = 20,
 ) -> OrderListData:
@@ -1716,19 +1724,58 @@ def list_orders(
 
     offset = (page - 1) * limit
 
+    conditions: list[str] = []
+    params: list = []
+
     if user_id is not None:
-        where_clause = "WHERE user_id = ?"
-        params: list = [user_id]
+        conditions.append("o.user_id = ?")
+        params.append(user_id)
     else:
-        where_clause = "WHERE session_id = ?"
-        params = [session_id]
+        conditions.append("o.session_id = ?")
+        params.append(session_id)
+
+    if q and q.strip():
+        search = q.strip().lstrip("#")
+        escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        conditions.append(
+            "(o.id LIKE ? ESCAPE '\\' "
+            "OR COALESCE(o.order_number, '') LIKE ? ESCAPE '\\' "
+            "OR EXISTS (SELECT 1 FROM order_items oi "
+            "WHERE oi.order_id = o.id AND oi.product_name LIKE ? ESCAPE '\\'))"
+        )
+        params.extend([pattern, pattern, pattern])
+
+    if view == "active":
+        conditions.append("o.status IN ('pending', 'confirmed', 'shipped')")
+    elif view == "delivered":
+        conditions.append("o.status = 'delivered'")
+    elif view == "needs_action":
+        conditions.append(
+            "(o.status = 'return_in_transit' OR o.payment_status IN "
+            "('pending', 'failed', 'review_required', 'refund_pending', 'dispute_open'))"
+        )
+
+    if date_range != "all":
+        days = 30 if date_range == "last_30_days" else 183
+        threshold = (datetime.now(UTC) - timedelta(days=days)).strftime(_DT_FMT)
+        conditions.append("o.created_at >= ?")
+        params.append(threshold)
+
+    where_clause = f"WHERE {' AND '.join(conditions)}"
+    order_by_map = {
+        "newest": "o.created_at DESC, o.id DESC",
+        "oldest": "o.created_at ASC, o.id ASC",
+        "highest": "o.total_cents DESC, o.created_at DESC, o.id DESC",
+    }
+    order_by = order_by_map.get(sort, order_by_map["newest"])
 
     # Total count
-    total = conn.execute(f"SELECT COUNT(*) FROM orders {where_clause}", params).fetchone()[0]
+    total = conn.execute(f"SELECT COUNT(*) FROM orders o {where_clause}", params).fetchone()[0]
 
     # Paginated results
     rows = conn.execute(
-        f"SELECT id FROM orders {where_clause} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        f"SELECT o.id FROM orders o {where_clause} ORDER BY {order_by} LIMIT ? OFFSET ?",
         [*params, limit, offset],
     ).fetchall()
 

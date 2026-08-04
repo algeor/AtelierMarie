@@ -368,6 +368,18 @@ CREATE TABLE IF NOT EXISTS cart_items (
 
 CREATE INDEX IF NOT EXISTS idx_cart_items_session_id ON cart_items(session_id);
 
+CREATE TABLE IF NOT EXISTS user_saved_products (
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    saved_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, product_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_saved_products_user_saved_at
+    ON user_saved_products(user_id, saved_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_saved_products_product
+    ON user_saved_products(product_id);
+
 CREATE TABLE IF NOT EXISTS orders (
     id          TEXT PRIMARY KEY,
     internal_sequence INTEGER UNIQUE,
@@ -1706,6 +1718,18 @@ CREATE TABLE IF NOT EXISTS site_banners (
     updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Admin-managed site media slots. Product and Atelier images have their own
+-- domain editors; these rows cover reusable UI image slots that used to be
+-- hard-coded rebrand assets.
+CREATE TABLE IF NOT EXISTS site_media_assets (
+    key           TEXT PRIMARY KEY,
+    image_id      TEXT,
+    image_url     TEXT,
+    thumbnail_url TEXT,
+    zoom_url      TEXT,
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Admin-managed delivery availability switches. Singleton row (id = 'default').
 -- All methods default to enabled to preserve existing checkout behavior until an
 -- admin explicitly pauses a courier/method pair.
@@ -2391,10 +2415,13 @@ def init_db(path: str) -> None:
         _migrate_taxonomy(conn)
         _migrate_product_label_assignments_table(conn)
         _seed_site_banner(conn)
+        _seed_site_media(conn)
         _seed_delivery_settings(conn)
         _seed_econt_settings(conn)
         _seed_inventory_settings(conn)
         _seed_about_content(conn)
+        _migrate_collection_label_filters(conn)
+        _migrate_collection_product_labels(conn)
         _migrate_faq(conn)
         _migrate_faq_returns_policy_reference(conn)
         _migrate_faq_uncollected_refused_reference(conn)
@@ -2429,6 +2456,25 @@ def _seed_site_banner(conn: sqlite3.Connection) -> None:
         )
         """
     )
+
+
+def _seed_site_media(conn: sqlite3.Connection) -> None:
+    """Seed stable media slot keys without overwriting uploaded images."""
+    for key in (
+        "home_hero",
+        "home_hero_fallback",
+        "atelier_hero_fallback",
+        "atelier_story_fallback",
+        "atelier_atelier_fallback",
+        "atelier_collections_fallback",
+        "atelier_process_fallback",
+        "error_page_image",
+        "page_background",
+    ):
+        conn.execute(
+            "INSERT OR IGNORE INTO site_media_assets (key, updated_at) VALUES (?, datetime('now'))",
+            (key,),
+        )
 
 
 def _migrate_delivery_settings(conn: sqlite3.Connection) -> None:
@@ -2876,7 +2922,7 @@ _ABOUT_ITEMS = [
         "Флорална колекция",
         "Romantic designs inspired by nature.",
         "Романтични дизайни, вдъхновени от природата.",
-        "/products?category=floral",
+        "/products?labels=floral",
         0,
     ),
     (
@@ -2885,7 +2931,7 @@ _ABOUT_ITEMS = [
         "Скулптурна колекция",
         "Statement pieces designed to decorate your space.",
         "Акцентни изделия, създадени да украсят вашето пространство.",
-        "/products?category=sculptural",
+        "/products?labels=sculptural",
         1,
     ),
     (
@@ -2894,7 +2940,7 @@ _ABOUT_ITEMS = [
         "Колекция по поръчка",
         "Custom creations made for meaningful moments.",
         "Творения по поръчка за значими мигове.",
-        "/products?category=bespoke",
+        "/products?labels=bespoke",
         2,
     ),
 ]
@@ -3645,9 +3691,33 @@ _SEED_LABELS = [
     ("winter", "Winter", "Зима", 6),
     ("gift", "Gift", "Подарък", 7),
     ("christmas", "Christmas", "Коледа", 8),
+    ("sculptural", "Sculptural", "Скулптурни", 9),
+    ("bespoke", "Bespoke", "По поръчка", 10),
 ]
 
 _TAXONOMY_MIGRATION_MARKER = "product_taxonomy_v1"
+_COLLECTION_LABEL_FILTERS_MARKER = "collection_label_filters_v1"
+_COLLECTION_PRODUCT_LABELS_MARKER = "collection_product_labels_v1"
+_COLLECTION_LABELS = [
+    ("floral", "Floral", "Флорални", 0),
+    ("sculptural", "Sculptural", "Скулптурни", 9),
+    ("bespoke", "Bespoke", "По поръчка", 10),
+]
+_COLLECTION_LABEL_LINKS = [
+    ("/products?category=floral", "/products?labels=floral"),
+    ("/products?category=sculptural", "/products?labels=sculptural"),
+    ("/products?category=bespoke", "/products?labels=bespoke"),
+]
+_COLLECTION_PRODUCT_LABELS = [
+    ("floral-ball-purple-candle", "floral"),
+    ("glass-bowl-rose-candle", "floral"),
+    ("metal-jar-red-flower", "floral"),
+    ("princess-mini-candle", "floral"),
+    ("spring-blossom-duo", "floral"),
+    ("floral-ball-purple-candle", "sculptural"),
+    ("glass-bowl-rose-candle", "sculptural"),
+    ("princess-mini-candle", "sculptural"),
+]
 
 
 def _seed_taxonomy_table(
@@ -3666,6 +3736,55 @@ def _seed_taxonomy_table(
 def _migration_applied(conn: sqlite3.Connection, name: str) -> bool:
     row = conn.execute("SELECT 1 FROM schema_migrations WHERE name = ?", (name,)).fetchone()
     return row is not None
+
+
+def _migrate_collection_label_filters(conn: sqlite3.Connection) -> None:
+    """Back collection cards with real product labels instead of category slugs."""
+    if _migration_applied(conn, _COLLECTION_LABEL_FILTERS_MARKER):
+        return
+
+    _seed_taxonomy_table(conn, "product_labels", _COLLECTION_LABELS)
+    for old_href, new_href in _COLLECTION_LABEL_LINKS:
+        conn.execute(
+            """
+            UPDATE about_items
+            SET link_href = ?, updated_at = datetime('now')
+            WHERE section = 'collections' AND link_href = ?
+            """,
+            (new_href, old_href),
+        )
+    conn.execute(
+        "INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)",
+        (_COLLECTION_LABEL_FILTERS_MARKER,),
+    )
+
+
+def _migrate_collection_product_labels(conn: sqlite3.Connection) -> None:
+    """Assign starter collection labels to the current catalogue when products exist."""
+    if _migration_applied(conn, _COLLECTION_PRODUCT_LABELS_MARKER):
+        return
+
+    known_product_exists = any(
+        conn.execute("SELECT 1 FROM products WHERE id = ?", (product_id,)).fetchone()
+        for product_id, _ in _COLLECTION_PRODUCT_LABELS
+    )
+    if not known_product_exists:
+        return
+
+    _seed_taxonomy_table(conn, "product_labels", _COLLECTION_LABELS)
+    for product_id, label_slug in _COLLECTION_PRODUCT_LABELS:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO product_label_assignments (product_id, label_slug)
+            SELECT ?, ?
+            WHERE EXISTS (SELECT 1 FROM products WHERE id = ?)
+            """,
+            (product_id, label_slug, product_id),
+        )
+    conn.execute(
+        "INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)",
+        (_COLLECTION_PRODUCT_LABELS_MARKER,),
+    )
 
 
 def _backfill_legacy_categories(conn: sqlite3.Connection) -> None:

@@ -41,6 +41,7 @@ from app.routes import (
     products,
     promotions,
     reactions,
+    site_media,
     taxonomy,
     terms,
     webhooks,
@@ -542,6 +543,12 @@ def create_app() -> FastAPI:
     )
     application.include_router(
         promotions.public_router, prefix="/v1/promotions", tags=["promotions"]
+    )
+    application.include_router(
+        site_media.public_router, prefix="/v1/site-media", tags=["site-media"]
+    )
+    application.include_router(
+        site_media.admin_router, prefix="/v1/admin/site-media", tags=["admin-site-media"]
     )
     application.include_router(reactions.router, prefix="/v1/products", tags=["reactions"])
     application.include_router(comments.router, prefix="/v1/products", tags=["comments"])

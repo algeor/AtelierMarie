@@ -1,4 +1,4 @@
-import { getAbout } from "@/lib/api";
+import { getAbout, getPublicSiteMedia } from "@/lib/api";
 import { getAboutJsonLd, getLocalizedAlternates } from "@/lib/seo";
 import type { Locale } from "@/i18n/routing";
 import { renderAtelierSection } from "@/components/atelier/AtelierSections";
@@ -16,7 +16,10 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: L
 
 export default async function AtelierPage({ params }: { params: Promise<{ locale: Locale }> }) {
   const { locale } = await params;
-  const { sections } = await getAbout(locale);
+  const [{ sections }, siteMedia] = await Promise.all([
+    getAbout(locale),
+    getPublicSiteMedia().catch(() => null),
+  ]);
 
   return (
     <main className="bg-page text-text">
@@ -25,7 +28,7 @@ export default async function AtelierPage({ params }: { params: Promise<{ locale
         suppressHydrationWarning
         dangerouslySetInnerHTML={{ __html: JSON.stringify(getAboutJsonLd(locale)) }}
       />
-      {sections.map((section) => renderAtelierSection(section))}
+      {sections.map((section) => renderAtelierSection(section, siteMedia?.assets ?? null))}
     </main>
   );
 }

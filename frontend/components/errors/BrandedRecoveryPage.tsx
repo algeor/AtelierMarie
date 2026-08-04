@@ -1,9 +1,12 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/Button";
 import { BrandMark } from "@/components/rebrand";
 import { Link } from "@/i18n/navigation";
+import { getPublicSiteMedia } from "@/lib/api";
+import { resolveMediaUrl } from "@/lib/media";
 
 interface BrandedRecoveryPageProps {
   eyebrow: string;
@@ -30,6 +33,23 @@ export function BrandedRecoveryPage({
   tryAgainLabel,
   onReset,
 }: BrandedRecoveryPageProps) {
+  const [managedImageUrl, setManagedImageUrl] = useState<string | null>(null);
+  const imageUrl = resolveMediaUrl(managedImageUrl || "/rebrand/error-candle.webp") || "/rebrand/error-candle.webp";
+
+  useEffect(() => {
+    let cancelled = false;
+    getPublicSiteMedia()
+      .then((media) => {
+        if (!cancelled) setManagedImageUrl(media.assets.error_page_image);
+      })
+      .catch(() => {
+        if (!cancelled) setManagedImageUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <main className="bg-page px-4 py-8 text-text sm:px-6 lg:px-8">
       <section className="mx-auto grid min-h-[calc(100svh-12rem)] max-w-6xl items-center gap-8 py-8 md:grid-cols-[minmax(0,0.95fr)_minmax(18rem,0.8fr)] md:py-12">
@@ -78,7 +98,7 @@ export function BrandedRecoveryPage({
 
         <div className="editorial-image-settle relative mx-auto aspect-[4/5] w-full max-w-sm overflow-hidden rounded-brand bg-surface/60 shadow-xl shadow-border/15 ring-1 ring-border/25 md:max-w-md">
           <Image
-            src="/rebrand/error-candle.webp"
+            src={imageUrl}
             alt=""
             fill
             sizes="(min-width: 768px) 360px, 80vw"

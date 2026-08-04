@@ -4,11 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSavedProducts } from "@/contexts/SavedProductsContext";
 import { UserAvatar } from "@/components/auth/UserAvatar";
 
 export function UserMenu() {
   const t = useTranslations("auth");
   const { user, logout } = useAuth();
+  const { savedCount } = useSavedProducts();
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -16,10 +18,7 @@ export function UserMenu() {
   // Close on click outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (
-        menuRef.current &&
-        !menuRef.current.contains(event.target as Node)
-      ) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setIsOpen(false);
       }
     }
@@ -63,7 +62,11 @@ export function UserMenu() {
         className="flex items-center gap-2 rounded-brand p-1 transition-colors duration-fast hover:bg-cream focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"
       >
         {user ? (
-          <UserAvatar name={user.name} email={user.email} avatarUrl={user.avatar_url} />
+          <UserAvatar
+            name={user.name}
+            email={user.email}
+            avatarUrl={user.avatar_url}
+          />
         ) : null}
       </button>
 
@@ -87,6 +90,19 @@ export function UserMenu() {
             className="block px-4 py-2 text-sm text-charcoal hover:bg-cream transition-colors duration-fast"
           >
             {t("myOrders")}
+          </Link>
+          <Link
+            href="/account#saved-products"
+            role="menuitem"
+            onClick={() => setIsOpen(false)}
+            className="flex items-center justify-between gap-3 px-4 py-2 text-sm text-charcoal transition-colors duration-fast hover:bg-cream"
+          >
+            <span>{t("savedProducts")}</span>
+            {savedCount > 0 && (
+              <span className="rounded-pill bg-champagne-beige/70 px-2 py-0.5 text-xs text-soft-brown">
+                {savedCount}
+              </span>
+            )}
           </Link>
           <button
             role="menuitem"

@@ -1,4 +1,4 @@
-import { getProducts } from "@/lib/api";
+import { getProducts, getPublicSiteMedia } from "@/lib/api";
 import { getTranslations } from "next-intl/server";
 import { FeaturedProductsShowcase } from "@/components/products/FeaturedProductsShowcase";
 import { HeroSection } from "@/components/products/HeroSection";
@@ -118,6 +118,7 @@ export default async function HomePage({ params }: { params: Promise<{ locale: L
     page: 1,
     limit: 100,
   }));
+  const siteMedia = await getPublicSiteMedia().catch(() => null);
   const featured = products.filter((p) => p.is_featured);
   const heroProduct = featured[0] ?? products.find((product) => product.primary_image_url) ?? products[0] ?? null;
   const landingCategories = getLandingCategories(products);
@@ -130,7 +131,7 @@ export default async function HomePage({ params }: { params: Promise<{ locale: L
 
   return (
     <main className="bg-page text-text">
-      <HeroSection product={heroProduct} />
+      <HeroSection product={heroProduct} siteMedia={siteMedia?.assets ?? null} />
 
       {featured.length > 0 ? <FeaturedProductsShowcase products={featured} /> : null}
 

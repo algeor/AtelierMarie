@@ -124,6 +124,8 @@ class TestSeedsEnsured:
             "winter",
             "gift",
             "christmas",
+            "sculptural",
+            "bespoke",
         }.issubset(labels)
 
     def test_migration_marker_recorded(self, tmp_path):

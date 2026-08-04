@@ -97,6 +97,15 @@ export interface ProductListResponse {
   limit: number;
 }
 
+export interface SavedProductListResponse extends ProductListResponse {
+  product_ids: string[];
+}
+
+export interface SavedProductStatusResponse {
+  product_id: string;
+  saved: boolean;
+}
+
 // --- Taxonomy ---
 
 export type TaxonomyKind = "product-types" | "categories" | "labels";
@@ -191,6 +200,42 @@ export interface AboutSectionAdmin {
 
 export interface AboutAdminResponse {
   sections: AboutSectionAdmin[];
+}
+
+// --- Site Media ---
+
+export type SiteMediaKey =
+  | "home_hero"
+  | "home_hero_fallback"
+  | "atelier_hero_fallback"
+  | "atelier_story_fallback"
+  | "atelier_atelier_fallback"
+  | "atelier_collections_fallback"
+  | "atelier_process_fallback"
+  | "error_page_image"
+  | "page_background";
+
+export type SiteMediaMap = Record<SiteMediaKey, string | null>;
+
+export interface SiteMediaAssetAdmin {
+  key: SiteMediaKey;
+  label: string;
+  description: string;
+  default_url: string | null;
+  image_id: string | null;
+  image_url: string | null;
+  thumbnail_url: string | null;
+  zoom_url: string | null;
+  effective_url: string | null;
+  updated_at: string;
+}
+
+export interface SiteMediaAdminResponse {
+  assets: SiteMediaAssetAdmin[];
+}
+
+export interface PublicSiteMediaResponse {
+  assets: SiteMediaMap;
 }
 
 export type PatchAboutSectionRequest = Partial<
@@ -506,7 +551,10 @@ export type UpdatePrivacyPageRequest = Partial<
 >;
 
 export type UpdatePrivacySectionRequest = Partial<
-  Pick<PrivacySectionAdminResponse, "title_en" | "title_bg" | "nav_en" | "nav_bg" | "body_en" | "body_bg">
+  Pick<
+    PrivacySectionAdminResponse,
+    "title_en" | "title_bg" | "nav_en" | "nav_bg" | "body_en" | "body_bg"
+  >
 >;
 
 // --- Cookie Policy ---
@@ -650,7 +698,10 @@ export type UpdateCookieInventoryRequest = Partial<
 >;
 
 export type UpdateCookieSectionRequest = Partial<
-  Pick<CookieSectionAdminResponse, "title_en" | "title_bg" | "body_en" | "body_bg">
+  Pick<
+    CookieSectionAdminResponse,
+    "title_en" | "title_bg" | "body_en" | "body_bg"
+  >
 >;
 
 export interface AdminTaxonomyTerm {
@@ -766,16 +817,10 @@ export type AccountingClassificationState =
   | "manual_review_required";
 
 export type AccountingReadinessStatus =
-  | "unreviewed"
-  | "ready"
-  | "review_required"
-  | "blocked";
+  "unreviewed" | "ready" | "review_required" | "blocked";
 
 export type AccountingDocumentReferenceStatus =
-  | "not_required"
-  | "missing"
-  | "recorded"
-  | "review_required";
+  "not_required" | "missing" | "recorded" | "review_required";
 
 export type AccountingReconciliationStatus =
   | "not_applicable"
@@ -785,7 +830,8 @@ export type AccountingReconciliationStatus =
   | "unmatched"
   | "review_required";
 
-export type CodSettlementStatus = "not_applicable" | "pending" | "settled" | "mismatch";
+export type CodSettlementStatus =
+  "not_applicable" | "pending" | "settled" | "mismatch";
 
 export interface AccountingFinanceHubLinks {
   period_id?: string | null;
@@ -869,10 +915,23 @@ export interface OrderListResponse {
   limit: number;
 }
 
+export type CustomerOrderView = "all" | "active" | "needs_action" | "delivered";
+export type CustomerOrderDateRange = "all" | "last_30_days" | "last_6_months";
+export type CustomerOrderSort = "newest" | "oldest" | "highest";
+
+export interface CustomerOrderFilters {
+  q?: string;
+  view?: CustomerOrderView;
+  date_range?: CustomerOrderDateRange;
+  sort?: CustomerOrderSort;
+}
+
 // --- Accounting & Finance Hub ---
 
-export type VatMode = "unknown" | "not_registered" | "registered" | "oss_registered";
-export type OssMode = "not_applicable" | "not_registered" | "registered" | "review_required";
+export type VatMode =
+  "unknown" | "not_registered" | "registered" | "oss_registered";
+export type OssMode =
+  "not_applicable" | "not_registered" | "registered" | "review_required";
 export type FiscalDocumentMode =
   | "external_reference"
   | "app_invoice_reference"
@@ -880,9 +939,11 @@ export type FiscalDocumentMode =
   | "alternative_sales_document"
   | "not_configured";
 export type CloseBehavior = "warn" | "block";
-export type CostingBasis = "manual_snapshot" | "recipe_bom" | "imported_estimate";
+export type CostingBasis =
+  "manual_snapshot" | "recipe_bom" | "imported_estimate";
 export type MissingCostPolicy = "none" | "warning" | "blocking";
-export type FinancePeriodStatus = "open" | "review" | "closed" | "exported" | "accepted" | "reopened";
+export type FinancePeriodStatus =
+  "open" | "review" | "closed" | "exported" | "accepted" | "reopened";
 export type FinanceExceptionStatus = "open" | "resolved" | "waived";
 export type FinanceExceptionSeverity = "blocking" | "warning";
 export type AccountingLedgerName =
@@ -905,16 +966,15 @@ export type AccountingDocumentType =
   | "alternative_sales_document"
   | "external_document";
 export type AccountingDocumentStatus =
-  | "draft"
-  | "recorded"
-  | "void"
-  | "corrected"
-  | "missing"
-  | "review_required";
-export type ExpensePaymentStatus = "unpaid" | "paid" | "partially_paid" | "reimbursed" | "cancelled";
-export type ExpenseReviewStatus = "unreviewed" | "reviewed" | "missing_document" | "waived" | "rejected";
-export type ProductCostReviewStatus = "estimate" | "reviewed" | "accountant_reviewed" | "archived";
-export type ProductCostComponentType = "material" | "packaging" | "labor" | "overhead" | "waste" | "other";
+  "draft" | "recorded" | "void" | "corrected" | "missing" | "review_required";
+export type ExpensePaymentStatus =
+  "unpaid" | "paid" | "partially_paid" | "reimbursed" | "cancelled";
+export type ExpenseReviewStatus =
+  "unreviewed" | "reviewed" | "missing_document" | "waived" | "rejected";
+export type ProductCostReviewStatus =
+  "estimate" | "reviewed" | "accountant_reviewed" | "archived";
+export type ProductCostComponentType =
+  "material" | "packaging" | "labor" | "overhead" | "waste" | "other";
 export type AdminOrderAccountingFilter =
   | "missing_document_reference"
   | "unresolved_exception"
@@ -930,16 +990,26 @@ export type AdminOrderAccountingFilter =
 
 // --- Inventory, recipes, production, valuation ---
 
-export type MaterialUom = "g" | "kg" | "ml" | "l" | "piece" | "pcs" | "unit" | "m" | "cm";
-export type MaterialMovementType = "adjustment" | "spoilage" | "write_off" | "stock_count_correction";
-export type InventoryReviewState = "unreviewed" | "reviewed" | "estimate" | "official" | "reversed";
-export type MaterialReviewState = "draft" | "needs_review" | "reviewed" | "rejected";
+export type MaterialUom =
+  "g" | "kg" | "ml" | "l" | "piece" | "pcs" | "unit" | "m" | "cm";
+export type MaterialMovementType =
+  "adjustment" | "spoilage" | "write_off" | "stock_count_correction";
+export type InventoryReviewState =
+  "unreviewed" | "reviewed" | "estimate" | "official" | "reversed";
+export type MaterialReviewState =
+  "draft" | "needs_review" | "reviewed" | "rejected";
 export type RecipeStatus = "draft" | "active" | "archived";
-export type RecipeReviewState = "estimate" | "reviewed" | "accountant_reviewed" | "invalid";
+export type RecipeReviewState =
+  "estimate" | "reviewed" | "accountant_reviewed" | "invalid";
 export type QuantityBasis = "per_unit" | "per_batch";
 export type ProductionBatchStatus = "draft" | "produced" | "cancelled";
 export type ValuationMethod = "weighted_average" | "fifo";
-export type CogsDateBasis = "order_date" | "payment_date" | "shipment_date" | "delivery_date" | "period_close";
+export type CogsDateBasis =
+  | "order_date"
+  | "payment_date"
+  | "shipment_date"
+  | "delivery_date"
+  | "period_close";
 
 export interface InventoryExceptionResponse {
   id: string;
@@ -1119,7 +1189,9 @@ export interface RecipeVersionRequest {
   components?: RecipeComponentRequest[];
 }
 
-export type RecipeVersionUpdateRequest = Partial<Omit<RecipeVersionRequest, "product_id">>;
+export type RecipeVersionUpdateRequest = Partial<
+  Omit<RecipeVersionRequest, "product_id">
+>;
 
 export interface RecipeReviewRequest {
   review_state?: RecipeReviewState;
@@ -2003,7 +2075,8 @@ export interface EcontFulfillmentActionResponse {
 
 // --- Speedy admin operations ---
 
-export type SpeedyHealthStatus = "healthy" | "blocked" | "warning" | "unavailable";
+export type SpeedyHealthStatus =
+  "healthy" | "blocked" | "warning" | "unavailable";
 
 export interface SpeedyCircuitState {
   name: string;
@@ -2269,7 +2342,8 @@ export interface PaymentEventResponse {
   created_at: string;
 }
 
-export type ReturnSource = "admin" | "speedy" | "econt" | "customer" | "stripe" | "system";
+export type ReturnSource =
+  "admin" | "speedy" | "econt" | "customer" | "stripe" | "system";
 export type ReturnStatus =
   | "requested"
   | "return_in_transit"
@@ -2290,7 +2364,8 @@ export type ReturnReason =
 export type ReturnCreateStatus = "requested" | "return_in_transit";
 export type RestockDecision = "restock" | "do_not_restock" | "partial";
 export type ReturnRestockDecision = "pending" | RestockDecision;
-export type CourierClaimStatus = "none" | "filed" | "approved" | "rejected" | "paid";
+export type CourierClaimStatus =
+  "none" | "filed" | "approved" | "rejected" | "paid";
 export type RefundStatus = "pending" | "succeeded" | "failed" | "cancelled";
 
 export interface ReturnCaseResponse {
@@ -2428,7 +2503,8 @@ export type ManualPaymentAction =
   | "convert_to_cod"
   | "cancel";
 
-export type CallbackOutcome = "confirmed" | "declined" | "unreachable" | "needs_follow_up";
+export type CallbackOutcome =
+  "confirmed" | "declined" | "unreachable" | "needs_follow_up";
 
 export interface OfficeResponse {
   id: string;
@@ -2650,7 +2726,8 @@ export interface AdminProductResponse {
   inventory_mode?: "legacy" | "fallback" | "ledger_managed";
   stock_source?: "product_stock" | "inventory_ledger" | "mixed";
   ledger_managed?: boolean;
-  valuation_readiness?: "setup_required" | "estimate_only" | "ready" | "blocked";
+  valuation_readiness?:
+    "setup_required" | "estimate_only" | "ready" | "blocked";
   active_recipe_id?: string | null;
   active_recipe_status?: "missing" | "draft" | "active" | "archived";
   active_recipe_review_state?: string | null;
@@ -2679,11 +2756,16 @@ export interface AdminProductListResponse {
 }
 
 export type AdminProductStatusFilter = "all" | "active" | "inactive";
-export type AdminProductMediaFilter = "any" | "ready" | "missing_image" | "has_video" | "missing_video";
-export type AdminProductStockFilter = "any" | "in_stock" | "out_of_stock" | "low";
-export type AdminProductDiscountFilter = "any" | "active" | "scheduled" | "none";
-export type AdminProductInventoryModeFilter = "legacy" | "fallback" | "ledger_managed";
-export type AdminProductRecipeStatusFilter = "active" | "missing" | "draft" | "archived";
+export type AdminProductMediaFilter =
+  "any" | "ready" | "missing_image" | "has_video" | "missing_video";
+export type AdminProductStockFilter =
+  "any" | "in_stock" | "out_of_stock" | "low";
+export type AdminProductDiscountFilter =
+  "any" | "active" | "scheduled" | "none";
+export type AdminProductInventoryModeFilter =
+  "legacy" | "fallback" | "ledger_managed";
+export type AdminProductRecipeStatusFilter =
+  "active" | "missing" | "draft" | "archived";
 export type AdminProductSort =
   | "created_desc"
   | "created_asc"
@@ -2800,11 +2882,7 @@ export interface BulkDiscountRequest {
 }
 
 export type CampaignStatus =
-  | "draft"
-  | "scheduled"
-  | "active"
-  | "ended"
-  | "removed";
+  "draft" | "scheduled" | "active" | "ended" | "removed";
 
 export interface CampaignResponse {
   id: string;

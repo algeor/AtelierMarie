@@ -82,6 +82,7 @@ import type {
   InspectReturnCaseRequest,
   OfficeResponse,
   OfficeType,
+  CustomerOrderFilters,
   OrderListResponse,
   OrderResponse,
   OrderStatus,
@@ -95,6 +96,8 @@ import type {
   PatchAboutSectionRequest,
   ProductListResponse,
   ProductImage,
+  SavedProductListResponse,
+  SavedProductStatusResponse,
   PrivacyAdminResponse,
   PrivacyPageAdminResponse,
   PrivacyResponse,
@@ -106,9 +109,13 @@ import type {
   ProductResponse,
   ProductVideo,
   PublicBannerResponse,
+  PublicSiteMediaResponse,
   ReactionCountsResponse,
   ReactionToggleRequest,
   ReactionToggleResponse,
+  SiteMediaAdminResponse,
+  SiteMediaAssetAdmin,
+  SiteMediaKey,
   TaxonomyKind,
   TaxonomyResponse,
   TermsAdminResponse,
@@ -192,11 +199,16 @@ function stringField(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function formatMockAddress(address: Record<string, unknown> | null | undefined): string | null {
+function formatMockAddress(
+  address: Record<string, unknown> | null | undefined,
+): string | null {
   if (!address) return null;
-  const formatted = stringField(address.formatted) ?? stringField(address.formatted_address);
+  const formatted =
+    stringField(address.formatted) ?? stringField(address.formatted_address);
   if (formatted) return formatted;
-  const cityLine = [stringField(address.postal_code), stringField(address.city)].filter(Boolean).join(" ");
+  const cityLine = [stringField(address.postal_code), stringField(address.city)]
+    .filter(Boolean)
+    .join(" ");
   const parts = [
     stringField(address.line1),
     stringField(address.line2),
@@ -248,7 +260,10 @@ let mockAccountingConfig: AccountingConfigurationResponse = {
     oss_mode: "not_applicable",
     default_domestic_vat_treatment: "BG domestic review",
     fiscal_document_mode: "external_reference",
-    document_rules: { cod: "fiscal_receipt_required", card: "invoice_reference_optional" },
+    document_rules: {
+      cod: "fiscal_receipt_required",
+      card: "invoice_reference_optional",
+    },
     threshold_warnings: { review_before_registration_threshold: true },
     tolerance_cents: 1,
     warning_text: "Configuration must be reviewed by the accountant.",
@@ -283,7 +298,14 @@ let mockAccountingConfig: AccountingConfigurationResponse = {
     date_format: "yyyy-mm-dd",
     decimal_separator: ".",
     default_period_range: "monthly",
-    included_tabs: ["summary", "sales", "payments", "expenses", "product_costs", "exceptions"],
+    included_tabs: [
+      "summary",
+      "sales",
+      "payments",
+      "expenses",
+      "product_costs",
+      "exceptions",
+    ],
     custom_columns: null,
     reviewed: true,
     updated_at: MOCK_NOW,
@@ -291,7 +313,12 @@ let mockAccountingConfig: AccountingConfigurationResponse = {
   expense_settings: {
     id: "default",
     required_document_categories: ["materials", "packaging"],
-    allowed_payment_statuses: ["unpaid", "paid", "partially_paid", "reimbursed"],
+    allowed_payment_statuses: [
+      "unpaid",
+      "paid",
+      "partially_paid",
+      "reimbursed",
+    ],
     default_category_mappings: { materials: "601", packaging: "602" },
     close_behavior: "block",
     reviewed: true,
@@ -386,7 +413,8 @@ const mockFinanceExceptions: FinanceExceptionResponse[] = [
     target_type: "expense",
     target_id: "expense-wax-001",
     status: "open",
-    message: "Material expense is missing supplier invoice or receipt evidence.",
+    message:
+      "Material expense is missing supplier invoice or receipt evidence.",
     details: { category_key: "materials" },
     created_at: MOCK_NOW,
     updated_at: MOCK_NOW,
@@ -536,9 +564,21 @@ const mockAccountingExports: FinanceExportPackageResponse[] = [
     csv_dir_path: "private-exports/accounting/period-2026-08/v1/csv",
     manifest_path: "private-exports/accounting/period-2026-08/v1/manifest.json",
     manifest: {
-      row_counts: { sales: 4, payments: 3, expenses: 2, product_costs: 1, exceptions: 3 },
+      row_counts: {
+        sales: 4,
+        payments: 3,
+        expenses: 2,
+        product_costs: 1,
+        exceptions: 3,
+      },
       totals: { net_sales_cents: 13800, recorded_expenses_cents: 4600 },
-      files: ["accounting.xlsx", "sales.csv", "payments.csv", "expenses.csv", "manifest.json"],
+      files: [
+        "accounting.xlsx",
+        "sales.csv",
+        "payments.csv",
+        "expenses.csv",
+        "manifest.json",
+      ],
     },
     generated_by_admin_id: "mock-admin",
     generated_at: MOCK_NOW,
@@ -551,40 +591,103 @@ const mockAccountingExports: FinanceExportPackageResponse[] = [
   },
 ];
 
-const mockLedgerRows: Record<AccountingLedgerName, Record<string, unknown>[]> = {
-  sales: [
-    { order_number: "AM-1001", order_date: "2026-08-01", product_name: "Lavender Dreams", quantity: 1, gross_amount_cents: 3200, document_reference_status: "recorded" },
-    { order_number: "AM-COD01", order_date: "2026-08-01", product_name: "Citrus Garden", quantity: 2, gross_amount_cents: 5600, document_reference_status: "missing" },
-  ],
-  payments: [
-    { order_number: "AM-1001", event_date: "2026-08-01", provider: "stripe", gross_amount_cents: 3200, reconciliation_status: "matched" },
-    { order_number: "AM-COD01", event_date: "2026-08-01", provider: "cod", gross_amount_cents: 5600, reconciliation_status: "pending" },
-  ],
-  stripe_payouts: [
-    { balance_transaction_id: "txn_mock_001", payout_id: "po_mock_001", gross_amount_cents: 3200, fee_amount_cents: 120, net_amount_cents: 3080, match_status: "mismatch" },
-  ],
-  cod_settlements: [
-    { order_number: "AM-COD01", state: "unsettled", cod_amount_cents: 5600, courier_reference: null },
-  ],
-  refunds: [
-    { order_number: "AM-1002", refund_date: "2026-08-01", refund_amount_cents: -1200, document_reference_status: "review_required" },
-  ],
-  courier_claims: [
-    { claim_id: "claim-001", order_number: "AM-1002", claim_status: "filed", claim_amount_cents: 600 },
-  ],
-  return_reasons: [
-    { order_number: "AM-1002", reason: "customer_return", status: "received" },
-  ],
-  inventory_adjustments: [
-    { order_number: "AM-1002", product_id: "lavender-dreams-300ml", restock_decision: "partial", quantity: 1 },
-  ],
-  inventory_movements: [
-    { item_type: "finished_good", item_id: "lavender-dreams-300ml", movement_type: "sale_issue", quantity_delta: -1 },
-  ],
-  documents: mockAccountingDocuments as unknown as Record<string, unknown>[],
-  expenses: mockExpenseEvidence as unknown as Record<string, unknown>[],
-  product_costs: mockProductCosts as unknown as Record<string, unknown>[],
-};
+const mockLedgerRows: Record<AccountingLedgerName, Record<string, unknown>[]> =
+  {
+    sales: [
+      {
+        order_number: "AM-1001",
+        order_date: "2026-08-01",
+        product_name: "Lavender Dreams",
+        quantity: 1,
+        gross_amount_cents: 3200,
+        document_reference_status: "recorded",
+      },
+      {
+        order_number: "AM-COD01",
+        order_date: "2026-08-01",
+        product_name: "Citrus Garden",
+        quantity: 2,
+        gross_amount_cents: 5600,
+        document_reference_status: "missing",
+      },
+    ],
+    payments: [
+      {
+        order_number: "AM-1001",
+        event_date: "2026-08-01",
+        provider: "stripe",
+        gross_amount_cents: 3200,
+        reconciliation_status: "matched",
+      },
+      {
+        order_number: "AM-COD01",
+        event_date: "2026-08-01",
+        provider: "cod",
+        gross_amount_cents: 5600,
+        reconciliation_status: "pending",
+      },
+    ],
+    stripe_payouts: [
+      {
+        balance_transaction_id: "txn_mock_001",
+        payout_id: "po_mock_001",
+        gross_amount_cents: 3200,
+        fee_amount_cents: 120,
+        net_amount_cents: 3080,
+        match_status: "mismatch",
+      },
+    ],
+    cod_settlements: [
+      {
+        order_number: "AM-COD01",
+        state: "unsettled",
+        cod_amount_cents: 5600,
+        courier_reference: null,
+      },
+    ],
+    refunds: [
+      {
+        order_number: "AM-1002",
+        refund_date: "2026-08-01",
+        refund_amount_cents: -1200,
+        document_reference_status: "review_required",
+      },
+    ],
+    courier_claims: [
+      {
+        claim_id: "claim-001",
+        order_number: "AM-1002",
+        claim_status: "filed",
+        claim_amount_cents: 600,
+      },
+    ],
+    return_reasons: [
+      {
+        order_number: "AM-1002",
+        reason: "customer_return",
+        status: "received",
+      },
+    ],
+    inventory_adjustments: [
+      {
+        order_number: "AM-1002",
+        product_id: "lavender-dreams-300ml",
+        restock_decision: "partial",
+        quantity: 1,
+      },
+    ],
+    inventory_movements: [
+      {
+        item_type: "finished_good",
+        item_id: "lavender-dreams-300ml",
+        movement_type: "sale_issue",
+        quantity_delta: -1,
+      },
+    ],
+    documents: mockAccountingDocuments as unknown as Record<string, unknown>[],
+    expenses: mockExpenseEvidence as unknown as Record<string, unknown>[],
+    product_costs: mockProductCosts as unknown as Record<string, unknown>[],
+  };
 
 function withMockAccountingFlags(order: OrderResponse): OrderResponse {
   if (order.id === "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e") {
@@ -602,8 +705,10 @@ function withMockAccountingFlags(order: OrderResponse): OrderResponse {
       finance_hub_links: {
         period_id: "period-2026-08",
         period_href: "/admin/accounting?period=period-2026-08",
-        exceptions_href: "/admin/accounting?period=period-2026-08&tab=exceptions",
-        ledger_href: "/admin/accounting?period=period-2026-08&tab=ledgers&ledger=cod_settlements",
+        exceptions_href:
+          "/admin/accounting?period=period-2026-08&tab=exceptions",
+        ledger_href:
+          "/admin/accounting?period=period-2026-08&tab=ledgers&ledger=cod_settlements",
         documents_href: "/admin/accounting?period=period-2026-08&tab=documents",
       },
     };
@@ -622,18 +727,24 @@ function withMockAccountingFlags(order: OrderResponse): OrderResponse {
       finance_hub_links: {
         period_id: "period-2026-08",
         period_href: "/admin/accounting?period=period-2026-08",
-        exceptions_href: "/admin/accounting?period=period-2026-08&tab=exceptions",
-        ledger_href: "/admin/accounting?period=period-2026-08&tab=ledgers&ledger=stripe_payouts",
+        exceptions_href:
+          "/admin/accounting?period=period-2026-08&tab=exceptions",
+        ledger_href:
+          "/admin/accounting?period=period-2026-08&tab=ledgers&ledger=stripe_payouts",
         documents_href: "/admin/accounting?period=period-2026-08&tab=documents",
       },
     };
   }
   return {
     ...order,
-    accounting_readiness_status: order.accounting_readiness_status ?? "unreviewed",
-    document_reference_status: order.document_reference_status ?? "not_required",
-    payment_reconciliation_status: order.payment_reconciliation_status ?? "not_applicable",
-    payout_reconciliation_status: order.payout_reconciliation_status ?? "not_applicable",
+    accounting_readiness_status:
+      order.accounting_readiness_status ?? "unreviewed",
+    document_reference_status:
+      order.document_reference_status ?? "not_required",
+    payment_reconciliation_status:
+      order.payment_reconciliation_status ?? "not_applicable",
+    payout_reconciliation_status:
+      order.payout_reconciliation_status ?? "not_applicable",
     cod_settlement_status: order.cod_settlement_status ?? "not_applicable",
     blocking_exception_count: order.blocking_exception_count ?? 0,
     finance_hub_links: order.finance_hub_links ?? null,
@@ -663,10 +774,14 @@ function toPublicProduct(product: MockProduct, locale = "en"): ProductResponse {
     discount_ends_at: _discount_ends_at,
     ...pub
   } = product;
-  const preferredWarnings = locale === "bg" ? safety_warnings_bg : safety_warnings_en;
-  const fallbackWarnings = locale === "bg" ? safety_warnings_en : safety_warnings_bg;
-  const preferredCare = locale === "bg" ? care_instructions_bg : care_instructions_en;
-  const fallbackCare = locale === "bg" ? care_instructions_en : care_instructions_bg;
+  const preferredWarnings =
+    locale === "bg" ? safety_warnings_bg : safety_warnings_en;
+  const fallbackWarnings =
+    locale === "bg" ? safety_warnings_en : safety_warnings_bg;
+  const preferredCare =
+    locale === "bg" ? care_instructions_bg : care_instructions_en;
+  const fallbackCare =
+    locale === "bg" ? care_instructions_en : care_instructions_bg;
   return {
     ...pub,
     safety_warnings: preferredWarnings ?? fallbackWarnings,
@@ -674,7 +789,11 @@ function toPublicProduct(product: MockProduct, locale = "en"): ProductResponse {
   };
 }
 
-function mockProductImage(productId: string, sortOrder = 0, isPrimary = true): ProductImage {
+function mockProductImage(
+  productId: string,
+  sortOrder = 0,
+  isPrimary = true,
+): ProductImage {
   const imageUrl = `/static/products/${productId}.webp`;
   return {
     id: `${productId}-${sortOrder}`,
@@ -715,12 +834,16 @@ function applyMockPricing(product: MockProduct): MockProduct {
   const now = new Date();
   const active =
     percent != null &&
-    (!product.discount_starts_at || now >= new Date(product.discount_starts_at)) &&
+    (!product.discount_starts_at ||
+      now >= new Date(product.discount_starts_at)) &&
     (!product.discount_ends_at || now <= new Date(product.discount_ends_at));
   product.discount_active = active;
   product.effective_price_cents =
     active && percent != null
-      ? Math.max(1, Math.floor((product.price_cents * (100 - percent) + 50) / 100))
+      ? Math.max(
+          1,
+          Math.floor((product.price_cents * (100 - percent) + 50) / 100),
+        )
       : product.price_cents;
   return product;
 }
@@ -729,12 +852,18 @@ const MOCK_PRODUCTS: MockProduct[] = [
     id: "lavender-dreams-300ml",
     name: "Lavender Dreams",
     description: "Hand-poured soy candle with French lavender essential oil.",
-    safety_warnings: "Never leave a burning candle unattended. Keep away from children, pets, and flammable materials.",
-    care_instructions: "Burn on a stable, heat-resistant surface. Trim the wick before each use.",
-    safety_warnings_en: "Never leave a burning candle unattended. Keep away from children, pets, and flammable materials.",
-    safety_warnings_bg: "Never leave a burning candle unattended. Keep away from children, pets, and flammable materials.",
-    care_instructions_en: "Burn on a stable, heat-resistant surface. Trim the wick before each use.",
-    care_instructions_bg: "Burn on a stable, heat-resistant surface. Trim the wick before each use.",
+    safety_warnings:
+      "Never leave a burning candle unattended. Keep away from children, pets, and flammable materials.",
+    care_instructions:
+      "Burn on a stable, heat-resistant surface. Trim the wick before each use.",
+    safety_warnings_en:
+      "Never leave a burning candle unattended. Keep away from children, pets, and flammable materials.",
+    safety_warnings_bg:
+      "Never leave a burning candle unattended. Keep away from children, pets, and flammable materials.",
+    care_instructions_en:
+      "Burn on a stable, heat-resistant surface. Trim the wick before each use.",
+    care_instructions_bg:
+      "Burn on a stable, heat-resistant surface. Trim the wick before each use.",
     materials: "Soy wax, French lavender essential oil, cotton wick",
     days_to_craft: 3,
     price_cents: 3200,
@@ -767,11 +896,15 @@ const MOCK_PRODUCTS: MockProduct[] = [
     id: "midnight-amber-300ml",
     name: "Midnight Amber",
     description: "Warm amber and sandalwood in a black ceramic vessel.",
-    safety_warnings: "Never leave a burning candle unattended. Ceramic vessel may become hot during use.",
-    care_instructions: "Place on a heat-resistant surface and allow wax to cool before handling.",
-    safety_warnings_en: "Never leave a burning candle unattended. Ceramic vessel may become hot during use.",
+    safety_warnings:
+      "Never leave a burning candle unattended. Ceramic vessel may become hot during use.",
+    care_instructions:
+      "Place on a heat-resistant surface and allow wax to cool before handling.",
+    safety_warnings_en:
+      "Never leave a burning candle unattended. Ceramic vessel may become hot during use.",
     safety_warnings_bg: null,
-    care_instructions_en: "Place on a heat-resistant surface and allow wax to cool before handling.",
+    care_instructions_en:
+      "Place on a heat-resistant surface and allow wax to cool before handling.",
     care_instructions_bg: null,
     materials: "Coconut wax, amber resin, sandalwood oil",
     days_to_craft: 5,
@@ -878,37 +1011,245 @@ const nowIso = () => new Date().toISOString();
 let nextAboutItemId = 18;
 
 const MOCK_ABOUT_SECTIONS: AboutSectionAdmin[] = [
-  mockAboutSection("hero", "hero", 0, "The Atelier Marie", "The Atelier Marie", "Handcrafted Elegance for Beautiful Spaces", "Ръчно изработена елегантност за красиви пространства", "At The Atelier Marie, we create handcrafted candles designed to bring beauty, warmth, and a touch of luxury into your home.", "В The Atelier Marie създаваме ръчно изработени свещи, замислени да внесат красота, топлина и лек досег на лукс във вашия дом.", "Explore our collection", "Разгледайте нашата колекция", "/products"),
-  mockAboutSection("story", "text_image", 1, "Our Story", "Нашата история", "From a Creative Idea to a Handmade Atelier", "От творческа идея до ръчно ателие", "The Atelier Marie began with a simple thought:\n\n> I want something this beautiful in my own home.", "The Atelier Marie започна с една проста мисъл:\n\n> Искам нещо толкова красиво в собствения си дом."),
-  mockAboutSection("philosophy", "text_band", 2, "Our Philosophy", "Нашата философия", "Candles Designed to Be Admired", "Свещи, създадени, за да им се възхищавате", "We believe candles can be more than a source of light or fragrance.", "Вярваме, че свещите могат да бъдат повече от източник на светлина или аромат."),
-  mockAboutSection("differentiators", "cards", 3, "What Makes Our Candles Different", "Какво отличава нашите свещи", "More Than a Candle — A Piece of Art for Your Home", "Повече от свещ — произведение на изкуството за вашия дом", null, null),
-  mockAboutSection("process", "timeline", 4, "The Art of Making", "Изкуството на създаването", "Crafted Slowly, Made With Care", "Изработени бавно, създадени с грижа", "Every creation begins with an idea.\n\nBefore a candle reaches your home, it goes through a careful process of design and craftsmanship.", "Всяко творение започва с идея.\n\nПреди една свещ да стигне до вашия дом, тя преминава през внимателен процес на проектиране и изработка."),
-  mockAboutSection("atelier", "text_image", 5, "Inside Our Atelier", "Вътре в нашето ателие", "Where Every Candle Comes to Life", "Където всяка свещ оживява", "Behind every creation are countless small details.", "Зад всяко творение стоят безброй малки детайли."),
-  mockAboutSection("values", "cards", 6, "Our Values", "Нашите ценности", "The Principles Behind Every Creation", "Принципите зад всяко творение", null, null),
-  mockAboutSection("collections", "collections", 7, "Our Collections", "Нашите колекции", "Designed to Suit Every Space and Story", "Създадени да подхождат на всяко пространство и история", null, null),
-  mockAboutSection("emotional", "text_band", 8, "A Little Beauty for Everyday Moments", "Малко красота за ежедневните мигове", "Designed to Become Part of Your Story", "Създадени да станат част от вашата история", "We believe the most beautiful objects are the ones that create a feeling.", "Вярваме, че най-красивите предмети са тези, които създават усещане.", "Discover the collection", "Открийте колекцията", "/products"),
-  mockAboutSection("custom_cta", "cta_band", 9, "Looking for Something Unique?", "Търсите нещо уникално?", null, null, "Create a personalised candle designed especially for you — a bespoke piece for a meaningful moment, or a truly one-of-a-kind gift.", "Създайте персонализирана свещ, замислена специално за вас — изделие по поръчка за значим миг или наистина уникален подарък.", "Request a Custom Order", "Заявете индивидуална поръчка", "/contact"),
+  mockAboutSection(
+    "hero",
+    "hero",
+    0,
+    "The Atelier Marie",
+    "The Atelier Marie",
+    "Handcrafted Elegance for Beautiful Spaces",
+    "Ръчно изработена елегантност за красиви пространства",
+    "At The Atelier Marie, we create handcrafted candles designed to bring beauty, warmth, and a touch of luxury into your home.",
+    "В The Atelier Marie създаваме ръчно изработени свещи, замислени да внесат красота, топлина и лек досег на лукс във вашия дом.",
+    "Explore our collection",
+    "Разгледайте нашата колекция",
+    "/products",
+  ),
+  mockAboutSection(
+    "story",
+    "text_image",
+    1,
+    "Our Story",
+    "Нашата история",
+    "From a Creative Idea to a Handmade Atelier",
+    "От творческа идея до ръчно ателие",
+    "The Atelier Marie began with a simple thought:\n\n> I want something this beautiful in my own home.",
+    "The Atelier Marie започна с една проста мисъл:\n\n> Искам нещо толкова красиво в собствения си дом.",
+  ),
+  mockAboutSection(
+    "philosophy",
+    "text_band",
+    2,
+    "Our Philosophy",
+    "Нашата философия",
+    "Candles Designed to Be Admired",
+    "Свещи, създадени, за да им се възхищавате",
+    "We believe candles can be more than a source of light or fragrance.",
+    "Вярваме, че свещите могат да бъдат повече от източник на светлина или аромат.",
+  ),
+  mockAboutSection(
+    "differentiators",
+    "cards",
+    3,
+    "What Makes Our Candles Different",
+    "Какво отличава нашите свещи",
+    "More Than a Candle — A Piece of Art for Your Home",
+    "Повече от свещ — произведение на изкуството за вашия дом",
+    null,
+    null,
+  ),
+  mockAboutSection(
+    "process",
+    "timeline",
+    4,
+    "The Art of Making",
+    "Изкуството на създаването",
+    "Crafted Slowly, Made With Care",
+    "Изработени бавно, създадени с грижа",
+    "Every creation begins with an idea.\n\nBefore a candle reaches your home, it goes through a careful process of design and craftsmanship.",
+    "Всяко творение започва с идея.\n\nПреди една свещ да стигне до вашия дом, тя преминава през внимателен процес на проектиране и изработка.",
+  ),
+  mockAboutSection(
+    "atelier",
+    "text_image",
+    5,
+    "Inside Our Atelier",
+    "Вътре в нашето ателие",
+    "Where Every Candle Comes to Life",
+    "Където всяка свещ оживява",
+    "Behind every creation are countless small details.",
+    "Зад всяко творение стоят безброй малки детайли.",
+  ),
+  mockAboutSection(
+    "values",
+    "cards",
+    6,
+    "Our Values",
+    "Нашите ценности",
+    "The Principles Behind Every Creation",
+    "Принципите зад всяко творение",
+    null,
+    null,
+  ),
+  mockAboutSection(
+    "collections",
+    "collections",
+    7,
+    "Our Collections",
+    "Нашите колекции",
+    "Designed to Suit Every Space and Story",
+    "Създадени да подхождат на всяко пространство и история",
+    null,
+    null,
+  ),
+  mockAboutSection(
+    "emotional",
+    "text_band",
+    8,
+    "A Little Beauty for Everyday Moments",
+    "Малко красота за ежедневните мигове",
+    "Designed to Become Part of Your Story",
+    "Създадени да станат част от вашата история",
+    "We believe the most beautiful objects are the ones that create a feeling.",
+    "Вярваме, че най-красивите предмети са тези, които създават усещане.",
+    "Discover the collection",
+    "Открийте колекцията",
+    "/products",
+  ),
+  mockAboutSection(
+    "custom_cta",
+    "cta_band",
+    9,
+    "Looking for Something Unique?",
+    "Търсите нещо уникално?",
+    null,
+    null,
+    "Create a personalised candle designed especially for you — a bespoke piece for a meaningful moment, or a truly one-of-a-kind gift.",
+    "Създайте персонализирана свещ, замислена специално за вас — изделие по поръчка за значим миг или наистина уникален подарък.",
+    "Request a Custom Order",
+    "Заявете индивидуална поръчка",
+    "/contact",
+  ),
 ];
 
 MOCK_ABOUT_SECTIONS.find((s) => s.slug === "differentiators")!.items = [
-  mockAboutItem(1, "differentiators", 0, "Handcrafted With Attention to Detail", "Ръчна изработка с внимание към детайла", "Every candle is individually created in our atelier.", "Всяка свещ се създава индивидуално в нашето ателие."),
-  mockAboutItem(2, "differentiators", 1, "Designed as Home Décor", "Замислени като декор за дома", "Our candles are created to complement beautiful interiors.", "Нашите свещи са създадени да допълват красивите интериори."),
-  mockAboutItem(3, "differentiators", 2, "A Luxury Fragrance Experience", "Луксозно ароматно изживяване", "Beautiful design deserves a beautiful scent.", "Красивият дизайн заслужава красив аромат."),
-  mockAboutItem(4, "differentiators", 3, "Personalised Creations", "Персонализирани творения", "Some moments deserve something truly unique.", "Някои мигове заслужават нещо наистина уникално."),
+  mockAboutItem(
+    1,
+    "differentiators",
+    0,
+    "Handcrafted With Attention to Detail",
+    "Ръчна изработка с внимание към детайла",
+    "Every candle is individually created in our atelier.",
+    "Всяка свещ се създава индивидуално в нашето ателие.",
+  ),
+  mockAboutItem(
+    2,
+    "differentiators",
+    1,
+    "Designed as Home Décor",
+    "Замислени като декор за дома",
+    "Our candles are created to complement beautiful interiors.",
+    "Нашите свещи са създадени да допълват красивите интериори.",
+  ),
+  mockAboutItem(
+    3,
+    "differentiators",
+    2,
+    "A Luxury Fragrance Experience",
+    "Луксозно ароматно изживяване",
+    "Beautiful design deserves a beautiful scent.",
+    "Красивият дизайн заслужава красив аромат.",
+  ),
+  mockAboutItem(
+    4,
+    "differentiators",
+    3,
+    "Personalised Creations",
+    "Персонализирани творения",
+    "Some moments deserve something truly unique.",
+    "Някои мигове заслужават нещо наистина уникално.",
+  ),
 ];
 MOCK_ABOUT_SECTIONS.find((s) => s.slug === "process")!.items = [
-  mockAboutItem(5, "process", 0, "Design", "Дизайн", "Every creation begins with an idea, a shape, and a vision.", "Всяко творение започва с идея, форма и визия."),
-  mockAboutItem(6, "process", 1, "Moulds", "Калъпи", "Each shape is carefully prepared.", "Всяка форма се подготвя грижливо."),
-  mockAboutItem(7, "process", 2, "Colours", "Цветове", "Shades are selected and blended by hand.", "Нюансите се подбират и смесват на ръка."),
+  mockAboutItem(
+    5,
+    "process",
+    0,
+    "Design",
+    "Дизайн",
+    "Every creation begins with an idea, a shape, and a vision.",
+    "Всяко творение започва с идея, форма и визия.",
+  ),
+  mockAboutItem(
+    6,
+    "process",
+    1,
+    "Moulds",
+    "Калъпи",
+    "Each shape is carefully prepared.",
+    "Всяка форма се подготвя грижливо.",
+  ),
+  mockAboutItem(
+    7,
+    "process",
+    2,
+    "Colours",
+    "Цветове",
+    "Shades are selected and blended by hand.",
+    "Нюансите се подбират и смесват на ръка.",
+  ),
 ];
 MOCK_ABOUT_SECTIONS.find((s) => s.slug === "values")!.items = [
-  mockAboutItem(11, "values", 0, "Craftsmanship", "Майсторство", "True beauty comes from attention to detail.", "Истинската красота идва от вниманието към детайла."),
-  mockAboutItem(12, "values", 1, "Elegance", "Елегантност", "Our creations are inspired by timeless aesthetics.", "Нашите творения са вдъхновени от вечната естетика."),
+  mockAboutItem(
+    11,
+    "values",
+    0,
+    "Craftsmanship",
+    "Майсторство",
+    "True beauty comes from attention to detail.",
+    "Истинската красота идва от вниманието към детайла.",
+  ),
+  mockAboutItem(
+    12,
+    "values",
+    1,
+    "Elegance",
+    "Елегантност",
+    "Our creations are inspired by timeless aesthetics.",
+    "Нашите творения са вдъхновени от вечната естетика.",
+  ),
 ];
 MOCK_ABOUT_SECTIONS.find((s) => s.slug === "collections")!.items = [
-  mockAboutItem(15, "collections", 0, "Floral Collection", "Флорална колекция", "Romantic designs inspired by nature.", "Романтични дизайни, вдъхновени от природата.", "/products?category=floral"),
-  mockAboutItem(16, "collections", 1, "Sculptural Collection", "Скулптурна колекция", "Statement pieces designed to decorate your space.", "Акцентни изделия, създадени да украсят вашето пространство.", "/products?category=sculptural"),
-  mockAboutItem(17, "collections", 2, "Bespoke Collection", "Колекция по поръчка", "Custom creations made for meaningful moments.", "Творения по поръчка за значими мигове.", "/products?category=bespoke"),
+  mockAboutItem(
+    15,
+    "collections",
+    0,
+    "Floral Collection",
+    "Флорална колекция",
+    "Romantic designs inspired by nature.",
+    "Романтични дизайни, вдъхновени от природата.",
+    "/products?labels=floral",
+  ),
+  mockAboutItem(
+    16,
+    "collections",
+    1,
+    "Sculptural Collection",
+    "Скулптурна колекция",
+    "Statement pieces designed to decorate your space.",
+    "Акцентни изделия, създадени да украсят вашето пространство.",
+    "/products?labels=sculptural",
+  ),
+  mockAboutItem(
+    17,
+    "collections",
+    2,
+    "Bespoke Collection",
+    "Колекция по поръчка",
+    "Custom creations made for meaningful moments.",
+    "Творения по поръчка за значими мигове.",
+    "/products?labels=bespoke",
+  ),
 ];
 
 function mockAboutSection(
@@ -923,7 +1264,7 @@ function mockAboutSection(
   bodyBg: string | null,
   ctaLabelEn: string | null = null,
   ctaLabelBg: string | null = null,
-  ctaHref: string | null = null
+  ctaHref: string | null = null,
 ): AboutSectionAdmin {
   const timestamp = nowIso();
   return {
@@ -956,7 +1297,7 @@ function mockAboutItem(
   titleBg: string | null,
   textEn: string | null,
   textBg: string | null,
-  linkHref: string | null = null
+  linkHref: string | null = null,
 ): AboutItemAdmin {
   const timestamp = nowIso();
   return {
@@ -983,12 +1324,23 @@ function publicAbout(locale: string = "en"): AboutPublicResponse {
       .map((section) => ({
         slug: section.slug,
         type: section.type,
-        heading: locale === "bg" ? section.heading_bg || section.heading_en : section.heading_en,
+        heading:
+          locale === "bg"
+            ? section.heading_bg || section.heading_en
+            : section.heading_en,
         subheading:
-          locale === "bg" ? section.subheading_bg || section.subheading_en : section.subheading_en,
-        body: locale === "bg" ? section.body_bg || section.body_en : section.body_en,
+          locale === "bg"
+            ? section.subheading_bg || section.subheading_en
+            : section.subheading_en,
+        body:
+          locale === "bg"
+            ? section.body_bg || section.body_en
+            : section.body_en,
         cta:
-          section.cta_href && (locale === "bg" ? section.cta_label_bg || section.cta_label_en : section.cta_label_en)
+          section.cta_href &&
+          (locale === "bg"
+            ? section.cta_label_bg || section.cta_label_en
+            : section.cta_label_en)
             ? {
                 label:
                   (locale === "bg"
@@ -1003,7 +1355,8 @@ function publicAbout(locale: string = "en"): AboutPublicResponse {
           .sort((a, b) => a.sort_order - b.sort_order)
           .map((item) => ({
             id: item.id,
-            title: locale === "bg" ? item.title_bg || item.title_en : item.title_en,
+            title:
+              locale === "bg" ? item.title_bg || item.title_en : item.title_en,
             text: locale === "bg" ? item.text_bg || item.text_en : item.text_en,
             image: item.image,
             link: item.link_href,
@@ -1024,7 +1377,12 @@ interface MockTerm {
   updated_at: string;
 }
 
-function mockTerm(slug: string, name_en: string, name_bg: string, sort_order: number): MockTerm {
+function mockTerm(
+  slug: string,
+  name_en: string,
+  name_bg: string,
+  sort_order: number,
+): MockTerm {
   return {
     slug,
     name_en,
@@ -1037,7 +1395,10 @@ function mockTerm(slug: string, name_en: string, name_bg: string, sort_order: nu
 }
 
 const MOCK_TAXONOMY: Record<TaxonomyKind, MockTerm[]> = {
-  "product-types": [mockTerm("candles", "Candles", "Свещи", 0), mockTerm("boxes", "Boxes", "Кутии", 1)],
+  "product-types": [
+    mockTerm("candles", "Candles", "Свещи", 0),
+    mockTerm("boxes", "Boxes", "Кутии", 1),
+  ],
   categories: [
     mockTerm("small", "Small", "Малка", 0),
     mockTerm("medium", "Medium", "Средна", 1),
@@ -1051,6 +1412,8 @@ const MOCK_TAXONOMY: Record<TaxonomyKind, MockTerm[]> = {
     mockTerm("citrus", "Citrus", "Цитрусови", 4),
     mockTerm("winter", "Winter", "Зима", 5),
     mockTerm("gift", "Gift", "Подарък", 6),
+    mockTerm("sculptural", "Sculptural", "Скулптурни", 7),
+    mockTerm("bespoke", "Bespoke", "По поръчка", 8),
   ],
 };
 
@@ -1084,7 +1447,8 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
         question_en: "Are your candles handmade?",
         question_bg: "Ръчно изработени ли са вашите свещи?",
         answer_en: "Yes. Every candle is lovingly handcrafted in our atelier.",
-        answer_bg: "Да. Всяка свещ е изработена с любов на ръка в нашето ателие.",
+        answer_bg:
+          "Да. Всяка свещ е изработена с любов на ръка в нашето ателие.",
         sort_order: 0,
         is_published: true,
         created_at: mockFaqTimestamp,
@@ -1180,7 +1544,12 @@ const mockFaqSections: FaqSectionAdminResponse[] = [
 ];
 
 function cloneAdminFaq(): FaqAdminResponse {
-  return { sections: mockFaqSections.map((section) => ({ ...section, items: section.items.map((item) => ({ ...item })) })) };
+  return {
+    sections: mockFaqSections.map((section) => ({
+      ...section,
+      items: section.items.map((item) => ({ ...item })),
+    })),
+  };
 }
 
 function findFaqSection(slug: string): FaqSectionAdminResponse | undefined {
@@ -1188,7 +1557,9 @@ function findFaqSection(slug: string): FaqSectionAdminResponse | undefined {
 }
 
 function findFaqItem(itemId: number): FaqItemAdminResponse | undefined {
-  return mockFaqSections.flatMap((section) => section.items).find((item) => item.id === itemId);
+  return mockFaqSections
+    .flatMap((section) => section.items)
+    .find((item) => item.id === itemId);
 }
 
 // --- Terms Mock ---
@@ -1200,7 +1571,9 @@ const mockTermsTimestamp = "2026-07-29T00:00:00Z";
 const mockTermsEn = enMessages.terms as StaticTerms;
 const mockTermsBg = bgMessages.terms as StaticTerms;
 
-function findStaticBgTermsSection(slug: string): StaticTermsSection | undefined {
+function findStaticBgTermsSection(
+  slug: string,
+): StaticTermsSection | undefined {
   return mockTermsBg.sections.find((section) => section.id === slug);
 }
 
@@ -1234,33 +1607,57 @@ let mockTermsPage: TermsPageAdminResponse = {
   updated_at: mockTermsTimestamp,
 };
 
-let mockTermsSections: TermsSectionAdminResponse[] = mockTermsEn.sections.map((section, index) => {
-  const bgSection = findStaticBgTermsSection(section.id);
-  return {
-    slug: section.id,
-    title_en: section.title,
-    title_bg: bgSection?.title ?? null,
-    nav_en: section.nav,
-    nav_bg: bgSection?.nav ?? null,
-    body_en: [...section.body],
-    body_bg: bgSection ? [...bgSection.body] : null,
-    model_form_title_en: "modelFormTitle" in section ? section.modelFormTitle ?? null : null,
-    model_form_title_bg: bgSection && "modelFormTitle" in bgSection ? bgSection.modelFormTitle ?? null : null,
-    model_form_intro_en: "modelFormIntro" in section ? section.modelFormIntro ?? null : null,
-    model_form_intro_bg: bgSection && "modelFormIntro" in bgSection ? bgSection.modelFormIntro ?? null : null,
-    model_form_lines_en: "modelFormLines" in section ? [...(section.modelFormLines ?? [])] : null,
-    model_form_lines_bg: bgSection && "modelFormLines" in bgSection ? [...(bgSection.modelFormLines ?? [])] : null,
-    sort_order: index,
-    created_at: mockTermsTimestamp,
-    updated_at: mockTermsTimestamp,
-  };
-});
+let mockTermsSections: TermsSectionAdminResponse[] = mockTermsEn.sections.map(
+  (section, index) => {
+    const bgSection = findStaticBgTermsSection(section.id);
+    return {
+      slug: section.id,
+      title_en: section.title,
+      title_bg: bgSection?.title ?? null,
+      nav_en: section.nav,
+      nav_bg: bgSection?.nav ?? null,
+      body_en: [...section.body],
+      body_bg: bgSection ? [...bgSection.body] : null,
+      model_form_title_en:
+        "modelFormTitle" in section ? (section.modelFormTitle ?? null) : null,
+      model_form_title_bg:
+        bgSection && "modelFormTitle" in bgSection
+          ? (bgSection.modelFormTitle ?? null)
+          : null,
+      model_form_intro_en:
+        "modelFormIntro" in section ? (section.modelFormIntro ?? null) : null,
+      model_form_intro_bg:
+        bgSection && "modelFormIntro" in bgSection
+          ? (bgSection.modelFormIntro ?? null)
+          : null,
+      model_form_lines_en:
+        "modelFormLines" in section
+          ? [...(section.modelFormLines ?? [])]
+          : null,
+      model_form_lines_bg:
+        bgSection && "modelFormLines" in bgSection
+          ? [...(bgSection.modelFormLines ?? [])]
+          : null,
+      sort_order: index,
+      created_at: mockTermsTimestamp,
+      updated_at: mockTermsTimestamp,
+    };
+  },
+);
 
-function localizedTermsValue(en: string, bg: string | null, locale?: string): string {
-  return locale === "bg" ? bg ?? en : en;
+function localizedTermsValue(
+  en: string,
+  bg: string | null,
+  locale?: string,
+): string {
+  return locale === "bg" ? (bg ?? en) : en;
 }
 
-function localizedTermsLines(en: string[] | null, bg: string[] | null, locale?: string): string[] | null {
+function localizedTermsLines(
+  en: string[] | null,
+  bg: string[] | null,
+  locale?: string,
+): string[] | null {
   if (locale === "bg" && bg?.length) return [...bg];
   return en ? [...en] : null;
 }
@@ -1272,8 +1669,12 @@ function cloneAdminTerms(): TermsAdminResponse {
       ...section,
       body_en: [...section.body_en],
       body_bg: section.body_bg ? [...section.body_bg] : null,
-      model_form_lines_en: section.model_form_lines_en ? [...section.model_form_lines_en] : null,
-      model_form_lines_bg: section.model_form_lines_bg ? [...section.model_form_lines_bg] : null,
+      model_form_lines_en: section.model_form_lines_en
+        ? [...section.model_form_lines_en]
+        : null,
+      model_form_lines_bg: section.model_form_lines_bg
+        ? [...section.model_form_lines_bg]
+        : null,
     })),
   };
 }
@@ -1287,7 +1688,9 @@ const mockPrivacyTimestamp = "2026-07-29T00:00:00Z";
 const mockPrivacyEn = enMessages.privacy as StaticPrivacy;
 const mockPrivacyBg = bgMessages.privacy as StaticPrivacy;
 
-function findStaticBgPrivacySection(slug: string): StaticPrivacySection | undefined {
+function findStaticBgPrivacySection(
+  slug: string,
+): StaticPrivacySection | undefined {
   return mockPrivacyBg.sections.find((section) => section.id === slug);
 }
 
@@ -1311,8 +1714,8 @@ let mockPrivacyPage: PrivacyPageAdminResponse = {
   updated_at: mockPrivacyTimestamp,
 };
 
-let mockPrivacySections: PrivacySectionAdminResponse[] = mockPrivacyEn.sections.map(
-  (section, index) => {
+let mockPrivacySections: PrivacySectionAdminResponse[] =
+  mockPrivacyEn.sections.map((section, index) => {
     const bgSection = findStaticBgPrivacySection(section.id);
     return {
       slug: section.id,
@@ -1326,8 +1729,7 @@ let mockPrivacySections: PrivacySectionAdminResponse[] = mockPrivacyEn.sections.
       created_at: mockPrivacyTimestamp,
       updated_at: mockPrivacyTimestamp,
     };
-  }
-);
+  });
 
 function cloneAdminPrivacy(): PrivacyAdminResponse {
   return {
@@ -1349,7 +1751,9 @@ const mockCookiesTimestamp = "2026-07-29T00:00:00Z";
 const mockCookiesEn = enMessages.cookies as StaticCookies;
 const mockCookiesBg = bgMessages.cookies as StaticCookies;
 
-function findStaticBgCookieSection(slug: string): StaticCookieSection | undefined {
+function findStaticBgCookieSection(
+  slug: string,
+): StaticCookieSection | undefined {
   return mockCookiesBg.sections.find((section) => section.id === slug);
 }
 
@@ -1381,47 +1785,54 @@ let mockCookiesPage: CookiesPageAdminResponse = {
   updated_at: mockCookiesTimestamp,
 };
 
-let mockCookieInventory: CookieInventoryAdminResponse[] = mockCookiesEn.cookies.map((item, index) => {
-  const bgItem = mockCookiesBg.cookies.find((candidate) => candidate.name === item.name);
-  return {
-    name: item.name,
-    purpose_en: item.purpose,
-    purpose_bg: bgItem?.purpose ?? null,
-    type_en: item.type,
-    type_bg: bgItem?.type ?? null,
-    duration_en: item.duration,
-    duration_bg: bgItem?.duration ?? null,
-    source: "mock_registry",
-    first_seen_at: mockCookiesTimestamp,
-    last_seen_at: mockCookiesTimestamp,
-    last_audited_at: mockCookiesTimestamp,
-    observed_on: ["mock://storefront"],
-    is_active: true,
-    auto_detected: true,
-    sort_order: index,
-    created_at: mockCookiesTimestamp,
-    updated_at: mockCookiesTimestamp,
-  };
-});
+let mockCookieInventory: CookieInventoryAdminResponse[] =
+  mockCookiesEn.cookies.map((item, index) => {
+    const bgItem = mockCookiesBg.cookies.find(
+      (candidate) => candidate.name === item.name,
+    );
+    return {
+      name: item.name,
+      purpose_en: item.purpose,
+      purpose_bg: bgItem?.purpose ?? null,
+      type_en: item.type,
+      type_bg: bgItem?.type ?? null,
+      duration_en: item.duration,
+      duration_bg: bgItem?.duration ?? null,
+      source: "mock_registry",
+      first_seen_at: mockCookiesTimestamp,
+      last_seen_at: mockCookiesTimestamp,
+      last_audited_at: mockCookiesTimestamp,
+      observed_on: ["mock://storefront"],
+      is_active: true,
+      auto_detected: true,
+      sort_order: index,
+      created_at: mockCookiesTimestamp,
+      updated_at: mockCookiesTimestamp,
+    };
+  });
 
-let mockCookieSections: CookieSectionAdminResponse[] = mockCookiesEn.sections.map((section, index) => {
-  const bgSection = findStaticBgCookieSection(section.id);
-  return {
-    slug: section.id,
-    title_en: section.title,
-    title_bg: bgSection?.title ?? null,
-    body_en: [...section.body],
-    body_bg: bgSection ? [...bgSection.body] : null,
-    sort_order: index,
-    created_at: mockCookiesTimestamp,
-    updated_at: mockCookiesTimestamp,
-  };
-});
+let mockCookieSections: CookieSectionAdminResponse[] =
+  mockCookiesEn.sections.map((section, index) => {
+    const bgSection = findStaticBgCookieSection(section.id);
+    return {
+      slug: section.id,
+      title_en: section.title,
+      title_bg: bgSection?.title ?? null,
+      body_en: [...section.body],
+      body_bg: bgSection ? [...bgSection.body] : null,
+      sort_order: index,
+      created_at: mockCookiesTimestamp,
+      updated_at: mockCookiesTimestamp,
+    };
+  });
 
 function cloneAdminCookies(): CookiesAdminResponse {
   return {
     page: { ...mockCookiesPage },
-    cookies: mockCookieInventory.map((item) => ({ ...item, observed_on: [...item.observed_on] })),
+    cookies: mockCookieInventory.map((item) => ({
+      ...item,
+      observed_on: [...item.observed_on],
+    })),
     sections: mockCookieSections.map((section) => ({
       ...section,
       body_en: [...section.body_en],
@@ -1439,6 +1850,10 @@ interface MockCartItem {
 }
 
 let mockCartItems: MockCartItem[] = [];
+
+// --- In-Memory Saved Products State ---
+
+let mockSavedProductIds = new Set<string>();
 
 // --- In-Memory Auth State ---
 
@@ -1488,7 +1903,7 @@ function buildCartResponse(): CartResponse {
 
   const total_cents = items.reduce(
     (sum, item) => sum + item.product.effective_price_cents * item.quantity,
-    0
+    0,
   );
   return {
     items,
@@ -1503,10 +1918,11 @@ function buildCartResponse(): CartResponse {
 export async function getProducts(
   page = 1,
   limit = 20,
-  _locale?: string
+  _locale?: string,
 ): Promise<ProductListResponse> {
   await delay();
-  if (limit > 100) mockError("VALIDATION_ERROR", "Limit exceeds maximum of 100");
+  if (limit > 100)
+    mockError("VALIDATION_ERROR", "Limit exceeds maximum of 100");
   const active = MOCK_PRODUCTS.filter((p) => p.is_active);
   const start = (page - 1) * limit;
   const slice = active.slice(start, start + limit);
@@ -1519,7 +1935,7 @@ export async function getProducts(
 }
 
 export async function submitContact(
-  data: ContactRequest
+  data: ContactRequest,
 ): Promise<ContactResponse> {
   await delay();
   if (data.website?.trim()) return { status: "received", message_id: null };
@@ -1531,12 +1947,58 @@ export async function submitContact(
 
 export async function getProduct(
   productId: string,
-  _locale?: string
+  _locale?: string,
 ): Promise<ProductResponse> {
   await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId && p.is_active);
   if (!product) mockError("NOT_FOUND", `Product ${productId} not found`);
   return toPublicProduct(product, _locale);
+}
+
+export async function getSavedProducts(
+  locale?: string,
+  page = 1,
+  limit = 100,
+): Promise<SavedProductListResponse> {
+  await delay();
+  if (!mockIsAuthenticated) mockError("NOT_AUTHENTICATED", "Not authenticated");
+  if (limit > 100)
+    mockError("VALIDATION_ERROR", "Limit exceeds maximum of 100");
+
+  const saved = Array.from(mockSavedProductIds)
+    .map((id) =>
+      MOCK_PRODUCTS.find((product) => product.id === id && product.is_active),
+    )
+    .filter(Boolean) as MockProduct[];
+  const start = (page - 1) * limit;
+  const slice = saved.slice(start, start + limit);
+  return {
+    products: slice.map((product) => toPublicProduct(product, locale)),
+    product_ids: saved.map((product) => product.id),
+    total: saved.length,
+    page,
+    limit,
+  };
+}
+
+export async function saveProduct(
+  productId: string,
+): Promise<SavedProductStatusResponse> {
+  await delay();
+  if (!mockIsAuthenticated) mockError("NOT_AUTHENTICATED", "Not authenticated");
+  const product = MOCK_PRODUCTS.find((p) => p.id === productId && p.is_active);
+  if (!product) mockError("NOT_FOUND", `Product ${productId} not found`);
+  mockSavedProductIds = new Set([productId, ...mockSavedProductIds]);
+  return { product_id: productId, saved: true };
+}
+
+export async function unsaveProduct(
+  productId: string,
+): Promise<SavedProductStatusResponse> {
+  await delay();
+  if (!mockIsAuthenticated) mockError("NOT_AUTHENTICATED", "Not authenticated");
+  mockSavedProductIds.delete(productId);
+  return { product_id: productId, saved: false };
 }
 
 export async function getCart(): Promise<CartResponse> {
@@ -1546,7 +2008,7 @@ export async function getCart(): Promise<CartResponse> {
 
 export async function addToCart(
   productId: string,
-  quantity = 1
+  quantity = 1,
 ): Promise<CartResponse> {
   await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId && p.is_active);
@@ -1578,7 +2040,7 @@ export async function addToCart(
 
 export async function updateCartItem(
   productId: string,
-  quantity: number
+  quantity: number,
 ): Promise<CartResponse> {
   await delay();
   const existing = mockCartItems.find((ci) => ci.product_id === productId);
@@ -1596,9 +2058,7 @@ export async function updateCartItem(
   return buildCartResponse();
 }
 
-export async function removeFromCart(
-  productId: string
-): Promise<CartResponse> {
+export async function removeFromCart(productId: string): Promise<CartResponse> {
   await delay();
   const existing = mockCartItems.find((ci) => ci.product_id === productId);
   if (!existing) mockError("NOT_FOUND", `Cart item ${productId} not found`);
@@ -1611,17 +2071,84 @@ export async function removeFromCart(
 
 const MOCK_OFFICES: Record<Courier, OfficeResponse[]> = {
   speedy: [
-    { id: "speedy-sf-001", name: "Speedy офис София Център - бул. Витоша 50", type: "office", city: "София", address: "бул. Витоша 50", working_hours: "Mon-Fri 09:00-18:00, Sat 09:00-14:00" },
-    { id: "speedy-sf-002", name: "Speedy офис София Младост", type: "office", city: "София", address: "бул. Александър Малинов 12", working_hours: "Mon-Fri 09:00-18:00" },
-    { id: "speedy-apt-sf-01", name: "Speedy Автомат Витоша Мол", type: "apt", city: "София", address: "Витоша Мол, паркинг", working_hours: "24/7" },
-    { id: "speedy-plovdiv-001", name: "Speedy офис Пловдив Централ", type: "office", city: "Пловдив", address: "бул. Мария Луиза 5", working_hours: "Mon-Fri 09:00-18:00" },
-    { id: "speedy-varna-001", name: "Speedy офис Варна Център", type: "office", city: "Варна", address: "бул. Сливница 10", working_hours: "Mon-Fri 09:00-18:00" },
+    {
+      id: "speedy-sf-001",
+      name: "Speedy офис София Център - бул. Витоша 50",
+      type: "office",
+      city: "София",
+      address: "бул. Витоша 50",
+      working_hours: "Mon-Fri 09:00-18:00, Sat 09:00-14:00",
+    },
+    {
+      id: "speedy-sf-002",
+      name: "Speedy офис София Младост",
+      type: "office",
+      city: "София",
+      address: "бул. Александър Малинов 12",
+      working_hours: "Mon-Fri 09:00-18:00",
+    },
+    {
+      id: "speedy-apt-sf-01",
+      name: "Speedy Автомат Витоша Мол",
+      type: "apt",
+      city: "София",
+      address: "Витоша Мол, паркинг",
+      working_hours: "24/7",
+    },
+    {
+      id: "speedy-plovdiv-001",
+      name: "Speedy офис Пловдив Централ",
+      type: "office",
+      city: "Пловдив",
+      address: "бул. Мария Луиза 5",
+      working_hours: "Mon-Fri 09:00-18:00",
+    },
+    {
+      id: "speedy-varna-001",
+      name: "Speedy офис Варна Център",
+      type: "office",
+      city: "Варна",
+      address: "бул. Сливница 10",
+      working_hours: "Mon-Fri 09:00-18:00",
+    },
   ],
   econt: [
-    { id: "econt-sf-001", code: "1001", name: "Econt София Център", type: "office", city: "София", address: "ул. Раковски 100", working_hours: "Mon-Fri 09:00-19:00, Sat 09:00-15:00" },
-    { id: "econt-apt-sf-01", code: "1002", name: "Econt Автомат Люлин", type: "apt", city: "София", address: "ж.к. Люлин, до Билла", working_hours: "24/7" },
-    { id: "econt-plovdiv-001", code: "4001", name: "Econt Пловдив Централ", type: "office", city: "Пловдив", address: "бул. Шести септември 20", working_hours: "Mon-Fri 09:00-19:00" },
-    { id: "econt-burgas-001", code: "8001", name: "Econt Бургас Център", type: "office", city: "Бургас", address: "ул. Александровска 45", working_hours: "Mon-Fri 09:00-18:00" },
+    {
+      id: "econt-sf-001",
+      code: "1001",
+      name: "Econt София Център",
+      type: "office",
+      city: "София",
+      address: "ул. Раковски 100",
+      working_hours: "Mon-Fri 09:00-19:00, Sat 09:00-15:00",
+    },
+    {
+      id: "econt-apt-sf-01",
+      code: "1002",
+      name: "Econt Автомат Люлин",
+      type: "apt",
+      city: "София",
+      address: "ж.к. Люлин, до Билла",
+      working_hours: "24/7",
+    },
+    {
+      id: "econt-plovdiv-001",
+      code: "4001",
+      name: "Econt Пловдив Централ",
+      type: "office",
+      city: "Пловдив",
+      address: "бул. Шести септември 20",
+      working_hours: "Mon-Fri 09:00-19:00",
+    },
+    {
+      id: "econt-burgas-001",
+      code: "8001",
+      name: "Econt Бургас Център",
+      type: "office",
+      city: "Бургас",
+      address: "ул. Александровска 45",
+      working_hours: "Mon-Fri 09:00-18:00",
+    },
   ],
 };
 
@@ -1639,23 +2166,25 @@ export async function getDeliveryConfig(): Promise<DeliveryConfigResponse> {
 export async function getDeliveryOffices(
   courier: Courier,
   city: string,
-  type?: OfficeType
+  type?: OfficeType,
 ): Promise<OfficeResponse[]> {
   await delay();
   if (!deliveryEnabled(courier, "office")) return [];
   const cityLc = city.toLowerCase();
   return MOCK_OFFICES[courier].filter(
-    (o) => o.city.toLowerCase() === cityLc && (!type || o.type === type)
+    (o) => o.city.toLowerCase() === cityLc && (!type || o.type === type),
   );
 }
 
 export async function getDeliveryCities(
   courier: Courier,
-  query?: string
+  query?: string,
 ): Promise<string[]> {
   await delay();
   if (!deliveryEnabled(courier, "office")) return [];
-  const cities = Array.from(new Set(MOCK_OFFICES[courier].map((o) => o.city))).sort();
+  const cities = Array.from(
+    new Set(MOCK_OFFICES[courier].map((o) => o.city)),
+  ).sort();
   if (!query) return cities;
   const q = query.toLowerCase();
   return cities.filter((c) => c.toLowerCase().startsWith(q));
@@ -1701,7 +2230,9 @@ function placeSearchTokens(value: string): string[] {
 function placeMatchScore(place: CityPlace, query: string): number | null {
   if (!query) return 0;
 
-  const fields = [place.name, place.region, place.postal_code].map(foldPlaceSearch).filter(Boolean);
+  const fields = [place.name, place.region, place.postal_code]
+    .map(foldPlaceSearch)
+    .filter(Boolean);
   const name = foldPlaceSearch(place.name);
   const postalCode = foldPlaceSearch(place.postal_code);
   const tokens = placeSearchTokens(query);
@@ -1710,12 +2241,17 @@ function placeMatchScore(place: CityPlace, query: string): number | null {
   if (name.startsWith(query)) return 1;
   if (
     tokens.length === 1 &&
-    tokens.some((token) => name.split(/\s+/).some((part) => part.startsWith(token)))
+    tokens.some((token) =>
+      name.split(/\s+/).some((part) => part.startsWith(token)),
+    )
   ) {
     return 2;
   }
   if (fields.some((field) => field.includes(query))) return 3;
-  if (tokens.length > 0 && tokens.every((token) => fields.some((field) => field.includes(token)))) {
+  if (
+    tokens.length > 0 &&
+    tokens.every((token) => fields.some((field) => field.includes(token)))
+  ) {
     return 4;
   }
   return null;
@@ -1723,7 +2259,7 @@ function placeMatchScore(place: CityPlace, query: string): number | null {
 
 export async function getDeliveryPlaces(
   courier: Courier,
-  query?: string
+  query?: string,
 ): Promise<CityPlace[]> {
   await delay();
   if (!deliveryEnabled(courier, "door")) return [];
@@ -1731,7 +2267,10 @@ export async function getDeliveryPlaces(
   const q = foldPlaceSearch(query);
   return places
     .map((place) => ({ place, score: placeMatchScore(place, q) }))
-    .filter((entry): entry is { place: CityPlace; score: number } => entry.score !== null)
+    .filter(
+      (entry): entry is { place: CityPlace; score: number } =>
+        entry.score !== null,
+    )
     .sort((a, b) => {
       if (a.score !== b.score) return a.score - b.score;
       return `${a.place.name}|${a.place.region ?? ""}|${a.place.postal_code ?? ""}`.localeCompare(
@@ -1825,11 +2364,16 @@ function syncPublicPaymentSettings(): void {
   mockPaymentSettings = {
     card_payments_enabled: mockAdminPaymentSettings.card_payments_enabled,
     pay_on_delivery_enabled: mockAdminPaymentSettings.pay_on_delivery_enabled,
-    pay_on_delivery_max_cents: mockAdminPaymentSettings.pay_on_delivery_max_cents,
+    pay_on_delivery_max_cents:
+      mockAdminPaymentSettings.pay_on_delivery_max_cents,
     bank_transfer_enabled: false,
     available_payment_methods: [
-      ...(mockAdminPaymentSettings.card_payments_enabled ? ["card" as const] : []),
-      ...(mockAdminPaymentSettings.pay_on_delivery_enabled ? ["cod" as const] : []),
+      ...(mockAdminPaymentSettings.card_payments_enabled
+        ? ["card" as const]
+        : []),
+      ...(mockAdminPaymentSettings.pay_on_delivery_enabled
+        ? ["cod" as const]
+        : []),
     ],
   };
 }
@@ -1858,14 +2402,24 @@ const MOCK_LIVE_QUOTES: Record<Courier, { cents: number; days: number }> = {
  *   "fallback" to simulate a courier outage → flat fallback quotes.
  */
 export async function calculateShipping(
-  payload: CalculateShippingRequest
+  payload: CalculateShippingRequest,
 ): Promise<CalculateShippingResponse> {
   await delay();
-  if (payload.couriers.some((courier) => !deliveryEnabled(courier, payload.method))) {
-    mockError("DELIVERY_METHOD_UNAVAILABLE", "Delivery method is currently unavailable");
+  if (
+    payload.couriers.some(
+      (courier) => !deliveryEnabled(courier, payload.method),
+    )
+  ) {
+    mockError(
+      "DELIVERY_METHOD_UNAVAILABLE",
+      "Delivery method is currently unavailable",
+    );
   }
   const now = new Date().toISOString();
-  const couriers = payload.couriers.length > 0 ? payload.couriers : (["speedy", "econt"] as Courier[]);
+  const couriers =
+    payload.couriers.length > 0
+      ? payload.couriers
+      : (["speedy", "econt"] as Courier[]);
 
   if (payload.items_total_cents >= MOCK_FREE_SHIPPING_THRESHOLD_CENTS) {
     return {
@@ -1881,7 +2435,8 @@ export async function calculateShipping(
   }
 
   const simulateFallback =
-    payload.city.toLowerCase() === "fallback" || payload.office_id === "fallback";
+    payload.city.toLowerCase() === "fallback" ||
+    payload.office_id === "fallback";
 
   const quotes: ShippingQuote[] = couriers.map((courier) => {
     if (simulateFallback) {
@@ -1908,7 +2463,7 @@ export async function calculateShipping(
 }
 
 export async function createOrder(
-  data: CreateOrderRequest
+  data: CreateOrderRequest,
 ): Promise<OrderResponse> {
   await delay();
   const customerName = data.customer_name.trim();
@@ -1920,10 +2475,16 @@ export async function createOrder(
       ? data.delivery.office?.courier
       : data.delivery.door?.courier;
   if (courier && !deliveryEnabled(courier, data.delivery.method)) {
-    mockError("DELIVERY_METHOD_UNAVAILABLE", "Delivery method is currently unavailable");
+    mockError(
+      "DELIVERY_METHOD_UNAVAILABLE",
+      "Delivery method is currently unavailable",
+    );
   }
   if (!paymentEnabled(data.payment_method ?? "cod")) {
-    mockError("PAYMENT_METHOD_UNAVAILABLE", "Payment method is currently unavailable");
+    mockError(
+      "PAYMENT_METHOD_UNAVAILABLE",
+      "Payment method is currently unavailable",
+    );
   }
   if (mockCartItems.length === 0) {
     mockError("VALIDATION_ERROR", "Cart is empty");
@@ -1934,9 +2495,13 @@ export async function createOrder(
 
   // Server-side free-shipping enforcement mirror: total >= threshold → 0¢, live.
   const freeShipping = cart.total_cents >= MOCK_FREE_SHIPPING_THRESHOLD_CENTS;
-  const shipping_cents = freeShipping ? 0 : data.shipping_cents ?? 0;
-  const shipping_price_source = freeShipping ? "live" : data.shipping_price_source ?? "live";
-  const shipping_is_fallback = freeShipping ? false : data.shipping_is_fallback ?? false;
+  const shipping_cents = freeShipping ? 0 : (data.shipping_cents ?? 0);
+  const shipping_price_source = freeShipping
+    ? "live"
+    : (data.shipping_price_source ?? "live");
+  const shipping_is_fallback = freeShipping
+    ? false
+    : (data.shipping_is_fallback ?? false);
   const paymentMethod =
     data.payment_method === "card"
       ? "card"
@@ -1944,11 +2509,13 @@ export async function createOrder(
         ? "bank_transfer"
         : "cod";
   const invoiceProfile = data.invoice_profile ?? null;
-  const accountingClassificationState = invoiceProfile?.vat_identification_number
-    ? "business_vat_id_provided"
-    : invoiceProfile?.billing_country && invoiceProfile.billing_country.toUpperCase() !== "BG"
-      ? "cross_border_candidate"
-      : "domestic_default";
+  const accountingClassificationState =
+    invoiceProfile?.vat_identification_number
+      ? "business_vat_id_provided"
+      : invoiceProfile?.billing_country &&
+          invoiceProfile.billing_country.toUpperCase() !== "BG"
+        ? "cross_border_candidate"
+        : "domestic_default";
 
   const order: OrderResponse = {
     id: generateOrderId(),
@@ -1992,12 +2559,12 @@ export async function createOrder(
     delivery_method: data.delivery.method,
     delivery_courier:
       data.delivery.method === "office"
-        ? data.delivery.office?.courier ?? null
-        : data.delivery.door?.courier ?? null,
+        ? (data.delivery.office?.courier ?? null)
+        : (data.delivery.door?.courier ?? null),
     delivery_details:
       data.delivery.method === "office"
-        ? data.delivery.office ?? null
-        : data.delivery.door ?? null,
+        ? (data.delivery.office ?? null)
+        : (data.delivery.door ?? null),
     notes: data.notes ?? null,
     items: cart.items.map((item) => ({
       product_id: item.product_id,
@@ -2038,7 +2605,9 @@ export async function getPublicPaymentSettings(): Promise<PublicPaymentSettingsR
   syncPublicPaymentSettings();
   return {
     ...mockPaymentSettings,
-    available_payment_methods: [...mockPaymentSettings.available_payment_methods],
+    available_payment_methods: [
+      ...mockPaymentSettings.available_payment_methods,
+    ],
   };
 }
 
@@ -2054,11 +2623,14 @@ export async function getAdminPaymentSettings(): Promise<PaymentSettingsResponse
 }
 
 export async function updateAdminPaymentSettings(
-  data: PaymentSettingsUpdate
+  data: PaymentSettingsUpdate,
 ): Promise<PaymentSettingsResponse> {
   await delay();
   if (!data.card_payments_enabled && !data.pay_on_delivery_enabled) {
-    mockError("PAYMENT_SETTINGS_INVALID", "At least one payment method must be enabled");
+    mockError(
+      "PAYMENT_SETTINGS_INVALID",
+      "At least one payment method must be enabled",
+    );
   }
   mockAdminPaymentSettings = {
     ...mockAdminPaymentSettings,
@@ -2074,7 +2646,7 @@ export async function getAdminDeliverySettings(): Promise<DeliverySettingsRespon
 }
 
 export async function updateAdminDeliverySettings(
-  data: DeliverySettingsUpdate
+  data: DeliverySettingsUpdate,
 ): Promise<DeliverySettingsResponse> {
   await delay();
   mockDeliverySettings = {
@@ -2096,7 +2668,7 @@ export async function getEcontSettings(): Promise<EcontSettingsResponse> {
 }
 
 export async function updateEcontSettings(
-  data: EcontSettingsUpdate
+  data: EcontSettingsUpdate,
 ): Promise<EcontSettingsResponse> {
   await delay();
   const safeData = { ...data };
@@ -2116,16 +2688,21 @@ export async function testEcontConnection(): Promise<EcontConnectionTestResponse
   await delay();
   const ok = Boolean(
     mockEcontSettings.enabled &&
-      (mockEcontSettings.shop_id || mockEcontSettings.secret_state.shop_id_configured) &&
-      mockEcontSettings.secret_state.private_key_configured,
+    (mockEcontSettings.shop_id ||
+      mockEcontSettings.secret_state.shop_id_configured) &&
+    mockEcontSettings.secret_state.private_key_configured,
   );
-  mockEcontSettings.last_health_status = ok ? "success" : "missing_configuration";
+  mockEcontSettings.last_health_status = ok
+    ? "success"
+    : "missing_configuration";
   mockEcontSettings.last_health_checked_at = new Date().toISOString();
   mockEcontSettings.last_health_error = ok ? null : "missing configuration";
   return {
     status: ok ? "success" : "missing_configuration",
     ok,
-    message: ok ? "Econt configuration reached the safe API validation path." : "Econt configuration is incomplete.",
+    message: ok
+      ? "Econt configuration reached the safe API validation path."
+      : "Econt configuration is incomplete.",
     checked_at: mockEcontSettings.last_health_checked_at,
     details: { blockers: ok ? [] : ["private_key_missing", "shop_id_missing"] },
   };
@@ -2167,7 +2744,7 @@ function econtReadiness(order: OrderResponse): EcontOrderFulfillmentResponse {
 }
 
 export async function getEcontOrderReadiness(
-  orderId: string
+  orderId: string,
 ): Promise<EcontOrderFulfillmentResponse> {
   await delay();
   return econtReadiness(findMockOrder(orderId));
@@ -2175,26 +2752,33 @@ export async function getEcontOrderReadiness(
 
 export async function repairEcontOrder(
   orderId: string,
-  data: EcontOrderRepairRequest
+  data: EcontOrderRepairRequest,
 ): Promise<EcontOrderFulfillmentResponse> {
   await delay();
   const order = findMockOrder(orderId);
-  const details = { ...((order.delivery_details ?? {}) as Record<string, unknown>) };
+  const details = {
+    ...((order.delivery_details ?? {}) as Record<string, unknown>),
+  };
   if (data.office_code !== undefined) details.office_code = data.office_code;
   if (data.recipient_phone !== undefined) details.phone = data.recipient_phone;
   details.econt_overrides = {
     ...((details.econt_overrides as Record<string, unknown> | undefined) ?? {}),
     ...(data.pack_count ? { pack_count: data.pack_count } : {}),
-    ...(data.shipment_description ? { shipment_description: data.shipment_description } : {}),
+    ...(data.shipment_description
+      ? { shipment_description: data.shipment_description }
+      : {}),
     ...(data.payment_side ? { payment_side: data.payment_side } : {}),
   };
-  order.delivery_details = details as unknown as OrderResponse["delivery_details"];
+  order.delivery_details =
+    details as unknown as OrderResponse["delivery_details"];
   order.courier_sync_status = "repaired";
   order.courier_last_synced_at = new Date().toISOString();
   return econtReadiness(order);
 }
 
-export async function syncEcontOrder(orderId: string): Promise<EcontFulfillmentActionResponse> {
+export async function syncEcontOrder(
+  orderId: string,
+): Promise<EcontFulfillmentActionResponse> {
   await delay();
   const order = findMockOrder(orderId);
   order.courier_provider = "econt";
@@ -2213,12 +2797,17 @@ export async function syncEcontOrder(orderId: string): Promise<EcontFulfillmentA
   };
 }
 
-export async function createEcontLabel(orderId: string): Promise<EcontFulfillmentActionResponse> {
+export async function createEcontLabel(
+  orderId: string,
+): Promise<EcontFulfillmentActionResponse> {
   await delay();
   const order = findMockOrder(orderId);
   const readiness = econtReadiness(order);
   if (!readiness.ready) {
-    mockError("ECONT_NOT_READY", `Econt order is not ready: ${readiness.blockers.join(", ")}`);
+    mockError(
+      "ECONT_NOT_READY",
+      `Econt order is not ready: ${readiness.blockers.join(", ")}`,
+    );
   }
   const shipment = order.courier_shipment_number ?? `EC${Date.now()}`;
   order.courier_provider = "econt";
@@ -2243,11 +2832,14 @@ export async function createEcontLabel(orderId: string): Promise<EcontFulfillmen
 }
 
 export async function createAndShipEcontOrder(
-  orderId: string
+  orderId: string,
 ): Promise<EcontFulfillmentActionResponse> {
   const order = findMockOrder(orderId);
   if (order.status !== "confirmed") {
-    mockError("ECONT_NOT_READY", "Econt order must be confirmed before shipping");
+    mockError(
+      "ECONT_NOT_READY",
+      "Econt order must be confirmed before shipping",
+    );
   }
   const result = await createEcontLabel(orderId);
   order.status = "shipped";
@@ -2260,7 +2852,9 @@ export async function createAndShipEcontOrder(
   };
 }
 
-export async function deleteEcontLabel(orderId: string): Promise<EcontFulfillmentActionResponse> {
+export async function deleteEcontLabel(
+  orderId: string,
+): Promise<EcontFulfillmentActionResponse> {
   await delay();
   const order = findMockOrder(orderId);
   order.courier_shipment_number = null;
@@ -2283,7 +2877,9 @@ export async function deleteEcontLabel(orderId: string): Promise<EcontFulfillmen
   };
 }
 
-export async function refreshEcontTrace(orderId: string): Promise<EcontFulfillmentActionResponse> {
+export async function refreshEcontTrace(
+  orderId: string,
+): Promise<EcontFulfillmentActionResponse> {
   await delay();
   const order = findMockOrder(orderId);
   order.courier_sync_status = "trace_synced";
@@ -2365,7 +2961,7 @@ function speedySummary(order: OrderResponse) {
 
 export async function recordEcontManualStatus(
   orderId: string,
-  data: EcontManualStatusRequest
+  data: EcontManualStatusRequest,
 ): Promise<EcontFulfillmentActionResponse> {
   await delay();
   const order = findMockOrder(orderId);
@@ -2377,7 +2973,8 @@ export async function recordEcontManualStatus(
     order.courier_shipment_number = data.tracking_number;
     order.tracking_number = data.tracking_number;
     order.tracking_carrier = "econt";
-    order.tracking_url = data.tracking_url ?? buildTrackingUrl("econt", data.tracking_number);
+    order.tracking_url =
+      data.tracking_url ?? buildTrackingUrl("econt", data.tracking_number);
   }
   return {
     order_id: order.id,
@@ -2392,11 +2989,15 @@ export async function recordEcontManualStatus(
 }
 
 export async function getSpeedyAdminOverview(
-  orderId?: string | null
+  orderId?: string | null,
 ): Promise<SpeedyAdminOverviewResponse> {
   await delay();
-  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders].map(withMockAccountingFlags);
-  const scoped = orderId ? allOrders.filter((order) => order.id === orderId) : allOrders;
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders].map(
+    withMockAccountingFlags,
+  );
+  const scoped = orderId
+    ? allOrders.filter((order) => order.id === orderId)
+    : allOrders;
   const ready = scoped.filter(
     (order) =>
       order.delivery_courier === "speedy" &&
@@ -2407,16 +3008,20 @@ export async function getSpeedyAdminOverview(
   const shipped = scoped.filter(
     (order) =>
       order.status === "shipped" &&
-      (order.tracking_carrier === "speedy" || order.courier_provider === "speedy") &&
+      (order.tracking_carrier === "speedy" ||
+        order.courier_provider === "speedy") &&
       Boolean(order.tracking_number || order.courier_shipment_number),
   );
-  const failuresByCategory = mockSpeedyEvents.reduce<Record<string, number>>((acc, event) => {
-    const category = event.error?.category;
-    if (event.status === "failed" && typeof category === "string") {
-      acc[category] = (acc[category] ?? 0) + 1;
-    }
-    return acc;
-  }, {});
+  const failuresByCategory = mockSpeedyEvents.reduce<Record<string, number>>(
+    (acc, event) => {
+      const category = event.error?.category;
+      if (event.status === "failed" && typeof category === "string") {
+        acc[category] = (acc[category] ?? 0) + 1;
+      }
+      return acc;
+    },
+    {},
+  );
   return {
     health: {
       status: "healthy",
@@ -2430,7 +3035,12 @@ export async function getSpeedyAdminOverview(
       verified_client_id: "123456789",
       client_id_matches: true,
       blockers: [],
-      circuit: { name: "speedy_operational", state: "closed", failure_count: 0, failure_threshold: 3 },
+      circuit: {
+        name: "speedy_operational",
+        state: "closed",
+        failure_count: 0,
+        failure_threshold: 3,
+      },
       last_failure_category: null,
       last_successful_check_at: new Date(Date.now() - 600000).toISOString(),
       checked_at: new Date().toISOString(),
@@ -2441,12 +3051,24 @@ export async function getSpeedyAdminOverview(
     },
     events: mockSpeedyEvents.slice(0, 25),
     metrics: {
-      recent_successes: mockSpeedyEvents.filter((event) => event.status === "success").length,
-      recent_failures: mockSpeedyEvents.filter((event) => event.status === "failed").length,
+      recent_successes: mockSpeedyEvents.filter(
+        (event) => event.status === "success",
+      ).length,
+      recent_failures: mockSpeedyEvents.filter(
+        (event) => event.status === "failed",
+      ).length,
       failures_by_category: failuresByCategory,
-      cancellation_count: mockSpeedyEvents.filter((event) => event.action === "cancel_shipment" && event.status === "success").length,
-      pickup_request_count: mockSpeedyEvents.filter((event) => event.action === "request_pickup" && event.status === "success").length,
-      last_successful_health_check_at: new Date(Date.now() - 600000).toISOString(),
+      cancellation_count: mockSpeedyEvents.filter(
+        (event) =>
+          event.action === "cancel_shipment" && event.status === "success",
+      ).length,
+      pickup_request_count: mockSpeedyEvents.filter(
+        (event) =>
+          event.action === "request_pickup" && event.status === "success",
+      ).length,
+      last_successful_health_check_at: new Date(
+        Date.now() - 600000,
+      ).toISOString(),
     },
     office_refresh: {
       status: "success",
@@ -2457,14 +3079,21 @@ export async function getSpeedyAdminOverview(
   };
 }
 
-export async function createSpeedyWaybill(orderId: string): Promise<SpeedyActionResponse> {
+export async function createSpeedyWaybill(
+  orderId: string,
+): Promise<SpeedyActionResponse> {
   await delay();
   const order = findMockOrder(orderId);
-  if (order.delivery_courier !== "speedy") mockError("SPEEDY_NOT_READY", "Order is not assigned to Speedy");
+  if (order.delivery_courier !== "speedy")
+    mockError("SPEEDY_NOT_READY", "Order is not assigned to Speedy");
   if (order.status !== "confirmed" && !order.tracking_number) {
-    mockError("SPEEDY_NOT_READY", "Speedy waybill can only be created for confirmed orders");
+    mockError(
+      "SPEEDY_NOT_READY",
+      "Speedy waybill can only be created for confirmed orders",
+    );
   }
-  const shipment = order.tracking_number ?? `63689${Date.now().toString().slice(-6)}`;
+  const shipment =
+    order.tracking_number ?? `63689${Date.now().toString().slice(-6)}`;
   order.status = "shipped";
   order.tracking_number = shipment;
   order.tracking_carrier = "speedy";
@@ -2474,7 +3103,9 @@ export async function createSpeedyWaybill(orderId: string): Promise<SpeedyAction
   order.courier_sync_status = "waybill_created";
   order.courier_last_synced_at = new Date().toISOString();
   order.updated_at = order.courier_last_synced_at;
-  addSpeedyEvent(order.id, "create_waybill", "success", { shipment_number: shipment });
+  addSpeedyEvent(order.id, "create_waybill", "success", {
+    shipment_number: shipment,
+  });
   return {
     order_id: order.id,
     action: "create_waybill",
@@ -2487,15 +3118,21 @@ export async function createSpeedyWaybill(orderId: string): Promise<SpeedyAction
   };
 }
 
-export async function refreshSpeedyTracking(orderId: string): Promise<SpeedyActionResponse> {
+export async function refreshSpeedyTracking(
+  orderId: string,
+): Promise<SpeedyActionResponse> {
   await delay();
   const order = findMockOrder(orderId);
   const shipment = order.tracking_number ?? order.courier_shipment_number;
-  if (!shipment || order.tracking_carrier !== "speedy") mockError("SPEEDY_NOT_READY", "Order has no Speedy waybill");
-  order.courier_status = order.courier_status === "in_transit" ? "out_for_delivery" : "in_transit";
+  if (!shipment || order.tracking_carrier !== "speedy")
+    mockError("SPEEDY_NOT_READY", "Order has no Speedy waybill");
+  order.courier_status =
+    order.courier_status === "in_transit" ? "out_for_delivery" : "in_transit";
   order.courier_sync_status = "track_synced";
   order.courier_last_synced_at = new Date().toISOString();
-  addSpeedyEvent(order.id, "refresh_tracking", "success", { courier_status: order.courier_status });
+  addSpeedyEvent(order.id, "refresh_tracking", "success", {
+    courier_status: order.courier_status,
+  });
   return {
     order_id: order.id,
     action: "refresh_tracking",
@@ -2509,25 +3146,34 @@ export async function refreshSpeedyTracking(orderId: string): Promise<SpeedyActi
 }
 
 export async function searchSpeedyShipments(
-  data: SpeedyShipmentSearchRequest
+  data: SpeedyShipmentSearchRequest,
 ): Promise<SpeedyShipmentSearchResponse> {
   await delay();
   const ref = data.reference.trim();
   if (!ref) mockError("SPEEDY_VALIDATION", "reference is required");
-  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders].map(withMockAccountingFlags);
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders].map(
+    withMockAccountingFlags,
+  );
   const matches = allOrders
     .filter((order) => order.id === ref || order.order_number === ref)
     .map((order) => order.tracking_number ?? order.courier_shipment_number)
     .filter((value): value is string => Boolean(value));
-  return { reference: ref, barcodes: matches.length ? matches : ["1234567890"] };
+  return {
+    reference: ref,
+    barcodes: matches.length ? matches : ["1234567890"],
+  };
 }
 
 export async function getSpeedyShipmentInfo(
-  data: SpeedyShipmentInfoRequest
+  data: SpeedyShipmentInfoRequest,
 ): Promise<SpeedyShipmentInfoResponse> {
   await delay();
   return {
-    shipments: data.shipment_ids.map((id) => ({ id, serviceId: 505, status: "accepted" })),
+    shipments: data.shipment_ids.map((id) => ({
+      id,
+      serviceId: 505,
+      status: "accepted",
+    })),
   };
 }
 
@@ -2538,12 +3184,15 @@ export async function cancelSpeedyShipment(
   await delay();
   const order = findMockOrder(orderId);
   const shipment = order.tracking_number ?? order.courier_shipment_number;
-  if (!shipment || order.status === "delivered") mockError("SPEEDY_NOT_READY", "Speedy shipment cannot be cancelled");
+  if (!shipment || order.status === "delivered")
+    mockError("SPEEDY_NOT_READY", "Speedy shipment cannot be cancelled");
   order.courier_provider = "speedy";
   order.courier_status = "cancelled";
   order.courier_sync_status = "shipment_cancelled";
   order.courier_last_synced_at = new Date().toISOString();
-  addSpeedyEvent(order.id, "cancel_shipment", "success", { shipment_id: shipment });
+  addSpeedyEvent(order.id, "cancel_shipment", "success", {
+    shipment_id: shipment,
+  });
   return {
     order_id: order.id,
     action: "cancel_shipment",
@@ -2557,22 +3206,33 @@ export async function cancelSpeedyShipment(
 }
 
 export async function getSpeedyPickupTerms(
-  data: SpeedyPickupTermsRequest
+  data: SpeedyPickupTermsRequest,
 ): Promise<SpeedyPickupTermsResponse> {
   await delay();
-  if (data.shipment_ids.length === 0) mockError("SPEEDY_NOT_READY", "Select at least one shipment");
-  return { cutoffs: [new Date(Date.now() + 7200000).toISOString(), new Date(Date.now() + 10800000).toISOString()] };
+  if (data.shipment_ids.length === 0)
+    mockError("SPEEDY_NOT_READY", "Select at least one shipment");
+  return {
+    cutoffs: [
+      new Date(Date.now() + 7200000).toISOString(),
+      new Date(Date.now() + 10800000).toISOString(),
+    ],
+  };
 }
 
 export async function requestSpeedyPickup(
-  data: SpeedyPickupRequest
+  data: SpeedyPickupRequest,
 ): Promise<SpeedyPickupResponse> {
   await delay();
   for (const shipmentId of data.shipment_ids) {
     const order = [...MOCK_ORDERS_SEEDED, ...mockOrders].find(
-      (item) => item.tracking_number === shipmentId || item.courier_shipment_number === shipmentId,
+      (item) =>
+        item.tracking_number === shipmentId ||
+        item.courier_shipment_number === shipmentId,
     );
-    if (order) addSpeedyEvent(order.id, "request_pickup", "success", { shipment_ids: data.shipment_ids });
+    if (order)
+      addSpeedyEvent(order.id, "request_pickup", "success", {
+        shipment_ids: data.shipment_ids,
+      });
   }
   return {
     orders: [
@@ -2588,16 +3248,66 @@ export async function requestSpeedyPickup(
 
 export async function getOrders(
   page = 1,
-  limit = 20
+  limit = 20,
+  filters: CustomerOrderFilters = {},
 ): Promise<OrderListResponse> {
   await delay();
-  if (limit > 100) mockError("VALIDATION_ERROR", "Limit exceeds maximum of 100");
+  if (limit > 100)
+    mockError("VALIDATION_ERROR", "Limit exceeds maximum of 100");
+
+  const now = Date.now();
+  const filtered = mockOrders.filter((order) => {
+    const q = filters.q?.trim().replace(/^#/, "").toLowerCase();
+    if (q) {
+      const haystack = [
+        order.id,
+        order.order_number,
+        ...order.items.map((item) => item.product_name),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    if (
+      filters.view === "active" &&
+      !["pending", "confirmed", "shipped"].includes(order.status)
+    ) {
+      return false;
+    }
+    if (filters.view === "delivered" && order.status !== "delivered")
+      return false;
+    if (filters.view === "needs_action") {
+      const paymentNeedsAction = [
+        "pending",
+        "failed",
+        "review_required",
+        "refund_pending",
+        "dispute_open",
+      ].includes(order.payment_status);
+      if (order.status !== "return_in_transit" && !paymentNeedsAction)
+        return false;
+    }
+    if (filters.date_range && filters.date_range !== "all") {
+      const days = filters.date_range === "last_30_days" ? 30 : 183;
+      const threshold = now - days * 24 * 60 * 60 * 1000;
+      if (new Date(order.created_at).getTime() < threshold) return false;
+    }
+    return true;
+  });
+
+  filtered.sort((a, b) => {
+    if (filters.sort === "oldest")
+      return a.created_at.localeCompare(b.created_at);
+    if (filters.sort === "highest") return b.total_cents - a.total_cents;
+    return b.created_at.localeCompare(a.created_at);
+  });
 
   const start = (page - 1) * limit;
-  const slice = mockOrders.slice(start, start + limit);
+  const slice = filtered.slice(start, start + limit);
   return {
     items: slice,
-    total: mockOrders.length,
+    total: filtered.length,
     page,
     limit,
   };
@@ -2617,7 +3327,7 @@ export async function getCurrentUser(): Promise<UserResponse | null> {
 
 export async function login(
   _code: string,
-  _redirectUri: string
+  _redirectUri: string,
 ): Promise<AuthTokenResponse> {
   await delay();
   mockIsAuthenticated = true;
@@ -2666,8 +3376,18 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     },
     notes: null,
     items: [
-      { product_id: "lavender-dreams-300ml", product_name: "Lavender Dreams", price_cents: 3200, quantity: 1 },
-      { product_id: "midnight-amber-300ml", product_name: "Midnight Amber", price_cents: 4500, quantity: 1 },
+      {
+        product_id: "lavender-dreams-300ml",
+        product_name: "Lavender Dreams",
+        price_cents: 3200,
+        quantity: 1,
+      },
+      {
+        product_id: "midnight-amber-300ml",
+        product_name: "Midnight Amber",
+        price_cents: 4500,
+        quantity: 1,
+      },
     ],
     tracking_number: null,
     tracking_carrier: null,
@@ -2704,7 +3424,12 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     },
     notes: "Gift wrapping please",
     items: [
-      { product_id: "citrus-garden-200ml", product_name: "Citrus Garden", price_cents: 2800, quantity: 2 },
+      {
+        product_id: "citrus-garden-200ml",
+        product_name: "Citrus Garden",
+        price_cents: 2800,
+        quantity: 2,
+      },
     ],
     tracking_number: null,
     tracking_carrier: null,
@@ -2740,11 +3465,17 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     },
     notes: null,
     items: [
-      { product_id: "lavender-dreams-300ml", product_name: "Lavender Dreams", price_cents: 3200, quantity: 1 },
+      {
+        product_id: "lavender-dreams-300ml",
+        product_name: "Lavender Dreams",
+        price_cents: 3200,
+        quantity: 1,
+      },
     ],
     tracking_number: "1234567890",
     tracking_carrier: "speedy",
-    tracking_url: "https://www.speedy.bg/en/track-shipment?shipmentNumber=1234567890",
+    tracking_url:
+      "https://www.speedy.bg/en/track-shipment?shipmentNumber=1234567890",
     courier_status: "in_transit",
     label_url: null,
     created_at: new Date(Date.now() - 172800000).toISOString(),
@@ -2776,11 +3507,17 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
     },
     notes: null,
     items: [
-      { product_id: "midnight-amber-300ml", product_name: "Midnight Amber", price_cents: 4500, quantity: 2 },
+      {
+        product_id: "midnight-amber-300ml",
+        product_name: "Midnight Amber",
+        price_cents: 4500,
+        quantity: 2,
+      },
     ],
     tracking_number: "JD014600003922222222",
     tracking_carrier: "dhl",
-    tracking_url: "https://www.dhl.com/en/express/tracking.html?AWB=JD014600003922222222",
+    tracking_url:
+      "https://www.dhl.com/en/express/tracking.html?AWB=JD014600003922222222",
     courier_status: "delivered",
     label_url: null,
     created_at: new Date(Date.now() - 604800000).toISOString(),
@@ -2791,28 +3528,38 @@ const MOCK_ORDERS_SEEDED: OrderResponse[] = [
 export async function getAdminStats(): Promise<AdminStats> {
   await delay();
   const today = new Date().toISOString().split("T")[0]!;
-  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders].map(withMockAccountingFlags);
-  const ordersToday = allOrders.filter(
-    (o) => o.created_at.startsWith(today)
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders].map(
+    withMockAccountingFlags,
+  );
+  const ordersToday = allOrders.filter((o) =>
+    o.created_at.startsWith(today),
   ).length;
   const weekAgo = Date.now() - 7 * 86400000;
   const revenueThisWeek = allOrders
-    .filter((o) => new Date(o.created_at).getTime() > weekAgo && o.payment_status === "paid")
+    .filter(
+      (o) =>
+        new Date(o.created_at).getTime() > weekAgo &&
+        o.payment_status === "paid",
+    )
     .reduce((sum, o) => sum + o.total_cents, 0);
   const activeProducts = MOCK_PRODUCTS.filter((p) => p.is_active).length;
   const byStatus = allOrders.reduce<Record<string, number>>((acc, order) => {
     acc[order.status] = (acc[order.status] ?? 0) + 1;
     return acc;
   }, {});
-  const byPaymentStatus = allOrders.reduce<Record<string, number>>((acc, order) => {
-    acc[order.payment_status] = (acc[order.payment_status] ?? 0) + 1;
-    return acc;
-  }, {});
+  const byPaymentStatus = allOrders.reduce<Record<string, number>>(
+    (acc, order) => {
+      acc[order.payment_status] = (acc[order.payment_status] ?? 0) + 1;
+      return acc;
+    },
+    {},
+  );
   return {
     orders_today: ordersToday,
     revenue_this_week_cents: revenueThisWeek,
     active_product_count: activeProducts,
-    low_stock_count: MOCK_PRODUCTS.filter((p) => p.is_active && p.stock <= 5).length,
+    low_stock_count: MOCK_PRODUCTS.filter((p) => p.is_active && p.stock <= 5)
+      .length,
     contact_messages_needing_attention: 0,
     orders: {
       total: allOrders.length,
@@ -2870,7 +3617,7 @@ function toAdminProduct(product: MockProduct): AdminProductResponse {
 export async function getAdminProducts(
   page = 1,
   limit = 20,
-  filters: AdminProductFilters = {}
+  filters: AdminProductFilters = {},
 ): Promise<AdminProductListResponse> {
   await delay();
   const query = filters.q?.trim().toLowerCase() ?? "";
@@ -2885,27 +3632,43 @@ export async function getAdminProducts(
     if (filters.status === "active" && !product.is_active) return false;
     if (filters.status === "inactive" && product.is_active) return false;
     if (filters.media === "ready" && product.images.length === 0) return false;
-    if (filters.media === "missing_image" && product.images.length > 0) return false;
+    if (filters.media === "missing_image" && product.images.length > 0)
+      return false;
     if (filters.media === "has_video" && !product.video) return false;
     if (filters.media === "missing_video" && product.video) return false;
     if (filters.stock === "in_stock" && product.stock <= 0) return false;
     if (filters.stock === "out_of_stock" && product.stock !== 0) return false;
-    if (filters.stock === "low" && product.stock > (filters.low_stock_threshold ?? 5)) return false;
-    if (filters.product_type && product.product_type !== filters.product_type) return false;
+    if (
+      filters.stock === "low" &&
+      product.stock > (filters.low_stock_threshold ?? 5)
+    )
+      return false;
+    if (filters.product_type && product.product_type !== filters.product_type)
+      return false;
     if (filters.category && product.category !== filters.category) return false;
     if (filters.label?.length) {
       const productLabels = new Set(product.labels.map((label) => label.slug));
-      if (!filters.label.every((label) => productLabels.has(label))) return false;
+      if (!filters.label.every((label) => productLabels.has(label)))
+        return false;
     }
-    if (filters.featured !== null && filters.featured !== undefined && product.is_featured !== filters.featured) return false;
+    if (
+      filters.featured !== null &&
+      filters.featured !== undefined &&
+      product.is_featured !== filters.featured
+    )
+      return false;
     if (filters.discount === "active" && !product.discount_active) return false;
     if (filters.discount === "scheduled") {
-      if (!product.discount_percent || !product.discount_starts_at) return false;
+      if (!product.discount_percent || !product.discount_starts_at)
+        return false;
       if (new Date(product.discount_starts_at) <= new Date()) return false;
     }
-    if (filters.discount === "none" && product.discount_percent != null) return false;
-    if (filters.inventory_mode && filters.inventory_mode !== "legacy") return false;
-    if (filters.recipe_status && filters.recipe_status !== "missing") return false;
+    if (filters.discount === "none" && product.discount_percent != null)
+      return false;
+    if (filters.inventory_mode && filters.inventory_mode !== "legacy")
+      return false;
+    if (filters.recipe_status && filters.recipe_status !== "missing")
+      return false;
     if (filters.has_inventory_exceptions === true) return false;
     return true;
   });
@@ -2943,7 +3706,9 @@ export async function getAdminProducts(
   };
 }
 
-export async function getAdminProduct(productId: string): Promise<AdminProductResponse> {
+export async function getAdminProduct(
+  productId: string,
+): Promise<AdminProductResponse> {
   await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId);
   if (!product) mockError("NOT_FOUND", `Product ${productId} not found`);
@@ -2956,14 +3721,18 @@ function mockTermName(kind: TaxonomyKind, slug: string | null): string | null {
   return term ? term.name_en : slug;
 }
 
-function mockLabelRefs(slugs: string[] | undefined): { slug: string; name: string }[] {
+function mockLabelRefs(
+  slugs: string[] | undefined,
+): { slug: string; name: string }[] {
   return (slugs ?? []).map((slug) => ({
     slug,
     name: mockTermName("labels", slug) ?? slug,
   }));
 }
 
-export async function createProduct(data: CreateProductRequest): Promise<AdminProductResponse> {
+export async function createProduct(
+  data: CreateProductRequest,
+): Promise<AdminProductResponse> {
   await delay();
   const existing = MOCK_PRODUCTS.find((p) => p.id === data.id);
   if (existing) mockError("CONFLICT", `Product ${data.id} already exists`);
@@ -2973,7 +3742,8 @@ export async function createProduct(data: CreateProductRequest): Promise<AdminPr
     name: data.name_en,
     description: data.description_en ?? null,
     safety_warnings: data.safety_warnings_en ?? data.safety_warnings_bg ?? null,
-    care_instructions: data.care_instructions_en ?? data.care_instructions_bg ?? null,
+    care_instructions:
+      data.care_instructions_en ?? data.care_instructions_bg ?? null,
     safety_warnings_en: data.safety_warnings_en ?? null,
     safety_warnings_bg: data.safety_warnings_bg ?? null,
     care_instructions_en: data.care_instructions_en ?? null,
@@ -2991,7 +3761,8 @@ export async function createProduct(data: CreateProductRequest): Promise<AdminPr
     product_type: data.product_type ?? "candles",
     product_type_name:
       mockTermName("product-types", data.product_type ?? "candles") ??
-      (data.product_type ?? "candles"),
+      data.product_type ??
+      "candles",
     labels: mockLabelRefs(data.labels),
     images: [],
     video: null,
@@ -3011,22 +3782,30 @@ export async function createProduct(data: CreateProductRequest): Promise<AdminPr
 
 export async function updateProduct(
   productId: string,
-  data: UpdateProductRequest
+  data: UpdateProductRequest,
 ): Promise<AdminProductResponse> {
   await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId);
   if (!product) mockError("NOT_FOUND", `Product ${productId} not found`);
   // Map bilingual fields to the mock's single-language store
   if (data.name_en !== undefined) product.name = data.name_en;
-  if (data.description_en !== undefined) product.description = data.description_en;
-  if (data.safety_warnings_en !== undefined) product.safety_warnings_en = data.safety_warnings_en;
-  if (data.safety_warnings_bg !== undefined) product.safety_warnings_bg = data.safety_warnings_bg;
-  if (data.care_instructions_en !== undefined) product.care_instructions_en = data.care_instructions_en;
-  if (data.care_instructions_bg !== undefined) product.care_instructions_bg = data.care_instructions_bg;
-  product.safety_warnings = product.safety_warnings_en ?? product.safety_warnings_bg;
-  product.care_instructions = product.care_instructions_en ?? product.care_instructions_bg;
+  if (data.description_en !== undefined)
+    product.description = data.description_en;
+  if (data.safety_warnings_en !== undefined)
+    product.safety_warnings_en = data.safety_warnings_en;
+  if (data.safety_warnings_bg !== undefined)
+    product.safety_warnings_bg = data.safety_warnings_bg;
+  if (data.care_instructions_en !== undefined)
+    product.care_instructions_en = data.care_instructions_en;
+  if (data.care_instructions_bg !== undefined)
+    product.care_instructions_bg = data.care_instructions_bg;
+  product.safety_warnings =
+    product.safety_warnings_en ?? product.safety_warnings_bg;
+  product.care_instructions =
+    product.care_instructions_en ?? product.care_instructions_bg;
   if (data.materials !== undefined) product.materials = data.materials;
-  if (data.days_to_craft !== undefined) product.days_to_craft = data.days_to_craft;
+  if (data.days_to_craft !== undefined)
+    product.days_to_craft = data.days_to_craft;
   if (data.price_cents !== undefined) product.price_cents = data.price_cents;
   if (data.category !== undefined) {
     product.category = data.category;
@@ -3034,7 +3813,8 @@ export async function updateProduct(
   }
   if (data.product_type !== undefined) {
     product.product_type = data.product_type;
-    product.product_type_name = mockTermName("product-types", data.product_type) ?? data.product_type;
+    product.product_type_name =
+      mockTermName("product-types", data.product_type) ?? data.product_type;
   }
   if (data.labels !== undefined) product.labels = mockLabelRefs(data.labels);
   if (data.stock !== undefined) product.stock = data.stock;
@@ -3047,17 +3827,21 @@ export async function updateProduct(
     product.discount_starts_at = null;
     product.discount_ends_at = null;
   } else {
-    if (data.discount_percent !== undefined) product.discount_percent = data.discount_percent;
+    if (data.discount_percent !== undefined)
+      product.discount_percent = data.discount_percent;
     if (data.discount_starts_at !== undefined)
       product.discount_starts_at = data.discount_starts_at;
-    if (data.discount_ends_at !== undefined) product.discount_ends_at = data.discount_ends_at;
+    if (data.discount_ends_at !== undefined)
+      product.discount_ends_at = data.discount_ends_at;
   }
   applyMockPricing(product);
   product.updated_at = new Date().toISOString();
   return toAdminProduct(product);
 }
 
-export async function deleteProduct(productId: string): Promise<AdminProductResponse> {
+export async function deleteProduct(
+  productId: string,
+): Promise<AdminProductResponse> {
   await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId);
   if (!product) mockError("NOT_FOUND", `Product ${productId} not found`);
@@ -3069,19 +3853,24 @@ export async function deleteProduct(productId: string): Promise<AdminProductResp
 
 export async function uploadProductImage(
   productId: string,
-  file: File
+  file: File,
 ): Promise<ImageUploadResponse> {
   await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId);
-  if (!product) mockError("product_not_found", `Product ${productId} not found`);
+  if (!product)
+    mockError("product_not_found", `Product ${productId} not found`);
   if (!/^image\/(jpeg|png)$/.test(file.type)) {
     mockError("invalid_image_type", "Only JPEG and PNG images are accepted");
   }
   if (product.images.length >= 6) {
-    mockError("max_product_images", "Product already has the maximum number of images");
+    mockError(
+      "max_product_images",
+      "Product already has the maximum number of images",
+    );
   }
   const imageId = `${productId}-${Date.now()}`;
-  const imageUrl = product.primary_image_url ?? "/static/products/vanilla-bourbon-300ml.webp";
+  const imageUrl =
+    product.primary_image_url ?? "/static/products/vanilla-bourbon-300ml.webp";
   const image: ProductImage = {
     id: imageId,
     image_url: imageUrl,
@@ -3097,34 +3886,52 @@ export async function uploadProductImage(
   return image;
 }
 
-export async function deleteProductImage(productId: string, imageId: string): Promise<void> {
+export async function deleteProductImage(
+  productId: string,
+  imageId: string,
+): Promise<void> {
   await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId);
-  if (!product) mockError("product_not_found", `Product ${productId} not found`);
+  if (!product)
+    mockError("product_not_found", `Product ${productId} not found`);
   const image = product.images.find((item) => item.id === imageId);
   if (!image) mockError("image_not_found", `Image ${imageId} not found`);
   product.images = product.images.filter((item) => item.id !== imageId);
   if (image.is_primary && product.images.length > 0) {
-    product.images = product.images.map((item, index) => ({ ...item, is_primary: index === 0 }));
+    product.images = product.images.map((item, index) => ({
+      ...item,
+      is_primary: index === 0,
+    }));
   }
-  product.images = product.images.map((item, index) => ({ ...item, sort_order: index }));
+  product.images = product.images.map((item, index) => ({
+    ...item,
+    sort_order: index,
+  }));
   product.primary_image_url = primaryImageUrl(product.images);
   product.primary_thumbnail_url = primaryThumbnailUrl(product.images);
 }
 
 export async function reorderProductImages(
   productId: string,
-  orderedIds: string[]
+  orderedIds: string[],
 ): Promise<ProductImage[]> {
   await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId);
-  if (!product) mockError("product_not_found", `Product ${productId} not found`);
+  if (!product)
+    mockError("product_not_found", `Product ${productId} not found`);
   if (new Set(orderedIds).size !== product.images.length) {
-    mockError("invalid_image_order", "ordered_ids must match all images for the product");
+    mockError(
+      "invalid_image_order",
+      "ordered_ids must match all images for the product",
+    );
   }
   product.images = orderedIds.map((id, index) => {
     const image = product.images.find((item) => item.id === id);
-    if (!image) mockError("invalid_image_order", "ordered_ids must match all images for the product");
+    if (!image)
+      mockError(
+        "invalid_image_order",
+        "ordered_ids must match all images for the product",
+      );
     return { ...image, sort_order: index };
   });
   return product.images;
@@ -3132,11 +3939,12 @@ export async function reorderProductImages(
 
 export async function setPrimaryProductImage(
   productId: string,
-  imageId: string
+  imageId: string,
 ): Promise<ProductImage> {
   await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId);
-  if (!product) mockError("product_not_found", `Product ${productId} not found`);
+  if (!product)
+    mockError("product_not_found", `Product ${productId} not found`);
   let primary: ProductImage | undefined;
   product.images = product.images.map((image) => {
     const next = { ...image, is_primary: image.id === imageId };
@@ -3151,11 +3959,12 @@ export async function setPrimaryProductImage(
 
 export async function uploadProductVideo(
   productId: string,
-  file: File
+  file: File,
 ): Promise<VideoUploadResponse> {
   await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId);
-  if (!product) mockError("product_not_found", `Product ${productId} not found`);
+  if (!product)
+    mockError("product_not_found", `Product ${productId} not found`);
   if (!file.type.startsWith("video/")) {
     mockError("invalid_video", "Upload a valid video file");
   }
@@ -3176,10 +3985,13 @@ export async function uploadProductVideo(
   return video;
 }
 
-export async function getProductVideo(productId: string): Promise<ProductVideo> {
+export async function getProductVideo(
+  productId: string,
+): Promise<ProductVideo> {
   await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId);
-  if (!product) mockError("product_not_found", `Product ${productId} not found`);
+  if (!product)
+    mockError("product_not_found", `Product ${productId} not found`);
   if (!product.video) mockError("video_not_found", "Product video not found");
   return product.video;
 }
@@ -3187,20 +3999,26 @@ export async function getProductVideo(productId: string): Promise<ProductVideo> 
 export async function deleteProductVideo(productId: string): Promise<void> {
   await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId);
-  if (!product) mockError("product_not_found", `Product ${productId} not found`);
+  if (!product)
+    mockError("product_not_found", `Product ${productId} not found`);
   if (!product.video) mockError("video_not_found", "Product video not found");
   product.video = null;
 }
 
 export async function updateProductVideoSortOrder(
   productId: string,
-  sortOrder: number
+  sortOrder: number,
 ): Promise<ProductVideo> {
   await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId);
-  if (!product) mockError("product_not_found", `Product ${productId} not found`);
+  if (!product)
+    mockError("product_not_found", `Product ${productId} not found`);
   if (!product.video) mockError("video_not_found", "Product video not found");
-  product.video = { ...product.video, sort_order: sortOrder, updated_at: new Date().toISOString() };
+  product.video = {
+    ...product.video,
+    sort_order: sortOrder,
+    updated_at: new Date().toISOString(),
+  };
   return product.video;
 }
 
@@ -3211,21 +4029,48 @@ export async function getAdminOrders(
   paymentStatus?: PaymentStatus | "",
   paymentMethod?: PaymentMethod | "",
   accountingFilter?: AdminOrderAccountingFilter | "",
-  financePeriodId?: string
+  financePeriodId?: string,
 ): Promise<OrderListResponse> {
   await delay();
-  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders].map(withMockAccountingFlags);
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders].map(
+    withMockAccountingFlags,
+  );
   const filtered = allOrders.filter((order) => {
     if (status && order.status !== status) return false;
     if (paymentStatus && order.payment_status !== paymentStatus) return false;
     if (paymentMethod && order.payment_method !== paymentMethod) return false;
-    if (financePeriodId && order.finance_period_id !== financePeriodId) return false;
-    if (accountingFilter === "missing_document_reference" && order.document_reference_status !== "missing") return false;
-    if (accountingFilter === "unresolved_exception" && !order.blocking_exception_count) return false;
-    if (accountingFilter === "payout_mismatch" && order.payout_reconciliation_status !== "mismatch") return false;
-    if (accountingFilter === "cod_settlement_pending" && order.cod_settlement_status !== "pending") return false;
-    if (accountingFilter === "refund_document_missing" && order.document_reference_status !== "review_required") return false;
-    if (accountingFilter === "vat_review_required" && order.accounting_classification_state !== "manual_review_required") return false;
+    if (financePeriodId && order.finance_period_id !== financePeriodId)
+      return false;
+    if (
+      accountingFilter === "missing_document_reference" &&
+      order.document_reference_status !== "missing"
+    )
+      return false;
+    if (
+      accountingFilter === "unresolved_exception" &&
+      !order.blocking_exception_count
+    )
+      return false;
+    if (
+      accountingFilter === "payout_mismatch" &&
+      order.payout_reconciliation_status !== "mismatch"
+    )
+      return false;
+    if (
+      accountingFilter === "cod_settlement_pending" &&
+      order.cod_settlement_status !== "pending"
+    )
+      return false;
+    if (
+      accountingFilter === "refund_document_missing" &&
+      order.document_reference_status !== "review_required"
+    )
+      return false;
+    if (
+      accountingFilter === "vat_review_required" &&
+      order.accounting_classification_state !== "manual_review_required"
+    )
+      return false;
     return true;
   });
   const start = (page - 1) * limit;
@@ -3238,9 +4083,13 @@ export async function getAdminOrders(
   };
 }
 
-export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailResponse> {
+export async function getAdminOrder(
+  orderId: string,
+): Promise<AdminOrderDetailResponse> {
   await delay();
-  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders].map(withMockAccountingFlags);
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders].map(
+    withMockAccountingFlags,
+  );
   const order = allOrders.find((o) => o.id === orderId);
   if (!order) mockError("NOT_FOUND", `Order ${orderId} not found`);
   return {
@@ -3261,15 +4110,23 @@ export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailRe
         created_at: order.updated_at,
       },
     ],
-    return_cases: mockReturnCases.filter((returnCase) => returnCase.order_id === order.id),
+    return_cases: mockReturnCases.filter(
+      (returnCase) => returnCase.order_id === order.id,
+    ),
     return_events: [],
-    refund_records: mockRefundRecords.filter((refund) => refund.order_id === order.id),
+    refund_records: mockRefundRecords.filter(
+      (refund) => refund.order_id === order.id,
+    ),
     cod_settlement:
-      mockCodSettlements.find((settlement) => settlement.order_id === order.id) ?? null,
+      mockCodSettlements.find(
+        (settlement) => settlement.order_id === order.id,
+      ) ?? null,
     cod_settlement_required:
       order.payment_method === "cod" &&
       order.status === "delivered" &&
-      !mockCodSettlements.some((settlement) => settlement.order_id === order.id),
+      !mockCodSettlements.some(
+        (settlement) => settlement.order_id === order.id,
+      ),
     econt_cod_evidence: null,
   };
 }
@@ -3290,16 +4147,19 @@ export async function getLegalIdentity(): Promise<LegalIdentityResponse> {
     geographic_address: address || "TODO: geographic business address",
     contact_email: seller?.contact_email || "contacts@theateliermarie.com",
     registration_number: seller?.uic_eik || "TODO: registration number",
-    vat_number: seller?.vat_identification_number || "TODO: VAT number or not VAT registered",
+    vat_number:
+      seller?.vat_identification_number ||
+      "TODO: VAT number or not VAT registered",
     responsible_party_name: seller?.company_display_name || "Atelier Marie",
     responsible_party_address: address || "TODO: geographic business address",
-    responsible_party_email: seller?.contact_email || "contacts@theateliermarie.com",
+    responsible_party_email:
+      seller?.contact_email || "contacts@theateliermarie.com",
   };
   return cloneMock(identity);
 }
 
 export async function createSellerLegalProfile(
-  data: SellerLegalProfileRequest
+  data: SellerLegalProfileRequest,
 ): Promise<SellerLegalProfileResponse> {
   await delay();
   const profile: SellerLegalProfileResponse = {
@@ -3316,7 +4176,7 @@ export async function createSellerLegalProfile(
 }
 
 export async function createVatFiscalSettings(
-  data: VatFiscalSettingsRequest
+  data: VatFiscalSettingsRequest,
 ): Promise<VatFiscalSettingsResponse> {
   await delay();
   const settings: VatFiscalSettingsResponse = {
@@ -3330,17 +4190,22 @@ export async function createVatFiscalSettings(
     created_by_admin_id: "mock-admin",
     created_at: new Date().toISOString(),
   };
-  mockAccountingConfig = { ...mockAccountingConfig, vat_fiscal_settings: settings };
+  mockAccountingConfig = {
+    ...mockAccountingConfig,
+    vat_fiscal_settings: settings,
+  };
   return cloneMock(settings);
 }
 
 export async function upsertAccountingCategoryMapping(
   mappingKey: string,
-  data: CategoryMappingRequest
+  data: CategoryMappingRequest,
 ): Promise<CategoryMappingResponse> {
   await delay();
   const now = new Date().toISOString();
-  const existing = mockAccountingConfig.category_mappings.find((item) => item.mapping_key === mappingKey);
+  const existing = mockAccountingConfig.category_mappings.find(
+    (item) => item.mapping_key === mappingKey,
+  );
   const mapping: CategoryMappingResponse = {
     id: existing?.id ?? Date.now(),
     mapping_key: mappingKey,
@@ -3354,7 +4219,9 @@ export async function upsertAccountingCategoryMapping(
   mockAccountingConfig = {
     ...mockAccountingConfig,
     category_mappings: [
-      ...mockAccountingConfig.category_mappings.filter((item) => item.mapping_key !== mappingKey),
+      ...mockAccountingConfig.category_mappings.filter(
+        (item) => item.mapping_key !== mappingKey,
+      ),
       mapping,
     ],
   };
@@ -3362,7 +4229,7 @@ export async function upsertAccountingCategoryMapping(
 }
 
 export async function updateAccountingExportSchema(
-  data: ExportSchemaSettingsRequest
+  data: ExportSchemaSettingsRequest,
 ): Promise<ExportSchemaSettingsResponse> {
   await delay();
   const next: ExportSchemaSettingsResponse = {
@@ -3375,7 +4242,7 @@ export async function updateAccountingExportSchema(
 }
 
 export async function updateExpenseEvidenceSettings(
-  data: ExpenseEvidenceSettingsRequest
+  data: ExpenseEvidenceSettingsRequest,
 ): Promise<ExpenseEvidenceSettingsResponse> {
   await delay();
   const next: ExpenseEvidenceSettingsResponse = {
@@ -3388,7 +4255,7 @@ export async function updateExpenseEvidenceSettings(
 }
 
 export async function updateProductCostSettings(
-  data: ProductCostSettingsRequest
+  data: ProductCostSettingsRequest,
 ): Promise<ProductCostSettingsResponse> {
   await delay();
   const next: ProductCostSettingsResponse = {
@@ -3396,18 +4263,25 @@ export async function updateProductCostSettings(
     ...data,
     updated_at: new Date().toISOString(),
   };
-  mockAccountingConfig = { ...mockAccountingConfig, product_cost_settings: next };
+  mockAccountingConfig = {
+    ...mockAccountingConfig,
+    product_cost_settings: next,
+  };
   return cloneMock(next);
 }
 
-export async function listFinancePeriods(status?: string): Promise<FinancePeriodListResponse> {
+export async function listFinancePeriods(
+  status?: string,
+): Promise<FinancePeriodListResponse> {
   await delay();
-  const items = status ? mockFinancePeriods.filter((period) => period.status === status) : mockFinancePeriods;
+  const items = status
+    ? mockFinancePeriods.filter((period) => period.status === status)
+    : mockFinancePeriods;
   return { items: cloneMock(items), total: items.length };
 }
 
 export async function createFinancePeriod(
-  data: FinancePeriodCreateRequest
+  data: FinancePeriodCreateRequest,
 ): Promise<FinancePeriodResponse> {
   await delay();
   const now = new Date().toISOString();
@@ -3436,11 +4310,14 @@ export async function createFinancePeriod(
 
 function findMockPeriod(periodId: string): FinancePeriodResponse {
   const period = mockFinancePeriods.find((item) => item.id === periodId);
-  if (!period) mockError("FINANCE_PERIOD_NOT_FOUND", "Finance period not found");
+  if (!period)
+    mockError("FINANCE_PERIOD_NOT_FOUND", "Finance period not found");
   return period;
 }
 
-export async function reviewFinancePeriod(periodId: string): Promise<FinancePeriodResponse> {
+export async function reviewFinancePeriod(
+  periodId: string,
+): Promise<FinancePeriodResponse> {
   await delay();
   const period = findMockPeriod(periodId);
   period.status = "review";
@@ -3448,11 +4325,16 @@ export async function reviewFinancePeriod(periodId: string): Promise<FinancePeri
   return cloneMock(period);
 }
 
-export async function closeFinancePeriod(periodId: string): Promise<FinancePeriodResponse> {
+export async function closeFinancePeriod(
+  periodId: string,
+): Promise<FinancePeriodResponse> {
   await delay();
   const period = findMockPeriod(periodId);
   if (period.blocking_exception_count > 0) {
-    mockError("FINANCE_PERIOD_CLOSE_BLOCKED", "Blocking accounting exceptions remain open");
+    mockError(
+      "FINANCE_PERIOD_CLOSE_BLOCKED",
+      "Blocking accounting exceptions remain open",
+    );
   }
   period.status = "closed";
   period.closed_at = new Date().toISOString();
@@ -3462,10 +4344,11 @@ export async function closeFinancePeriod(periodId: string): Promise<FinancePerio
 
 export async function reopenFinancePeriod(
   periodId: string,
-  data: FinancePeriodActionRequest
+  data: FinancePeriodActionRequest,
 ): Promise<FinancePeriodResponse> {
   await delay();
-  if (!data.reason?.trim()) mockError("REASON_REQUIRED", "A reopen reason is required");
+  if (!data.reason?.trim())
+    mockError("REASON_REQUIRED", "A reopen reason is required");
   const period = findMockPeriod(periodId);
   period.status = "reopened";
   period.reopen_reason = data.reason;
@@ -3475,7 +4358,7 @@ export async function reopenFinancePeriod(
 
 export async function acceptFinancePeriod(
   periodId: string,
-  data: FinancePeriodActionRequest
+  data: FinancePeriodActionRequest,
 ): Promise<FinancePeriodResponse> {
   await delay();
   const period = findMockPeriod(periodId);
@@ -3488,11 +4371,12 @@ export async function acceptFinancePeriod(
 
 export async function listFinanceExceptions(
   periodId: string,
-  status?: FinanceExceptionStatus | ""
+  status?: FinanceExceptionStatus | "",
 ): Promise<FinanceExceptionListResponse> {
   await delay();
   const items = mockFinanceExceptions.filter(
-    (item) => item.period_id === periodId && (!status || item.status === status)
+    (item) =>
+      item.period_id === periodId && (!status || item.status === status),
   );
   return { items: cloneMock(items), total: items.length };
 }
@@ -3500,11 +4384,14 @@ export async function listFinanceExceptions(
 function applyExceptionAction(
   exceptionId: string,
   data: FinanceExceptionActionRequest,
-  status: "resolved" | "waived"
+  status: "resolved" | "waived",
 ): FinanceExceptionResponse {
   if (!data.reason.trim()) mockError("REASON_REQUIRED", "A reason is required");
-  const item = mockFinanceExceptions.find((exception) => exception.id === exceptionId);
-  if (!item) mockError("FINANCE_EXCEPTION_NOT_FOUND", "Finance exception not found");
+  const item = mockFinanceExceptions.find(
+    (exception) => exception.id === exceptionId,
+  );
+  if (!item)
+    mockError("FINANCE_EXCEPTION_NOT_FOUND", "Finance exception not found");
   item.status = status;
   item.updated_at = new Date().toISOString();
   if (status === "resolved") item.resolved_at = item.updated_at;
@@ -3513,18 +4400,25 @@ function applyExceptionAction(
     item.waived_at = item.updated_at;
     item.waived_by_admin_id = "mock-admin";
   }
-  const period = item.period_id ? mockFinancePeriods.find((periodItem) => periodItem.id === item.period_id) : null;
+  const period = item.period_id
+    ? mockFinancePeriods.find((periodItem) => periodItem.id === item.period_id)
+    : null;
   if (period) {
-    const open = mockFinanceExceptions.filter((exception) => exception.period_id === period.id && exception.status === "open");
+    const open = mockFinanceExceptions.filter(
+      (exception) =>
+        exception.period_id === period.id && exception.status === "open",
+    );
     period.open_exception_count = open.length;
-    period.blocking_exception_count = open.filter((exception) => exception.severity === "blocking").length;
+    period.blocking_exception_count = open.filter(
+      (exception) => exception.severity === "blocking",
+    ).length;
   }
   return item;
 }
 
 export async function resolveFinanceException(
   exceptionId: string,
-  data: FinanceExceptionActionRequest
+  data: FinanceExceptionActionRequest,
 ): Promise<FinanceExceptionResponse> {
   await delay();
   return cloneMock(applyExceptionAction(exceptionId, data, "resolved"));
@@ -3532,7 +4426,7 @@ export async function resolveFinanceException(
 
 export async function waiveFinanceException(
   exceptionId: string,
-  data: FinanceExceptionActionRequest
+  data: FinanceExceptionActionRequest,
 ): Promise<FinanceExceptionResponse> {
   await delay();
   return cloneMock(applyExceptionAction(exceptionId, data, "waived"));
@@ -3541,7 +4435,7 @@ export async function waiveFinanceException(
 export async function getAccountingLedger(
   periodId: string,
   ledger: AccountingLedgerName,
-  options: { dateBasis?: string; page?: number; limit?: number } = {}
+  options: { dateBasis?: string; page?: number; limit?: number } = {},
 ): Promise<AccountingLedgerResponse> {
   await delay();
   findMockPeriod(periodId);
@@ -3562,27 +4456,33 @@ export async function getAccountingLedger(
   };
 }
 
-export async function listAccountingDocuments(filters: {
-  orderId?: string;
-  refundId?: string;
-  periodId?: string;
-} = {}): Promise<AccountingDocumentListResponse> {
+export async function listAccountingDocuments(
+  filters: {
+    orderId?: string;
+    refundId?: string;
+    periodId?: string;
+  } = {},
+): Promise<AccountingDocumentListResponse> {
   await delay();
   const items = mockAccountingDocuments.filter((document) => {
     if (filters.orderId && document.order_id !== filters.orderId) return false;
-    if (filters.refundId && document.refund_id !== filters.refundId) return false;
-    if (filters.periodId && document.period_id !== filters.periodId) return false;
+    if (filters.refundId && document.refund_id !== filters.refundId)
+      return false;
+    if (filters.periodId && document.period_id !== filters.periodId)
+      return false;
     return true;
   });
   return { items: cloneMock(items), total: items.length };
 }
 
-export async function listOrderAccountingDocuments(orderId: string): Promise<AccountingDocumentListResponse> {
+export async function listOrderAccountingDocuments(
+  orderId: string,
+): Promise<AccountingDocumentListResponse> {
   return listAccountingDocuments({ orderId });
 }
 
 export async function createAccountingDocument(
-  data: AccountingDocumentRequest
+  data: AccountingDocumentRequest,
 ): Promise<AccountingDocumentResponse> {
   await delay();
   const now = new Date().toISOString();
@@ -3598,46 +4498,60 @@ export async function createAccountingDocument(
     updated_at: now,
   };
   mockAccountingDocuments.unshift(document);
-  mockLedgerRows.documents = mockAccountingDocuments as unknown as Record<string, unknown>[];
+  mockLedgerRows.documents = mockAccountingDocuments as unknown as Record<
+    string,
+    unknown
+  >[];
   return cloneMock(document);
 }
 
 export async function updateAccountingDocument(
   documentId: string,
-  data: AccountingDocumentRequest
+  data: AccountingDocumentRequest,
 ): Promise<AccountingDocumentResponse> {
   await delay();
-  const index = mockAccountingDocuments.findIndex((document) => document.id === documentId);
-  if (index < 0) mockError("ACCOUNTING_DOCUMENT_NOT_FOUND", "Accounting document not found");
+  const index = mockAccountingDocuments.findIndex(
+    (document) => document.id === documentId,
+  );
+  if (index < 0)
+    mockError("ACCOUNTING_DOCUMENT_NOT_FOUND", "Accounting document not found");
   const next: AccountingDocumentResponse = {
     ...mockAccountingDocuments[index]!,
     ...data,
-    source_system: data.source_system ?? mockAccountingDocuments[index]!.source_system,
+    source_system:
+      data.source_system ?? mockAccountingDocuments[index]!.source_system,
     currency: data.currency ?? mockAccountingDocuments[index]!.currency,
     status: data.status ?? mockAccountingDocuments[index]!.status,
     updated_by_admin_id: "mock-admin",
     updated_at: new Date().toISOString(),
   };
   mockAccountingDocuments[index] = next;
-  mockLedgerRows.documents = mockAccountingDocuments as unknown as Record<string, unknown>[];
+  mockLedgerRows.documents = mockAccountingDocuments as unknown as Record<
+    string,
+    unknown
+  >[];
   return cloneMock(next);
 }
 
-export async function listExpenseEvidence(filters: {
-  categoryKey?: string;
-  reviewStatus?: string;
-} = {}): Promise<ExpenseEvidenceListResponse> {
+export async function listExpenseEvidence(
+  filters: {
+    categoryKey?: string;
+    reviewStatus?: string;
+  } = {},
+): Promise<ExpenseEvidenceListResponse> {
   await delay();
   const items = mockExpenseEvidence.filter((expense) => {
-    if (filters.categoryKey && expense.category_key !== filters.categoryKey) return false;
-    if (filters.reviewStatus && expense.review_status !== filters.reviewStatus) return false;
+    if (filters.categoryKey && expense.category_key !== filters.categoryKey)
+      return false;
+    if (filters.reviewStatus && expense.review_status !== filters.reviewStatus)
+      return false;
     return true;
   });
   return { items: cloneMock(items), total: items.length };
 }
 
 export async function createExpenseEvidence(
-  data: ExpenseEvidenceRequest
+  data: ExpenseEvidenceRequest,
 ): Promise<ExpenseEvidenceResponse> {
   await delay();
   const now = new Date().toISOString();
@@ -3654,59 +4568,80 @@ export async function createExpenseEvidence(
     updated_at: now,
   };
   mockExpenseEvidence.unshift(expense);
-  mockLedgerRows.expenses = mockExpenseEvidence as unknown as Record<string, unknown>[];
+  mockLedgerRows.expenses = mockExpenseEvidence as unknown as Record<
+    string,
+    unknown
+  >[];
   return cloneMock(expense);
 }
 
 export async function updateExpenseEvidence(
   expenseId: string,
-  data: ExpenseEvidenceRequest
+  data: ExpenseEvidenceRequest,
 ): Promise<ExpenseEvidenceResponse> {
   await delay();
-  const index = mockExpenseEvidence.findIndex((expense) => expense.id === expenseId);
-  if (index < 0) mockError("EXPENSE_EVIDENCE_NOT_FOUND", "Expense evidence not found");
+  const index = mockExpenseEvidence.findIndex(
+    (expense) => expense.id === expenseId,
+  );
+  if (index < 0)
+    mockError("EXPENSE_EVIDENCE_NOT_FOUND", "Expense evidence not found");
   const next: ExpenseEvidenceResponse = {
     ...mockExpenseEvidence[index]!,
     ...data,
-    payment_status: data.payment_status ?? mockExpenseEvidence[index]!.payment_status,
-    tax_amount_cents: data.tax_amount_cents ?? mockExpenseEvidence[index]!.tax_amount_cents,
+    payment_status:
+      data.payment_status ?? mockExpenseEvidence[index]!.payment_status,
+    tax_amount_cents:
+      data.tax_amount_cents ?? mockExpenseEvidence[index]!.tax_amount_cents,
     currency: data.currency ?? mockExpenseEvidence[index]!.currency,
-    review_status: data.review_status ?? mockExpenseEvidence[index]!.review_status,
+    review_status:
+      data.review_status ?? mockExpenseEvidence[index]!.review_status,
     updated_by_admin_id: "mock-admin",
     updated_at: new Date().toISOString(),
   };
   mockExpenseEvidence[index] = next;
-  mockLedgerRows.expenses = mockExpenseEvidence as unknown as Record<string, unknown>[];
+  mockLedgerRows.expenses = mockExpenseEvidence as unknown as Record<
+    string,
+    unknown
+  >[];
   return cloneMock(next);
 }
 
 export async function updateExpensePaymentStatus(
   expenseId: string,
-  data: ExpensePaymentStatusRequest
+  data: ExpensePaymentStatusRequest,
 ): Promise<ExpenseEvidenceResponse> {
   await delay();
   if (!data.reason.trim()) mockError("REASON_REQUIRED", "A reason is required");
   const expense = mockExpenseEvidence.find((item) => item.id === expenseId);
-  if (!expense) mockError("EXPENSE_EVIDENCE_NOT_FOUND", "Expense evidence not found");
+  if (!expense)
+    mockError("EXPENSE_EVIDENCE_NOT_FOUND", "Expense evidence not found");
   expense.payment_status = data.payment_status;
   expense.payment_date = data.payment_date ?? expense.payment_date;
   expense.updated_at = new Date().toISOString();
   return cloneMock(expense);
 }
 
-export async function listProductCosts(productId?: string): Promise<ProductCostVersionListResponse> {
+export async function listProductCosts(
+  productId?: string,
+): Promise<ProductCostVersionListResponse> {
   await delay();
-  const items = productId ? mockProductCosts.filter((cost) => cost.product_id === productId) : mockProductCosts;
+  const items = productId
+    ? mockProductCosts.filter((cost) => cost.product_id === productId)
+    : mockProductCosts;
   return { items: cloneMock(items), total: items.length };
 }
 
 export async function createProductCost(
-  data: ProductCostVersionRequest
+  data: ProductCostVersionRequest,
 ): Promise<ProductCostVersionResponse> {
   await delay();
   const now = new Date().toISOString();
-  const estimated = data.estimated_unit_cost_cents ??
-    (data.material_cost_cents ?? 0) + (data.packaging_cost_cents ?? 0) + (data.labor_cost_cents ?? 0) + (data.overhead_cost_cents ?? 0);
+  const estimated =
+    data.estimated_unit_cost_cents ??
+    (data.material_cost_cents ?? 0) +
+      (data.packaging_cost_cents ?? 0) +
+      (data.labor_cost_cents ?? 0) +
+      (data.overhead_cost_cents ?? 0);
   const cost: ProductCostVersionResponse = {
     ...data,
     id: `cost-${Date.now()}`,
@@ -3728,30 +4663,39 @@ export async function createProductCost(
     updated_at: now,
   };
   mockProductCosts.unshift(cost);
-  mockLedgerRows.product_costs = mockProductCosts as unknown as Record<string, unknown>[];
+  mockLedgerRows.product_costs = mockProductCosts as unknown as Record<
+    string,
+    unknown
+  >[];
   return cloneMock(cost);
 }
 
 export async function updateProductCost(
   costVersionId: string,
-  data: ProductCostVersionRequest
+  data: ProductCostVersionRequest,
 ): Promise<ProductCostVersionResponse> {
   await delay();
   const index = mockProductCosts.findIndex((cost) => cost.id === costVersionId);
-  if (index < 0) mockError("PRODUCT_COST_NOT_FOUND", "Product cost version not found");
+  if (index < 0)
+    mockError("PRODUCT_COST_NOT_FOUND", "Product cost version not found");
   const previous = mockProductCosts[index]!;
   const next: ProductCostVersionResponse = {
     ...previous,
     ...data,
-    estimated_unit_cost_cents: data.estimated_unit_cost_cents ?? previous.estimated_unit_cost_cents,
+    estimated_unit_cost_cents:
+      data.estimated_unit_cost_cents ?? previous.estimated_unit_cost_cents,
     costing_basis: data.costing_basis ?? previous.costing_basis,
-    material_cost_cents: data.material_cost_cents ?? previous.material_cost_cents,
-    packaging_cost_cents: data.packaging_cost_cents ?? previous.packaging_cost_cents,
+    material_cost_cents:
+      data.material_cost_cents ?? previous.material_cost_cents,
+    packaging_cost_cents:
+      data.packaging_cost_cents ?? previous.packaging_cost_cents,
     labor_cost_cents: data.labor_cost_cents ?? previous.labor_cost_cents,
-    overhead_cost_cents: data.overhead_cost_cents ?? previous.overhead_cost_cents,
+    overhead_cost_cents:
+      data.overhead_cost_cents ?? previous.overhead_cost_cents,
     currency: data.currency ?? previous.currency,
     reviewed: data.reviewed ?? previous.reviewed,
-    accountant_reviewed: data.accountant_reviewed ?? previous.accountant_reviewed,
+    accountant_reviewed:
+      data.accountant_reviewed ?? previous.accountant_reviewed,
     review_status: data.review_status ?? previous.review_status,
     source_expense_ids: data.source_expense_ids ?? previous.source_expense_ids,
     components: previous.components,
@@ -3759,11 +4703,16 @@ export async function updateProductCost(
     updated_at: new Date().toISOString(),
   };
   mockProductCosts[index] = next;
-  mockLedgerRows.product_costs = mockProductCosts as unknown as Record<string, unknown>[];
+  mockLedgerRows.product_costs = mockProductCosts as unknown as Record<
+    string,
+    unknown
+  >[];
   return cloneMock(next);
 }
 
-export async function getMissingProductCosts(periodId: string): Promise<MissingProductCostDiagnosticsResponse> {
+export async function getMissingProductCosts(
+  periodId: string,
+): Promise<MissingProductCostDiagnosticsResponse> {
   await delay();
   findMockPeriod(periodId);
   return {
@@ -3780,19 +4729,34 @@ export async function getMissingProductCosts(periodId: string): Promise<MissingP
   };
 }
 
-export async function listAccountingExports(periodId?: string): Promise<FinanceExportPackageListResponse> {
+export async function listAccountingExports(
+  periodId?: string,
+): Promise<FinanceExportPackageListResponse> {
   await delay();
-  const items = periodId ? mockAccountingExports.filter((item) => item.period_id === periodId) : mockAccountingExports;
+  const items = periodId
+    ? mockAccountingExports.filter((item) => item.period_id === periodId)
+    : mockAccountingExports;
   return { items: cloneMock(items), total: items.length };
 }
 
-export async function generateAccountingExport(periodId: string): Promise<FinanceExportPackageResponse> {
+export async function generateAccountingExport(
+  periodId: string,
+): Promise<FinanceExportPackageResponse> {
   await delay();
   const period = findMockPeriod(periodId);
-  if (period.status !== "closed" && period.status !== "exported" && period.status !== "accepted") {
-    mockError("FINANCE_PERIOD_NOT_CLOSED", "Period must be closed before final export");
+  if (
+    period.status !== "closed" &&
+    period.status !== "exported" &&
+    period.status !== "accepted"
+  ) {
+    mockError(
+      "FINANCE_PERIOD_NOT_CLOSED",
+      "Period must be closed before final export",
+    );
   }
-  const version = mockAccountingExports.filter((item) => item.period_id === periodId).length + 1;
+  const version =
+    mockAccountingExports.filter((item) => item.period_id === periodId).length +
+    1;
   const exportPackage: FinanceExportPackageResponse = {
     id: `export-${periodId}-v${version}`,
     period_id: periodId,
@@ -3801,7 +4765,10 @@ export async function generateAccountingExport(periodId: string): Promise<Financ
     xlsx_path: `private-exports/accounting/${periodId}/v${version}/accounting.xlsx`,
     csv_dir_path: `private-exports/accounting/${periodId}/v${version}/csv`,
     manifest_path: `private-exports/accounting/${periodId}/v${version}/manifest.json`,
-    manifest: { row_counts: { sales: 2, expenses: mockExpenseEvidence.length }, totals: period.summary_totals },
+    manifest: {
+      row_counts: { sales: 2, expenses: mockExpenseEvidence.length },
+      totals: period.summary_totals,
+    },
     generated_by_admin_id: "mock-admin",
     generated_at: new Date().toISOString(),
     accepted_by_admin_id: null,
@@ -3821,17 +4788,22 @@ export async function generateAccountingExport(periodId: string): Promise<Financ
 
 export async function acceptAccountingExport(
   exportId: string,
-  data: AccountantAcceptanceRequest
+  data: AccountantAcceptanceRequest,
 ): Promise<FinanceExportPackageResponse> {
   await delay();
-  const exportPackage = mockAccountingExports.find((item) => item.id === exportId);
-  if (!exportPackage) mockError("EXPORT_PACKAGE_NOT_FOUND", "Export package not found");
+  const exportPackage = mockAccountingExports.find(
+    (item) => item.id === exportId,
+  );
+  if (!exportPackage)
+    mockError("EXPORT_PACKAGE_NOT_FOUND", "Export package not found");
   exportPackage.accountant_name = data.accountant_name ?? null;
   exportPackage.accountant_reference = data.accountant_reference ?? null;
   exportPackage.acceptance_note = data.note ?? null;
   exportPackage.accepted_by_admin_id = "mock-admin";
   exportPackage.accepted_at = new Date().toISOString();
-  const period = mockFinancePeriods.find((item) => item.id === exportPackage.period_id);
+  const period = mockFinancePeriods.find(
+    (item) => item.id === exportPackage.period_id,
+  );
   if (period && exportPackage.current_final) {
     period.status = "accepted";
     period.accepted_at = exportPackage.accepted_at;
@@ -3852,7 +4824,9 @@ export async function getStripePayoutImportStatus(): Promise<StripePayoutImportS
   };
 }
 
-export async function syncStripeBalanceTransactions(limit = 100): Promise<StripeBalanceImportResponse> {
+export async function syncStripeBalanceTransactions(
+  limit = 100,
+): Promise<StripeBalanceImportResponse> {
   await delay();
   void limit;
   return {
@@ -3867,7 +4841,9 @@ export async function syncStripeBalanceTransactions(limit = 100): Promise<Stripe
   };
 }
 
-export async function importStripeBalanceCsv(file: File): Promise<StripeBalanceImportResponse> {
+export async function importStripeBalanceCsv(
+  file: File,
+): Promise<StripeBalanceImportResponse> {
   await delay();
   void file;
   return {
@@ -3886,7 +4862,7 @@ export async function applyManualPaymentAction(
   orderId: string,
   action: ManualPaymentAction,
   note: string,
-  callbackOutcome?: CallbackOutcome | null
+  callbackOutcome?: CallbackOutcome | null,
 ): Promise<OrderResponse> {
   await delay();
   if (!note.trim()) mockError("NOTE_REQUIRED", "A note is required");
@@ -3903,14 +4879,18 @@ export async function applyManualPaymentAction(
   } else if (action === "mark_review") {
     order.payment_status = "review_required";
   } else if (action === "record_callback") {
-    if (!callbackOutcome) mockError("CALLBACK_OUTCOME_REQUIRED", "Callback outcome is required");
+    if (!callbackOutcome)
+      mockError("CALLBACK_OUTCOME_REQUIRED", "Callback outcome is required");
     order.payment_status = "review_required";
   } else if (action === "convert_to_cod") {
     order.payment_method = "cod";
     order.payment_status = "cod_pending";
   } else if (action === "cancel") {
     order.status = "cancelled";
-    if (order.payment_status !== "paid" && order.payment_status !== "refunded") {
+    if (
+      order.payment_status !== "paid" &&
+      order.payment_status !== "refunded"
+    ) {
       order.payment_status = "failed";
     }
   }
@@ -3920,7 +4900,7 @@ export async function applyManualPaymentAction(
 
 export async function createReturnCase(
   orderId: string,
-  data: CreateReturnCaseRequest
+  data: CreateReturnCaseRequest,
 ): Promise<ReturnCaseResponse> {
   await delay();
   const order = findMockOrder(orderId);
@@ -3947,7 +4927,10 @@ export async function createReturnCase(
     created_at: now,
     updated_at: now,
   };
-  if (data.status === "return_in_transit" && ["shipped", "delivered"].includes(order.status)) {
+  if (
+    data.status === "return_in_transit" &&
+    ["shipped", "delivered"].includes(order.status)
+  ) {
     order.status = "return_in_transit";
   }
   order.updated_at = now;
@@ -3957,12 +4940,15 @@ export async function createReturnCase(
 
 export async function receiveReturnCase(
   orderId: string,
-  returnId: string
+  returnId: string,
 ): Promise<ReturnCaseResponse> {
   await delay();
   const order = findMockOrder(orderId);
-  const returnCase = mockReturnCases.find((item) => item.id === returnId && item.order_id === orderId);
-  if (!returnCase) mockError("RETURN_CASE_NOT_FOUND", `Return ${returnId} not found`);
+  const returnCase = mockReturnCases.find(
+    (item) => item.id === returnId && item.order_id === orderId,
+  );
+  if (!returnCase)
+    mockError("RETURN_CASE_NOT_FOUND", `Return ${returnId} not found`);
   const now = mockNow();
   returnCase.status = "received";
   returnCase.received_at = returnCase.received_at ?? now;
@@ -3975,12 +4961,15 @@ export async function receiveReturnCase(
 export async function inspectReturnCase(
   orderId: string,
   returnId: string,
-  data: InspectReturnCaseRequest
+  data: InspectReturnCaseRequest,
 ): Promise<ReturnCaseResponse> {
   await delay();
   findMockOrder(orderId);
-  const returnCase = mockReturnCases.find((item) => item.id === returnId && item.order_id === orderId);
-  if (!returnCase) mockError("RETURN_CASE_NOT_FOUND", `Return ${returnId} not found`);
+  const returnCase = mockReturnCases.find(
+    (item) => item.id === returnId && item.order_id === orderId,
+  );
+  if (!returnCase)
+    mockError("RETURN_CASE_NOT_FOUND", `Return ${returnId} not found`);
   const now = mockNow();
   returnCase.status = "inspected";
   returnCase.restock_decision = data.restock_decision;
@@ -3992,12 +4981,15 @@ export async function inspectReturnCase(
 
 export async function closeReturnCase(
   orderId: string,
-  returnId: string
+  returnId: string,
 ): Promise<ReturnCaseResponse> {
   await delay();
   findMockOrder(orderId);
-  const returnCase = mockReturnCases.find((item) => item.id === returnId && item.order_id === orderId);
-  if (!returnCase) mockError("RETURN_CASE_NOT_FOUND", `Return ${returnId} not found`);
+  const returnCase = mockReturnCases.find(
+    (item) => item.id === returnId && item.order_id === orderId,
+  );
+  if (!returnCase)
+    mockError("RETURN_CASE_NOT_FOUND", `Return ${returnId} not found`);
   const now = mockNow();
   returnCase.status = "closed";
   returnCase.closed_at = returnCase.closed_at ?? now;
@@ -4008,18 +5000,23 @@ export async function closeReturnCase(
 export async function updateReturnAccounting(
   orderId: string,
   returnId: string,
-  data: UpdateReturnAccountingRequest
+  data: UpdateReturnAccountingRequest,
 ): Promise<ReturnCaseResponse> {
   await delay();
   findMockOrder(orderId);
-  const returnCase = mockReturnCases.find((item) => item.id === returnId && item.order_id === orderId);
-  if (!returnCase) mockError("RETURN_CASE_NOT_FOUND", `Return ${returnId} not found`);
+  const returnCase = mockReturnCases.find(
+    (item) => item.id === returnId && item.order_id === orderId,
+  );
+  if (!returnCase)
+    mockError("RETURN_CASE_NOT_FOUND", `Return ${returnId} not found`);
   const now = mockNow();
   if (data.courier_return_fee_cents != null) {
     returnCase.courier_return_fee_cents = data.courier_return_fee_cents;
   }
-  if (data.courier_claim_id !== undefined) returnCase.courier_claim_id = data.courier_claim_id;
-  if (data.courier_claim_status) returnCase.courier_claim_status = data.courier_claim_status;
+  if (data.courier_claim_id !== undefined)
+    returnCase.courier_claim_id = data.courier_claim_id;
+  if (data.courier_claim_status)
+    returnCase.courier_claim_status = data.courier_claim_status;
   if (data.courier_claim_amount_cents !== undefined) {
     returnCase.courier_claim_amount_cents = data.courier_claim_amount_cents;
   }
@@ -4030,18 +5027,25 @@ export async function updateReturnAccounting(
 
 export async function createStripeRefund(
   orderId: string,
-  data: CreateStripeRefundRequest
+  data: CreateStripeRefundRequest,
 ): Promise<PaymentRefundResponse> {
   await delay();
   const order = findMockOrder(orderId);
   const existing = mockRefundRecords.find(
-    (refund) => refund.provider === "stripe" && refund.idempotency_key === data.idempotency_key
+    (refund) =>
+      refund.provider === "stripe" &&
+      refund.idempotency_key === data.idempotency_key,
   );
   if (existing) return { ...existing };
   const alreadyPending = mockRefundRecords
-    .filter((refund) => refund.order_id === orderId && ["pending", "succeeded"].includes(refund.status))
+    .filter(
+      (refund) =>
+        refund.order_id === orderId &&
+        ["pending", "succeeded"].includes(refund.status),
+    )
     .reduce((total, refund) => total + refund.amount_cents, 0);
-  const amount = data.amount_cents ?? Math.max(0, order.total_cents - alreadyPending);
+  const amount =
+    data.amount_cents ?? Math.max(0, order.total_cents - alreadyPending);
   const now = mockNow();
   const refund: PaymentRefundResponse = {
     id: mockUuid("refund"),
@@ -4066,14 +5070,19 @@ export async function createStripeRefund(
 
 export async function recordCodSettlement(
   orderId: string,
-  data: RecordCodSettlementRequest
+  data: RecordCodSettlementRequest,
 ): Promise<CodSettlementResponse> {
   await delay();
   const order = findMockOrder(orderId);
   const now = mockNow();
-  const existingIndex = mockCodSettlements.findIndex((settlement) => settlement.order_id === orderId);
+  const existingIndex = mockCodSettlements.findIndex(
+    (settlement) => settlement.order_id === orderId,
+  );
   const settlement: CodSettlementResponse = {
-    id: existingIndex >= 0 ? mockCodSettlements[existingIndex]!.id : mockUuid("cod"),
+    id:
+      existingIndex >= 0
+        ? mockCodSettlements[existingIndex]!.id
+        : mockUuid("cod"),
     order_id: orderId,
     amount_cents: data.amount_cents,
     settlement_date: data.settlement_date,
@@ -4081,7 +5090,8 @@ export async function recordCodSettlement(
     notes: data.notes ?? null,
     mismatch_review: data.amount_cents !== order.total_cents,
     created_by_admin_id: null,
-    created_at: existingIndex >= 0 ? mockCodSettlements[existingIndex]!.created_at : now,
+    created_at:
+      existingIndex >= 0 ? mockCodSettlements[existingIndex]!.created_at : now,
     updated_at: now,
   };
   if (existingIndex >= 0) mockCodSettlements[existingIndex] = settlement;
@@ -4096,7 +5106,7 @@ export async function updateOrderStatus(
     tracking_number?: string;
     tracking_carrier?: string;
     tracking_url?: string;
-  }
+  },
 ): Promise<OrderResponse> {
   await delay();
   const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders];
@@ -4114,7 +5124,10 @@ export async function updateOrderStatus(
   };
 
   if (!validTransitions[order.status].includes(status)) {
-    mockError("VALIDATION_ERROR", `Cannot transition from ${order.status} to ${status}`);
+    mockError(
+      "VALIDATION_ERROR",
+      `Cannot transition from ${order.status} to ${status}`,
+    );
   }
 
   if (status === "shipped") {
@@ -4126,11 +5139,13 @@ export async function updateOrderStatus(
       order.courier_shipment_number = "63689182611";
       order.courier_sync_status = "waybill_created";
       order.courier_last_synced_at = new Date().toISOString();
-      addSpeedyEvent(order.id, "create_waybill", "success", { shipment_number: "63689182611" });
+      addSpeedyEvent(order.id, "create_waybill", "success", {
+        shipment_number: "63689182611",
+      });
     } else if (!tracking?.tracking_number || !tracking?.tracking_carrier) {
       mockError(
         "TRACKING_REQUIRED",
-        "tracking_number and tracking_carrier are required when shipping"
+        "tracking_number and tracking_carrier are required when shipping",
       );
     } else {
       order.tracking_number = tracking.tracking_number;
@@ -4152,7 +5167,7 @@ const mockReactions: Map<string, Set<string>> = new Map(); // key: "productId:ty
 
 export async function toggleReaction(
   productId: string,
-  body: ReactionToggleRequest
+  body: ReactionToggleRequest,
 ): Promise<ReactionToggleResponse> {
   await delay();
   const key = `${productId}:${body.reaction_type}`;
@@ -4173,7 +5188,7 @@ export async function toggleReaction(
 }
 
 export async function getReactions(
-  productId: string
+  productId: string,
 ): Promise<ReactionCountsResponse> {
   await delay();
   const heartKey = `${productId}:heart`;
@@ -4184,8 +5199,14 @@ export async function getReactions(
   const thumbsSessions = mockReactions.get(thumbsKey) ?? new Set();
 
   return {
-    heart: { count: heartSessions.size, reacted: heartSessions.has(mockSessionId) },
-    thumbs_up: { count: thumbsSessions.size, reacted: thumbsSessions.has(mockSessionId) },
+    heart: {
+      count: heartSessions.size,
+      reacted: heartSessions.has(mockSessionId),
+    },
+    thumbs_up: {
+      count: thumbsSessions.size,
+      reacted: thumbsSessions.has(mockSessionId),
+    },
   };
 }
 
@@ -4208,7 +5229,7 @@ const mockComments: CommentResponse[] = [
 
 export async function postComment(
   productId: string,
-  body: CommentCreateRequest
+  body: CommentCreateRequest,
 ): Promise<CommentResponse> {
   await delay();
   const product = MOCK_PRODUCTS.find((p) => p.id === productId);
@@ -4228,7 +5249,7 @@ export async function getComments(
   _productId: string,
   sort: CommentSort = "newest",
   page: number = 1,
-  limit: number = 20
+  limit: number = 20,
 ): Promise<CommentListResponse> {
   await delay();
   const sorted = [...mockComments].sort((a, b) => {
@@ -4249,12 +5270,16 @@ export async function getAbout(locale?: string): Promise<AboutPublicResponse> {
 
 export async function getAdminAbout(): Promise<AboutAdminResponse> {
   await delay();
-  return { sections: [...MOCK_ABOUT_SECTIONS].sort((a, b) => a.sort_order - b.sort_order) };
+  return {
+    sections: [...MOCK_ABOUT_SECTIONS].sort(
+      (a, b) => a.sort_order - b.sort_order,
+    ),
+  };
 }
 
 export async function updateAboutSection(
   slug: string,
-  data: PatchAboutSectionRequest
+  data: PatchAboutSectionRequest,
 ): Promise<AboutSectionAdmin> {
   await delay();
   const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
@@ -4265,7 +5290,7 @@ export async function updateAboutSection(
 
 export async function createAboutItem(
   slug: string,
-  data: CreateAboutItemRequest
+  data: CreateAboutItemRequest,
 ): Promise<AboutItemAdmin> {
   await delay();
   const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
@@ -4278,7 +5303,7 @@ export async function createAboutItem(
     data.title_bg ?? null,
     data.text_en ?? null,
     data.text_bg ?? null,
-    data.link_href ?? null
+    data.link_href ?? null,
   );
   item.is_published = data.is_published ?? true;
   section.items.push(item);
@@ -4288,7 +5313,7 @@ export async function createAboutItem(
 export async function updateAboutItem(
   slug: string,
   itemId: number,
-  data: PatchAboutItemRequest
+  data: PatchAboutItemRequest,
 ): Promise<AboutItemAdmin> {
   await delay();
   const item = findAboutItem(slug, itemId);
@@ -4296,27 +5321,36 @@ export async function updateAboutItem(
   return item;
 }
 
-export async function deleteAboutItem(slug: string, itemId: number): Promise<void> {
+export async function deleteAboutItem(
+  slug: string,
+  itemId: number,
+): Promise<void> {
   await delay();
   const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
   if (!section) mockError("NOT_FOUND", `About section ${slug} not found`);
   section.items = section.items.filter((item) => item.id !== itemId);
 }
 
-export async function reorderAboutSections(slugs: string[]): Promise<AboutSectionAdmin[]> {
+export async function reorderAboutSections(
+  slugs: string[],
+): Promise<AboutSectionAdmin[]> {
   await delay();
   if (new Set(slugs).size !== MOCK_ABOUT_SECTIONS.length) {
     mockError("INVALID_ORDER", "slugs must match all about sections");
   }
   slugs.forEach((slug, index) => {
     const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
-    if (!section) mockError("INVALID_ORDER", "slugs must match all about sections");
+    if (!section)
+      mockError("INVALID_ORDER", "slugs must match all about sections");
     section.sort_order = index;
   });
   return (await getAdminAbout()).sections;
 }
 
-export async function reorderAboutItems(slug: string, ids: number[]): Promise<AboutItemAdmin[]> {
+export async function reorderAboutItems(
+  slug: string,
+  ids: number[],
+): Promise<AboutItemAdmin[]> {
   await delay();
   const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
   if (!section) mockError("NOT_FOUND", `About section ${slug} not found`);
@@ -4333,7 +5367,7 @@ export async function reorderAboutItems(slug: string, ids: number[]): Promise<Ab
 
 export async function setAboutSectionPublished(
   slug: string,
-  isPublished: boolean
+  isPublished: boolean,
 ): Promise<AboutSectionAdmin> {
   await delay();
   const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
@@ -4346,7 +5380,7 @@ export async function setAboutSectionPublished(
 export async function setAboutItemPublished(
   slug: string,
   itemId: number,
-  isPublished: boolean
+  isPublished: boolean,
 ): Promise<AboutItemAdmin> {
   await delay();
   const item = findAboutItem(slug, itemId);
@@ -4357,7 +5391,7 @@ export async function setAboutItemPublished(
 
 export async function uploadAboutSectionImage(
   slug: string,
-  _file: File
+  _file: File,
 ): Promise<AboutSectionAdmin> {
   await delay();
   const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
@@ -4367,7 +5401,9 @@ export async function uploadAboutSectionImage(
   return section;
 }
 
-export async function clearAboutSectionImage(slug: string): Promise<AboutSectionAdmin> {
+export async function clearAboutSectionImage(
+  slug: string,
+): Promise<AboutSectionAdmin> {
   await delay();
   const section = MOCK_ABOUT_SECTIONS.find((s) => s.slug === slug);
   if (!section) mockError("NOT_FOUND", `About section ${slug} not found`);
@@ -4379,7 +5415,7 @@ export async function clearAboutSectionImage(slug: string): Promise<AboutSection
 export async function uploadAboutItemImage(
   slug: string,
   itemId: number,
-  _file: File
+  _file: File,
 ): Promise<AboutItemAdmin> {
   await delay();
   const item = findAboutItem(slug, itemId);
@@ -4388,7 +5424,10 @@ export async function uploadAboutItemImage(
   return item;
 }
 
-export async function clearAboutItemImage(slug: string, itemId: number): Promise<AboutItemAdmin> {
+export async function clearAboutItemImage(
+  slug: string,
+  itemId: number,
+): Promise<AboutItemAdmin> {
   await delay();
   const item = findAboutItem(slug, itemId);
   item.image_id = null;
@@ -4407,7 +5446,7 @@ function findAboutItem(slug: string, itemId: number): AboutItemAdmin {
 // --- Taxonomy Mock ---
 
 function localizedName(term: MockTerm, locale?: string): string {
-  return locale === "bg" ? term.name_bg ?? term.name_en : term.name_en;
+  return locale === "bg" ? (term.name_bg ?? term.name_en) : term.name_en;
 }
 
 export async function getTaxonomy(locale?: string): Promise<TaxonomyResponse> {
@@ -4416,7 +5455,11 @@ export async function getTaxonomy(locale?: string): Promise<TaxonomyResponse> {
     MOCK_TAXONOMY[kind]
       .filter((t) => t.is_active)
       .sort((a, b) => a.sort_order - b.sort_order)
-      .map((t) => ({ slug: t.slug, name: localizedName(t, locale), sort_order: t.sort_order }));
+      .map((t) => ({
+        slug: t.slug,
+        name: localizedName(t, locale),
+        sort_order: t.sort_order,
+      }));
   return {
     product_types: active("product-types"),
     categories: active("categories"),
@@ -4426,8 +5469,12 @@ export async function getTaxonomy(locale?: string): Promise<TaxonomyResponse> {
 
 // --- FAQ Mock ---
 
-function localizedFaqValue(en: string, bg: string | null, locale?: string): string {
-  return locale === "bg" ? bg ?? en : en;
+function localizedFaqValue(
+  en: string,
+  bg: string | null,
+  locale?: string,
+): string {
+  return locale === "bg" ? (bg ?? en) : en;
 }
 
 export async function getFaq(locale?: string): Promise<FaqResponse> {
@@ -4444,7 +5491,11 @@ export async function getFaq(locale?: string): Promise<FaqResponse> {
           .sort((a, b) => a.sort_order - b.sort_order)
           .map((item) => ({
             id: item.id,
-            question: localizedFaqValue(item.question_en, item.question_bg, locale),
+            question: localizedFaqValue(
+              item.question_en,
+              item.question_bg,
+              locale,
+            ),
             answer: localizedFaqValue(item.answer_en, item.answer_bg, locale),
           })),
       })),
@@ -4457,11 +5508,12 @@ export async function getAdminFaq(): Promise<FaqAdminResponse> {
 }
 
 export async function createFaqItem(
-  data: CreateFaqItemRequest
+  data: CreateFaqItemRequest,
 ): Promise<FaqItemAdminResponse> {
   await delay();
   const section = findFaqSection(data.section);
-  if (!section) mockError("INVALID_FAQ", `FAQ section not found: ${data.section}`);
+  if (!section)
+    mockError("INVALID_FAQ", `FAQ section not found: ${data.section}`);
   const now = new Date().toISOString();
   const item: FaqItemAdminResponse = {
     id: mockFaqNextId++,
@@ -4481,7 +5533,7 @@ export async function createFaqItem(
 
 export async function updateFaqItem(
   itemId: number,
-  data: UpdateFaqItemRequest
+  data: UpdateFaqItemRequest,
 ): Promise<FaqItemAdminResponse> {
   await delay();
   const item = findFaqItem(itemId);
@@ -4489,8 +5541,11 @@ export async function updateFaqItem(
   if (data.section !== undefined && data.section !== item.section) {
     const nextSection = findFaqSection(data.section);
     const currentSection = findFaqSection(item.section);
-    if (!nextSection || !currentSection) mockError("INVALID_FAQ", "FAQ section not found");
-    currentSection.items = currentSection.items.filter((candidate) => candidate.id !== itemId);
+    if (!nextSection || !currentSection)
+      mockError("INVALID_FAQ", "FAQ section not found");
+    currentSection.items = currentSection.items.filter(
+      (candidate) => candidate.id !== itemId,
+    );
     nextSection.items.push(item);
     item.section = data.section;
   }
@@ -4507,18 +5562,19 @@ export async function updateFaqItem(
 export async function deleteFaqItem(itemId: number): Promise<void> {
   await delay();
   const section = mockFaqSections.find((candidate) =>
-    candidate.items.some((item) => item.id === itemId)
+    candidate.items.some((item) => item.id === itemId),
   );
   if (!section) mockError("NOT_FOUND", `FAQ item ${itemId} not found`);
   section.items = section.items.filter((item) => item.id !== itemId);
 }
 
 export async function reorderFaqItems(
-  data: ReorderFaqItemsRequest
+  data: ReorderFaqItemsRequest,
 ): Promise<FaqAdminResponse> {
   await delay();
   const section = findFaqSection(data.section);
-  if (!section) mockError("INVALID_FAQ", `FAQ section not found: ${data.section}`);
+  if (!section)
+    mockError("INVALID_FAQ", `FAQ section not found: ${data.section}`);
   const order = new Map(data.ordered_ids.map((id, index) => [id, index]));
   section.items.forEach((item) => {
     const nextOrder = order.get(item.id);
@@ -4530,7 +5586,7 @@ export async function reorderFaqItems(
 
 export async function updateFaqSection(
   slug: string,
-  data: UpdateFaqSectionRequest
+  data: UpdateFaqSectionRequest,
 ): Promise<FaqSectionAdminResponse> {
   await delay();
   const section = findFaqSection(slug);
@@ -4546,34 +5602,66 @@ export async function updateFaqSection(
 export async function getTerms(locale?: string): Promise<TermsResponse> {
   await delay();
   return {
-    meta_title: localizedTermsValue(mockTermsPage.meta_title_en, mockTermsPage.meta_title_bg, locale),
+    meta_title: localizedTermsValue(
+      mockTermsPage.meta_title_en,
+      mockTermsPage.meta_title_bg,
+      locale,
+    ),
     meta_description: localizedTermsValue(
       mockTermsPage.meta_description_en,
       mockTermsPage.meta_description_bg,
-      locale
+      locale,
     ),
-    eyebrow: localizedTermsValue(mockTermsPage.eyebrow_en, mockTermsPage.eyebrow_bg, locale),
-    title: localizedTermsValue(mockTermsPage.title_en, mockTermsPage.title_bg, locale),
-    subtitle: localizedTermsValue(mockTermsPage.subtitle_en, mockTermsPage.subtitle_bg, locale),
+    eyebrow: localizedTermsValue(
+      mockTermsPage.eyebrow_en,
+      mockTermsPage.eyebrow_bg,
+      locale,
+    ),
+    title: localizedTermsValue(
+      mockTermsPage.title_en,
+      mockTermsPage.title_bg,
+      locale,
+    ),
+    subtitle: localizedTermsValue(
+      mockTermsPage.subtitle_en,
+      mockTermsPage.subtitle_bg,
+      locale,
+    ),
     last_updated: localizedTermsValue(
       mockTermsPage.last_updated_en,
       mockTermsPage.last_updated_bg,
-      locale
+      locale,
     ),
     identity_intro: localizedTermsValue(
       mockTermsPage.identity_intro_en,
       mockTermsPage.identity_intro_bg,
-      locale
+      locale,
     ),
     policy_links_title: localizedTermsValue(
       mockTermsPage.policy_links_title_en,
       mockTermsPage.policy_links_title_bg,
-      locale
+      locale,
     ),
-    privacy_link: localizedTermsValue(mockTermsPage.privacy_link_en, mockTermsPage.privacy_link_bg, locale),
-    cookies_link: localizedTermsValue(mockTermsPage.cookies_link_en, mockTermsPage.cookies_link_bg, locale),
-    nav_label: localizedTermsValue(mockTermsPage.nav_label_en, mockTermsPage.nav_label_bg, locale),
-    back_to_top: localizedTermsValue(mockTermsPage.back_to_top_en, mockTermsPage.back_to_top_bg, locale),
+    privacy_link: localizedTermsValue(
+      mockTermsPage.privacy_link_en,
+      mockTermsPage.privacy_link_bg,
+      locale,
+    ),
+    cookies_link: localizedTermsValue(
+      mockTermsPage.cookies_link_en,
+      mockTermsPage.cookies_link_bg,
+      locale,
+    ),
+    nav_label: localizedTermsValue(
+      mockTermsPage.nav_label_en,
+      mockTermsPage.nav_label_bg,
+      locale,
+    ),
+    back_to_top: localizedTermsValue(
+      mockTermsPage.back_to_top_en,
+      mockTermsPage.back_to_top_bg,
+      locale,
+    ),
     sections: mockTermsSections
       .slice()
       .sort((a, b) => a.sort_order - b.sort_order)
@@ -4581,21 +5669,24 @@ export async function getTerms(locale?: string): Promise<TermsResponse> {
         id: section.slug,
         title: localizedTermsValue(section.title_en, section.title_bg, locale),
         nav: localizedTermsValue(section.nav_en, section.nav_bg, locale),
-        body: localizedTermsLines(section.body_en, section.body_bg, locale) ?? [],
-        model_form_title: localizedTermsValue(
-          section.model_form_title_en ?? "",
-          section.model_form_title_bg,
-          locale
-        ) || null,
-        model_form_intro: localizedTermsValue(
-          section.model_form_intro_en ?? "",
-          section.model_form_intro_bg,
-          locale
-        ) || null,
+        body:
+          localizedTermsLines(section.body_en, section.body_bg, locale) ?? [],
+        model_form_title:
+          localizedTermsValue(
+            section.model_form_title_en ?? "",
+            section.model_form_title_bg,
+            locale,
+          ) || null,
+        model_form_intro:
+          localizedTermsValue(
+            section.model_form_intro_en ?? "",
+            section.model_form_intro_bg,
+            locale,
+          ) || null,
         model_form_lines: localizedTermsLines(
           section.model_form_lines_en,
           section.model_form_lines_bg,
-          locale
+          locale,
         ),
       })),
   };
@@ -4607,51 +5698,78 @@ export async function getAdminTerms(): Promise<TermsAdminResponse> {
 }
 
 export async function updateTermsPage(
-  data: UpdateTermsPageRequest
+  data: UpdateTermsPageRequest,
 ): Promise<TermsPageAdminResponse> {
   await delay();
-  mockTermsPage = { ...mockTermsPage, ...data, updated_at: new Date().toISOString() };
+  mockTermsPage = {
+    ...mockTermsPage,
+    ...data,
+    updated_at: new Date().toISOString(),
+  };
   return { ...mockTermsPage };
 }
 
 export async function updateTermsSection(
   slug: string,
-  data: UpdateTermsSectionRequest
+  data: UpdateTermsSectionRequest,
 ): Promise<TermsSectionAdminResponse> {
   await delay();
-  const section = mockTermsSections.find((candidate) => candidate.slug === slug);
-  if (!section) mockError("terms_section_not_found", `Terms section ${slug} not found`);
+  const section = mockTermsSections.find(
+    (candidate) => candidate.slug === slug,
+  );
+  if (!section)
+    mockError("terms_section_not_found", `Terms section ${slug} not found`);
   Object.assign(section, data, { updated_at: new Date().toISOString() });
   return {
     ...section,
     body_en: [...section.body_en],
     body_bg: section.body_bg ? [...section.body_bg] : null,
-    model_form_lines_en: section.model_form_lines_en ? [...section.model_form_lines_en] : null,
-    model_form_lines_bg: section.model_form_lines_bg ? [...section.model_form_lines_bg] : null,
+    model_form_lines_en: section.model_form_lines_en
+      ? [...section.model_form_lines_en]
+      : null,
+    model_form_lines_bg: section.model_form_lines_bg
+      ? [...section.model_form_lines_bg]
+      : null,
   };
 }
 
 export async function getPrivacy(locale?: string): Promise<PrivacyResponse> {
   await delay();
   return {
-    meta_title: localizedTermsValue(mockPrivacyPage.meta_title_en, mockPrivacyPage.meta_title_bg, locale),
+    meta_title: localizedTermsValue(
+      mockPrivacyPage.meta_title_en,
+      mockPrivacyPage.meta_title_bg,
+      locale,
+    ),
     meta_description: localizedTermsValue(
       mockPrivacyPage.meta_description_en,
       mockPrivacyPage.meta_description_bg,
-      locale
+      locale,
     ),
-    eyebrow: localizedTermsValue(mockPrivacyPage.eyebrow_en, mockPrivacyPage.eyebrow_bg, locale),
-    title: localizedTermsValue(mockPrivacyPage.title_en, mockPrivacyPage.title_bg, locale),
-    subtitle: localizedTermsValue(mockPrivacyPage.subtitle_en, mockPrivacyPage.subtitle_bg, locale),
+    eyebrow: localizedTermsValue(
+      mockPrivacyPage.eyebrow_en,
+      mockPrivacyPage.eyebrow_bg,
+      locale,
+    ),
+    title: localizedTermsValue(
+      mockPrivacyPage.title_en,
+      mockPrivacyPage.title_bg,
+      locale,
+    ),
+    subtitle: localizedTermsValue(
+      mockPrivacyPage.subtitle_en,
+      mockPrivacyPage.subtitle_bg,
+      locale,
+    ),
     last_updated: localizedTermsValue(
       mockPrivacyPage.last_updated_en,
       mockPrivacyPage.last_updated_bg,
-      locale
+      locale,
     ),
     controller_title: localizedTermsValue(
       mockPrivacyPage.controller_title_en,
       mockPrivacyPage.controller_title_bg,
-      locale
+      locale,
     ),
     sections: mockPrivacySections
       .slice()
@@ -4660,7 +5778,8 @@ export async function getPrivacy(locale?: string): Promise<PrivacyResponse> {
         id: section.slug,
         title: localizedTermsValue(section.title_en, section.title_bg, locale),
         nav: localizedTermsValue(section.nav_en, section.nav_bg, locale),
-        body: localizedTermsLines(section.body_en, section.body_bg, locale) ?? [],
+        body:
+          localizedTermsLines(section.body_en, section.body_bg, locale) ?? [],
       })),
   };
 }
@@ -4671,20 +5790,27 @@ export async function getAdminPrivacy(): Promise<PrivacyAdminResponse> {
 }
 
 export async function updatePrivacyPage(
-  data: UpdatePrivacyPageRequest
+  data: UpdatePrivacyPageRequest,
 ): Promise<PrivacyPageAdminResponse> {
   await delay();
-  mockPrivacyPage = { ...mockPrivacyPage, ...data, updated_at: new Date().toISOString() };
+  mockPrivacyPage = {
+    ...mockPrivacyPage,
+    ...data,
+    updated_at: new Date().toISOString(),
+  };
   return { ...mockPrivacyPage };
 }
 
 export async function updatePrivacySection(
   slug: string,
-  data: UpdatePrivacySectionRequest
+  data: UpdatePrivacySectionRequest,
 ): Promise<PrivacySectionAdminResponse> {
   await delay();
-  const section = mockPrivacySections.find((candidate) => candidate.slug === slug);
-  if (!section) mockError("privacy_section_not_found", `Privacy section ${slug} not found`);
+  const section = mockPrivacySections.find(
+    (candidate) => candidate.slug === slug,
+  );
+  if (!section)
+    mockError("privacy_section_not_found", `Privacy section ${slug} not found`);
   Object.assign(section, data, { updated_at: new Date().toISOString() });
   return {
     ...section,
@@ -4696,37 +5822,61 @@ export async function updatePrivacySection(
 export async function getCookies(locale?: string): Promise<CookiesResponse> {
   await delay();
   return {
-    meta_title: localizedTermsValue(mockCookiesPage.meta_title_en, mockCookiesPage.meta_title_bg, locale),
+    meta_title: localizedTermsValue(
+      mockCookiesPage.meta_title_en,
+      mockCookiesPage.meta_title_bg,
+      locale,
+    ),
     meta_description: localizedTermsValue(
       mockCookiesPage.meta_description_en,
       mockCookiesPage.meta_description_bg,
-      locale
+      locale,
     ),
-    eyebrow: localizedTermsValue(mockCookiesPage.eyebrow_en, mockCookiesPage.eyebrow_bg, locale),
-    title: localizedTermsValue(mockCookiesPage.title_en, mockCookiesPage.title_bg, locale),
-    subtitle: localizedTermsValue(mockCookiesPage.subtitle_en, mockCookiesPage.subtitle_bg, locale),
+    eyebrow: localizedTermsValue(
+      mockCookiesPage.eyebrow_en,
+      mockCookiesPage.eyebrow_bg,
+      locale,
+    ),
+    title: localizedTermsValue(
+      mockCookiesPage.title_en,
+      mockCookiesPage.title_bg,
+      locale,
+    ),
+    subtitle: localizedTermsValue(
+      mockCookiesPage.subtitle_en,
+      mockCookiesPage.subtitle_bg,
+      locale,
+    ),
     last_updated: localizedTermsValue(
       mockCookiesPage.last_updated_en,
       mockCookiesPage.last_updated_bg,
-      locale
+      locale,
     ),
     inventory_title: localizedTermsValue(
       mockCookiesPage.inventory_title_en,
       mockCookiesPage.inventory_title_bg,
-      locale
+      locale,
     ),
     headers: {
-      name: localizedTermsValue(mockCookiesPage.header_name_en, mockCookiesPage.header_name_bg, locale),
+      name: localizedTermsValue(
+        mockCookiesPage.header_name_en,
+        mockCookiesPage.header_name_bg,
+        locale,
+      ),
       purpose: localizedTermsValue(
         mockCookiesPage.header_purpose_en,
         mockCookiesPage.header_purpose_bg,
-        locale
+        locale,
       ),
-      type: localizedTermsValue(mockCookiesPage.header_type_en, mockCookiesPage.header_type_bg, locale),
+      type: localizedTermsValue(
+        mockCookiesPage.header_type_en,
+        mockCookiesPage.header_type_bg,
+        locale,
+      ),
       duration: localizedTermsValue(
         mockCookiesPage.header_duration_en,
         mockCookiesPage.header_duration_bg,
-        locale
+        locale,
       ),
     },
     cookies: mockCookieInventory
@@ -4736,7 +5886,11 @@ export async function getCookies(locale?: string): Promise<CookiesResponse> {
         name: item.name,
         purpose: localizedTermsValue(item.purpose_en, item.purpose_bg, locale),
         type: localizedTermsValue(item.type_en, item.type_bg, locale),
-        duration: localizedTermsValue(item.duration_en, item.duration_bg, locale),
+        duration: localizedTermsValue(
+          item.duration_en,
+          item.duration_bg,
+          locale,
+        ),
       })),
     sections: mockCookieSections
       .slice()
@@ -4744,7 +5898,8 @@ export async function getCookies(locale?: string): Promise<CookiesResponse> {
       .map((section) => ({
         id: section.slug,
         title: localizedTermsValue(section.title_en, section.title_bg, locale),
-        body: localizedTermsLines(section.body_en, section.body_bg, locale) ?? [],
+        body:
+          localizedTermsLines(section.body_en, section.body_bg, locale) ?? [],
       })),
   };
 }
@@ -4755,31 +5910,39 @@ export async function getAdminCookies(): Promise<CookiesAdminResponse> {
 }
 
 export async function updateCookiesPage(
-  data: UpdateCookiesPageRequest
+  data: UpdateCookiesPageRequest,
 ): Promise<CookiesPageAdminResponse> {
   await delay();
-  mockCookiesPage = { ...mockCookiesPage, ...data, updated_at: new Date().toISOString() };
+  mockCookiesPage = {
+    ...mockCookiesPage,
+    ...data,
+    updated_at: new Date().toISOString(),
+  };
   return { ...mockCookiesPage };
 }
 
 export async function updateCookieInventory(
   name: string,
-  data: UpdateCookieInventoryRequest
+  data: UpdateCookieInventoryRequest,
 ): Promise<CookieInventoryAdminResponse> {
   await delay();
   const item = mockCookieInventory.find((candidate) => candidate.name === name);
-  if (!item) mockError("cookie_inventory_not_found", `Cookie ${name} not found`);
+  if (!item)
+    mockError("cookie_inventory_not_found", `Cookie ${name} not found`);
   Object.assign(item, data, { updated_at: new Date().toISOString() });
   return { ...item, observed_on: [...item.observed_on] };
 }
 
 export async function updateCookieSection(
   slug: string,
-  data: UpdateCookieSectionRequest
+  data: UpdateCookieSectionRequest,
 ): Promise<CookieSectionAdminResponse> {
   await delay();
-  const section = mockCookieSections.find((candidate) => candidate.slug === slug);
-  if (!section) mockError("cookie_section_not_found", `Cookie section ${slug} not found`);
+  const section = mockCookieSections.find(
+    (candidate) => candidate.slug === slug,
+  );
+  if (!section)
+    mockError("cookie_section_not_found", `Cookie section ${slug} not found`);
   Object.assign(section, data, { updated_at: new Date().toISOString() });
   return {
     ...section,
@@ -4795,7 +5958,8 @@ function termProductCount(kind: TaxonomyKind, slug: string): number {
   if (kind === "categories") {
     return MOCK_PRODUCTS.filter((p) => p.category === slug).length;
   }
-  return MOCK_PRODUCTS.filter((p) => p.labels.some((l) => l.slug === slug)).length;
+  return MOCK_PRODUCTS.filter((p) => p.labels.some((l) => l.slug === slug))
+    .length;
 }
 
 function toAdminTerm(kind: TaxonomyKind, term: MockTerm): AdminTaxonomyTerm {
@@ -4811,7 +5975,9 @@ function toAdminTerm(kind: TaxonomyKind, term: MockTerm): AdminTaxonomyTerm {
   };
 }
 
-export async function getAdminTaxonomy(kind: TaxonomyKind): Promise<AdminTaxonomyTerm[]> {
+export async function getAdminTaxonomy(
+  kind: TaxonomyKind,
+): Promise<AdminTaxonomyTerm[]> {
   await delay();
   return [...MOCK_TAXONOMY[kind]]
     .sort((a, b) => a.sort_order - b.sort_order)
@@ -4819,12 +5985,17 @@ export async function getAdminTaxonomy(kind: TaxonomyKind): Promise<AdminTaxonom
 }
 
 function mockSlugify(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "item";
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "item"
+  );
 }
 
 export async function createTaxonomyTerm(
   kind: TaxonomyKind,
-  data: CreateTaxonomyTermRequest
+  data: CreateTaxonomyTermRequest,
 ): Promise<AdminTaxonomyTerm> {
   await delay();
   const existing = new Set(MOCK_TAXONOMY[kind].map((t) => t.slug));
@@ -4848,7 +6019,7 @@ export async function createTaxonomyTerm(
 export async function updateTaxonomyTerm(
   kind: TaxonomyKind,
   slug: string,
-  data: UpdateTaxonomyTermRequest
+  data: UpdateTaxonomyTermRequest,
 ): Promise<AdminTaxonomyTerm> {
   await delay();
   const term = MOCK_TAXONOMY[kind].find((t) => t.slug === slug);
@@ -4861,12 +6032,18 @@ export async function updateTaxonomyTerm(
   return toAdminTerm(kind, term);
 }
 
-export async function deleteTaxonomyTerm(kind: TaxonomyKind, slug: string): Promise<void> {
+export async function deleteTaxonomyTerm(
+  kind: TaxonomyKind,
+  slug: string,
+): Promise<void> {
   await delay();
   const term = MOCK_TAXONOMY[kind].find((t) => t.slug === slug);
   if (!term) mockError("NOT_FOUND", `${kind} ${slug} not found`);
   if (termProductCount(kind, slug) > 0) {
-    mockError("TAXONOMY_IN_USE", `${kind} '${slug}' is in use; reassign or deactivate it first`);
+    mockError(
+      "TAXONOMY_IN_USE",
+      `${kind} '${slug}' is in use; reassign or deactivate it first`,
+    );
   }
   MOCK_TAXONOMY[kind] = MOCK_TAXONOMY[kind].filter((t) => t.slug !== slug);
 }
@@ -4896,6 +6073,81 @@ let mockBanner: BannerAdminResponse = {
   updated_at: new Date().toISOString(),
 };
 
+const MOCK_SITE_MEDIA_BASE: SiteMediaAssetAdmin[] = [
+  {
+    key: "home_hero",
+    label: "Homepage hero image",
+    description:
+      "Optional direct hero photo. When empty, the homepage keeps using the featured product image.",
+    default_url: null,
+    image_id: null,
+    image_url: null,
+    thumbnail_url: null,
+    zoom_url: null,
+    effective_url: null,
+    updated_at: new Date().toISOString(),
+  },
+  {
+    key: "home_hero_fallback",
+    label: "Homepage hero fallback",
+    description: "Used only when there is no direct hero image and no usable product image.",
+    default_url: "/rebrand/error-candle.webp",
+    image_id: null,
+    image_url: null,
+    thumbnail_url: null,
+    zoom_url: null,
+    effective_url: "/rebrand/error-candle.webp",
+    updated_at: new Date().toISOString(),
+  },
+  ...(
+    [
+      ["atelier_hero_fallback", "Atelier hero fallback"],
+      ["atelier_story_fallback", "Atelier story fallback"],
+      ["atelier_atelier_fallback", "Inside atelier fallback"],
+      ["atelier_collections_fallback", "Atelier collections fallback"],
+      ["atelier_process_fallback", "Atelier process fallback"],
+      ["error_page_image", "Error page image"],
+    ] as const
+  ).map(([key, label]) => ({
+    key,
+    label,
+    description: "Reusable storefront image slot.",
+    default_url: "/rebrand/error-candle.webp",
+    image_id: null,
+    image_url: null,
+    thumbnail_url: null,
+    zoom_url: null,
+    effective_url: "/rebrand/error-candle.webp",
+    updated_at: new Date().toISOString(),
+  })),
+  {
+    key: "page_background",
+    label: "Page background texture",
+    description: "Subtle background image layered behind storefront pages.",
+    default_url: "/rebrand/watercolor-page-bg.webp",
+    image_id: null,
+    image_url: null,
+    thumbnail_url: null,
+    zoom_url: null,
+    effective_url: "/rebrand/watercolor-page-bg.webp",
+    updated_at: new Date().toISOString(),
+  },
+];
+
+let mockSiteMediaAssets: SiteMediaAssetAdmin[] = MOCK_SITE_MEDIA_BASE.map((asset) => ({
+  ...asset,
+}));
+
+function effectiveMockSiteMedia(asset: SiteMediaAssetAdmin): SiteMediaAssetAdmin {
+  return { ...asset, effective_url: asset.image_url ?? asset.default_url };
+}
+
+function findMockSiteMedia(key: string): SiteMediaAssetAdmin {
+  const asset = mockSiteMediaAssets.find((item) => item.key === key);
+  if (!asset) mockError("site_media_not_found", "Site media asset not found");
+  return asset;
+}
+
 function deriveCampaignStatus(c: CampaignResponse): CampaignResponse["status"] {
   if (c.removed_at) return "removed";
   if (!c.applied_at) return "draft";
@@ -4907,17 +6159,19 @@ function deriveCampaignStatus(c: CampaignResponse): CampaignResponse["status"] {
 
 function resolveMockTargets(
   productIds: string[] | null | undefined,
-  filter: BulkDiscountRequest["filter"]
+  filter: BulkDiscountRequest["filter"],
 ): string[] {
   if (productIds) return Array.from(new Set(productIds));
   if (!filter) return [];
   return MOCK_PRODUCTS.filter((p) => {
     if (filter.q) {
       const q = filter.q.toLowerCase();
-      if (!p.name.toLowerCase().includes(q) && !p.id.toLowerCase().includes(q)) return false;
+      if (!p.name.toLowerCase().includes(q) && !p.id.toLowerCase().includes(q))
+        return false;
     }
     if (filter.category && p.category !== filter.category) return false;
-    if (filter.is_active != null && p.is_active !== filter.is_active) return false;
+    if (filter.is_active != null && p.is_active !== filter.is_active)
+      return false;
     if (filter.in_stock && p.stock <= 0) return false;
     return true;
   }).map((p) => p.id);
@@ -4928,7 +6182,7 @@ function runMockBulk(
   ids: string[],
   percent: number | null,
   startsAt: string | null,
-  endsAt: string | null
+  endsAt: string | null,
 ): BulkDiscountResponse {
   const results: BulkResultItem[] = [];
   let success = 0;
@@ -4950,16 +6204,25 @@ function runMockBulk(
     results.push({ id, status: "updated" });
     success += 1;
   }
-  return { success_count: success, failure_count: results.length - success, results };
+  return {
+    success_count: success,
+    failure_count: results.length - success,
+    results,
+  };
 }
 
 export async function getCampaigns(): Promise<CampaignListResponse> {
   await delay();
-  const items = mockCampaigns.map((c) => ({ ...c, status: deriveCampaignStatus(c) }));
+  const items = mockCampaigns.map((c) => ({
+    ...c,
+    status: deriveCampaignStatus(c),
+  }));
   return { items, total: items.length };
 }
 
-export async function getCampaign(campaignId: string): Promise<CampaignResponse> {
+export async function getCampaign(
+  campaignId: string,
+): Promise<CampaignResponse> {
   await delay();
   const c = mockCampaigns.find((x) => x.id === campaignId);
   if (!c) mockError("NOT_FOUND", "Campaign not found");
@@ -4967,7 +6230,7 @@ export async function getCampaign(campaignId: string): Promise<CampaignResponse>
 }
 
 export async function createCampaign(
-  data: CampaignCreateRequest
+  data: CampaignCreateRequest,
 ): Promise<CampaignResponse> {
   await delay();
   const now = new Date().toISOString();
@@ -4995,12 +6258,14 @@ export async function createCampaign(
   };
   // Store the raw target for later apply resolution.
   mockAppliedTargets.set(`${campaign.id}:targets`, [
-    ...(data.product_ids ?? resolveMockTargets(null, data.filter)).map((id) => ({
-      id,
-      percent: null,
-      starts_at: null,
-      ends_at: null,
-    })),
+    ...(data.product_ids ?? resolveMockTargets(null, data.filter)).map(
+      (id) => ({
+        id,
+        percent: null,
+        starts_at: null,
+        ends_at: null,
+      }),
+    ),
   ]);
   mockCampaigns.unshift(campaign);
   return campaign;
@@ -5008,7 +6273,7 @@ export async function createCampaign(
 
 export async function updateCampaign(
   campaignId: string,
-  data: CampaignUpdateRequest
+  data: CampaignUpdateRequest,
 ): Promise<CampaignResponse> {
   await delay();
   const c = mockCampaigns.find((x) => x.id === campaignId);
@@ -5016,8 +6281,10 @@ export async function updateCampaign(
   if (data.name != null) c.name = data.name;
   if (data.note !== undefined) c.note = data.note;
   if (data.discount_percent != null) c.discount_percent = data.discount_percent;
-  if (data.discount_starts_at !== undefined) c.discount_starts_at = data.discount_starts_at;
-  if (data.discount_ends_at !== undefined) c.discount_ends_at = data.discount_ends_at;
+  if (data.discount_starts_at !== undefined)
+    c.discount_starts_at = data.discount_starts_at;
+  if (data.discount_ends_at !== undefined)
+    c.discount_ends_at = data.discount_ends_at;
   if (data.product_ids) {
     c.target_type = "ids";
     c.target_count = Array.from(new Set(data.product_ids)).length;
@@ -5025,7 +6292,12 @@ export async function updateCampaign(
     c.target_filter = null;
     mockAppliedTargets.set(
       `${c.id}:targets`,
-      data.product_ids.map((id) => ({ id, percent: null, starts_at: null, ends_at: null }))
+      data.product_ids.map((id) => ({
+        id,
+        percent: null,
+        starts_at: null,
+        ends_at: null,
+      })),
     );
   } else if (data.filter) {
     c.target_type = "filter";
@@ -5035,7 +6307,7 @@ export async function updateCampaign(
     c.target_filter = data.filter;
     mockAppliedTargets.set(
       `${c.id}:targets`,
-      ids.map((id) => ({ id, percent: null, starts_at: null, ends_at: null }))
+      ids.map((id) => ({ id, percent: null, starts_at: null, ends_at: null })),
     );
   }
   c.updated_at = new Date().toISOString();
@@ -5051,7 +6323,9 @@ export async function deleteCampaign(campaignId: string): Promise<void> {
   mockAppliedTargets.delete(campaignId);
 }
 
-export async function applyCampaign(campaignId: string): Promise<BulkDiscountResponse> {
+export async function applyCampaign(
+  campaignId: string,
+): Promise<BulkDiscountResponse> {
   await delay();
   const c = mockCampaigns.find((x) => x.id === campaignId);
   if (!c) mockError("NOT_FOUND", "Campaign not found");
@@ -5062,9 +6336,11 @@ export async function applyCampaign(campaignId: string): Promise<BulkDiscountRes
     ids,
     c.discount_percent,
     c.discount_starts_at,
-    c.discount_ends_at
+    c.discount_ends_at,
   );
-  const updatedIds = result.results.filter((r) => r.status === "updated").map((r) => r.id);
+  const updatedIds = result.results
+    .filter((r) => r.status === "updated")
+    .map((r) => r.id);
   mockAppliedTargets.set(
     campaignId,
     updatedIds.map((id) => ({
@@ -5072,7 +6348,7 @@ export async function applyCampaign(campaignId: string): Promise<BulkDiscountRes
       percent: c.discount_percent,
       starts_at: c.discount_starts_at,
       ends_at: c.discount_ends_at,
-    }))
+    })),
   );
   c.applied_at = new Date().toISOString();
   c.removed_at = null;
@@ -5080,7 +6356,9 @@ export async function applyCampaign(campaignId: string): Promise<BulkDiscountRes
   return result;
 }
 
-export async function removeCampaign(campaignId: string): Promise<BulkDiscountResponse> {
+export async function removeCampaign(
+  campaignId: string,
+): Promise<BulkDiscountResponse> {
   await delay();
   const c = mockCampaigns.find((x) => x.id === campaignId);
   if (!c) mockError("NOT_FOUND", "Campaign not found");
@@ -5122,20 +6400,24 @@ export async function removeCampaign(campaignId: string): Promise<BulkDiscountRe
 }
 
 export async function bulkDiscount(
-  data: BulkDiscountRequest
+  data: BulkDiscountRequest,
 ): Promise<BulkDiscountResponse> {
   await delay();
   const ids = resolveMockTargets(data.product_ids, data.filter);
-  if (ids.length === 0) mockError("VALIDATION_ERROR", "target resolves to no products");
+  if (ids.length === 0)
+    mockError("VALIDATION_ERROR", "target resolves to no products");
   if (ids.length > 500) {
-    mockError("BULK_TARGET_LIMIT_EXCEEDED", `target resolves to ${ids.length} products; limit is 500`);
+    mockError(
+      "BULK_TARGET_LIMIT_EXCEEDED",
+      `target resolves to ${ids.length} products; limit is 500`,
+    );
   }
   return runMockBulk(
     data.operation,
     ids,
     data.discount_percent ?? null,
     data.discount_starts_at ?? null,
-    data.discount_ends_at ?? null
+    data.discount_ends_at ?? null,
   );
 }
 
@@ -5145,7 +6427,7 @@ export async function getAdminBanner(): Promise<BannerAdminResponse> {
 }
 
 export async function updateBanner(
-  data: BannerUpdateRequest
+  data: BannerUpdateRequest,
 ): Promise<BannerAdminResponse> {
   await delay();
   const changed =
@@ -5173,15 +6455,18 @@ export async function updateBanner(
 }
 
 export async function getPublicBanner(
-  locale: string = "en"
+  locale: string = "en",
 ): Promise<PublicBannerResponse> {
   await delay();
   if (!mockBanner.is_enabled) return { banner: null };
   const now = new Date().toISOString();
-  if (mockBanner.starts_at && now < mockBanner.starts_at) return { banner: null };
+  if (mockBanner.starts_at && now < mockBanner.starts_at)
+    return { banner: null };
   if (mockBanner.ends_at && now > mockBanner.ends_at) return { banner: null };
   const message =
-    locale === "bg" && mockBanner.message_bg ? mockBanner.message_bg : mockBanner.message_en;
+    locale === "bg" && mockBanner.message_bg
+      ? mockBanner.message_bg
+      : mockBanner.message_en;
   if (!message) return { banner: null };
   const linkLabel =
     locale === "bg" && mockBanner.link_label_bg
@@ -5195,4 +6480,45 @@ export async function getPublicBanner(
       dismiss_key: `default:v${mockBanner.version}`,
     },
   };
+}
+
+export async function getPublicSiteMedia(): Promise<PublicSiteMediaResponse> {
+  await delay();
+  const entries = mockSiteMediaAssets.map((asset) => [
+    asset.key,
+    asset.image_url ?? asset.default_url,
+  ]);
+  return { assets: Object.fromEntries(entries) as Record<SiteMediaKey, string | null> };
+}
+
+export async function getAdminSiteMedia(): Promise<SiteMediaAdminResponse> {
+  await delay();
+  return { assets: mockSiteMediaAssets.map(effectiveMockSiteMedia) };
+}
+
+export async function uploadSiteMediaImage(
+  key: string,
+  _file: File,
+): Promise<SiteMediaAssetAdmin> {
+  await delay();
+  const asset = findMockSiteMedia(key);
+  const imageId = `mock-${Date.now()}`;
+  const stem = `site-media-${key.replaceAll("_", "-")}`;
+  asset.image_id = imageId;
+  asset.image_url = `/static/products/${stem}.webp`;
+  asset.thumbnail_url = `/static/products/${stem}_thumb.webp`;
+  asset.zoom_url = `/static/products/${stem}_zoom.webp`;
+  asset.updated_at = new Date().toISOString();
+  return effectiveMockSiteMedia(asset);
+}
+
+export async function clearSiteMediaImage(key: string): Promise<SiteMediaAssetAdmin> {
+  await delay();
+  const asset = findMockSiteMedia(key);
+  asset.image_id = null;
+  asset.image_url = null;
+  asset.thumbnail_url = null;
+  asset.zoom_url = null;
+  asset.updated_at = new Date().toISOString();
+  return effectiveMockSiteMedia(asset);
 }

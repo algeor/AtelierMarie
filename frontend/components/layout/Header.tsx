@@ -45,6 +45,7 @@ export function Header() {
     item_count > 0
       ? t("header.cartLabelWithItems", { count: item_count })
       : t("header.cartLabel");
+  const isAtelierPage = pathname === "/atelier" || pathname.startsWith("/atelier/");
 
   const isLinkActive = useCallback(
     (href: string) =>
@@ -62,7 +63,12 @@ export function Header() {
 
   return (
     <>
-      <header className="sticky top-0 z-50 bg-accent px-3 py-3 sm:px-4">
+      <header
+        className={cn(
+          "sticky top-0 z-50 px-3 py-3 sm:px-4",
+          isAtelierPage ? "bg-text" : "bg-accent"
+        )}
+      >
         <nav
           className="mx-auto flex h-14 max-w-7xl items-center justify-between rounded-brand border border-border/30 bg-[rgb(248_241_241)] px-4 shadow-lg shadow-border/15 backdrop-blur-xl sm:px-6 lg:px-8"
           aria-label={t("nav.mainNavigation")}
