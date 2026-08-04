@@ -10,7 +10,7 @@ interface HeroSectionProps {
 
 export async function HeroSection({ product }: HeroSectionProps) {
   const t = await getTranslations("home");
-  const heroImage = product?.video?.poster_url ?? product?.primary_image_url ?? "/static/products/lavender-dreams-300ml.webp";
+  const heroImage = product?.video?.poster_url ?? product?.primary_image_url ?? "/rebrand/error-candle.webp";
   const heroImageName = product?.name ?? t("heroMediaFallback");
 
   return (

@@ -3,11 +3,11 @@ import type { AboutSection } from "@/lib/types";
 import { BodyRenderer } from "./BodyRenderer";
 
 const FALLBACK_IMAGES: Record<string, string> = {
-  hero: "/static/products/lavender-dreams-300ml.webp",
-  story: "/static/products/midnight-amber-300ml.webp",
-  atelier: "/static/products/vanilla-bourbon-300ml.webp",
-  collections: "/static/products/lavender-dreams-300ml.webp",
-  process: "/static/products/midnight-amber-300ml.webp",
+  hero: "/rebrand/error-candle.webp",
+  story: "/rebrand/error-candle.webp",
+  atelier: "/rebrand/error-candle.webp",
+  collections: "/rebrand/error-candle.webp",
+  process: "/rebrand/error-candle.webp",
 };
 
 function imageFor(section: AboutSection, itemImage?: string | null) {

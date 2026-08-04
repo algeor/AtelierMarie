@@ -93,6 +93,6 @@ describe("renderAtelierSection", () => {
       <>{renderAtelierSection(section({ slug: "collections", type: "collections" }))}</>
     );
     const image = container.querySelector("img");
-    expect(image).toHaveAttribute("src", "/static/products/lavender-dreams-300ml.webp");
+    expect(image).toHaveAttribute("src", "/rebrand/error-candle.webp");
   });
 });

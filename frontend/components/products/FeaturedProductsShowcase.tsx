@@ -65,7 +65,7 @@ export function FeaturedProductsShowcase({ products }: FeaturedProductsShowcaseP
         </div>
 
         <div className="relative mt-8 lg:mt-12">
-          <div className="overflow-hidden pb-6">
+          <div className="overflow-hidden pb-6 lg:pb-36">
             <div
               className="featured-carousel-track flex"
               style={{ transform: `translateX(-${activeIndex * 100}%)` }}
@@ -180,7 +180,7 @@ function FeaturedProductCard({
         />
       </Link>
 
-      <div className="featured-preview-card__panel mt-4 bg-[rgb(248_241_241)] p-3.5 shadow-xl shadow-text/10 backdrop-blur-md sm:p-4 lg:absolute lg:bottom-5 lg:left-6 lg:right-6 lg:mt-0">
+      <div className="featured-preview-card__panel mt-4 bg-[rgb(248_241_241)] p-3.5 shadow-xl shadow-text/10 backdrop-blur-md sm:p-4 lg:absolute lg:-bottom-28 lg:left-6 lg:right-6 lg:mt-0">
         <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-accent">{descriptor}</p>
         <Link
           href={`/products/${product.id}`}
