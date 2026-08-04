@@ -395,6 +395,47 @@ describe("Admin Orders List", () => {
     expect(confirmedValues).toEqual(["shipped", "cancelled"]);
   });
 
+  it("opens the ship modal for orders without a courier integration", async () => {
+    // Speedy and Econt orders auto-ship (integration handles labels/tracking),
+    // so the manual ShipOrderModal is only shown for orders whose courier has no
+    // integration. Use a confirmed order with no delivery_courier to reach it.
+    const manualOrder: OrderResponse = {
+      ...MOCK_ORDERS[1]!,
+      delivery_courier: null,
+      delivery_details: null,
+    };
+    mockedGetAdminOrders.mockResolvedValue({
+      items: [manualOrder],
+      total: 1,
+      page: 1,
+      limit: 100,
+    });
+
+    const { AdminProvider } = await import("@/contexts/AdminContext");
+    const { AdminGuard } = await import("@/components/admin/AdminGuard");
+    const AdminOrdersPage = (await import("@/app/[locale]/admin/orders/page")).default;
+
+    renderWithIntl(
+      <AdminProvider>
+        <AdminGuard>
+          <AdminOrdersPage />
+        </AdminGuard>
+      </AdminProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("b***@example.com")).toBeInTheDocument();
+    });
+
+    const selects = screen.getAllByRole("combobox");
+    fireEvent.change(selects[0]!, { target: { value: "shipped" } });
+
+    expect(screen.getByRole("dialog", { name: "Ship order" })).toBeInTheDocument();
+    // Manual carrier defaults to the first tracking carrier (Speedy) when the
+    // order carries no courier to pre-select.
+    expect(screen.getByLabelText("Carrier")).toHaveValue("speedy");
+  });
+
   it("shows loading skeletons on initial load", async () => {
     mockedGetAdminOrders.mockImplementation(() => new Promise(() => {}));
 

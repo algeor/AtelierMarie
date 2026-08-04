@@ -151,6 +151,35 @@ describe("DeliverySection — courier door place picker", () => {
     expect(postal.readOnly).toBe(true);
   });
 
+  it("programmatically labels door delivery fields with visible labels", () => {
+    renderSection({
+      method: "door",
+      door: { courier: "speedy" } as DeliveryInfo["door"],
+    });
+
+    expect(screen.getByLabelText("City *")).toHaveAttribute("id", "delivery-door-city");
+    expect(screen.getByLabelText("Postal code *")).toHaveAttribute("id", "delivery-door-postal-code");
+    expect(screen.getByLabelText("Street and number *")).toHaveAttribute("id", "delivery-door-street");
+    expect(screen.getByLabelText("Building / Entrance (optional)")).toHaveAttribute("id", "delivery-door-building");
+    expect(screen.getByLabelText("Floor / Apartment (optional)")).toHaveAttribute("id", "delivery-door-apartment");
+  });
+
+  it("associates validation errors with the affected door fields", () => {
+    render(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <DeliverySection
+          value={{ method: "door", door: { courier: "speedy" } as DeliveryInfo["door"] }}
+          onChange={vi.fn()}
+          errors={{ city: "City is required", postalCode: "Postal code is required", street: "Street is required", phone: "Phone number is required" }}
+        />
+      </NextIntlClientProvider>,
+    );
+
+    expect(screen.getByLabelText("City *")).toHaveAccessibleDescription("City is required");
+    expect(screen.getByLabelText("Postal code *")).toHaveAccessibleDescription("Postal code is required");
+    expect(screen.getByLabelText("Street and number *")).toHaveAccessibleDescription("Street is required");
+  });
+
   it("allows manual postcode entry when a Speedy place has no postcode", async () => {
     getDeliveryPlaces.mockResolvedValue([
       { name: "Батак", region: null, postal_code: null },

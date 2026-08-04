@@ -673,7 +673,6 @@ async function runAdminShippingFlow(client, adminAuth) {
   await assertBodyIncludes(client, "c***@example.com");
   await selectFirstStatusTransition(client, "confirmed");
   await assertBodyIncludes(client, "Confirmed");
-  await selectFirstStatusTransition(client, "shipped");
   const confirmedOrder = await waitForEval(
     client,
     `fetch(${JSON.stringify(`${BACKEND_URL}/v1/admin/orders?page=1&limit=100`)}, { credentials: "include" })

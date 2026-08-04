@@ -31,7 +31,7 @@ const mockedAddToCart = vi.mocked(addToCart);
 const mockedUpdateCartItem = vi.mocked(updateCartItem);
 const mockedRemoveFromCart = vi.mocked(removeFromCart);
 
-const emptyCart: CartResponse = { items: [], total_cents: 0, item_count: 0 };
+const emptyCart: CartResponse = { items: [], total_cents: 0, item_count: 0, unavailable_items: [] };
 
 const cartWithItem: CartResponse = {
   items: [
@@ -70,6 +70,7 @@ const cartWithItem: CartResponse = {
   ],
   total_cents: 2500,
   item_count: 1,
+  unavailable_items: [],
 };
 
 function TestComponent() {

@@ -49,8 +49,10 @@ def _run(label: str, sender: dict, service: dict | None = None) -> None:
         if calcs:
             for cc in calcs[:6]:
                 print(
-                    "   serviceId=", cc.get("serviceId"),
-                    "price=", json.dumps(cc.get("price", {}))[:120],
+                    "   serviceId=",
+                    cc.get("serviceId"),
+                    "price=",
+                    json.dumps(cc.get("price", {}))[:120],
                 )
         if err:
             print("   err:", err.get("context"), "|", err.get("message", "")[:80])

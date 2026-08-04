@@ -3,7 +3,7 @@
  */
 
 import { locales, type Locale } from "@/i18n/routing";
-import type { FaqSectionResponse } from "@/lib/types";
+import type { FaqSectionResponse, ProductResponse } from "@/lib/types";
 
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://ateliermarie.com";
 
@@ -80,6 +80,51 @@ export function buildFaqJsonLd(sections: FaqSectionResponse[]) {
         },
       }))
     ),
+  };
+}
+
+function absoluteUrl(url: string): string {
+  if (/^https?:\/\//i.test(url)) return url;
+  return `${BASE_URL}${url.startsWith("/") ? url : `/${url}`}`;
+}
+
+export function buildProductJsonLd(product: ProductResponse, locale: Locale) {
+  const productUrl = getCanonicalUrl(locale, `/products/${product.id}`);
+  const imageUrls = [
+    ...product.images.map((image) => image.zoom_url ?? image.image_url),
+    product.primary_image_url,
+  ]
+    .filter((url): url is string => Boolean(url))
+    .map(absoluteUrl);
+
+  return {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    "@id": `${productUrl}#product`,
+    name: product.name,
+    description: product.description ?? undefined,
+    image: Array.from(new Set(imageUrls)),
+    sku: product.id,
+    productID: product.id,
+    brand: {
+      "@type": "Brand",
+      name: "Atelier Marie",
+    },
+    offers: {
+      "@type": "Offer",
+      url: productUrl,
+      price: (product.effective_price_cents / 100).toFixed(2),
+      priceCurrency: "EUR",
+      availability:
+        product.stock > 0
+          ? "https://schema.org/InStock"
+          : "https://schema.org/OutOfStock",
+      itemCondition: "https://schema.org/NewCondition",
+      seller: {
+        "@type": "Organization",
+        name: "Atelier Marie",
+      },
+    },
   };
 }
 
