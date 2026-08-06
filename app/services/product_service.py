@@ -1089,7 +1089,7 @@ def _resolve_filter_target_ids(conn: psycopg.Connection, filt: dict) -> list[str
     q = (filt.get("q") or "").strip()
     if q:
         conditions.append(
-            "(name_en LIKE %s ESCAPE '\\' OR name_bg LIKE %s ESCAPE '\\' OR id LIKE %s ESCAPE '\\')"
+            "(name_en ILIKE %s ESCAPE '\\' OR name_bg ILIKE %s ESCAPE '\\' OR id ILIKE %s ESCAPE '\\')"
         )
         # Escape LIKE wildcards so a query like "50%" matches literally.
         escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")

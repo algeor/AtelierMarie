@@ -45,6 +45,21 @@ def _lease_deadline() -> str:
     )
 
 
+def _fmt_ts(value: object) -> str | None:
+    """Normalize a TIMESTAMPTZ value (psycopg returns ``datetime``) to the
+    canonical ``%Y-%m-%d %H:%M:%S`` string the ``ProductVideo`` model expects.
+
+    Postgres columns come back as ``datetime`` objects; Pydantic's ``str`` field
+    rejects them, so downstream reads 500 unless we render them here (mirrors the
+    ``_fmt_ts`` helpers in the other services touched by the Postgres port).
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.strftime(SQLITE_DATETIME_FORMAT)
+    return str(value)
+
+
 def _row_to_video(row: sqlite3.Row) -> dict:
     return {
         "id": row["id"],
@@ -55,8 +70,8 @@ def _row_to_video(row: sqlite3.Row) -> dict:
         "duration_secs": row["duration_secs"],
         "sort_order": row["sort_order"],
         "failure_reason": row["failure_reason"],
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
+        "created_at": _fmt_ts(row["created_at"]),
+        "updated_at": _fmt_ts(row["updated_at"]),
     }
 
 

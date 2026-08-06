@@ -228,18 +228,6 @@ async def create_order(
                 pay_on_delivery_max_cents=pay_on_delivery_max_cents,
             )
 
-            analytics_service.record_purchase_confirmed(
-                order_id=order_data["id"],
-                session_id=session_id,
-                user_id=user_id,
-                locale=locale,
-                total_cents=order_data["total_cents"],
-                payment_method=body.payment_method,
-                delivery_method=order_data["delivery_method"],
-                delivery_courier=order_data["delivery_courier"],
-                analytics_consent=analytics_consent,
-            )
-
             stripe_checkout_url: str | None = None
             if body.payment_method == "card":
                 try:
@@ -332,6 +320,24 @@ async def create_order(
                 }
             },
         )
+
+    # Emit the purchase-confirmed analytics event AFTER the order connection is
+    # released. record_purchase_confirmed runs its own get_db(); calling it inside
+    # the held checkout connection would need two pooled connections for one
+    # request and can dead-lock the psycopg pool (same reasoning as the consent
+    # read hoisted above). Analytics is fire-and-forget and swallows its own
+    # exceptions, so this never affects the order that already committed.
+    analytics_service.record_purchase_confirmed(
+        order_id=order_data["id"],
+        session_id=session_id,
+        user_id=user_id,
+        locale=locale,
+        total_cents=order_data["total_cents"],
+        payment_method=body.payment_method,
+        delivery_method=order_data["delivery_method"],
+        delivery_courier=order_data["delivery_courier"],
+        analytics_consent=analytics_consent,
+    )
 
     response = _public_order_response(order_data)
     if stripe_checkout_url:

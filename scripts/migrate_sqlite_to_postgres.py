@@ -309,6 +309,13 @@ def main() -> int:
     sqlite_conn.row_factory = sqlite3.Row
 
     with psycopg.connect(args.database_url, row_factory=dict_row) as pg_conn:
+        # Pin the session timezone to UTC (mirrors app/database.py). The app writes
+        # most timestamps as *naive* UTC strings ("YYYY-MM-DD HH:MM:SS"); those fall
+        # through coerce_datetime_value unchanged and Postgres casts the bare text to
+        # TIMESTAMPTZ using the session TimeZone GUC. Without this, a server whose
+        # default timezone is not UTC would store every naive timestamp at the wrong
+        # instant — and inconsistently with the epoch path, which is already UTC-aware.
+        pg_conn.execute("SET TIME ZONE 'UTC'")
         sqlite_names = sqlite_tables(sqlite_conn)
         pg_names = postgres_tables(pg_conn)
         shared = sqlite_names & pg_names
