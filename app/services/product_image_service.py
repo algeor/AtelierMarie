@@ -11,7 +11,7 @@ from urllib.parse import urlsplit, urlunsplit
 import structlog
 
 from app.config import get_settings
-from app.database import DbConnection, get_db
+from app.database import DbConnection, get_db, require_row
 from app.services.image_service import process_image, validate_image_file
 
 logger = structlog.get_logger(__name__)
@@ -124,6 +124,7 @@ def add_image(product_id: str, file_bytes: bytes) -> dict:
             """,
             (product_id,),
         ).fetchone()
+        current = require_row(current)
         if current["count"] >= MAX_IMAGES_PER_PRODUCT:
             raise ProductImageLimitError(f"Product already has {MAX_IMAGES_PER_PRODUCT} images")
 
@@ -156,7 +157,7 @@ def add_image(product_id: str, file_bytes: bytes) -> dict:
             (image_id, product_id),
         ).fetchone()
 
-    return _row_to_image(row)
+    return _row_to_image(require_row(row, "product_images row missing after insert"))
 
 
 def delete_image(product_id: str, image_id: str) -> None:
@@ -248,7 +249,7 @@ def set_primary(product_id: str, image_id: str) -> dict:
             """,
             (product_id, image_id),
         ).fetchone()
-    return _row_to_image(result)
+    return _row_to_image(require_row(result, "product_images row missing after update"))
 
 
 def add_existing_image_url(product_id: str, image_url: str) -> dict | None:
@@ -270,6 +271,7 @@ def add_existing_image_url(product_id: str, image_url: str) -> dict | None:
             """,
             (product_id,),
         ).fetchone()
+        current = require_row(current)
         if current["count"] >= MAX_IMAGES_PER_PRODUCT:
             return None
         is_primary = 1 if current["count"] == 0 else 0
@@ -298,7 +300,7 @@ def add_existing_image_url(product_id: str, image_url: str) -> dict | None:
             """,
             (image_id, product_id),
         ).fetchone()
-    return _row_to_image(row)
+    return _row_to_image(require_row(row, "product_images row missing after URL insert"))
 
 
 def _ensure_product_exists(conn: DbConnection, product_id: str) -> None:

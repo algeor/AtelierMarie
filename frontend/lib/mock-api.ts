@@ -2282,6 +2282,7 @@ export async function getDeliveryPlaces(
 
 const MOCK_FREE_SHIPPING_THRESHOLD_CENTS = 5000;
 const MOCK_FALLBACK_SHIPPING_CENTS = 500;
+const MOCK_INTERNAL_DELIVERY_CENTS = 350;
 
 let mockDeliverySettings: DeliverySettingsResponse = {
   speedy_office_enabled: true,
@@ -2474,7 +2475,11 @@ export async function createOrder(
     data.delivery.method === "office"
       ? data.delivery.office?.courier
       : data.delivery.door?.courier;
-  if (courier && !deliveryEnabled(courier, data.delivery.method)) {
+  if (
+    courier &&
+    data.delivery.method !== "internal" &&
+    !deliveryEnabled(courier, data.delivery.method)
+  ) {
     mockError(
       "DELIVERY_METHOD_UNAVAILABLE",
       "Delivery method is currently unavailable",
@@ -2495,7 +2500,11 @@ export async function createOrder(
 
   // Server-side free-shipping enforcement mirror: total >= threshold → 0¢, live.
   const freeShipping = cart.total_cents >= MOCK_FREE_SHIPPING_THRESHOLD_CENTS;
-  const shipping_cents = freeShipping ? 0 : (data.shipping_cents ?? 0);
+  const shipping_cents = freeShipping
+    ? 0
+    : data.delivery.method === "internal"
+      ? MOCK_INTERNAL_DELIVERY_CENTS
+      : (data.shipping_cents ?? 0);
   const shipping_price_source = freeShipping
     ? "live"
     : (data.shipping_price_source ?? "live");
@@ -2560,10 +2569,14 @@ export async function createOrder(
     delivery_courier:
       data.delivery.method === "office"
         ? (data.delivery.office?.courier ?? null)
+        : data.delivery.method === "internal"
+          ? null
         : (data.delivery.door?.courier ?? null),
     delivery_details:
       data.delivery.method === "office"
         ? (data.delivery.office ?? null)
+        : data.delivery.method === "internal"
+          ? (data.delivery.internal ?? null)
         : (data.delivery.door ?? null),
     notes: data.notes ?? null,
     items: cart.items.map((item) => ({

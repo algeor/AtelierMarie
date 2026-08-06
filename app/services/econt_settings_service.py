@@ -9,7 +9,7 @@ from typing import Any
 import structlog
 
 from app.config import Settings, get_settings
-from app.database import DbConnection, get_db
+from app.database import DbConnection, get_db, require_row
 from app.models.delivery import DeliveryConfigResponse, EcontCheckoutConfig
 from app.models.econt import (
     EcontConnectionTestResponse,
@@ -76,7 +76,7 @@ def _get_row(conn: DbConnection) -> dict:
             (_SETTINGS_ID,),
         )
         row = conn.execute("SELECT * FROM econt_settings WHERE id = %s", (_SETTINGS_ID,)).fetchone()
-    return row
+    return require_row(row, "econt_settings row missing after ensure")
 
 
 def _configured_secret(settings: Settings, row: dict) -> bool:

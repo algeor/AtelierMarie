@@ -9,7 +9,7 @@ import structlog
 
 from app.config import get_settings
 from app.constants import CANONICAL_DATETIME_FORMAT, VIDEO_TRANSCODE_LEASE_SECONDS
-from app.database import DbConnection, get_db
+from app.database import DbConnection, get_db, require_row
 from app.services import video_service
 
 logger = structlog.get_logger(__name__)
@@ -244,7 +244,7 @@ def queue_video_upload_path(
             )
             row = conn.execute("SELECT * FROM product_videos WHERE id = %s", (video_id,)).fetchone()
         video_service.unlink_video_files(*old_files)
-        return _row_to_video(row)
+        return _row_to_video(require_row(row, "product_videos row missing after insert"))
     except Exception:
         video_service.unlink_video_files(str(temp_path))
         raise
@@ -259,7 +259,7 @@ def get_video(product_id: str) -> dict:
         ).fetchone()
     if row is None:
         raise ProductVideoNotFoundError(f"Product video not found: {product_id}")
-    return _row_to_video(row)
+    return _row_to_video(require_row(row, "product_videos row missing after fetch"))
 
 
 def delete_video(product_id: str) -> None:
@@ -301,7 +301,7 @@ def update_sort_order(product_id: str, sort_order: int) -> dict:
         row = conn.execute(
             "SELECT * FROM product_videos WHERE product_id = %s", (product_id,)
         ).fetchone()
-    return _row_to_video(row)
+    return _row_to_video(require_row(row, "product_videos row missing after sort update"))
 
 
 def _output_urls_for_row(row: dict) -> tuple[str, str]:

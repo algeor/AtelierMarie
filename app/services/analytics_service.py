@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import uuid
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -95,10 +97,25 @@ class AnalyticsValidationError(ValueError):
     """Raised when an analytics event violates the first-party contract."""
 
 
+# DuckDB permits only one writer to a database file at a time. The admin
+# analytics page fires several report endpoints concurrently, each on its own
+# threadpool thread; without serialization their writes (JSONL reload, state
+# upserts) collide with "Conflict on tuple deletion" / duplicate-key errors.
+# A process-wide lock serializes all DuckDB access; analytics is low volume
+# and isolated, so the contention cost is negligible.
+_duckdb_lock = threading.RLock()
+
+
+@contextmanager
 def _duckdb_connect(path: str):
     import duckdb
 
-    return duckdb.connect(path)
+    with _duckdb_lock:
+        conn = duckdb.connect(path)
+        try:
+            yield conn
+        finally:
+            conn.close()
 
 
 def _utc_now() -> str:
@@ -236,8 +253,10 @@ def initialize_storage() -> None:
 def _set_state(key: str, value: str) -> None:
     settings = get_settings()
     with _duckdb_connect(settings.analytics_duckdb_path) as conn:
-        conn.execute("DELETE FROM analytics_state WHERE key = ?", (key,))
-        conn.execute("INSERT INTO analytics_state VALUES (?, ?, ?)", (key, value, _utc_now()))
+        conn.execute(
+            "INSERT OR REPLACE INTO analytics_state VALUES (?, ?, ?)",
+            (key, value, _utc_now()),
+        )
 
 
 def _increment_metric(metric: str, amount: int = 1) -> None:
@@ -596,18 +615,22 @@ def get_health() -> AnalyticsHealthResponse:
 def get_funnel(
     start_date: str | None = None, end_date: str | None = None
 ) -> list[AnalyticsFunnelStep]:
-    start, end_exclusive = _date_bounds(start_date, end_date)
-    initialize_storage()
-    with _duckdb_connect(get_settings().analytics_duckdb_path) as conn:
-        rows = conn.execute(
-            """
-            SELECT event_type, COUNT(*) AS count
-            FROM analytics_events
-            WHERE occurred_at >= ? AND occurred_at < ? AND anonymized = false
-            GROUP BY event_type
-            """,
-            (start, end_exclusive),
-        ).fetchall()
+    try:
+        start, end_exclusive = _date_bounds(start_date, end_date)
+        initialize_storage()
+        with _duckdb_connect(get_settings().analytics_duckdb_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT event_type, COUNT(*) AS count
+                FROM analytics_events
+                WHERE occurred_at >= ? AND occurred_at < ? AND anonymized = false
+                GROUP BY event_type
+                """,
+                (start, end_exclusive),
+            ).fetchall()
+    except Exception:
+        logger.exception("analytics_funnel_query_failed")
+        rows = []
     counts = {row[0]: int(row[1]) for row in rows}
     previous = 0
     steps: list[AnalyticsFunnelStep] = []
@@ -646,33 +669,40 @@ def _backend_order_totals(start_date: str | None, end_date: str | None) -> dict[
 
 
 def get_summary(start_date: str | None = None, end_date: str | None = None) -> dict[str, Any]:
-    start, end_exclusive = _date_bounds(start_date, end_date)
     display_start, display_end = _display_range(start_date, end_date)
-    initialize_storage()
-    with _duckdb_connect(get_settings().analytics_duckdb_path) as conn:
-        event_row = conn.execute(
-            """
-            SELECT COUNT(*) AS events, COUNT(DISTINCT session_id) AS sessions
-            FROM analytics_events
-            WHERE occurred_at >= ? AND occurred_at < ? AND anonymized = false
-            """,
-            (start, end_exclusive),
-        ).fetchone()
-        purchase_row = conn.execute(
-            """
-            SELECT COUNT(*) AS purchases, COALESCE(SUM(value_cents), 0) AS revenue
-            FROM analytics_events
-            WHERE event_type = 'purchase_confirmed'
-              AND occurred_at >= ? AND occurred_at < ? AND anonymized = false
-            """,
-            (start, end_exclusive),
-        ).fetchone()
-
     order_totals = _backend_order_totals(start_date, end_date)
-    accepted_events = int(event_row[0] or 0)
-    consented_sessions = int(event_row[1] or 0)
-    analytics_purchases = int(purchase_row[0] or 0)
-    analytics_revenue = int(purchase_row[1] or 0)
+    accepted_events = 0
+    consented_sessions = 0
+    analytics_purchases = 0
+    analytics_revenue = 0
+    try:
+        start, end_exclusive = _date_bounds(start_date, end_date)
+        initialize_storage()
+        with _duckdb_connect(get_settings().analytics_duckdb_path) as conn:
+            event_row = conn.execute(
+                """
+                SELECT COUNT(*) AS events, COUNT(DISTINCT session_id) AS sessions
+                FROM analytics_events
+                WHERE occurred_at >= ? AND occurred_at < ? AND anonymized = false
+                """,
+                (start, end_exclusive),
+            ).fetchone()
+            purchase_row = conn.execute(
+                """
+                SELECT COUNT(*) AS purchases, COALESCE(SUM(value_cents), 0) AS revenue
+                FROM analytics_events
+                WHERE event_type = 'purchase_confirmed'
+                  AND occurred_at >= ? AND occurred_at < ? AND anonymized = false
+                """,
+                (start, end_exclusive),
+            ).fetchone()
+        accepted_events = int(event_row[0] or 0)
+        consented_sessions = int(event_row[1] or 0)
+        analytics_purchases = int(purchase_row[0] or 0)
+        analytics_revenue = int(purchase_row[1] or 0)
+    except Exception:
+        logger.exception("analytics_summary_query_failed")
+
     backend_orders = order_totals["order_count"]
     coverage = (
         0.0 if backend_orders == 0 else round((analytics_purchases / backend_orders) * 100, 2)
@@ -705,30 +735,35 @@ def get_product_metrics(
     start_date: str | None = None, end_date: str | None = None
 ) -> list[dict[str, Any]]:
     start, end_exclusive = _date_bounds(start_date, end_date)
-    initialize_storage()
-    with _duckdb_connect(get_settings().analytics_duckdb_path) as duck:
-        behavior_rows = duck.execute(
-            """
-            SELECT product_id,
-                   SUM(CASE WHEN event_type = 'product_view' THEN 1 ELSE 0 END) AS views,
-                   SUM(CASE WHEN event_type = 'add_to_cart' THEN 1 ELSE 0 END) AS add_to_cart
-            FROM analytics_events
-            WHERE product_id IS NOT NULL
-              AND occurred_at >= ? AND occurred_at < ? AND anonymized = false
-            GROUP BY product_id
-            """,
-            (start, end_exclusive),
-        ).fetchall()
-        purchase_order_rows = duck.execute(
-            """
-            SELECT DISTINCT order_id
-            FROM analytics_events
-            WHERE event_type = 'purchase_confirmed'
-              AND order_id IS NOT NULL
-              AND occurred_at >= ? AND occurred_at < ? AND anonymized = false
-            """,
-            (start, end_exclusive),
-        ).fetchall()
+    try:
+        initialize_storage()
+        with _duckdb_connect(get_settings().analytics_duckdb_path) as duck:
+            behavior_rows = duck.execute(
+                """
+                SELECT product_id,
+                       SUM(CASE WHEN event_type = 'product_view' THEN 1 ELSE 0 END) AS views,
+                       SUM(CASE WHEN event_type = 'add_to_cart' THEN 1 ELSE 0 END) AS add_to_cart
+                FROM analytics_events
+                WHERE product_id IS NOT NULL
+                  AND occurred_at >= ? AND occurred_at < ? AND anonymized = false
+                GROUP BY product_id
+                """,
+                (start, end_exclusive),
+            ).fetchall()
+            purchase_order_rows = duck.execute(
+                """
+                SELECT DISTINCT order_id
+                FROM analytics_events
+                WHERE event_type = 'purchase_confirmed'
+                  AND order_id IS NOT NULL
+                  AND occurred_at >= ? AND occurred_at < ? AND anonymized = false
+                """,
+                (start, end_exclusive),
+            ).fetchall()
+    except Exception:
+        logger.exception("analytics_product_query_failed")
+        behavior_rows = []
+        purchase_order_rows = []
 
     metrics: dict[str, dict[str, int]] = {}
     for product_id, views, add_to_cart in behavior_rows:
@@ -806,56 +841,60 @@ def get_product_metrics(
 def get_checkout_metrics(
     start_date: str | None = None, end_date: str | None = None
 ) -> dict[str, Any]:
-    start, end_exclusive = _date_bounds(start_date, end_date)
-    initialize_storage()
-    with _duckdb_connect(get_settings().analytics_duckdb_path) as conn:
-        counts = dict(
-            conn.execute(
-                """
-                SELECT event_type, COUNT(*)
-                FROM analytics_events
-                WHERE occurred_at >= ? AND occurred_at < ? AND anonymized = false
-                GROUP BY event_type
-                """,
-                (start, end_exclusive),
-            ).fetchall()
-        )
-        delivery_methods = dict(
-            conn.execute(
-                """
-                SELECT delivery_method, COUNT(*)
-                FROM analytics_events
-                WHERE delivery_method IS NOT NULL AND occurred_at >= ? AND occurred_at < ?
-                  AND anonymized = false
-                GROUP BY delivery_method
-                """,
-                (start, end_exclusive),
-            ).fetchall()
-        )
-        delivery_couriers = dict(
-            conn.execute(
-                """
-                SELECT delivery_courier, COUNT(*)
-                FROM analytics_events
-                WHERE delivery_courier IS NOT NULL AND occurred_at >= ? AND occurred_at < ?
-                  AND anonymized = false
-                GROUP BY delivery_courier
-                """,
-                (start, end_exclusive),
-            ).fetchall()
-        )
-        payment_methods = dict(
-            conn.execute(
-                """
-                SELECT payment_method, COUNT(*)
-                FROM analytics_events
-                WHERE payment_method IS NOT NULL AND occurred_at >= ? AND occurred_at < ?
-                  AND anonymized = false
-                GROUP BY payment_method
-                """,
-                (start, end_exclusive),
-            ).fetchall()
-        )
+    try:
+        start, end_exclusive = _date_bounds(start_date, end_date)
+        initialize_storage()
+        with _duckdb_connect(get_settings().analytics_duckdb_path) as conn:
+            counts = dict(
+                conn.execute(
+                    """
+                    SELECT event_type, COUNT(*)
+                    FROM analytics_events
+                    WHERE occurred_at >= ? AND occurred_at < ? AND anonymized = false
+                    GROUP BY event_type
+                    """,
+                    (start, end_exclusive),
+                ).fetchall()
+            )
+            delivery_methods = dict(
+                conn.execute(
+                    """
+                    SELECT delivery_method, COUNT(*)
+                    FROM analytics_events
+                    WHERE delivery_method IS NOT NULL AND occurred_at >= ? AND occurred_at < ?
+                      AND anonymized = false
+                    GROUP BY delivery_method
+                    """,
+                    (start, end_exclusive),
+                ).fetchall()
+            )
+            delivery_couriers = dict(
+                conn.execute(
+                    """
+                    SELECT delivery_courier, COUNT(*)
+                    FROM analytics_events
+                    WHERE delivery_courier IS NOT NULL AND occurred_at >= ? AND occurred_at < ?
+                      AND anonymized = false
+                    GROUP BY delivery_courier
+                    """,
+                    (start, end_exclusive),
+                ).fetchall()
+            )
+            payment_methods = dict(
+                conn.execute(
+                    """
+                    SELECT payment_method, COUNT(*)
+                    FROM analytics_events
+                    WHERE payment_method IS NOT NULL AND occurred_at >= ? AND occurred_at < ?
+                      AND anonymized = false
+                    GROUP BY payment_method
+                    """,
+                    (start, end_exclusive),
+                ).fetchall()
+            )
+    except Exception:
+        logger.exception("analytics_checkout_query_failed")
+        return {}
     return {
         "checkout_starts": int(counts.get("checkout_start", 0)),
         "order_submits": int(counts.get("order_submit", 0)),

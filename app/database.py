@@ -43,6 +43,7 @@ Error = psycopg.Error
 # the old _db_path global. None until init_db() runs. Under pytest-xdist each
 # worker is a separate process with its own per-process pool (Decision 2a).
 DbConnection = Connection[DictRow]
+DbRow = DictRow
 
 _pool: ConnectionPool[DbConnection] | None = None
 
@@ -195,6 +196,13 @@ def row_get(row: dict[str, Any], key: str, default: Any = None) -> Any:
     """
     value = row.get(key)
     return value if value is not None else default
+
+
+def require_row(row: DbRow | None, message: str = "Expected database row") -> DbRow:
+    """Return a fetched row, or fail explicitly when an invariant query returned none."""
+    if row is None:
+        raise RuntimeError(message)
+    return row
 
 
 def row_to_dict(row: dict[str, Any], defaults: dict[str, Any] | None = None) -> dict[str, Any]:

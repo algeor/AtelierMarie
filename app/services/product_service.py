@@ -6,7 +6,7 @@ from typing import Literal
 import psycopg
 
 from app.constants import MAX_LIMIT, MAX_PAGE
-from app.database import DbConnection, get_db
+from app.database import DbConnection, get_db, require_row
 from app.models.common import calculate_offset
 from app.services import pricing, product_image_service, product_video_service, taxonomy_service
 
@@ -543,7 +543,7 @@ def list_products(
             f"SELECT COUNT(*) as cnt FROM products WHERE {where_clause}",  # noqa: S608
             params,
         ).fetchone()
-        total = count_row["cnt"]
+        total = require_row(count_row)["cnt"]
 
         if price_sort:
             rows = conn.execute(
@@ -699,7 +699,7 @@ def list_products_admin(
             f"SELECT COUNT(*) as cnt FROM products p {where_clause}",  # noqa: S608
             params,
         ).fetchone()
-        total = count_row["cnt"]
+        total = require_row(count_row)["cnt"]
 
         rows = conn.execute(
             f"SELECT p.* FROM products p {where_clause} "  # noqa: S608
@@ -805,7 +805,7 @@ def create_product(data: dict) -> dict:
         taxonomy_service.replace_product_labels(conn, product_id, label_slugs)
 
         row = conn.execute("SELECT * FROM products WHERE id = %s", (product_id,)).fetchone()
-        product = _row_to_dict(row)
+        product = _row_to_dict(require_row(row, "product row missing after create"))
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
         _attach_admin_inventory_context(conn, [product])
 
@@ -912,7 +912,7 @@ def upsert_product(product_id: str, data: dict) -> dict:
             taxonomy_service.replace_product_labels(conn, product_id, labels)
 
         row = conn.execute("SELECT * FROM products WHERE id = %s", (product_id,)).fetchone()
-        product = _row_to_dict(row)
+        product = _row_to_dict(require_row(row, "product row missing after update"))
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
         _attach_admin_inventory_context(conn, [product])
 
@@ -1049,7 +1049,7 @@ def update_product(product_id: str, data: dict) -> dict:
                 )
 
         row = conn.execute("SELECT * FROM products WHERE id = %s", (product_id,)).fetchone()
-        product = _row_to_dict(row)
+        product = _row_to_dict(require_row(row, "product row missing after image update"))
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
         _attach_admin_inventory_context(conn, [product])
 
@@ -1078,7 +1078,7 @@ def deactivate_product(product_id: str) -> dict:
         )
 
         row = conn.execute("SELECT * FROM products WHERE id = %s", (product_id,)).fetchone()
-        product = _row_to_dict(row)
+        product = _row_to_dict(require_row(row, "product row missing after deactivate"))
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
         _attach_admin_inventory_context(conn, [product])
 
@@ -1180,7 +1180,7 @@ def count_search_products(
             """,  # noqa: S608
             params,
         ).fetchone()
-    return row["cnt"]
+    return require_row(row)["cnt"]
 
 
 def search_products(

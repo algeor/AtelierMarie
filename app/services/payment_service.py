@@ -18,7 +18,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import structlog
 
-from app.database import DbConnection
+from app.database import DbConnection, require_row
 from app.services.admin_alert_service import create_admin_alert
 from app.services.order_service import (
     OrderData,
@@ -881,6 +881,7 @@ def handle_payment_succeeded(
             details["ignored_reason"] = "order_not_found"
 
         if can_mark_paid:
+            order_row = require_row(order_row, "order row missing while marking payment paid")
             conn.execute(
                 "UPDATE orders SET payment_status = 'paid', paid_at = COALESCE(paid_at, %s), "
                 "stripe_payment_intent_id = %s "
@@ -1235,18 +1236,23 @@ def handle_refund_updated(
                 """,
                 (now, refund["id"]),
             )
-            total_refunded = conn.execute(
-                """
+            total_refunded = require_row(
+                conn.execute(
+                    """
                 SELECT COALESCE(SUM(amount_cents), 0) AS total
                 FROM payment_refunds
                 WHERE order_id = %s AND provider = 'stripe' AND status = 'succeeded'
                 """,
-                (resolved_order_id,),
-            ).fetchone()["total"]
-            order_total = conn.execute(
-                "SELECT total_cents FROM orders WHERE id = %s",
-                (resolved_order_id,),
-            ).fetchone()["total_cents"]
+                    (resolved_order_id,),
+                ).fetchone()
+            )["total"]
+            order_total = require_row(
+                conn.execute(
+                    "SELECT total_cents FROM orders WHERE id = %s",
+                    (resolved_order_id,),
+                ).fetchone(),
+                "order row missing while applying refund update",
+            )["total_cents"]
             new_payment_status = (
                 "refunded" if int(total_refunded) >= int(order_total) else "partially_refunded"
             )

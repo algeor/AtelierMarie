@@ -480,6 +480,7 @@
         "label": "Delivery method",
         "office": "Pick up from office",
         "door": "Door delivery",
+        "internal": "Atelier Marie delivery",
         "required": "Please select a delivery method"
       },
       "courier": {
@@ -544,6 +545,9 @@
       "freeShippingAchieved": "You've unlocked free shipping!",
       "deliveryEstimate": "Est. {days} business days",
       "fallbackDisclaimer": "This is an estimated price — the final shipping cost may vary slightly.",
+      "internal": {
+        "notice": "Speedy and Econt are unavailable right now. Delivery will be handled by Atelier Marie for €3.50, or free over €50."
+      },
       "display": {
         "sectionTitle": "Delivery",
         "methodLabel": "Method",

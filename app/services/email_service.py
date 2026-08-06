@@ -75,6 +75,8 @@ def _delivery_method_label(method: str | None, locale: str) -> str | None:
         return "До офис/автомат" if locale == "bg" else "Office or locker pickup"
     if method == "door":
         return "До адрес" if locale == "bg" else "Door delivery"
+    if method == "internal":
+        return "Доставка от Atelier Marie" if locale == "bg" else "Atelier Marie delivery"
     return None
 
 
@@ -135,7 +137,7 @@ def _build_delivery_email_context(order_data: OrderData, locale: str) -> dict:
             delivery_lines.append(f"{labels['type']}: {office_type}")
         if city:
             delivery_lines.append(f"{labels['city']}: {city}")
-    elif method == "door":
+    elif method in {"door", "internal"}:
         address = _address_line(details, locale)
         city_parts = [part for part in (details.get("postal_code"), details.get("city")) if part]
         if address:

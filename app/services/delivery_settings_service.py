@@ -4,8 +4,8 @@ from datetime import datetime
 
 import structlog
 
-from app.database import DbConnection, get_db
-from app.models.delivery import Courier, DeliveryMethod
+from app.database import DbConnection, get_db, require_row
+from app.models.delivery import Courier, CourierDeliveryMethod
 from app.services import pricing
 
 logger = structlog.get_logger(__name__)
@@ -61,7 +61,7 @@ def _get_row(conn: DbConnection) -> dict:
             "SELECT * FROM delivery_settings WHERE id = %s",
             (_SETTINGS_ID,),
         ).fetchone()
-    return row
+    return require_row(row, "delivery_settings row missing after ensure")
 
 
 def get_delivery_settings() -> dict:
@@ -113,13 +113,15 @@ def update_delivery_settings(data: dict) -> dict:
     return settings
 
 
-def is_delivery_method_enabled(courier: Courier, method: DeliveryMethod) -> bool:
+def is_delivery_method_enabled(courier: Courier, method: CourierDeliveryMethod) -> bool:
     """True when the given courier/method pair is currently available."""
     settings = get_delivery_settings()
     return bool(settings[f"{courier}_{method}_enabled"])
 
 
-def disabled_requested_methods(couriers: list[Courier], method: DeliveryMethod) -> list[dict]:
+def disabled_requested_methods(
+    couriers: list[Courier], method: CourierDeliveryMethod
+) -> list[dict]:
     """Return disabled courier/method pairs from a public quote request."""
     settings = get_delivery_settings()
     return [

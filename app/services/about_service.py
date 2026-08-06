@@ -2,7 +2,7 @@
 
 import uuid
 
-from app.database import DbConnection, get_db
+from app.database import DbConnection, get_db, require_row
 from app.services.image_service import process_image, validate_image_file
 from app.utils.sanitize import is_safe_http_or_relative_url, sanitize_text, unsanitize_text
 
@@ -279,7 +279,7 @@ def create_item(section: str, payload: dict) -> dict:
             "SELECT COALESCE(MAX(sort_order), -1) AS max_order FROM about_items WHERE section = %s",
             (section,),
         ).fetchone()
-        sort_order = int(row["max_order"]) + 1
+        sort_order = int(require_row(row)["max_order"]) + 1
         cursor = conn.execute(
             """
             INSERT INTO about_items (

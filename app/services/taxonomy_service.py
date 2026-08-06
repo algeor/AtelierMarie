@@ -9,7 +9,7 @@ blocked while any product references the term.
 from datetime import UTC, datetime
 from typing import Literal
 
-from app.database import DbConnection, IntegrityError, get_db
+from app.database import DbConnection, IntegrityError, get_db, require_row
 from app.utils.slugify import slugify, unique_slug
 
 # Public kind identifiers used in admin routes (/v1/admin/taxonomy/<kind>).
@@ -104,7 +104,7 @@ def _count_one(conn: DbConnection, kind: str, slug: str) -> int:
         sql = "SELECT COUNT(*) AS c FROM products WHERE category_slug = %s"
     else:  # labels
         sql = "SELECT COUNT(*) AS c FROM product_label_assignments WHERE label_slug = %s"
-    return conn.execute(sql, (slug,)).fetchone()["c"]
+    return require_row(conn.execute(sql, (slug,)).fetchone())["c"]
 
 
 # ---------------------------------------------------------------------------
@@ -233,10 +233,12 @@ def update_term(kind: Kind, slug: str, updates: dict) -> dict:
         # Products default to a product type and the column is NOT NULL, so the
         # shop must always have at least one active type to assign on create.
         if kind == "product-types" and fields.get("is_active") == 0:
-            active_others = conn.execute(
-                "SELECT COUNT(*) AS c FROM product_types WHERE is_active = 1 AND slug != %s",
-                (slug,),
-            ).fetchone()["c"]
+            active_others = require_row(
+                conn.execute(
+                    "SELECT COUNT(*) AS c FROM product_types WHERE is_active = 1 AND slug != %s",
+                    (slug,),
+                ).fetchone()
+            )["c"]
             if active_others == 0:
                 raise TaxonomyValidationError("Cannot deactivate the last active product type")
 

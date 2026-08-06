@@ -1,6 +1,6 @@
 """Saved product service for account shortlists."""
 
-from app.database import DbConnection
+from app.database import DbConnection, require_row
 from app.services import pricing, product_image_service, product_video_service, taxonomy_service
 from app.services.product_service import (
     Locale,
@@ -77,15 +77,17 @@ def list_saved_products(
     page, limit = _clamp_pagination(page, limit)
     offset = (page - 1) * limit
 
-    total = conn.execute(
-        """
+    total = require_row(
+        conn.execute(
+            """
         SELECT COUNT(*) AS count
         FROM user_saved_products sp
         JOIN products p ON p.id = sp.product_id
         WHERE sp.user_id = %s AND p.is_active = 1
         """,
-        (user_id,),
-    ).fetchone()["count"]
+            (user_id,),
+        ).fetchone()
+    )["count"]
 
     rows = conn.execute(
         """

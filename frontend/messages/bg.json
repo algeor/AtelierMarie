@@ -480,6 +480,7 @@
         "label": "Начин на доставка",
         "office": "Вземи от офис",
         "door": "Доставка до врата",
+        "internal": "Доставка от Atelier Marie",
         "required": "Моля, изберете начин на доставка"
       },
       "courier": {
@@ -544,6 +545,9 @@
       "freeShippingAchieved": "Спечелихте безплатна доставка!",
       "deliveryEstimate": "Ок. {days} работни дни",
       "fallbackDisclaimer": "Това е приблизителна цена — крайната цена за доставка може леко да се различава.",
+      "internal": {
+        "notice": "Speedy и Econt временно не са налични. Доставката ще бъде извършена от Atelier Marie за 3.50€, или безплатно над 50€."
+      },
       "display": {
         "sectionTitle": "Доставка",
         "methodLabel": "Начин",

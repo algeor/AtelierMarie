@@ -19,7 +19,10 @@ import { useCookieConsent } from "@/contexts/CookieConsentContext";
 import { policyPath } from "@/lib/legal";
 import { formatPrice } from "@/lib/utils";
 import { resolveMediaUrl } from "@/lib/media";
-import { FREE_SHIPPING_THRESHOLD_CENTS } from "@/lib/constants";
+import {
+  FREE_SHIPPING_THRESHOLD_CENTS,
+  INTERNAL_DELIVERY_CENTS,
+} from "@/lib/constants";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 import {
@@ -32,10 +35,12 @@ import { ShippingPriceSummary } from "@/components/checkout/ShippingPriceSummary
 import type {
   CalculateShippingRequest,
   Courier,
+  CourierDeliveryMethod,
   DeliveryInfo,
   DeliverySettingsResponse,
   PaymentMethod,
   PublicPaymentSettingsResponse,
+  ShippingPriceSource,
   ShippingQuote,
 } from "@/lib/types";
 
@@ -48,7 +53,7 @@ const ALL_COURIERS: Courier[] = ["speedy", "econt"];
 function courierMethodEnabled(
   settings: DeliverySettingsResponse | null,
   courier: Courier,
-  method: "office" | "door",
+  method: CourierDeliveryMethod,
 ): boolean {
   if (!settings) return true;
   const key = `${courier}_${method}_enabled` as keyof Pick<
@@ -63,7 +68,7 @@ function courierMethodEnabled(
 
 function enabledCouriersForMethod(
   settings: DeliverySettingsResponse | null,
-  method: "office" | "door",
+  method: CourierDeliveryMethod,
 ): Courier[] {
   return ALL_COURIERS.filter((courier) =>
     courierMethodEnabled(settings, courier, method),
@@ -203,6 +208,16 @@ export default function CheckoutPage() {
 
   const handleDeliveryChange = useCallback((next: Partial<DeliveryInfo>) => {
     setDelivery(next);
+    if (next.method === "internal") {
+      const signature = "internal";
+      if (signature === lastDeliverySignatureRef.current) return;
+      lastDeliverySignatureRef.current = signature;
+      trackAnalytics("delivery_selected", {
+        delivery_method: "internal",
+        delivery_courier: null,
+      });
+      return;
+    }
     const courier = next.office?.courier || next.door?.courier || null;
     if (!next.method || !courier) return;
     const signature = `${next.method}:${courier}`;
@@ -259,6 +274,7 @@ export default function CheckoutPage() {
   const method = delivery.method;
   const office = delivery.office ?? null;
   const door = delivery.door ?? null;
+  const internal = delivery.internal ?? null;
   const currentCourier: Courier | undefined = office?.courier ?? door?.courier;
   const officeConfirmed = Boolean(office?.office_id);
   const officeCity = office?.city ?? "";
@@ -267,9 +283,28 @@ export default function CheckoutPage() {
   const doorPostal = door?.postal_code ?? "";
   const doorStreet = door?.street ?? "";
   const doorComplete = Boolean(doorCity && doorPostal && doorStreet);
+  const internalComplete = Boolean(
+    internal?.city && internal.postal_code && internal.street,
+  );
 
   useEffect(() => {
-    if (!method || !currentCourier) {
+    if (!method) {
+      setDeliveryPhase("method");
+      setQuotes([]);
+      setSelectedQuote(null);
+      setShippingError(false);
+      return;
+    }
+
+    if (method === "internal") {
+      setDeliveryPhase(internalComplete ? "ready" : "method");
+      setQuotes([]);
+      setSelectedQuote(null);
+      setShippingError(false);
+      return;
+    }
+
+    if (!currentCourier) {
       setDeliveryPhase("method");
       setQuotes([]);
       setSelectedQuote(null);
@@ -392,6 +427,7 @@ export default function CheckoutPage() {
     doorCity,
     doorPostal,
     doorStreet,
+    internalComplete,
     door,
     total_cents,
     qualifiesForFreeShipping,
@@ -435,8 +471,10 @@ export default function CheckoutPage() {
       setErrors({});
       setDeliveryErrors({});
 
-      // Require a shipping quote unless the order qualifies for free shipping.
-      if (!qualifiesForFreeShipping && !selectedQuote) {
+      const isInternalDelivery = normalized.method === "internal";
+
+      // Require a courier quote unless this is free or in-house delivery.
+      if (!qualifiesForFreeShipping && !isInternalDelivery && !selectedQuote) {
         setSubmitError(t("delivery.shippingRequired"));
         return;
       }
@@ -449,6 +487,21 @@ export default function CheckoutPage() {
       }
 
       setIsSubmitting(true);
+      const shippingCents = qualifiesForFreeShipping
+        ? 0
+        : isInternalDelivery
+          ? INTERNAL_DELIVERY_CENTS
+          : (selectedQuote?.cents ?? 0);
+      const shippingPriceSource: ShippingPriceSource =
+        qualifiesForFreeShipping || isInternalDelivery
+          ? "live"
+          : (selectedQuote?.price_source ?? "live");
+      const shippingIsFallback = qualifiesForFreeShipping || isInternalDelivery
+        ? false
+        : (selectedQuote?.is_fallback ?? false);
+      const shippingQuotedAt = qualifiesForFreeShipping || isInternalDelivery
+        ? null
+        : (selectedQuote?.quoted_at ?? null);
 
       try {
         trackAnalytics("order_submit", {
@@ -464,18 +517,10 @@ export default function CheckoutPage() {
           notes: notes.trim() || null,
           payment_method: paymentMethod,
           analytics_consent: analyticsConsent,
-          shipping_cents: qualifiesForFreeShipping
-            ? 0
-            : (selectedQuote?.cents ?? 0),
-          shipping_price_source: qualifiesForFreeShipping
-            ? "live"
-            : (selectedQuote?.price_source ?? "live"),
-          shipping_is_fallback: qualifiesForFreeShipping
-            ? false
-            : (selectedQuote?.is_fallback ?? false),
-          shipping_quoted_at: qualifiesForFreeShipping
-            ? null
-            : (selectedQuote?.quoted_at ?? null),
+          shipping_cents: shippingCents,
+          shipping_price_source: shippingPriceSource,
+          shipping_is_fallback: shippingIsFallback,
+          shipping_quoted_at: shippingQuotedAt,
         });
         if (order.stripe_checkout_url) {
           trackAnalytics("payment_redirect", {
@@ -726,14 +771,16 @@ export default function CheckoutPage() {
               )}
 
             {/* Free-shipping celebration once the cart clears the threshold. */}
-            {qualifiesForFreeShipping && method && currentCourier && (
-              <p
-                className="mb-6 rounded-brand bg-accent-soft/35 px-4 py-3 text-sm font-medium text-accent"
-                role="status"
-              >
-                {t("delivery.freeShippingAchieved")}
-              </p>
-            )}
+            {qualifiesForFreeShipping &&
+              method &&
+              (currentCourier || method === "internal") && (
+                <p
+                  className="mb-6 rounded-brand bg-accent-soft/35 px-4 py-3 text-sm font-medium text-accent"
+                  role="status"
+                >
+                  {t("delivery.freeShippingAchieved")}
+                </p>
+              )}
 
             {/* Calculate failure — offer the customer a way forward. */}
             {shippingError && !quotesLoading && (
@@ -888,6 +935,8 @@ export default function CheckoutPage() {
                   shippingCents={
                     qualifiesForFreeShipping
                       ? 0
+                      : method === "internal"
+                        ? INTERNAL_DELIVERY_CENTS
                       : (selectedQuote?.cents ?? null)
                   }
                 />

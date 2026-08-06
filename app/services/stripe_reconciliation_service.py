@@ -10,7 +10,7 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 from app.config import get_settings
-from app.database import DbConnection, get_db
+from app.database import DbConnection, get_db, require_row
 from app.models.accounting import (
     StripeBalanceImportResponse,
     StripePayoutImportStatusResponse,
@@ -395,8 +395,9 @@ def sync_from_stripe(
 def import_status() -> StripePayoutImportStatusResponse:
     """Return aggregate Stripe import/reconciliation status."""
     with get_db() as conn:
-        row = conn.execute(
-            """
+        row = require_row(
+            conn.execute(
+                """
             SELECT COUNT(*) AS total_rows,
                    SUM(CASE WHEN match_status = 'matched' THEN 1 ELSE 0 END) AS matched,
                    SUM(CASE WHEN match_status = 'unmatched' THEN 1 ELSE 0 END) AS unmatched,
@@ -406,7 +407,9 @@ def import_status() -> StripePayoutImportStatusResponse:
                    MAX(imported_at) AS latest_imported_at
             FROM stripe_balance_transactions
             """
-        ).fetchone()
+            ).fetchone(),
+            "stripe balance import status aggregate returned no row",
+        )
     return StripePayoutImportStatusResponse(
         total_rows=int(row["total_rows"] or 0),
         matched=int(row["matched"] or 0),
@@ -466,9 +469,12 @@ def review_match(
                 row["id"],
             ),
         )
-        updated = conn.execute(
-            "SELECT * FROM stripe_balance_transactions WHERE id = %s", (row["id"],)
-        ).fetchone()
+        updated = require_row(
+            conn.execute(
+                "SELECT * FROM stripe_balance_transactions WHERE id = %s", (row["id"],)
+            ).fetchone(),
+            "stripe balance transaction row missing after review update",
+        )
         accounting_config_service.write_finance_audit_event(
             conn,
             action="stripe_balance_transaction.review_match",

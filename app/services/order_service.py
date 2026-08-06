@@ -15,6 +15,7 @@ import structlog
 
 from app.constants import (
     FREE_SHIPPING_THRESHOLD_CENTS,
+    INTERNAL_DELIVERY_CENTS,
     MAX_LIMIT,
     MAX_PAGE,
     SHIPPING_CENTS_MAX,
@@ -22,7 +23,7 @@ from app.constants import (
     ShippingPriceSource,
     tracking_url_for,
 )
-from app.database import DbConnection
+from app.database import DbConnection, require_row
 from app.models.delivery import DeliveryInfo
 from app.models.orders import InvoiceProfile, OrderStatus
 from app.services import (
@@ -49,10 +50,21 @@ _CHECKOUT_SEQUENCE_LOCK_KEY = 0x0A7E_11E4  # stable arbitrary key ("AtelierMarie
 # the Literal so it can never drift from the type (same pattern as OrderStatus).
 _VALID_PRICE_SOURCES: frozenset[str] = frozenset(get_args(ShippingPriceSource))
 _DEFAULT_SHIPMENT_WEIGHT_GRAMS = 300
+_COURIER_DELIVERY_SETTING_KEYS = (
+    "speedy_office_enabled",
+    "speedy_door_enabled",
+    "econt_office_enabled",
+    "econt_door_enabled",
+)
 
 OrderListView = Literal["all", "active", "needs_action", "delivered"]
 OrderDateRange = Literal["all", "last_30_days", "last_6_months"]
 OrderSort = Literal["newest", "oldest", "highest"]
+
+
+def _courier_delivery_available() -> bool:
+    settings = delivery_settings_service.get_delivery_settings()
+    return any(bool(settings[key]) for key in _COURIER_DELIVERY_SETTING_KEYS)
 
 
 class AccountingAdminFields(TypedDict):
@@ -948,7 +960,7 @@ def checkout(
                 )
             delivery_details["office_code"] = office_code
         delivery_courier = office_delivery.courier
-    else:
+    elif delivery.method == "door":
         door_delivery = delivery.door
         if door_delivery is not None and not delivery_settings_service.is_delivery_method_enabled(
             door_delivery.courier,
@@ -957,6 +969,14 @@ def checkout(
             raise DeliveryMethodUnavailableError(door_delivery.courier, "door")
         delivery_details = door_delivery.model_dump() if door_delivery is not None else None
         delivery_courier = door_delivery.courier if door_delivery is not None else None
+    else:
+        if _courier_delivery_available():
+            raise DeliveryMethodUnavailableError("internal", "internal")
+        internal_delivery = delivery.internal
+        delivery_details = internal_delivery.model_dump() if internal_delivery is not None else None
+        if delivery_details is not None:
+            delivery_details["handled_by"] = "atelier"
+        delivery_courier = None
 
     delivery_details_json = json.dumps(delivery_details, ensure_ascii=False)
 
@@ -1019,9 +1039,11 @@ def checkout(
         reserved_until = (
             (now_dt + timedelta(minutes=15)).strftime(_DT_FMT) if payment_method == "card" else None
         )
-        internal_sequence = conn.execute(
-            "SELECT COALESCE(MAX(internal_sequence), 0) + 1 AS next_seq FROM orders"
-        ).fetchone()["next_seq"]
+        internal_sequence = require_row(
+            conn.execute(
+                "SELECT COALESCE(MAX(internal_sequence), 0) + 1 AS next_seq FROM orders"
+            ).fetchone()
+        )["next_seq"]
         order_number = _generate_order_number(conn)
         payment_return_token = _generate_payment_return_token(conn)
         # Effective (discounted) price per row, computed once from a single `now`
@@ -1057,6 +1079,11 @@ def checkout(
         # Server-side re-quoting is deferred to Phase C (reconciliation).
         if items_total_cents >= FREE_SHIPPING_THRESHOLD_CENTS:
             shipping_cents = 0
+            shipping_price_source = "live"
+            shipping_is_fallback = False
+            shipping_quoted_at = None
+        elif delivery.method == "internal":
+            shipping_cents = INTERNAL_DELIVERY_CENTS
             shipping_price_source = "live"
             shipping_is_fallback = False
             shipping_quoted_at = None
@@ -1531,8 +1558,8 @@ def _fetch_order_with_items(conn: DbConnection, order_id: str) -> OrderData | No
         blocking_exception_count=accounting_admin_fields["blocking_exception_count"],
         finance_hub_links=accounting_admin_fields["finance_hub_links"],
         analytics_consent=bool(row["analytics_consent"] if "analytics_consent" in row_keys else 0),
-        created_at=_fmt_ts(row["created_at"]),
-        updated_at=_fmt_ts(row["updated_at"]),
+        created_at=_fmt_ts(row["created_at"]) or "",
+        updated_at=_fmt_ts(row["updated_at"]) or "",
         items=items,
     )
 
@@ -1799,10 +1826,12 @@ def list_orders(
     order_by = order_by_map.get(sort, order_by_map["newest"])
 
     # Total count
-    total = conn.execute(
-        f"SELECT COUNT(*) AS count FROM orders o {where_clause}",  # noqa: S608
-        params,
-    ).fetchone()["count"]
+    total = require_row(
+        conn.execute(
+            f"SELECT COUNT(*) AS count FROM orders o {where_clause}",  # noqa: S608
+            params,
+        ).fetchone()
+    )["count"]
 
     # Paginated results
     rows = conn.execute(
@@ -2090,10 +2119,12 @@ def list_orders_admin(
 
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
-    total = conn.execute(
-        f"SELECT COUNT(*) AS count FROM orders {where_clause}",  # noqa: S608
-        params,
-    ).fetchone()["count"]
+    total = require_row(
+        conn.execute(
+            f"SELECT COUNT(*) AS count FROM orders {where_clause}",  # noqa: S608
+            params,
+        ).fetchone()
+    )["count"]
 
     rows = conn.execute(
         f"SELECT id FROM orders {where_clause} ORDER BY created_at DESC LIMIT %s OFFSET %s",

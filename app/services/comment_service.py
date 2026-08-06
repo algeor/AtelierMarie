@@ -2,7 +2,7 @@
 
 import uuid
 
-from app.database import get_db
+from app.database import get_db, require_row
 from app.services.order_service import _fmt_ts
 from app.utils.sanitize import contains_blocked_word, is_url_only, sanitize_text, unsanitize_text
 
@@ -46,7 +46,7 @@ def _check_product_limit(session_id: str, product_id: str) -> None:
             "SELECT COUNT(*) as cnt FROM comments WHERE session_id = %s AND product_id = %s",
             (session_id, product_id),
         ).fetchone()
-    if row["cnt"] >= _MAX_COMMENTS_PER_PRODUCT:
+    if require_row(row)["cnt"] >= _MAX_COMMENTS_PER_PRODUCT:
         raise RateLimitExceededError("Comment limit reached for this product")
 
 
@@ -58,7 +58,7 @@ def _check_hourly_limit(session_id: str) -> None:
             "WHERE session_id = %s AND created_at > CURRENT_TIMESTAMP - INTERVAL '1 hour'",
             (session_id,),
         ).fetchone()
-    if row["cnt"] >= _MAX_COMMENTS_PER_HOUR:
+    if require_row(row)["cnt"] >= _MAX_COMMENTS_PER_HOUR:
         raise RateLimitExceededError("Too many comments. Please try again later.")
 
 
@@ -154,7 +154,7 @@ def _get_comment_created_at(comment_id: str) -> str:
         row = conn.execute(
             "SELECT created_at FROM comments WHERE id = %s", (comment_id,)
         ).fetchone()
-    return _fmt_ts(row["created_at"]) if row else ""
+    return (_fmt_ts(row["created_at"]) if row else "") or ""
 
 
 def list_comments(
@@ -189,7 +189,7 @@ def list_comments(
             "SELECT COUNT(*) as cnt FROM comments WHERE product_id = %s",
             (product_id,),
         ).fetchone()
-        total = count_row["cnt"]
+        total = require_row(count_row)["cnt"]
 
         # Paginated results
         rows = conn.execute(
@@ -239,7 +239,7 @@ def list_all_comments(
             f"SELECT COUNT(*) as cnt FROM comments c {where_clause}",  # noqa: S608
             params,
         ).fetchone()
-        total = count_row["cnt"]
+        total = require_row(count_row)["cnt"]
 
         rows = conn.execute(
             f"SELECT c.id, c.product_id, "  # noqa: S608

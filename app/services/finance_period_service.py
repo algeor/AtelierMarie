@@ -7,7 +7,7 @@ import uuid
 from datetime import date
 from typing import Any
 
-from app.database import DbConnection, get_db
+from app.database import DbConnection, get_db, require_row
 from app.models.accounting import (
     FinanceExceptionActionRequest,
     FinanceExceptionListResponse,
@@ -74,17 +74,20 @@ def _validate_date_range(period_start: str, period_end: str) -> None:
 
 
 def _period_counts(conn: DbConnection, period_id: str) -> tuple[int, int]:
-    row = conn.execute(
-        """
-        SELECT
-            SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) AS open_count,
-            SUM(CASE WHEN status = 'open' AND severity = 'blocking' THEN 1 ELSE 0 END)
-                AS blocking_count
-        FROM finance_exceptions
-        WHERE period_id = %s
-        """,
-        (period_id,),
-    ).fetchone()
+    row = require_row(
+        conn.execute(
+            """
+            SELECT
+                SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) AS open_count,
+                SUM(CASE WHEN status = 'open' AND severity = 'blocking' THEN 1 ELSE 0 END)
+                    AS blocking_count
+            FROM finance_exceptions
+            WHERE period_id = %s
+            """,
+            (period_id,),
+        ).fetchone(),
+        "finance exception count aggregate returned no row",
+    )
     return int(row["open_count"] or 0), int(row["blocking_count"] or 0)
 
 
@@ -854,86 +857,107 @@ def calculate_summary_totals(conn: DbConnection, period: dict) -> dict[str, obje
     period_start = period["period_start"]
     period_end = period["period_end"]
     params = (period_start, period_end)
-    sales = conn.execute(
-        f"""
-        SELECT COALESCE(SUM(o.total_cents), 0) AS gross_sales_cents,
-               COALESCE(SUM(o.shipping_cents), 0) AS shipping_charged_cents,
-               COUNT(*) AS order_count
-        FROM orders o
-        WHERE {_period_order_clause()}
-        """,
-        params,
-    ).fetchone()
-    returns = conn.execute(
-        f"""
-        SELECT COALESCE(SUM(r.amount_cents), 0) AS refunded_cents,
-               COUNT(*) AS refund_count
-        FROM payment_refunds r
-        JOIN orders o ON o.id = r.order_id
-        WHERE {_period_order_clause()} AND r.status = 'succeeded'
-        """,
-        params,
-    ).fetchone()
-    payments = conn.execute(
-        f"""
-        SELECT COALESCE(SUM(p.amount_cents), 0) AS customer_payments_cents
-        FROM payments p
-        JOIN orders o ON o.id = p.order_id
-        WHERE {_period_order_clause()}
-        """,
-        params,
-    ).fetchone()
-    stripe = conn.execute(
-        """
-        SELECT COALESCE(SUM(fee_amount_cents), 0) AS stripe_fees_cents,
-               COALESCE(SUM(net_amount_cents), 0) AS net_provider_payouts_cents
-        FROM stripe_balance_transactions
-        WHERE COALESCE((provider_created_at)::date, (payout_effective_at)::date,
-                       (imported_at)::date)
-              BETWEEN %s AND %s
-          AND match_status != 'ignored'
-        """,
-        params,
-    ).fetchone()
-    cod = conn.execute(
-        f"""
-        SELECT COALESCE(SUM(o.total_cents), 0) AS cod_receivable_cents
-        FROM orders o
-        WHERE {_period_order_clause()}
-          AND o.payment_method = 'cod'
-          AND o.status = 'delivered'
-          AND NOT EXISTS (SELECT 1 FROM cod_settlements c WHERE c.order_id = o.id)
-        """,
-        params,
-    ).fetchone()
-    expenses = conn.execute(
-        """
-        SELECT COALESCE(SUM(gross_amount_cents), 0) AS recorded_expenses_cents,
-               COALESCE(SUM(CASE WHEN category_key IN ('materials', 'packaging')
-                                 THEN gross_amount_cents ELSE 0 END), 0)
-                   AS material_packaging_expenses_cents
-        FROM expense_evidence
-        WHERE purchase_date BETWEEN %s AND %s
-        """,
-        params,
-    ).fetchone()
-    product_cost = conn.execute(
-        f"""
-        SELECT COALESCE(SUM(oi.quantity * COALESCE((
-            SELECT pc.estimated_unit_cost_cents
-            FROM product_cost_versions pc
-            WHERE pc.product_id = oi.product_id
-              AND pc.effective_date <= (o.created_at)::date
-              AND pc.review_status != 'archived'
-            ORDER BY pc.effective_date DESC, pc.created_at DESC
-            LIMIT 1
-        ), 0)), 0) AS estimated_product_cost_cents
-        FROM orders o
-        JOIN order_items oi ON oi.order_id = o.id
-        WHERE {_period_order_clause()}
-        """,
-        params,
-    ).fetchone()
+    sales = require_row(
+        conn.execute(
+            f"""
+            SELECT COALESCE(SUM(o.total_cents), 0) AS gross_sales_cents,
+                   COALESCE(SUM(o.shipping_cents), 0) AS shipping_charged_cents,
+                   COUNT(*) AS order_count
+            FROM orders o
+            WHERE {_period_order_clause()}
+            """,
+            params,
+        ).fetchone(),
+        "finance sales aggregate returned no row",
+    )
+    returns = require_row(
+        conn.execute(
+            f"""
+            SELECT COALESCE(SUM(r.amount_cents), 0) AS refunded_cents,
+                   COUNT(*) AS refund_count
+            FROM payment_refunds r
+            JOIN orders o ON o.id = r.order_id
+            WHERE {_period_order_clause()} AND r.status = 'succeeded'
+            """,
+            params,
+        ).fetchone(),
+        "finance returns aggregate returned no row",
+    )
+    payments = require_row(
+        conn.execute(
+            f"""
+            SELECT COALESCE(SUM(p.amount_cents), 0) AS customer_payments_cents
+            FROM payments p
+            JOIN orders o ON o.id = p.order_id
+            WHERE {_period_order_clause()}
+            """,
+            params,
+        ).fetchone(),
+        "finance payments aggregate returned no row",
+    )
+    stripe = require_row(
+        conn.execute(
+            """
+            SELECT COALESCE(SUM(fee_amount_cents), 0) AS stripe_fees_cents,
+                   COALESCE(SUM(net_amount_cents), 0) AS net_provider_payouts_cents
+            FROM stripe_balance_transactions
+            WHERE COALESCE((provider_created_at)::date, (payout_effective_at)::date,
+                           (imported_at)::date)
+                  BETWEEN %s AND %s
+              AND match_status != 'ignored'
+            """,
+            params,
+        ).fetchone(),
+        "finance stripe aggregate returned no row",
+    )
+    cod = require_row(
+        conn.execute(
+            f"""
+            SELECT COALESCE(SUM(o.total_cents), 0) AS cod_receivable_cents
+            FROM orders o
+            WHERE {_period_order_clause()}
+              AND o.payment_method = 'cod'
+              AND o.status = 'delivered'
+              AND NOT EXISTS (SELECT 1 FROM cod_settlements c WHERE c.order_id = o.id)
+            """,
+            params,
+        ).fetchone(),
+        "finance COD aggregate returned no row",
+    )
+    expenses = require_row(
+        conn.execute(
+            """
+            SELECT COALESCE(SUM(gross_amount_cents), 0) AS recorded_expenses_cents,
+                   COALESCE(SUM(CASE WHEN category_key IN ('materials', 'packaging')
+                                     THEN gross_amount_cents ELSE 0 END), 0)
+                       AS material_packaging_expenses_cents
+            FROM expense_evidence
+            WHERE purchase_date BETWEEN %s AND %s
+            """,
+            params,
+        ).fetchone(),
+        "finance expense aggregate returned no row",
+    )
+    product_cost = require_row(
+        conn.execute(
+            f"""
+            SELECT COALESCE(SUM(oi.quantity * COALESCE((
+                SELECT pc.estimated_unit_cost_cents
+                FROM product_cost_versions pc
+                WHERE pc.product_id = oi.product_id
+                  AND pc.effective_date <= (o.created_at)::date
+                  AND pc.review_status != 'archived'
+                ORDER BY pc.effective_date DESC, pc.created_at DESC
+                LIMIT 1
+            ), 0)), 0) AS estimated_product_cost_cents
+            FROM orders o
+            JOIN order_items oi ON oi.order_id = o.id
+            WHERE {_period_order_clause()}
+            """,
+            params,
+        ).fetchone(),
+        "finance product-cost aggregate returned no row",
+    )
     open_count, blocking_count = _period_counts(conn, period["id"])
     gross_sales_cents = int(sales["gross_sales_cents"] or 0)
     refunded_cents = int(returns["refunded_cents"] or 0)
@@ -957,32 +981,41 @@ def calculate_summary_totals(conn: DbConnection, period: dict) -> dict[str, obje
     inventory_value_by_type = {
         row["item_type"]: int(row["ending_value_cents"] or 0) for row in inventory_values
     }
-    cogs = conn.execute(
-        """
-        SELECT COALESCE(SUM(CASE WHEN review_state = 'reversed'
-                                 THEN -total_cost_cents ELSE total_cost_cents END), 0)
-                   AS cogs_cents
-        FROM cogs_ledger
-        WHERE (cogs_date)::date BETWEEN %s AND %s
-        """,
-        params,
-    ).fetchone()
-    writeoffs = conn.execute(
-        """
-        SELECT COALESCE(SUM(vl.total_value_cents), 0) AS writeoffs_cents
-        FROM inventory_valuation_layers vl
-        JOIN inventory_movements im ON im.id = vl.movement_id
-        WHERE (vl.valuation_date)::date BETWEEN %s AND %s
-          AND im.movement_type IN (
-              'return_write_off', 'write_off', 'spoilage',
-              'stock_count_correction', 'adjustment'
-          )
-        """,
-        params,
-    ).fetchone()
-    inventory_exception_count = conn.execute(
-        "SELECT COUNT(*) AS n FROM inventory_exceptions WHERE status = 'open'"
-    ).fetchone()["n"]
+    cogs = require_row(
+        conn.execute(
+            """
+            SELECT COALESCE(SUM(CASE WHEN review_state = 'reversed'
+                                     THEN -total_cost_cents ELSE total_cost_cents END), 0)
+                       AS cogs_cents
+            FROM cogs_ledger
+            WHERE (cogs_date)::date BETWEEN %s AND %s
+            """,
+            params,
+        ).fetchone(),
+        "finance COGS aggregate returned no row",
+    )
+    writeoffs = require_row(
+        conn.execute(
+            """
+            SELECT COALESCE(SUM(vl.total_value_cents), 0) AS writeoffs_cents
+            FROM inventory_valuation_layers vl
+            JOIN inventory_movements im ON im.id = vl.movement_id
+            WHERE (vl.valuation_date)::date BETWEEN %s AND %s
+              AND im.movement_type IN (
+                  'return_write_off', 'write_off', 'spoilage',
+                  'stock_count_correction', 'adjustment'
+              )
+            """,
+            params,
+        ).fetchone(),
+        "finance inventory writeoff aggregate returned no row",
+    )
+    inventory_exception_count = require_row(
+        conn.execute(
+            "SELECT COUNT(*) AS n FROM inventory_exceptions WHERE status = 'open'"
+        ).fetchone(),
+        "finance inventory exception aggregate returned no row",
+    )["n"]
     return {
         "currency": period["currency"],
         "gross_sales_cents": gross_sales_cents,

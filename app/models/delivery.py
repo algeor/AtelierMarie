@@ -16,7 +16,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-DeliveryMethod = Literal["office", "door"]
+CourierDeliveryMethod = Literal["office", "door"]
+DeliveryMethod = Literal["office", "door", "internal"]
 Courier = Literal["speedy", "econt"]
 OfficeType = Literal["office", "apt"]
 
@@ -77,6 +78,22 @@ class DeliveryDoor(BaseModel):
         return _validate_phone(value)
 
 
+class DeliveryInternal(BaseModel):
+    """In-house door delivery used only when courier delivery is unavailable."""
+
+    city: str = Field(..., min_length=1, max_length=100)
+    postal_code: str = Field(..., min_length=1, max_length=10)
+    street: str = Field(..., min_length=1, max_length=200)
+    building: str | None = Field(default=None, max_length=50)
+    apartment: str | None = Field(default=None, max_length=50)
+    phone: str = Field(..., min_length=8, max_length=20)
+
+    @field_validator("phone")
+    @classmethod
+    def _phone_format(cls, value: str) -> str:
+        return _validate_phone(value)
+
+
 class OfficeResponse(BaseModel):
     """API-shape office record returned by `GET /v1/delivery/offices`.
 
@@ -114,6 +131,7 @@ class DeliveryInfo(BaseModel):
     method: DeliveryMethod
     office: DeliveryOffice | None = None
     door: DeliveryDoor | None = None
+    internal: DeliveryInternal | None = None
 
     @model_validator(mode="after")
     def _details_match_method(self) -> "DeliveryInfo":
@@ -123,11 +141,22 @@ class DeliveryInfo(BaseModel):
                 raise ValueError("office details required when method is 'office'")
             if self.door is not None:
                 raise ValueError("door details must be null when method is 'office'")
+            if self.internal is not None:
+                raise ValueError("internal details must be null when method is 'office'")
         elif self.method == "door":
             if self.door is None:
                 raise ValueError("door details required when method is 'door'")
             if self.office is not None:
                 raise ValueError("office details must be null when method is 'door'")
+            if self.internal is not None:
+                raise ValueError("internal details must be null when method is 'door'")
+        elif self.method == "internal":
+            if self.internal is None:
+                raise ValueError("internal details required when method is 'internal'")
+            if self.office is not None:
+                raise ValueError("office details must be null when method is 'internal'")
+            if self.door is not None:
+                raise ValueError("door details must be null when method is 'internal'")
         return self
 
 

@@ -21,7 +21,7 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from jwt.algorithms import RSAAlgorithm
 
 from app.config import get_settings
-from app.database import DbConnection
+from app.database import DbConnection, require_row
 from app.models.users import UserResponse
 from app.utils.circuit_breaker import CircuitBreaker
 
@@ -377,7 +377,7 @@ def upsert_user(
     # released automatically when the transaction ends.
     with conn.transaction():
         conn.execute("SELECT pg_advisory_xact_lock(%s)", (_UPSERT_USER_LOCK_KEY,))
-        user_count = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
+        user_count = require_row(conn.execute("SELECT COUNT(*) AS n FROM users").fetchone())["n"]
         is_admin = 1 if user_count == 0 else 0
 
         user_id = str(uuid.uuid4())

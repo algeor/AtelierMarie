@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from app.database import DbConnection, get_db
+from app.database import DbConnection, get_db, require_row
 
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
 
@@ -162,7 +162,7 @@ def create_item(data: dict) -> dict:
                 "FROM faq_items WHERE section = %s",
                 (section,),
             ).fetchone()
-            sort_order = row["next_order"]
+            sort_order = require_row(row)["next_order"]
         cursor = conn.execute(
             """
             INSERT INTO faq_items (

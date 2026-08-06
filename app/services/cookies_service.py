@@ -4,7 +4,7 @@ import json
 from datetime import UTC, datetime
 
 from app.config import get_settings
-from app.database import DbConnection, get_db
+from app.database import DbConnection, get_db, require_row
 from app.models.cookies import MAX_COOKIE_TEXT_LENGTH
 
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
@@ -311,9 +311,11 @@ def sync_detected_inventory(
         }
 
     with get_db() as conn:
-        max_order = conn.execute(
-            "SELECT COALESCE(MAX(sort_order), -1) AS max_order FROM cookies_inventory"
-        ).fetchone()["max_order"]
+        max_order = require_row(
+            conn.execute(
+                "SELECT COALESCE(MAX(sort_order), -1) AS max_order FROM cookies_inventory"
+            ).fetchone()
+        )["max_order"]
         next_order = int(max_order) + 1
         for row in cleaned.values():
             existing = conn.execute(

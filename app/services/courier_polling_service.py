@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.config import get_settings
-from app.database import DbConnection, get_db
+from app.database import DbConnection, get_db, require_row
 from app.services import econt_fulfillment_service, speedy_admin_service
 from app.services.econt_delivery_client import EcontDeliveryError
 from app.services.econt_fulfillment_service import EcontFulfillmentError
@@ -313,7 +313,7 @@ async def refresh_order_now(
     try:
         payload = await _refresh_provider(
             conn,
-            row,
+            require_row(row, "order row missing during courier refresh"),
             actor_user_id=actor_user_id,
             speedy_track_func=speedy_track_func,
             econt_client=econt_client,

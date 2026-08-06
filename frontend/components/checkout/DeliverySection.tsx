@@ -25,10 +25,12 @@ import { cn } from "@/lib/utils";
 import type {
   CityPlace,
   Courier,
+  CourierDeliveryMethod,
   DeliveryConfigResponse,
   DeliverySettingsResponse,
   DeliveryDoor,
   DeliveryInfo,
+  DeliveryInternal,
   DeliveryMethod,
   DeliveryOffice,
   OfficeResponse,
@@ -249,12 +251,12 @@ interface DeliverySectionProps {
 }
 
 const ALL_COURIERS: Courier[] = ["speedy", "econt"];
-const ALL_METHODS: DeliveryMethod[] = ["office", "door"];
+const ALL_METHODS: CourierDeliveryMethod[] = ["office", "door"];
 
 function methodEnabled(
   settings: DeliverySettingsResponse | null | undefined,
   courier: Courier,
-  method: DeliveryMethod,
+  method: CourierDeliveryMethod,
 ): boolean {
   if (!settings) return true;
   const key = `${courier}_${method}_enabled` as keyof Pick<
@@ -269,7 +271,7 @@ function methodEnabled(
 
 function availableCouriersForMethod(
   settings: DeliverySettingsResponse | null | undefined,
-  method: DeliveryMethod,
+  method: CourierDeliveryMethod,
 ): Courier[] {
   return ALL_COURIERS.filter((courier) =>
     methodEnabled(settings, courier, method),
@@ -280,8 +282,8 @@ function availableCouriersForMethod(
 
 interface DeliveryMethodSelectorProps {
   value: DeliveryMethod | undefined;
-  onChange: (method: DeliveryMethod) => void;
-  methods: DeliveryMethod[];
+  onChange: (method: CourierDeliveryMethod) => void;
+  methods: CourierDeliveryMethod[];
   error?: string;
 }
 
@@ -839,6 +841,83 @@ function DoorAddressForm({
   );
 }
 
+// ---------------- InternalAddressForm ----------------
+
+interface InternalAddressFormProps {
+  value: Partial<DeliveryInternal>;
+  onChange: (patch: Partial<DeliveryInternal>) => void;
+  errors: DeliveryValidationErrors;
+}
+
+function InternalAddressForm({
+  value,
+  onChange,
+  errors,
+}: InternalAddressFormProps) {
+  const t = useTranslations("checkout.delivery.door");
+
+  const field = (
+    key: "city" | "postalCode" | "street" | "building" | "apartment",
+    fieldKey: keyof DeliveryInternal,
+    required: boolean,
+    errorKey?: keyof DeliveryValidationErrors,
+  ) => {
+    const err = errorKey ? errors[errorKey] : undefined;
+    const inputId = `delivery-internal-${fieldKey.replace(/_/g, "-")}`;
+    const errorId = `${inputId}-error`;
+    return (
+      <div className="mb-4">
+        <label
+          htmlFor={inputId}
+          className="mb-1.5 block text-sm font-medium text-muted"
+        >
+          {t(`${key}Label`)}
+          {required && <span className="text-error"> *</span>}
+        </label>
+        <input
+          id={inputId}
+          type="text"
+          value={(value[fieldKey] as string | null | undefined) ?? ""}
+          onChange={(e) => onChange({ [fieldKey]: e.target.value })}
+          placeholder={t(`${key}Placeholder`)}
+          maxLength={
+            fieldKey === "street"
+              ? 200
+              : fieldKey === "postal_code"
+                ? 10
+                : fieldKey === "building" || fieldKey === "apartment"
+                  ? 50
+                  : 100
+          }
+          aria-invalid={err ? "true" : undefined}
+          aria-describedby={err ? errorId : undefined}
+          className={cn(
+            "w-full rounded-brand border bg-surface/60 px-4 py-3 text-text focus:outline-none focus:ring-2 focus:ring-focus",
+            err ? "border-error" : "border-border/35",
+          )}
+        />
+        {err && (
+          <p id={errorId} className="mt-1 text-sm text-error" role="alert">
+            {err}
+          </p>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="mb-6">
+      {field("city", "city", true, "city")}
+      <div className="grid gap-4 sm:grid-cols-2">
+        {field("postalCode", "postal_code", true, "postalCode")}
+        {field("building", "building", false)}
+      </div>
+      {field("street", "street", true, "street")}
+      {field("apartment", "apartment", false)}
+    </div>
+  );
+}
+
 // ---------------- DoorPlaceField ----------------
 
 interface DoorPlaceFieldProps {
@@ -1046,6 +1125,7 @@ export function DeliverySection({
   const method = value.method;
   const office = value.office ?? undefined;
   const door = value.door ?? undefined;
+  const internal = value.internal ?? undefined;
   const availableMethods = useMemo(
     () =>
       ALL_METHODS.filter(
@@ -1053,8 +1133,12 @@ export function DeliverySection({
       ),
     [deliverySettings],
   );
+  const useInternalDelivery = availableMethods.length === 0;
   const availableCouriers = useMemo(
-    () => (method ? availableCouriersForMethod(deliverySettings, method) : []),
+    () =>
+      method && method !== "internal"
+        ? availableCouriersForMethod(deliverySettings, method)
+        : [],
     [deliverySettings, method],
   );
   // Courier lives inside office/door — track it at the section level for progressive disclosure
@@ -1067,6 +1151,29 @@ export function DeliverySection({
     useState<OfficeResponse | null>(null);
 
   useEffect(() => {
+    if (useInternalDelivery) {
+      if (method !== "internal") {
+        setSelectedOfficeFull(null);
+        onChange({
+          method: "internal",
+          internal: {
+            ...(internal ?? {}),
+            phone: internal?.phone ?? office?.phone ?? door?.phone ?? "",
+          } as DeliveryInternal,
+          office: null,
+          door: null,
+        });
+      }
+      return;
+    }
+    if (method === "internal") {
+      const nextMethod = availableMethods[0];
+      setSelectedOfficeFull(null);
+      onChange(
+        nextMethod ? { method: nextMethod, office: null, door: null } : {},
+      );
+      return;
+    }
     if (!method) return;
     if (!availableMethods.includes(method)) {
       const nextMethod = availableMethods[0];
@@ -1103,17 +1210,19 @@ export function DeliverySection({
     availableMethods,
     currentCourier,
     door,
+    internal,
     method,
     office?.phone,
     onChange,
+    useInternalDelivery,
     value,
   ]);
 
-  const setMethod = (m: DeliveryMethod) => {
+  const setMethod = (m: CourierDeliveryMethod) => {
     if (m === value.method) return;
     // Reset sub-state on method change
     setSelectedOfficeFull(null);
-    onChange({ method: m, office: null, door: null });
+    onChange({ method: m, office: null, door: null, internal: null });
   };
 
   const setCourier = (c: Courier) => {
@@ -1181,16 +1290,34 @@ export function DeliverySection({
     });
   };
 
+  const patchInternal = (patch: Partial<DeliveryInternal>) => {
+    onChange({
+      ...value,
+      internal: {
+        ...(internal ?? {}),
+        ...patch,
+      } as DeliveryInternal,
+      office: null,
+      door: null,
+    });
+  };
+
   const setPhone = (phone: string) => {
     if (method === "office" && office) {
       onChange({ ...value, office: { ...office, phone } });
     } else if (method === "door" && door) {
       onChange({ ...value, door: { ...door, phone } });
+    } else if (method === "internal") {
+      patchInternal({ phone });
     }
   };
 
   const phone =
-    method === "office" ? (office?.phone ?? "") : (door?.phone ?? "");
+    method === "office"
+      ? (office?.phone ?? "")
+      : method === "internal"
+        ? (internal?.phone ?? "")
+        : (door?.phone ?? "");
   // Prefer the cached full record if its id still matches the payload; otherwise
   // fall back to a payload-only reconstruction so a page reload doesn't lose
   // the selected state (address/city/hours will simply be blank until re-picked).
@@ -1215,9 +1342,9 @@ export function DeliverySection({
         {t("sectionTitle")}
       </h2>
 
-      {availableMethods.length === 0 ? (
-        <p className="mb-6 rounded-brand border border-error/20 bg-error/10 px-4 py-3 text-sm text-error">
-          {t("unavailable")}
+      {useInternalDelivery ? (
+        <p className="mb-6 rounded-brand border border-border/35 bg-surface/60 px-4 py-3 text-sm text-muted">
+          {t("internal.notice")}
         </p>
       ) : (
         <DeliveryMethodSelector
@@ -1228,7 +1355,7 @@ export function DeliverySection({
         />
       )}
 
-      {method && (
+      {method && method !== "internal" && (
         <CourierPicker
           value={currentCourier}
           onChange={setCourier}
@@ -1256,9 +1383,19 @@ export function DeliverySection({
         />
       )}
 
-      {method && currentCourier && (method !== "office" || selectedOffice) && (
-        <PhoneField value={phone} onChange={setPhone} error={errors.phone} />
+      {method === "internal" && (
+        <InternalAddressForm
+          value={internal ?? {}}
+          onChange={patchInternal}
+          errors={errors}
+        />
       )}
+
+      {method === "internal" ? (
+        <PhoneField value={phone} onChange={setPhone} error={errors.phone} />
+      ) : method && currentCourier && (method !== "office" || selectedOffice) ? (
+        <PhoneField value={phone} onChange={setPhone} error={errors.phone} />
+      ) : null}
     </section>
   );
 }
@@ -1303,6 +1440,38 @@ export function validateDelivery(
       normalized: {
         method: "office",
         office: { ...(o as DeliveryOffice), phone: normalizedOfficePhone },
+        door: null,
+      },
+    };
+  }
+
+  if (delivery.method === "internal") {
+    const i = delivery.internal;
+    if (!i?.city) errors.city = t("checkout.delivery.door.cityRequired");
+    if (!i?.postal_code)
+      errors.postalCode = t("checkout.delivery.door.postalCodeRequired");
+    if (!i?.street) errors.street = t("checkout.delivery.door.streetRequired");
+    const normalizedInternalPhone = i?.phone ? normalizePhone(i.phone) : "";
+    if (!i?.phone) {
+      errors.phone = t("checkout.delivery.phoneRequired");
+    } else if (!PHONE_REGEX.test(normalizedInternalPhone)) {
+      errors.phone = t("checkout.delivery.phoneInvalid");
+    }
+    if (Object.keys(errors).length > 0) return { valid: false, errors };
+    return {
+      valid: true,
+      errors: {},
+      normalized: {
+        method: "internal",
+        internal: {
+          city: i!.city!,
+          postal_code: i!.postal_code!,
+          street: i!.street!,
+          building: i!.building || null,
+          apartment: i!.apartment || null,
+          phone: normalizedInternalPhone,
+        },
+        office: null,
         door: null,
       },
     };

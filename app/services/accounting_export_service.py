@@ -11,7 +11,7 @@ from pathlib import Path
 
 from openpyxl import Workbook
 
-from app.database import DbConnection, get_db
+from app.database import DbConnection, get_db, require_row
 from app.models.accounting import (
     AccountantAcceptanceRequest,
     FinanceExportPackageListResponse,
@@ -426,7 +426,7 @@ def generate_export_package(
             "WHERE period_id = %s",
             (period_id,),
         ).fetchone()
-        version = int(version_row["next_version"])
+        version = int(require_row(version_row)["next_version"])
         package_dir = _private_export_root() / period_id / f"v{version}"
         csv_dir = package_dir / "csv"
         csv_dir.mkdir(parents=True, exist_ok=True)

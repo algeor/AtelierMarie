@@ -11,7 +11,7 @@ import math
 from pydantic import BaseModel, Field, model_validator
 
 from app.constants import ShippingPriceSource
-from app.models.delivery import Courier, DeliveryMethod
+from app.models.delivery import Courier, CourierDeliveryMethod
 
 
 def parse_price_cents(total: object) -> int | None:
@@ -78,7 +78,7 @@ class CalculateShippingRequest(BaseModel):
     approximate comparison).
     """
 
-    method: DeliveryMethod
+    method: CourierDeliveryMethod
     city: str = Field(..., min_length=1, max_length=100)
     office_id: str | None = Field(default=None, min_length=1, max_length=64)
     address: ShippingAddress | None = None

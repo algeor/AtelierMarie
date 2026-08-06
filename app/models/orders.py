@@ -132,7 +132,7 @@ class OrderResponse(BaseModel):
     customer_email: str
     customer_name: str | None = None
     # Structured delivery fields.
-    delivery_method: Literal["office", "door"] | None = None
+    delivery_method: Literal["office", "door", "internal"] | None = None
     delivery_courier: Literal["speedy", "econt"] | None = None
     delivery_details: dict | None = None
     tracking_number: str | None = None

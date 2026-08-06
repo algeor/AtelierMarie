@@ -12,7 +12,7 @@ import psycopg
 import structlog
 
 from app.config import get_settings
-from app.database import DbConnection
+from app.database import DbConnection, require_row
 from app.services import pricing, taxonomy_service
 from app.services.product_image_service import images_for_products, with_image_fields
 
@@ -269,7 +269,7 @@ def get_cart(conn: DbConnection, session_id: str, locale: Locale = "en") -> Cart
                 product_id=row["product_id"],
                 product=product,
                 quantity=row["quantity"],
-                added_at=_fmt_ts(row["added_at"]),
+                added_at=_fmt_ts(row["added_at"]) or "",
             )
         )
         total_cents += effective_price * row["quantity"]
@@ -335,10 +335,12 @@ def add_item(
 
             # Cart full check (only for new items)
             if not existing:
-                distinct_count = conn.execute(
-                    "SELECT COUNT(*) AS count FROM cart_items WHERE session_id = %s",
-                    (session_id,),
-                ).fetchone()["count"]
+                distinct_count = require_row(
+                    conn.execute(
+                        "SELECT COUNT(*) AS count FROM cart_items WHERE session_id = %s",
+                        (session_id,),
+                    ).fetchone()
+                )["count"]
 
                 if distinct_count >= settings.cart_max_distinct_items:
                     raise CartFullError(max_items=settings.cart_max_distinct_items)

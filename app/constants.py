@@ -74,6 +74,8 @@ PaymentStatus = Literal["pending", "paid", "cod_pending", "failed", "refunded"]
 FREE_SHIPPING_THRESHOLD_CENTS = 5000  # €50
 # Flat last-resort price when a courier calculate API times out or errors.
 FALLBACK_SHIPPING_CENTS = 500  # €5
+# Fixed in-house delivery price when no courier delivery methods are available.
+INTERNAL_DELIVERY_CENTS = 350  # €3.50
 # Packaging buffer added to summed product weights before calling couriers.
 PACKAGING_WEIGHT_GRAMS = 200
 # Upper bound for a client-submitted shipping_cents at checkout (range check,

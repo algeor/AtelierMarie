@@ -5,7 +5,7 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from app.database import DbConnection, get_db
+from app.database import DbConnection, get_db, require_row
 from app.models.accounting import (
     AccountingConfigurationResponse,
     AccountingSetupException,
@@ -248,10 +248,13 @@ def _ensure_export_schema_row(conn: DbConnection) -> dict:
         "ON CONFLICT (id) DO NOTHING",
         (_SETTINGS_ID,),
     )
-    return conn.execute(
-        "SELECT * FROM accounting_export_schema_settings WHERE id = %s",
-        (_SETTINGS_ID,),
-    ).fetchone()
+    return require_row(
+        conn.execute(
+            "SELECT * FROM accounting_export_schema_settings WHERE id = %s",
+            (_SETTINGS_ID,),
+        ).fetchone(),
+        "accounting_export_schema_settings row missing after ensure",
+    )
 
 
 def _ensure_expense_settings_row(conn: DbConnection) -> dict:
@@ -270,10 +273,13 @@ def _ensure_expense_settings_row(conn: DbConnection) -> dict:
             _json_dumps({}),
         ),
     )
-    return conn.execute(
-        "SELECT * FROM expense_evidence_settings WHERE id = %s",
-        (_SETTINGS_ID,),
-    ).fetchone()
+    return require_row(
+        conn.execute(
+            "SELECT * FROM expense_evidence_settings WHERE id = %s",
+            (_SETTINGS_ID,),
+        ).fetchone(),
+        "expense_evidence_settings row missing after ensure",
+    )
 
 
 def _ensure_product_cost_settings_row(conn: DbConnection) -> dict:
@@ -281,10 +287,13 @@ def _ensure_product_cost_settings_row(conn: DbConnection) -> dict:
         "INSERT INTO product_cost_settings (id) VALUES (%s) ON CONFLICT (id) DO NOTHING",
         (_SETTINGS_ID,),
     )
-    return conn.execute(
-        "SELECT * FROM product_cost_settings WHERE id = %s",
-        (_SETTINGS_ID,),
-    ).fetchone()
+    return require_row(
+        conn.execute(
+            "SELECT * FROM product_cost_settings WHERE id = %s",
+            (_SETTINGS_ID,),
+        ).fetchone(),
+        "product_cost_settings row missing after ensure",
+    )
 
 
 def setup_exceptions(
@@ -395,8 +404,8 @@ def create_seller_legal_profile(
                 actor_user_id,
                 pricing.now_utc(),
             ),
-        ).fetchone()["id"]
-        profile_id = int(inserted)
+        ).fetchone()
+        profile_id = int(require_row(inserted, "seller profile insert returned no row")["id"])
         row = conn.execute(
             "SELECT * FROM seller_legal_profile_versions WHERE id = %s",
             (profile_id,),
@@ -412,7 +421,10 @@ def create_seller_legal_profile(
             after=payload,
             reason=reason,
         )
-    return _seller_profile_from_row(row)  # type: ignore[return-value]
+    profile = _seller_profile_from_row(require_row(row, "seller profile row missing after insert"))
+    if profile is None:
+        raise RuntimeError("seller profile row missing after insert")
+    return profile
 
 
 def create_vat_fiscal_settings(
@@ -450,8 +462,8 @@ def create_vat_fiscal_settings(
                 actor_user_id,
                 pricing.now_utc(),
             ),
-        ).fetchone()["id"]
-        settings_id = int(inserted)
+        ).fetchone()
+        settings_id = int(require_row(inserted, "VAT settings insert returned no row")["id"])
         row = conn.execute(
             "SELECT * FROM vat_fiscal_settings_versions WHERE id = %s",
             (settings_id,),
@@ -467,7 +479,10 @@ def create_vat_fiscal_settings(
             after=payload,
             reason=reason,
         )
-    return _vat_settings_from_row(row)  # type: ignore[return-value]
+    settings = _vat_settings_from_row(require_row(row, "VAT settings row missing after insert"))
+    if settings is None:
+        raise RuntimeError("VAT settings row missing after insert")
+    return settings
 
 
 def upsert_category_mapping(
@@ -513,6 +528,7 @@ def upsert_category_mapping(
             "SELECT * FROM accounting_category_mappings WHERE mapping_key = %s",
             (key,),
         ).fetchone()
+        row = require_row(row, "category mapping row missing after upsert")
         write_finance_audit_event(
             conn,
             action="category_mapping.upsert",

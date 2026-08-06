@@ -1,6 +1,6 @@
 """Reaction service — business logic for product reactions (toggle, counts, rate limiting)."""
 
-from app.database import get_db
+from app.database import get_db, require_row
 
 
 class ProductNotFoundError(Exception):
@@ -37,7 +37,7 @@ def toggle_reaction(session_id: str, product_id: str, reaction_type: str) -> boo
             "WHERE session_id = %s AND toggled_at > CURRENT_TIMESTAMP - INTERVAL '60 seconds'",
             (session_id,),
         ).fetchone()
-        if row["cnt"] >= 10:
+        if require_row(row)["cnt"] >= 10:
             raise RateLimitExceededError("Too many reactions. Please slow down.")
 
         # Toggle reaction

@@ -8,7 +8,7 @@ from pathlib import Path
 import structlog
 
 from app.config import get_settings
-from app.database import DbConnection, get_db
+from app.database import DbConnection, get_db, require_row
 from app.services.image_service import process_image, validate_image_file
 
 logger = structlog.get_logger(__name__)
@@ -205,7 +205,7 @@ def set_asset_image(key: str, file_bytes: bytes) -> dict:
     if old:
         _unlink_image_files(old["image_url"], old["thumbnail_url"], old["zoom_url"])
     logger.info("site_media_uploaded", key=key)
-    return _row_to_admin(row, slot)
+    return _row_to_admin(require_row(row, "site_media asset row missing after upload"), slot)
 
 
 def clear_asset_image(key: str) -> dict:
@@ -228,7 +228,7 @@ def clear_asset_image(key: str) -> dict:
     if old:
         _unlink_image_files(old["image_url"], old["thumbnail_url"], old["zoom_url"])
     logger.info("site_media_cleared", key=key)
-    return _row_to_admin(row, slot)
+    return _row_to_admin(require_row(row, "site_media asset row missing after clear"), slot)
 
 
 def _unlink_image_files(*urls: str | None) -> None:

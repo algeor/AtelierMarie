@@ -10,7 +10,7 @@ from typing import Any
 
 from app.config import Settings, get_settings
 from app.constants import tracking_url_for
-from app.database import DbConnection
+from app.database import DbConnection, require_row
 from app.models.econt import (
     EcontCustomerInfo,
     EcontOrderItem,
@@ -50,7 +50,7 @@ def _settings_row(conn: DbConnection) -> dict:
             (_SETTINGS_ID,),
         )
         row = conn.execute("SELECT * FROM econt_settings WHERE id = %s", (_SETTINGS_ID,)).fetchone()
-    return row
+    return require_row(row, "econt_settings row missing after ensure")
 
 
 def _base_url(settings: Settings, row: dict) -> str:

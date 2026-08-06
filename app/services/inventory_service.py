@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
-from app.database import DbConnection, IntegrityError, get_db
+from app.database import DbConnection, IntegrityError, get_db, require_row
 from app.models.inventory import (
     COGSLedgerListResponse,
     COGSLedgerResponse,
@@ -352,10 +352,12 @@ def list_materials(
             total = len(materials)
             materials = materials[offset : offset + limit]
         else:
-            total = conn.execute(
-                f"SELECT COUNT(*) AS n FROM materials m {where_sql}",  # noqa: S608
-                params,
-            ).fetchone()["n"]
+            total = require_row(
+                conn.execute(
+                    f"SELECT COUNT(*) AS n FROM materials m {where_sql}",  # noqa: S608
+                    params,
+                ).fetchone()
+            )["n"]
     return MaterialListResponse(materials=materials, total=total)
 
 
@@ -745,7 +747,9 @@ def create_material_adjustment(
         row = conn.execute(
             "SELECT * FROM inventory_movements WHERE id = %s", (movement_id,)
         ).fetchone()
-    return _movement_response_from_row(row)
+    return _movement_response_from_row(
+        require_row(row, "inventory movement row missing after insert")
+    )
 
 
 def list_material_lots(
@@ -840,10 +844,12 @@ def list_inventory_movements(
             """,  # noqa: S608
             (*params, limit, offset),
         ).fetchall()
-        total = conn.execute(
-            f"SELECT COUNT(*) AS n FROM inventory_movements {where_sql}",  # noqa: S608
-            params,
-        ).fetchone()["n"]
+        total = require_row(
+            conn.execute(
+                f"SELECT COUNT(*) AS n FROM inventory_movements {where_sql}",  # noqa: S608
+                params,
+            ).fetchone()
+        )["n"]
     return [_movement_response_from_row(row) for row in rows], int(total)
 
 
@@ -1202,10 +1208,12 @@ def activate_recipe_version(
     """Activate one recipe and archive conflicting active versions for its product."""
     with get_db() as conn:
         row = _get_recipe_row(conn, recipe_id)
-        component_count = conn.execute(
-            "SELECT COUNT(*) AS n FROM recipe_components WHERE recipe_version_id = %s",
-            (recipe_id,),
-        ).fetchone()["n"]
+        component_count = require_row(
+            conn.execute(
+                "SELECT COUNT(*) AS n FROM recipe_components WHERE recipe_version_id = %s",
+                (recipe_id,),
+            ).fetchone()
+        )["n"]
         if component_count == 0:
             raise InventoryValidationError("Cannot activate a recipe without components")
         conn.execute(
@@ -1584,7 +1592,7 @@ def _material_on_hand(conn: DbConnection, material_id: str) -> float:
         """,
         (material_id,),
     ).fetchone()
-    return float(row["quantity"] or 0)
+    return float(require_row(row)["quantity"] or 0)
 
 
 def _latest_material_cost(conn: DbConnection, material_id: str) -> str | None:
@@ -2226,7 +2234,9 @@ def correct_production_batch(
         row = conn.execute(
             "SELECT * FROM inventory_movements WHERE id = %s", (movement_id,)
         ).fetchone()
-    return _movement_response_from_row(row)
+    return _movement_response_from_row(
+        require_row(row, "inventory movement row missing after adjustment")
+    )
 
 
 def production_traceability(batch_id: str) -> ProductionTraceabilityResponse:
@@ -2310,7 +2320,10 @@ def _ensure_inventory_settings(conn: DbConnection) -> dict:
     conn.execute(
         "INSERT INTO inventory_settings (id) VALUES ('default') ON CONFLICT (id) DO NOTHING"
     )
-    return conn.execute("SELECT * FROM inventory_settings WHERE id = 'default'").fetchone()
+    return require_row(
+        conn.execute("SELECT * FROM inventory_settings WHERE id = 'default'").fetchone(),
+        "inventory_settings row missing after ensure",
+    )
 
 
 def get_inventory_valuation_settings() -> InventoryValuationSettingsResponse:
@@ -2647,9 +2660,12 @@ def record_opening_balance(
             ),
         )
         return _layer_response_from_row(
-            conn.execute(
-                "SELECT * FROM inventory_valuation_layers WHERE id = %s", (layer_id,)
-            ).fetchone()
+            require_row(
+                conn.execute(
+                    "SELECT * FROM inventory_valuation_layers WHERE id = %s", (layer_id,)
+                ).fetchone(),
+                "valuation layer row missing after creation",
+            )
         )
 
 
@@ -2773,9 +2789,12 @@ def generate_valuation_layers() -> ValuationLayerListResponse:
             )
             created.append(
                 _layer_response_from_row(
-                    conn.execute(
-                        "SELECT * FROM inventory_valuation_layers WHERE id = %s", (layer_id,)
-                    ).fetchone()
+                    require_row(
+                        conn.execute(
+                            "SELECT * FROM inventory_valuation_layers WHERE id = %s", (layer_id,)
+                        ).fetchone(),
+                        "valuation layer row missing after generation",
+                    )
                 )
             )
     return ValuationLayerListResponse(layers=created, total=len(created))
@@ -2952,7 +2971,12 @@ def generate_cogs_rows() -> COGSLedgerListResponse:
             )
             created.append(
                 _cogs_response_from_row(
-                    conn.execute("SELECT * FROM cogs_ledger WHERE id = %s", (cogs_id,)).fetchone()
+                    require_row(
+                        conn.execute(
+                            "SELECT * FROM cogs_ledger WHERE id = %s", (cogs_id,)
+                        ).fetchone(),
+                        "COGS row missing after generation",
+                    )
                 )
             )
 
@@ -3022,7 +3046,12 @@ def generate_cogs_rows() -> COGSLedgerListResponse:
             )
             created.append(
                 _cogs_response_from_row(
-                    conn.execute("SELECT * FROM cogs_ledger WHERE id = %s", (cogs_id,)).fetchone()
+                    require_row(
+                        conn.execute(
+                            "SELECT * FROM cogs_ledger WHERE id = %s", (cogs_id,)
+                        ).fetchone(),
+                        "COGS reversal row missing after generation",
+                    )
                 )
             )
     return COGSLedgerListResponse(rows=created, total=len(created))
@@ -3052,9 +3081,11 @@ def list_cogs_rows(
 def inventory_close_preview(period_start: str, period_end: str) -> InventoryClosePreviewResponse:
     with get_db() as conn:
         settings = _ensure_inventory_settings(conn)
-        exception_count = conn.execute(
-            "SELECT COUNT(*) AS n FROM inventory_exceptions WHERE status = 'open'"
-        ).fetchone()["n"]
+        exception_count = require_row(
+            conn.execute(
+                "SELECT COUNT(*) AS n FROM inventory_exceptions WHERE status = 'open'"
+            ).fetchone()
+        )["n"]
         rows = conn.execute(
             """
             SELECT im.movement_type, vl.quantity, vl.total_value_cents

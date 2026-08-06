@@ -7,7 +7,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from app.database import DbConnection
+from app.database import DbConnection, require_row
 from app.services.order_service import (
     _DT_FMT,
     _fmt_ts,
@@ -282,7 +282,7 @@ def record_cod_settlement(
         ),
     )
     row = conn.execute("SELECT * FROM cod_settlements WHERE order_id = %s", (order_id,)).fetchone()
-    return _row_to_dict(row)
+    return _row_to_dict(require_row(row, "cod_settlements row missing after upsert"))
 
 
 def update_return_accounting(

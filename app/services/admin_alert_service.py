@@ -4,7 +4,7 @@ import json
 import uuid
 from datetime import datetime
 
-from app.database import DbConnection
+from app.database import DbConnection, require_row
 
 # Mirrors app.services.order_service._DT_FMT — kept local to avoid importing the
 # heavy order_service module into this low-level alert helper.
@@ -62,7 +62,9 @@ def list_admin_alerts(
     """List recent admin alerts for the in-app alert surface."""
     limit = min(max(limit, 1), 100)
     where_clause = "WHERE is_read = 0" if unread_only else ""
-    total = conn.execute(f"SELECT COUNT(*) AS n FROM admin_alerts {where_clause}").fetchone()["n"]
+    total = require_row(
+        conn.execute(f"SELECT COUNT(*) AS n FROM admin_alerts {where_clause}").fetchone()
+    )["n"]
     rows = conn.execute(
         f"""
         SELECT id, alert_type, order_id, source, severity, title, message,

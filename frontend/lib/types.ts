@@ -886,9 +886,9 @@ export interface OrderResponse {
   total_cents: number;
   customer_email: string;
   customer_name: string | null;
-  delivery_method: "office" | "door" | null;
+  delivery_method: DeliveryMethod | null;
   delivery_courier: "speedy" | "econt" | null;
-  delivery_details: DeliveryOffice | DeliveryDoor | null;
+  delivery_details: DeliveryOffice | DeliveryDoor | DeliveryInternal | null;
   notes: string | null;
   items: OrderItemResponse[];
   tracking_number: string | null;
@@ -2236,7 +2236,8 @@ export interface EcontManualStatusRequest {
 
 // --- Delivery ---
 
-export type DeliveryMethod = "office" | "door";
+export type CourierDeliveryMethod = "office" | "door";
+export type DeliveryMethod = CourierDeliveryMethod | "internal";
 export type Courier = "speedy" | "econt";
 export type OfficeType = "office" | "apt";
 
@@ -2260,10 +2261,20 @@ export interface DeliveryDoor {
   phone: string;
 }
 
+export interface DeliveryInternal {
+  city: string;
+  postal_code: string;
+  street: string;
+  building?: string | null;
+  apartment?: string | null;
+  phone: string;
+}
+
 export interface DeliveryInfo {
   method: DeliveryMethod;
   office?: DeliveryOffice | null;
   door?: DeliveryDoor | null;
+  internal?: DeliveryInternal | null;
 }
 
 export interface DeliverySettingsResponse {
@@ -2530,7 +2541,7 @@ export interface ShippingQuote {
 }
 
 export interface CalculateShippingRequest {
-  method: DeliveryMethod;
+  method: CourierDeliveryMethod;
   city: string;
   office_id?: string | null;
   address?: ShippingAddress | null;
