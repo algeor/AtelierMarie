@@ -148,11 +148,13 @@ def test_delete_image_with_null_zoom_url_does_not_crash(_product):
     assert product_image_service.list_images("gallery-product") == []
 
 
-def test_deactivate_product_deletes_image_objects(_product, fake_storage):
-    """Soft-deleting a product removes its backing R2 image objects (orphan fix).
+def test_deactivate_product_deletes_images(_product, fake_storage):
+    """Soft-deleting a product removes its images entirely — rows AND objects.
 
-    The product_images rows stay (soft-delete), but every variant object for the
-    product is deleted from R2 so a deactivated product leaves no orphaned media.
+    Deleting only the objects while keeping the ``product_images`` rows would let
+    a later reactivation (``is_active=True``) point at media that no longer
+    exists. So deactivation deletes the rows in the same operation, keeping rows
+    and objects consistent.
     """
     image = product_image_service.add_image("gallery-product", _make_jpeg())
     second = product_image_service.add_image("gallery-product", _make_jpeg())
@@ -172,8 +174,9 @@ def test_deactivate_product_deletes_image_objects(_product, fake_storage):
     for key in expected_keys:
         assert key not in fake_storage.objects
     assert expected_keys.issubset(set(fake_storage.deleted))
-    # ...but the product_images rows survive the soft-delete.
-    assert len(product_image_service.list_images("gallery-product")) == 2
+    # ...and the product_images rows are gone too (no dangling rows to point a
+    # reactivated product at deleted media).
+    assert product_image_service.list_images("gallery-product") == []
 
 
 def test_deactivate_product_survives_storage_failure(_product, monkeypatch):

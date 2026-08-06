@@ -457,9 +457,23 @@ def _upload_transcode_outputs(
     poster_url: str | None = None
     if poster_path is not None:
         poster_key = object_storage_service.object_key_for_video_poster(product_id, video_id)
-        poster_url = object_storage_service.upload_bytes(
-            poster_key, Path(poster_path).read_bytes(), "image/webp"
-        )
+        try:
+            poster_url = object_storage_service.upload_bytes(
+                poster_key, Path(poster_path).read_bytes(), "image/webp"
+            )
+        except object_storage_service.MediaStorageError:
+            # The MP4 already landed in R2; a failed poster upload would leave it
+            # orphaned (the row never goes ``ready``). Best-effort delete it
+            # before re-raising so a partial upload leaves nothing behind.
+            try:
+                object_storage_service.delete_object(video_key)
+            except object_storage_service.MediaStorageError as cleanup_exc:
+                logger.warning(
+                    "product_video_orphan_cleanup_failed",
+                    key=video_key,
+                    error=str(cleanup_exc),
+                )
+            raise
     return video_url, poster_url
 
 

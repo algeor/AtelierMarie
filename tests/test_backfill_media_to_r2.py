@@ -102,6 +102,31 @@ def test_dry_run_makes_no_changes(seeded_image, fake_storage, tmp_path):
     assert row["zoom_url"].startswith("/static/products/")
 
 
+def test_dry_run_needs_no_r2_config(seeded_image, static_root, tmp_path, monkeypatch):
+    """Dry-run must not require R2 config (the script doc says it never touches R2).
+
+    With ``R2_PUBLIC_BASE_URL`` unset, public_url() raises StorageConfigError; a
+    dry-run must still succeed (it only reports would-be uploads, no real URL).
+    """
+    from app.services import object_storage_service
+
+    image_id, _variants = seeded_image
+    # Reset any injected backend and clear the public base so public_url() would
+    # raise if the dry-run path tried to resolve a real URL.
+    object_storage_service.set_backend(None)
+    settings = get_settings()
+    monkeypatch.setattr(settings, "r2_public_base_url", "", raising=False)
+    log_path = tmp_path / "rewrites.jsonl"
+
+    summary = backfill_module.backfill(dry_run=True, rewrite_log_path=log_path)
+
+    assert summary.uploaded == 3
+    assert summary.errors == 0
+    assert not log_path.exists()
+    row = _image_row(image_id)
+    assert row["image_url"].startswith("/static/products/")
+
+
 def test_live_run_uploads_and_rewrites(seeded_image, fake_storage, tmp_path):
     image_id, variants = seeded_image
     log_path = tmp_path / "rewrites.jsonl"

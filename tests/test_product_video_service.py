@@ -507,6 +507,49 @@ def test_drain_video_transcodes_r2_upload_failure_does_not_go_ready(
     assert not source.exists()
 
 
+def test_drain_video_transcodes_poster_upload_failure_deletes_orphaned_mp4(
+    _video_product, fake_storage, monkeypatch
+):
+    """MP4 lands in R2, then the poster upload fails: the MP4 must be deleted
+    (no ready transition, nothing orphaned in the bucket)."""
+    source = Path(_video_product / "video-temp" / "source.upload")
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(b"fake")
+    _patch_ffmpeg_staging(monkeypatch)
+
+    real_put = fake_storage.put_object
+
+    def put_fail_on_poster(key, data, content_type):
+        if content_type == "image/webp":
+            raise object_storage_service.MediaStorageError("poster upload failed")
+        real_put(key, data, content_type)
+
+    monkeypatch.setattr(fake_storage, "put_object", put_fail_on_poster)
+
+    video_id = "bebebebebebebebebebebebebebebebe"
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO product_videos (id, product_id, status, source_path, duration_secs)
+            VALUES (%s, 'video-product', 'queued', %s, 8.0)
+            """,
+            (video_id, str(source)),
+        )
+
+    assert product_video_service.drain_video_transcodes() == 1
+
+    video_key = object_storage_service.object_key_for_video("video-product", video_id)
+    # The MP4 was uploaded then compensated-deleted; nothing durable remains.
+    assert video_key in fake_storage.deleted
+    assert video_key not in fake_storage.objects
+
+    with get_db() as conn:
+        row = conn.execute("SELECT status, video_url, poster_url FROM product_videos").fetchone()
+    assert row["status"] == "failed"
+    assert row["video_url"] is None
+    assert row["poster_url"] is None
+
+
 def test_expired_transcode_marked_failed(_video_product):
     source = Path(_video_product / "video-temp" / "expired.upload")
     source.parent.mkdir(parents=True, exist_ok=True)

@@ -10,9 +10,13 @@ import io
 import re
 import warnings
 
+import structlog
 from PIL import Image, ImageOps
 
 from app.services import object_storage_service
+
+logger = structlog.get_logger(__name__)
+
 
 # Pixel flood protection — set at MODULE LEVEL before any image processing
 MAX_IMAGE_PIXELS = 25_000_000
@@ -212,10 +216,29 @@ def process_image(
 
     # Upload all variants to R2. Any botocore/config failure surfaces as a
     # MediaStorageError (raised by the storage service), so the caller does not
-    # write a DB row referencing an object that failed to upload.
-    image_url = object_storage_service.upload_bytes(main_key, main_bytes, _WEBP_CONTENT_TYPE)
-    thumbnail_url = object_storage_service.upload_bytes(thumb_key, thumb_bytes, _WEBP_CONTENT_TYPE)
-    zoom_url = object_storage_service.upload_bytes(zoom_key, zoom_bytes, _WEBP_CONTENT_TYPE)
+    # write a DB row referencing an object that failed to upload. The variants
+    # are uploaded sequentially, so a failure on the 2nd/3rd upload would leave
+    # the earlier objects orphaned in the bucket (no DB row references them).
+    # Compensate by best-effort deleting the keys written so far before
+    # re-raising, so a partial failure leaves nothing behind.
+    uploaded_keys: list[str] = []
+    try:
+        image_url = object_storage_service.upload_bytes(main_key, main_bytes, _WEBP_CONTENT_TYPE)
+        uploaded_keys.append(main_key)
+        thumbnail_url = object_storage_service.upload_bytes(
+            thumb_key, thumb_bytes, _WEBP_CONTENT_TYPE
+        )
+        uploaded_keys.append(thumb_key)
+        zoom_url = object_storage_service.upload_bytes(zoom_key, zoom_bytes, _WEBP_CONTENT_TYPE)
+    except object_storage_service.MediaStorageError:
+        for key in uploaded_keys:
+            try:
+                object_storage_service.delete_object(key)
+            except object_storage_service.MediaStorageError as cleanup_exc:
+                logger.warning(
+                    "image_upload_orphan_cleanup_failed", key=key, error=str(cleanup_exc)
+                )
+        raise
 
     return {
         "image_url": image_url,

@@ -225,6 +225,55 @@ class TestProcessImage:
             assert img.height <= 500
 
 
+class _FailOnNthPutBackend(_FakeStorageBackend):
+    """Fake backend that raises on the Nth ``put_object`` (1-indexed).
+
+    Used to exercise the partial-upload cleanup path: earlier variant objects
+    must be deleted when a later variant upload fails.
+    """
+
+    def __init__(self, fail_on: int) -> None:
+        super().__init__()
+        self._fail_on = fail_on
+        self._puts = 0
+
+    def put_object(self, key: str, data: bytes, content_type: str) -> None:
+        self._puts += 1
+        if self._puts == self._fail_on:
+            raise object_storage_service.MediaStorageError("boom")
+        super().put_object(key, data, content_type)
+
+
+class TestProcessImageOrphanCleanup:
+    """A failed variant upload must not leave earlier variants orphaned."""
+
+    @pytest.fixture()
+    def _configure_base(self):
+        from app.config import get_settings
+
+        settings = get_settings()
+        original_base = settings.r2_public_base_url
+        settings.r2_public_base_url = _R2_PUBLIC_BASE
+        try:
+            yield
+        finally:
+            settings.r2_public_base_url = original_base
+
+    @pytest.mark.parametrize("fail_on", [2, 3])
+    def test_partial_upload_deletes_earlier_variants(self, _configure_base, fail_on):
+        backend = _FailOnNthPutBackend(fail_on=fail_on)
+        object_storage_service.set_backend(backend)
+        try:
+            with pytest.raises(object_storage_service.MediaStorageError):
+                process_image(_make_jpeg(800, 600), "orphan-test")
+        finally:
+            object_storage_service.set_backend(None)
+
+        # The variant that failed plus every earlier one must be gone: nothing
+        # committed, nothing left behind.
+        assert backend.objects == {}
+
+
 # --- Test upload route ---
 
 

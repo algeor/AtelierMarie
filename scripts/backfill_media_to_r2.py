@@ -221,9 +221,14 @@ def _process_url(
         )
         return
 
-    new_url = object_storage_service.public_url(key)
-
     if dry_run:
+        # Dry-run must not require R2 config. public_url() raises
+        # StorageConfigError when R2_PUBLIC_BASE_URL is unset, so only resolve
+        # the real URL when configured; otherwise log the target key alone.
+        try:
+            preview_url = object_storage_service.public_url(key)
+        except object_storage_service.StorageConfigError:
+            preview_url = None
         summary.uploaded += 1
         logger.info(
             "backfill_would_upload",
@@ -231,9 +236,11 @@ def _process_url(
             row_id=row_id,
             column=column,
             key=key,
-            new_url=new_url,
+            new_url=preview_url,
         )
         return
+
+    new_url = object_storage_service.public_url(key)
 
     try:
         data = source_path.read_bytes()

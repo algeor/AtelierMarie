@@ -198,14 +198,16 @@ def delete_image(product_id: str, image_id: str) -> None:
     _unlink_image_files(row["image_url"], row["thumbnail_url"], row["zoom_url"])
 
 
-def delete_image_objects_for_product(product_id: str) -> None:
-    """Best-effort removal of every image variant object for a product.
+def delete_images_for_product(product_id: str) -> None:
+    """Delete every image row for a product and its backing objects.
 
-    Called from product deactivation (soft-delete) to close the image-orphan
-    gap: the ``product_images`` rows stay, but their backing R2 objects (or
-    legacy ``/static`` files) are removed so a deactivated product does not leave
-    orphaned media behind. Failures are already swallowed/logged inside
-    ``_unlink_image_files``; this helper never raises.
+    Called from product deactivation (soft-delete). Deleting the objects while
+    leaving ``product_images`` rows in place would let a later reactivation
+    (``is_active=True``) point at media that no longer exists. So the rows are
+    deleted in the same operation, keeping rows and objects consistent — the
+    same contract video already uses (``delete_video_if_exists`` removes the
+    row). Object removal is best-effort (failures are swallowed/logged inside
+    ``_unlink_image_files``); this helper never raises.
     """
     with get_db() as conn:
         rows = conn.execute(
@@ -216,6 +218,7 @@ def delete_image_objects_for_product(product_id: str) -> None:
             """,
             (product_id,),
         ).fetchall()
+        conn.execute("DELETE FROM product_images WHERE product_id = %s", (product_id,))
 
     for row in rows:
         _unlink_image_files(row["image_url"], row["thumbnail_url"], row["zoom_url"])
