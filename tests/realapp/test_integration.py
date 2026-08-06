@@ -1,36 +1,27 @@
 """Integration tests — end-to-end flows combining session + cart."""
 
-import sqlite3
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
 
 from app.config import get_settings
+from app.database import get_db
 from app.middleware.session import rotate_session
+from conftest import add_cart_item, make_session, seed_products
 
-_DT_FMT = "%Y-%m-%d %H:%M:%S"
+_INTEGRATION_PRODUCTS = (
+    ("lavender-dream", "Lavender Dream", 2500, 10, True),
+    ("rose-garden", "Rose Garden", 1800, 5, True),
+    ("ocean-breeze", "Ocean Breeze", 1500, 20, True),
+)
 
 
 @pytest.fixture()
-def _seed_products(db_path: str, app):
+def _seed_products(app):
     """Seed products for integration tests."""
-    conn = sqlite3.connect(db_path)
-    conn.execute("PRAGMA foreign_keys=ON")
-    products = [
-        ("lavender-dream", "Lavender Dream", 2500, 10, 1),
-        ("rose-garden", "Rose Garden", 1800, 5, 1),
-        ("ocean-breeze", "Ocean Breeze", 1500, 20, 1),
-    ]
-    for pid, name, price, stock, active in products:
-        conn.execute(
-            "INSERT INTO products (id, name_en, price_cents, stock, "
-            "is_active, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
-            (pid, name, price, stock, active),
-        )
-    conn.commit()
-    conn.close()
+    with get_db() as conn:
+        seed_products(conn, _INTEGRATION_PRODUCTS)
 
 
 # --- 10.1 End-to-end: create session → add → view → update → remove ---
@@ -70,7 +61,7 @@ async def test_e2e_cart_lifecycle(client: AsyncClient):
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("_seed_products")
-async def test_expired_session_orphans_cart(client: AsyncClient, db_path: str):
+async def test_expired_session_orphans_cart(client: AsyncClient):
     """Expired session → new session, old cart items orphaned (not deleted by middleware)."""
     settings = get_settings()
 
@@ -80,11 +71,9 @@ async def test_expired_session_orphans_cart(client: AsyncClient, db_path: str):
     old_session = resp.cookies.get(settings.session_cookie_name)
 
     # Expire the session directly in DB
-    conn = sqlite3.connect(db_path)
-    expired_at = (datetime.now(UTC) - timedelta(seconds=10)).strftime(_DT_FMT)
-    conn.execute("UPDATE sessions SET expires_at = ? WHERE id = ?", (expired_at, old_session))
-    conn.commit()
-    conn.close()
+    with get_db() as conn:
+        expired_at = datetime.now(UTC) - timedelta(seconds=10)
+        conn.execute("UPDATE sessions SET expires_at = %s WHERE id = %s", (expired_at, old_session))
 
     # Next request should get a new session
     client.cookies.set(settings.session_cookie_name, old_session)
@@ -97,14 +86,17 @@ async def test_expired_session_orphans_cart(client: AsyncClient, db_path: str):
     assert new_session != old_session
 
     # (b) Old session row still exists with expires_at < now
-    conn = sqlite3.connect(db_path)
-    row = conn.execute("SELECT expires_at FROM sessions WHERE id = ?", (old_session,)).fetchone()
-    assert row is not None  # NOT deleted by middleware
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT expires_at FROM sessions WHERE id = %s", (old_session,)
+        ).fetchone()
+        assert row is not None  # NOT deleted by middleware
 
-    # (c) Old cart_items rows still present
-    items = conn.execute("SELECT * FROM cart_items WHERE session_id = ?", (old_session,)).fetchall()
-    assert len(items) == 1  # The lavender-dream item
-    conn.close()
+        # (c) Old cart_items rows still present
+        items = conn.execute(
+            "SELECT * FROM cart_items WHERE session_id = %s", (old_session,)
+        ).fetchall()
+        assert len(items) == 1  # The lavender-dream item
 
 
 # --- 10.3 Session rotation: add items → rotate → cart still visible ---
@@ -112,7 +104,7 @@ async def test_expired_session_orphans_cart(client: AsyncClient, db_path: str):
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("_seed_products")
-async def test_session_rotation_preserves_cart(client: AsyncClient, db_path: str):
+async def test_session_rotation_preserves_cart(client: AsyncClient):
     """Add items → rotate session → cart items still visible under new session."""
     settings = get_settings()
 
@@ -125,16 +117,12 @@ async def test_session_rotation_preserves_cart(client: AsyncClient, db_path: str
     old_session = resp.cookies.get(settings.session_cookie_name)
 
     # Rotate session (need a user in DB for the FK)
-    conn = sqlite3.connect(db_path)
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.row_factory = sqlite3.Row
-    conn.execute(
-        "INSERT INTO users (id, google_id, email, name) VALUES (?, ?, ?, ?)",
-        ("user-xyz", "google-xyz", "user@example.com", "Test User"),
-    )
-    conn.commit()
-    new_session = rotate_session(conn, old_session, "user-xyz")
-    conn.close()
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO users (id, google_id, email, name) VALUES (%s, %s, %s, %s)",
+            ("user-xyz", "google-xyz", "user@example.com", "Test User"),
+        )
+        new_session = rotate_session(conn, old_session, "user-xyz")
 
     # Use new session and verify cart
     client.cookies.set(settings.session_cookie_name, new_session)
@@ -150,37 +138,26 @@ async def test_session_rotation_preserves_cart(client: AsyncClient, db_path: str
 
 
 @pytest.mark.usefixtures("_seed_products")
-def test_cascade_delete_session_removes_cart_items(db_path: str, app):
+def test_cascade_delete_session_removes_cart_items(app):
     """Deleting a session row cascades to cart_items."""
-    conn = sqlite3.connect(db_path)
-    conn.execute("PRAGMA foreign_keys=ON")
-    now = datetime.now(UTC)
+    with get_db() as conn:
+        # Create session + cart items
+        session_id = "cascade-test-session"
+        make_session(conn, session_id)
+        add_cart_item(conn, session_id, "lavender-dream", 3)
+        add_cart_item(conn, session_id, "rose-garden", 1)
 
-    # Create session + cart items
-    session_id = "cascade-test-session"
-    conn.execute(
-        "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
-        (session_id, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
-    )
-    conn.execute(
-        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, ?, ?)",
-        (session_id, "lavender-dream", 3),
-    )
-    conn.execute(
-        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, ?, ?)",
-        (session_id, "rose-garden", 1),
-    )
-    conn.commit()
+        # Verify items exist
+        items = conn.execute(
+            "SELECT * FROM cart_items WHERE session_id = %s", (session_id,)
+        ).fetchall()
+        assert len(items) == 2
 
-    # Verify items exist
-    items = conn.execute("SELECT * FROM cart_items WHERE session_id = ?", (session_id,)).fetchall()
-    assert len(items) == 2
+        # Delete session
+        conn.execute("DELETE FROM sessions WHERE id = %s", (session_id,))
 
-    # Delete session
-    conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
-    conn.commit()
-
-    # Verify cart items are gone (CASCADE)
-    items = conn.execute("SELECT * FROM cart_items WHERE session_id = ?", (session_id,)).fetchall()
-    assert len(items) == 0
-    conn.close()
+        # Verify cart items are gone (CASCADE)
+        items = conn.execute(
+            "SELECT * FROM cart_items WHERE session_id = %s", (session_id,)
+        ).fetchall()
+        assert len(items) == 0

@@ -2,14 +2,13 @@
 
 import inspect
 import json
-import sqlite3
 import uuid
 
+import psycopg
 import pytest
 from pydantic import SecretStr
 
 from app.config import get_settings
-from app.database import init_db
 from app.models.delivery import DeliveryInfo, DeliveryOffice
 from app.models.econt import EcontShipmentStatus, EcontTraceEvent
 from app.services import courier_polling_service
@@ -35,14 +34,8 @@ class FakeEcontClient:
 
 
 @pytest.fixture()
-def conn(tmp_path):
-    db_path = str(tmp_path / "courier-polling.db")
-    init_db(db_path)
-    db = sqlite3.connect(db_path)
-    db.row_factory = sqlite3.Row
-    db.execute("PRAGMA foreign_keys=ON")
-    yield db
-    db.close()
+def conn(db):
+    return db
 
 
 @pytest.fixture(autouse=True)
@@ -61,7 +54,7 @@ def courier_settings(monkeypatch):
 
 
 def _make_order(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     courier: str = "speedy",
     status: str = "shipped",
@@ -70,18 +63,18 @@ def _make_order(
     session_id = uuid.uuid4().hex
     product_id = f"poll-product-{uuid.uuid4().hex[:8]}"
     conn.execute(
-        "INSERT INTO sessions (id, expires_at) VALUES (?, datetime('now', '+1 day'))",
+        "INSERT INTO sessions (id, expires_at) VALUES (%s, CURRENT_TIMESTAMP + INTERVAL '1 day')",
         (session_id,),
     )
     conn.execute(
         """
         INSERT INTO products (id, name_en, price_cents, stock, weight_grams, is_active)
-        VALUES (?, 'Courier Candle', 2500, 10, 500, 1)
+        VALUES (%s, 'Courier Candle', 2500, 10, 500, 1)
         """,
         (product_id,),
     )
     conn.execute(
-        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, ?, 1)",
+        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (%s, %s, 1)",
         (session_id, product_id),
     )
     conn.commit()
@@ -108,9 +101,9 @@ def _make_order(
     conn.execute(
         """
         UPDATE orders
-        SET status = ?, tracking_number = ?, tracking_carrier = ?,
-            courier_provider = ?, courier_shipment_number = ?
-        WHERE id = ?
+        SET status = %s, tracking_number = %s, tracking_carrier = %s,
+            courier_provider = %s, courier_shipment_number = %s
+        WHERE id = %s
         """,
         (status, tracking_number, courier, courier, tracking_number, order["id"]),
     )
@@ -125,8 +118,8 @@ def test_acquire_due_orders_respects_batch_and_existing_lease(conn):
         """
         UPDATE orders
         SET courier_poll_lease_token = 'busy',
-            courier_poll_lease_expires_at = datetime('now', '+5 minutes')
-        WHERE id = ?
+            courier_poll_lease_expires_at = CURRENT_TIMESTAMP + INTERVAL '5 minutes'
+        WHERE id = %s
         """,
         (second_id,),
     )
@@ -140,7 +133,7 @@ def test_acquire_due_orders_respects_batch_and_existing_lease(conn):
 
     assert [row["id"] for row in rows] == [first_id]
     leased = conn.execute(
-        "SELECT courier_poll_lease_token FROM orders WHERE id = ?",
+        "SELECT courier_poll_lease_token FROM orders WHERE id = %s",
         (first_id,),
     ).fetchone()
     assert leased["courier_poll_lease_token"]
@@ -165,7 +158,7 @@ async def test_poll_due_shipments_success_stores_speedy_evidence_and_schedules_n
         """
         SELECT courier_status, courier_poll_attempts, courier_next_poll_at,
                courier_poll_lease_token
-        FROM orders WHERE id = ?
+        FROM orders WHERE id = %s
         """,
         (order_id,),
     ).fetchone()
@@ -174,12 +167,12 @@ async def test_poll_due_shipments_success_stores_speedy_evidence_and_schedules_n
     assert order["courier_next_poll_at"] is not None
     assert order["courier_poll_lease_token"] is None
     event = conn.execute(
-        "SELECT response_json FROM order_courier_events WHERE order_id = ?",
+        "SELECT response_json FROM order_courier_events WHERE order_id = %s",
         (order_id,),
     ).fetchone()
     assert json.loads(event["response_json"])["tracking_details"] == tracking_details
     case = conn.execute(
-        "SELECT reason, source, status FROM order_returns WHERE order_id = ?",
+        "SELECT reason, source, status FROM order_returns WHERE order_id = %s",
         (order_id,),
     ).fetchone()
     assert dict(case) == {"reason": "not_picked_up", "source": "speedy", "status": "requested"}
@@ -205,7 +198,7 @@ async def test_poll_due_shipments_supports_econt_trace_path(conn):
     assert result["succeeded"] == 1
     assert client.traced == ["1234567890"]
     order = conn.execute(
-        "SELECT courier_status, courier_poll_attempts FROM orders WHERE id = ?",
+        "SELECT courier_status, courier_poll_attempts FROM orders WHERE id = %s",
         (order_id,),
     ).fetchone()
     assert order["courier_status"] == "returned"
@@ -234,7 +227,7 @@ async def test_failed_poll_records_backoff_and_safe_error(conn):
         """
         SELECT courier_sync_status, courier_last_error, courier_poll_attempts,
                courier_next_poll_at, courier_poll_lease_token
-        FROM orders WHERE id = ?
+        FROM orders WHERE id = %s
         """,
         (order_id,),
     ).fetchone()
@@ -261,7 +254,7 @@ async def test_manual_refresh_uses_same_async_provider_path(conn):
 
     assert result["courier_status"] == "delivered"
     row = conn.execute(
-        "SELECT courier_status, courier_last_polled_at FROM orders WHERE id = ?",
+        "SELECT courier_status, courier_last_polled_at FROM orders WHERE id = %s",
         (order_id,),
     ).fetchone()
     assert row["courier_status"] == "delivered"

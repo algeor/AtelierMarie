@@ -1,15 +1,16 @@
 """Admin accounting access-control and order readiness integration tests."""
 
-import sqlite3
-
+import psycopg
 import pytest
 
+from conftest import FAKE_SESSION_ID
 
-def _seed_period(db: sqlite3.Connection, period_id: str = "period-order-flags") -> str:
+
+def _seed_period(db: psycopg.Connection, period_id: str = "period-order-flags") -> str:
     db.execute(
         """
         INSERT INTO finance_periods (id, period_start, period_end, currency, status)
-        VALUES (?, '2026-08-01', '2026-08-31', 'EUR', 'review')
+        VALUES (%s, '2026-08-01', '2026-08-31', 'EUR', 'review')
         """,
         (period_id,),
     )
@@ -18,7 +19,7 @@ def _seed_period(db: sqlite3.Connection, period_id: str = "period-order-flags") 
 
 
 def _seed_order(
-    db: sqlite3.Connection,
+    db: psycopg.Connection,
     app,
     *,
     order_id: str,
@@ -31,8 +32,9 @@ def _seed_order(
 ) -> None:
     db.execute(
         """
-        INSERT OR IGNORE INTO products (id, name_en, price_cents, stock)
+        INSERT INTO products (id, name_en, price_cents, stock)
         VALUES ('accounting-order-product', 'Accounting Candle', 2500, 10)
+        ON CONFLICT (id) DO NOTHING
         """
     )
     db.execute(
@@ -42,12 +44,12 @@ def _seed_order(
             shipping_cents, payment_method, payment_status, stripe_payment_intent_id,
             accounting_classification_state, accounting_readiness_status,
             finance_period_id, created_at, updated_at
-        ) VALUES (?, ?, ?, 2500, ?, 'Accounting Buyer', 0, ?, ?, ?, ?, 'ready', ?,
+        ) VALUES (%s, %s, %s, 2500, %s, 'Accounting Buyer', 0, %s, %s, %s, %s, 'ready', %s,
                   '2026-08-10 10:00:00', '2026-08-10 10:00:00')
         """,
         (
             order_id,
-            app._test_session_id,
+            FAKE_SESSION_ID,
             status,
             f"{order_id}@example.com",
             payment_method,
@@ -60,7 +62,7 @@ def _seed_order(
     db.execute(
         """
         INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity)
-        VALUES (?, 'accounting-order-product', 'Accounting Candle', 2500, 1)
+        VALUES (%s, 'accounting-order-product', 'Accounting Candle', 2500, 1)
         """,
         (order_id,),
     )
@@ -68,7 +70,7 @@ def _seed_order(
 
 
 def _seed_order_exception(
-    db: sqlite3.Connection,
+    db: psycopg.Connection,
     *,
     order_id: str,
     period_id: str,
@@ -78,7 +80,7 @@ def _seed_order_exception(
         """
         INSERT INTO finance_exceptions (
             id, period_id, exception_type, severity, target_type, target_id, status, message
-        ) VALUES (?, ?, ?, 'blocking', 'order', ?, 'open', 'Missing accounting evidence')
+        ) VALUES (%s, %s, %s, 'blocking', 'order', %s, 'open', 'Missing accounting evidence')
         """,
         (f"exception-{order_id}-{exception_type}", period_id, exception_type, order_id),
     )

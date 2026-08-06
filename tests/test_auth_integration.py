@@ -3,7 +3,6 @@
 Uses real middleware (tests/realapp/ pattern) to verify the full request chain.
 """
 
-import sqlite3
 from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, patch
 
@@ -24,16 +23,26 @@ def _set_client_cookie(client: AsyncClient, name: str, value: str) -> None:
     client.cookies.set(name, value, domain=_TEST_COOKIE_DOMAIN, path="/")
 
 
-@pytest.fixture(scope="module")
-def db_path(tmp_path_factory) -> str:
-    tmp = tmp_path_factory.mktemp("integration_auth")
-    return str(tmp / "test.db")
+# NOTE: there is no file-local ``db_path`` fixture. The tests below take
+# ``db_path`` only for ordering; they inherit the root conftest's session-scoped
+# ``db_path`` shim (which yields this worker's ``DATABASE_URL``). Defining a
+# local module-scoped ``db_path`` here would shadow the root session-scoped
+# fixtures and reintroduce the SQLite ``init_db(<path>)`` collision that the
+# Decision 15 consolidation removed.
 
 
 @pytest.fixture(scope="module")
-def app(db_path, monkeypatch_module):
-    """Create app with REAL middleware (not FakeSessionMiddleware)."""
-    monkeypatch_module.setenv("DATABASE_PATH", db_path)
+def app(worker_database_url: str, monkeypatch_module):
+    """Create app with REAL ``SessionMiddleware`` (no FakeSessionMiddleware swap).
+
+    Mirrors the already-ported ``tests/realapp/conftest.py`` app fixture: binds
+    ``DATABASE_URL`` to this worker's Postgres DB (from the root conftest), opens
+    the psycopg pool via ``init_db(url)`` — the single chokepoint — and keeps the
+    Google/CORS/ADMIN_API_KEY env this file's auth-flow tests need. It does NOT
+    install ``FakeSessionMiddleware``: these tests deliberately exercise the real
+    session chain (the ``tests/realapp`` pattern living under ``tests/``).
+    """
+    monkeypatch_module.setenv("DATABASE_URL", worker_database_url)
     monkeypatch_module.setenv("ADMIN_API_KEY", "integration-test-admin-key-1234")
     monkeypatch_module.setenv("GOOGLE_CLIENT_ID", "test-client.apps.googleusercontent.com")
     monkeypatch_module.setenv("GOOGLE_CLIENT_SECRET", "test-secret")
@@ -42,12 +51,19 @@ def app(db_path, monkeypatch_module):
     monkeypatch_module.setenv("CORS_ORIGINS", '["http://localhost:3000"]')
 
     get_settings.cache_clear()
-    init_db(db_path)
+    init_db(worker_database_url)
 
     from app.main import create_app
 
     test_app = create_app()
     yield test_app
+    # Do NOT close_db() here. ``_pool`` is a process-global owned by the
+    # root conftest's session-scoped ``app`` fixture (one pool per xdist
+    # worker). This module's ``app`` is module-scoped, so its teardown fires
+    # mid-session while other ``tests/`` modules still need the pool; calling
+    # close_db() would null the shared pool and every later test on this
+    # worker would raise "Database pool is not initialized". The root
+    # session-scoped teardown closes the pool at worker-session end.
     get_settings.cache_clear()
 
 
@@ -65,15 +81,11 @@ async def client(app) -> AsyncGenerator[AsyncClient, None]:
         yield c
 
 
-@pytest.fixture(autouse=True)
-def _clean(db_path):
-    """Clean between tests."""
-    yield
-    conn = sqlite3.connect(db_path)
-    for table in ("order_items", "orders", "cart_items", "sessions", "users"):
-        conn.execute(f"DELETE FROM {table}")  # noqa: S608
-    conn.commit()
-    conn.close()
+# Per-test isolation is handled by the root conftest's autouse ``_clean_tables``
+# (TRUNCATE of volatile tables). The former file-local ``_clean`` fixture (a raw
+# sqlite3 ``DELETE FROM {table}`` loop over order_items/orders/cart_items/
+# sessions/users) is removed: it was the SQLite-era equivalent of ``_clean_tables``
+# and is now redundant under the Postgres template-clone harness.
 
 
 # --- Task 70: Smoke test full OAuth flow ---

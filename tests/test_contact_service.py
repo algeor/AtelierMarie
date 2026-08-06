@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from app.config import Settings
-from app.database import get_db, init_db
+from app.database import get_db
 from app.email.providers import TransientEmailError
 from app.models.contact import ContactRequest
 from app.services.contact_service import (
@@ -57,9 +57,9 @@ class BlockingProvider:
 
 
 @pytest.fixture()
-def db(tmp_path):
-    init_db(str(tmp_path / "test.db"))
-    yield
+def db(service_db):
+    """Bind to the root pooled connection fixture (Postgres worker DB)."""
+    return service_db
 
 
 def _settings(**overrides) -> Settings:
@@ -94,7 +94,7 @@ def test_valid_contact_persists_as_queued(db):
         message_id = create_contact_message(conn, _request(), ip_address="203.0.113.5")
 
     with get_db() as conn:
-        row = conn.execute("SELECT * FROM contact_messages WHERE id = ?", (message_id,)).fetchone()
+        row = conn.execute("SELECT * FROM contact_messages WHERE id = %s", (message_id,)).fetchone()
 
     assert row["name"] == "Ava Atelier"
     assert row["email"] == "ava@example.com"
@@ -110,7 +110,7 @@ def test_contact_email_is_normalized_before_persisting(db):
 
     with get_db() as conn:
         row = conn.execute(
-            "SELECT email FROM contact_messages WHERE id = ?", (message_id,)
+            "SELECT email FROM contact_messages WHERE id = %s", (message_id,)
         ).fetchone()
 
     assert row["email"] == "ava@example.com"
@@ -121,7 +121,7 @@ def test_honeypot_is_ignored(db):
         message_id = create_contact_message(
             conn, _request(website="https://spam.example"), ip_address="203.0.113.5"
         )
-        count = conn.execute("SELECT COUNT(*) FROM contact_messages").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) AS n FROM contact_messages").fetchone()["n"]
 
     assert message_id is None
     assert count == 0
@@ -179,7 +179,7 @@ def test_concurrent_submissions_respect_rate_limit(db):
     assert results.count("created") == CONTACT_RATE_LIMIT_PER_HOUR
     assert results.count("limited") == CONTACT_RATE_LIMIT_PER_HOUR
     with get_db() as conn:
-        count = conn.execute("SELECT COUNT(*) FROM contact_messages").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) AS n FROM contact_messages").fetchone()["n"]
     assert count == CONTACT_RATE_LIMIT_PER_HOUR
 
 
@@ -254,8 +254,8 @@ def test_repeated_drains_send_contact_once(db):
     assert provider.call_count == 1
     with get_db() as conn:
         sent_count = conn.execute(
-            "SELECT COUNT(*) FROM contact_messages WHERE email_status = 'sent'"
-        ).fetchone()[0]
+            "SELECT COUNT(*) AS n FROM contact_messages WHERE email_status = 'sent'"
+        ).fetchone()["n"]
     assert sent_count == 1
 
 
@@ -280,26 +280,26 @@ def test_concurrent_drains_send_contact_once(db):
     assert provider.call_count == 1
     with get_db() as conn:
         sent_count = conn.execute(
-            "SELECT COUNT(*) FROM contact_messages WHERE email_status = 'sent'"
-        ).fetchone()[0]
+            "SELECT COUNT(*) AS n FROM contact_messages WHERE email_status = 'sent'"
+        ).fetchone()["n"]
     assert sent_count == 1
 
 
 def test_cleanup_old_contact_messages_removes_only_expired_rows(db):
-    old_created = (datetime.now(UTC) - timedelta(days=400)).strftime("%Y-%m-%d %H:%M:%S")
-    recent_created = (datetime.now(UTC) - timedelta(days=3)).strftime("%Y-%m-%d %H:%M:%S")
+    old_created = datetime.now(UTC) - timedelta(days=400)
+    recent_created = datetime.now(UTC) - timedelta(days=3)
     with get_db() as conn:
         conn.execute(
             """
             INSERT INTO contact_messages (name, email, message, locale, created_at)
-            VALUES ('Old', 'old@example.com', 'old', 'en', ?)
+            VALUES ('Old', 'old@example.com', 'old', 'en', %s)
             """,
             (old_created,),
         )
         conn.execute(
             """
             INSERT INTO contact_messages (name, email, message, locale, created_at)
-            VALUES ('Recent', 'recent@example.com', 'recent', 'en', ?)
+            VALUES ('Recent', 'recent@example.com', 'recent', 'en', %s)
             """,
             (recent_created,),
         )

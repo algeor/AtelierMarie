@@ -13,50 +13,35 @@ Uses the realapp fixtures (`app`) plus locally-defined product seed / session /
 client fixtures — mirrors the pattern in `test_order_routes.py`.
 """
 
-import sqlite3
 import uuid
-from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.config import get_settings
+from app.database import get_db
+from conftest import add_cart_item, make_session, seed_products
 
-_DT_FMT = "%Y-%m-%d %H:%M:%S"
+_CHECKOUT_PRODUCTS = (
+    ("lavender-dream", "Lavender Dream", 2500, 10, True),
+    ("midnight-amber", "Midnight Amber", 3500, 5, True),
+)
 
 
 @pytest.fixture(autouse=True)
-def _seed_products(db_path, app):
+def _seed_products(app):
     """Seed products used by all checkout tests in this file."""
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "INSERT INTO products (id, name_en, price_cents, stock, is_active, created_at, updated_at) "
-        "VALUES ('lavender-dream', 'Lavender Dream', 2500, 10, 1, datetime('now'), datetime('now'))"
-    )
-    conn.execute(
-        "INSERT INTO products (id, name_en, price_cents, stock, is_active, created_at, updated_at) "
-        "VALUES ('midnight-amber', 'Midnight Amber', 3500, 5, 1, datetime('now'), datetime('now'))"
-    )
-    conn.commit()
-    conn.close()
+    with get_db() as conn:
+        seed_products(conn, _CHECKOUT_PRODUCTS)
 
 
 @pytest.fixture()
-def order_session_id(db_path):
+def order_session_id(app):
     """Session with a pre-populated cart below the COD cap."""
     sid = str(uuid.uuid4())
-    now = datetime.now(UTC)
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
-        (sid, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
-    )
-    conn.execute(
-        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, 'lavender-dream', 1)",
-        (sid,),
-    )
-    conn.commit()
-    conn.close()
+    with get_db() as conn:
+        make_session(conn, sid)
+        add_cart_item(conn, sid, "lavender-dream", 1)
     return sid
 
 

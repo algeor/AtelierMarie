@@ -6,6 +6,19 @@ import sqlite3
 from app.database import get_db
 from app.models.terms import MAX_TERMS_TEXT_LENGTH
 
+_DT_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _fmt_ts(value: object) -> str | None:
+    """Render a timestamp column (datetime or str) as the canonical string."""
+    from datetime import datetime
+
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.strftime(_DT_FMT)
+    return str(value)
+
 
 class TermsNotFoundError(Exception):
     """Raised when the Terms singleton row or a section is missing."""
@@ -139,8 +152,8 @@ def _page_to_admin_dict(row: sqlite3.Row) -> dict:
         "nav_label_bg": row["nav_label_bg"],
         "back_to_top_en": row["back_to_top_en"],
         "back_to_top_bg": row["back_to_top_bg"],
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
+        "created_at": _fmt_ts(row["created_at"]),
+        "updated_at": _fmt_ts(row["updated_at"]),
     }
 
 
@@ -160,8 +173,8 @@ def _section_to_admin_dict(row: sqlite3.Row) -> dict:
         "model_form_lines_en": _json_lines(row["model_form_lines_en"]),
         "model_form_lines_bg": _json_lines(row["model_form_lines_bg"]),
         "sort_order": row["sort_order"],
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
+        "created_at": _fmt_ts(row["created_at"]),
+        "updated_at": _fmt_ts(row["updated_at"]),
     }
 
 
@@ -173,7 +186,7 @@ def _get_page(conn: sqlite3.Connection) -> sqlite3.Row:
 
 
 def _get_section(conn: sqlite3.Connection, slug: str) -> sqlite3.Row:
-    row = conn.execute("SELECT * FROM terms_sections WHERE slug = ?", (slug,)).fetchone()
+    row = conn.execute("SELECT * FROM terms_sections WHERE slug = %s", (slug,)).fetchone()
     if row is None:
         raise TermsNotFoundError(f"Terms section not found: {slug}")
     return row
@@ -266,7 +279,7 @@ def update_page(updates: dict) -> dict:
     with get_db() as conn:
         _get_page(conn)
         if fields:
-            set_clause = ", ".join(f"{key} = ?" for key in fields)
+            set_clause = ", ".join(f"{key} = %s" for key in fields)
             conn.execute(
                 f"UPDATE terms_page SET {set_clause} WHERE id = 'terms'",  # noqa: S608
                 list(fields.values()),
@@ -288,9 +301,9 @@ def update_section(slug: str, updates: dict) -> dict:
     with get_db() as conn:
         _get_section(conn, slug)
         if fields:
-            set_clause = ", ".join(f"{key} = ?" for key in fields)
+            set_clause = ", ".join(f"{key} = %s" for key in fields)
             conn.execute(
-                f"UPDATE terms_sections SET {set_clause} WHERE slug = ?",  # noqa: S608
+                f"UPDATE terms_sections SET {set_clause} WHERE slug = %s",  # noqa: S608
                 [*fields.values(), slug],
             )
         return _section_to_admin_dict(_get_section(conn, slug))

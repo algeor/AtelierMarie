@@ -21,7 +21,7 @@ def cart_with_weight(db, session_id):
         " VALUES ('w-candle', 'W Candle', 1000, 50, 300, 1)",
     )
     db.execute(
-        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, 'w-candle', 2)",
+        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (%s, 'w-candle', 2)",
         (session_id,),
     )
     db.commit()

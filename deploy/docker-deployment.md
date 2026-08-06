@@ -38,6 +38,8 @@ chmod 600 .env.docker
 
 Edit `.env.docker` and set real values for:
 
+- `POSTGRES_PASSWORD` (local Compose Postgres password)
+- `POSTGRES_HOST_PORT`, `BACKEND_HOST_PORT`, `FRONTEND_HOST_PORT` when local ports are occupied
 - `JWT_SECRET`
 - `ADMIN_API_KEY`
 - `FRONTEND_URL`
@@ -46,6 +48,22 @@ Edit `.env.docker` and set real values for:
 - `NEXT_PUBLIC_MEDIA_URL`
 - `NEXT_PUBLIC_SITE_URL`
 - payment/email/courier credentials when those features are ready
+
+By default, Compose points `backend` and `migrate` at the in-stack `postgres` service.
+The host ports are configurable with `POSTGRES_HOST_PORT`, `BACKEND_HOST_PORT`,
+and `FRONTEND_HOST_PORT`; update `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_MEDIA_URL`,
+`NEXT_PUBLIC_SITE_URL`, and OAuth callback URLs to match any public port/origin changes.
+
+To use a managed/external Postgres without editing `compose.yml`, set
+`COMPOSE_DATABASE_URL` and include the external DB override file:
+
+```bash
+COMPOSE_DATABASE_URL=postgresql://user:password@host:5432/database \
+  docker compose -f compose.yml -f compose.external-db.yml up --build frontend
+```
+
+The override removes the app dependency on the local `postgres` service and uses
+`COMPOSE_DATABASE_URL` for both `migrate` and `backend`.
 
 Generate secrets with:
 
@@ -76,6 +94,29 @@ View logs:
 docker compose logs -f backend
 docker compose logs -f frontend
 ```
+
+## Database Migrations
+
+Schema lives entirely in Alembic migrations — there is no runtime schema
+creation. The Compose stack runs a one-shot `migrate` service that executes
+`alembic upgrade head` after Postgres is healthy and before the backend starts;
+`backend` depends on `migrate` completing successfully, so a normal
+`docker compose up` always brings the database to head first.
+
+The backend also verifies at startup that the connected database is at the
+Alembic head and fails fast otherwise, so a missing or stale migration surfaces
+immediately instead of causing runtime errors.
+
+To run migrations manually (e.g. after `git pull` on an already-running stack):
+
+```bash
+docker compose --env-file .env.docker run --rm migrate
+```
+
+This is a **pre-launch application**, so there is no live production database to
+migrate off SQLite — the first `alembic upgrade head` against a fresh Postgres
+volume creates the launch schema and seed rows outright. No data cutover is
+required.
 
 ## Nginx Host Proxy
 
@@ -171,7 +212,7 @@ docker compose --env-file .env.docker exec -T backend python scripts/sync_cookie
 
 The Compose stack creates these named volumes:
 
-- `ateliermarie_atelier_db`
+- `ateliermarie_atelier_postgres`
 - `ateliermarie_atelier_static`
 - `ateliermarie_atelier_analytics`
 - `ateliermarie_atelier_video_temp`
@@ -182,20 +223,22 @@ Confirm exact names with:
 docker volume ls | grep atelier
 ```
 
-SQLite backup:
+Postgres backup (logical dump via `pg_dump` against the running `postgres`
+service):
 
 ```bash
 mkdir -p /var/backups/atelier-marie
-docker compose exec -T backend python - <<'PY'
-import sqlite3
-src = sqlite3.connect('/data/db/atelier_marie.db')
-dst = sqlite3.connect('/data/db/atelier_marie-backup.db')
-src.backup(dst)
-dst.close()
-src.close()
-PY
-docker run --rm -v ateliermarie_atelier_db:/data -v /var/backups/atelier-marie:/backup busybox \
-  cp /data/atelier_marie-backup.db /backup/atelier_marie-$(date +%F).db
+docker compose --env-file .env.docker exec -T postgres \
+  pg_dump -U atelier -d atelier_marie --format=custom \
+  > /var/backups/atelier-marie/atelier_marie-$(date +%F).dump
+```
+
+Restore into an empty database with `pg_restore`:
+
+```bash
+docker compose --env-file .env.docker exec -T postgres \
+  pg_restore -U atelier -d atelier_marie --clean --if-exists \
+  < /var/backups/atelier-marie/atelier_marie-YYYY-MM-DD.dump
 ```
 
 Static/media backup:

@@ -1,6 +1,7 @@
 .PHONY: help setup setup-backend setup-frontend test test-backend test-unit test-integration \
        test-frontend test-chrome-stack lint lint-backend lint-frontend typecheck format clean dev \
-       stripe-webhook-secret dev-stripe-webhook audit-cookie-inventory sync-cookie-inventory
+       stripe-webhook-secret dev-stripe-webhook audit-cookie-inventory sync-cookie-inventory \
+       db-up db-migrate db-reset
 
 # Default
 help: ## Show this help
@@ -76,6 +77,19 @@ format: ## Auto-format Python code with ruff
 	.venv/bin/ruff check --fix .
 
 # ─── Dev Servers ──────────────────────────────────────────────────────────────
+
+# ─── Database ─────────────────────────────────────────────────────────────────
+
+db-up: ## Start local Postgres through Docker Compose
+	docker compose up -d postgres
+
+db-migrate: ## Apply Alembic migrations to DATABASE_URL
+	.venv/bin/alembic upgrade head
+
+db-reset: ## Drop and recreate local Compose Postgres volume, then run migrations
+	docker compose down -v
+	docker compose up -d postgres
+	.venv/bin/alembic upgrade head
 
 dev: ## Start both backend and frontend (requires two terminals — use dev-backend / dev-frontend)
 	@echo "Use 'make dev-backend' and 'make dev-frontend' in separate terminals"

@@ -2,16 +2,15 @@
 payment_service handlers, webhook route, 24h auto-cancel, and order_cancelled email template.
 """
 
-import sqlite3
 import threading
 import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
+import psycopg
 import pytest
 
 from app.config import Settings
-from app.database import init_db
 from app.email.renderer import render_template
 from app.models.delivery import DeliveryInfo, DeliveryOffice
 from app.services.order_service import (
@@ -62,13 +61,8 @@ _DT_FMT = "%Y-%m-%d %H:%M:%S"
 
 
 @pytest.fixture()
-def conn(tmp_path):
-    path = str(tmp_path / "test.db")
-    init_db(path)
-    c = sqlite3.connect(path)
-    c.row_factory = sqlite3.Row
-    yield c
-    c.close()
+def conn(db):
+    return db
 
 
 @pytest.fixture()
@@ -86,24 +80,35 @@ def delivery() -> DeliveryInfo:
     )
 
 
-def _seed_product(conn: sqlite3.Connection, stock: int = 5) -> str:
+def _seed_product(conn: psycopg.Connection, stock: int = 5) -> str:
     pid = f"test-product-{uuid.uuid4().hex[:8]}"
     conn.execute(
         "INSERT INTO products (id, name_en, price_cents, stock, is_active)"
-        " VALUES (?, 'Test', 100, ?, 1)",
+        " VALUES (%s, 'Test', 100, %s, 1)",
         (pid, stock),
     )
     conn.commit()
     return pid
 
 
-def _add_cart(conn: sqlite3.Connection, session_id: str, product_id: str, qty: int = 1):
-    conn.execute("INSERT OR IGNORE INTO sessions (id) VALUES (?)", (session_id,))
+def _add_cart(conn: psycopg.Connection, session_id: str, product_id: str, qty: int = 1):
+    now = datetime.now(UTC)
     conn.execute(
-        "INSERT OR REPLACE INTO cart_items (session_id, product_id, quantity) VALUES (?, ?, ?)",
+        "INSERT INTO sessions (id, created_at, expires_at) VALUES (%s, %s, %s) "
+        "ON CONFLICT (id) DO NOTHING",
+        (session_id, now, now + timedelta(days=30)),
+    )
+    conn.execute(
+        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (%s, %s, %s) "
+        "ON CONFLICT (session_id, product_id) DO UPDATE SET quantity = EXCLUDED.quantity",
         (session_id, product_id, qty),
     )
     conn.commit()
+
+
+def _stock(conn: psycopg.Connection, product_id: str) -> int:
+    row = conn.execute("SELECT stock AS n FROM products WHERE id = %s", (product_id,)).fetchone()
+    return row["n"]
 
 
 def _do_checkout(conn, delivery, payment_method="cod", session_id=None):
@@ -138,7 +143,7 @@ class TestCheckoutPaymentFields:
         from app.services import order_service
 
         order = _do_checkout(conn, delivery, payment_method="cod")
-        conn.execute("UPDATE orders SET order_number = 'AM-000000' WHERE id = ?", (order["id"],))
+        conn.execute("UPDATE orders SET order_number = 'AM-000000' WHERE id = %s", (order["id"],))
         conn.commit()
 
         with patch(
@@ -165,7 +170,7 @@ class TestCheckoutPaymentFields:
     def test_cod_queues_placed_email(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="cod")
         row = conn.execute(
-            "SELECT event FROM order_emails WHERE order_id = ? AND event = 'placed'",
+            "SELECT event FROM order_emails WHERE order_id = %s AND event = 'placed'",
             (order["id"],),
         ).fetchone()
         assert row is not None
@@ -173,13 +178,13 @@ class TestCheckoutPaymentFields:
     def test_card_queues_payment_pending_email(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="card")
         row = conn.execute(
-            "SELECT event FROM order_emails WHERE order_id = ? AND event = 'payment_pending'",
+            "SELECT event FROM order_emails WHERE order_id = %s AND event = 'payment_pending'",
             (order["id"],),
         ).fetchone()
         assert row is not None
         # Must NOT queue placed
         placed = conn.execute(
-            "SELECT event FROM order_emails WHERE order_id = ? AND event = 'placed'",
+            "SELECT event FROM order_emails WHERE order_id = %s AND event = 'placed'",
             (order["id"],),
         ).fetchone()
         assert placed is None
@@ -187,7 +192,7 @@ class TestCheckoutPaymentFields:
     def test_bank_transfer_queues_payment_pending_email(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="bank_transfer")
         row = conn.execute(
-            "SELECT event FROM order_emails WHERE order_id = ? AND event = 'payment_pending'",
+            "SELECT event FROM order_emails WHERE order_id = %s AND event = 'payment_pending'",
             (order["id"],),
         ).fetchone()
         assert row is not None
@@ -212,7 +217,7 @@ class TestUpdateStatusPayment:
     def test_non_cod_delivered_does_not_change_payment_status(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="bank_transfer")
         # Manually mark paid so it's in a realistic state
-        conn.execute("UPDATE orders SET payment_status = 'paid' WHERE id = ?", (order["id"],))
+        conn.execute("UPDATE orders SET payment_status = 'paid' WHERE id = %s", (order["id"],))
         conn.commit()
         update_status(conn, order["id"], "confirmed")
         update_status(conn, order["id"], "shipped", tracking_number="123", tracking_carrier="econt")
@@ -239,7 +244,7 @@ class TestMarkBankTransferPaid:
         updated = get_order(conn, order["id"])
         assert updated["payment_status"] == "paid"
         row = conn.execute(
-            "SELECT event FROM order_emails WHERE order_id = ? AND event = 'placed'",
+            "SELECT event FROM order_emails WHERE order_id = %s AND event = 'placed'",
             (order["id"],),
         ).fetchone()
         assert row is not None
@@ -252,7 +257,7 @@ class TestMarkBankTransferPaid:
 
     def test_rejects_non_pending_bank_transfer(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="bank_transfer")
-        conn.execute("UPDATE orders SET payment_status = 'failed' WHERE id = ?", (order["id"],))
+        conn.execute("UPDATE orders SET payment_status = 'failed' WHERE id = %s", (order["id"],))
         conn.commit()
 
         with pytest.raises(ManualPaymentActionError) as exc:
@@ -295,7 +300,7 @@ class TestManualPaymentActions:
         assert updated["paid_at"] is not None
         assert updated["collected_at"] is not None
         event = conn.execute(
-            "SELECT event_type, admin_note, admin_email FROM payment_events WHERE order_id = ?",
+            "SELECT event_type, admin_note, admin_email FROM payment_events WHERE order_id = %s",
             (order["id"],),
         ).fetchone()
         assert event["event_type"] == "manual_mark_collected"
@@ -304,14 +309,14 @@ class TestManualPaymentActions:
 
     def test_mark_refunded_uses_current_refunded_status(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="card")
-        conn.execute("UPDATE orders SET payment_status = 'paid' WHERE id = ?", (order["id"],))
+        conn.execute("UPDATE orders SET payment_status = 'paid' WHERE id = %s", (order["id"],))
         conn.commit()
 
         updated = apply_manual_payment_action(conn, order["id"], "mark_refunded", "Manual refund")
 
         assert updated["payment_status"] == "refunded"
         event = conn.execute(
-            "SELECT provider_status FROM payment_events WHERE order_id = ?",
+            "SELECT provider_status FROM payment_events WHERE order_id = %s",
             (order["id"],),
         ).fetchone()
         assert event["provider_status"] == "refunded"
@@ -327,7 +332,7 @@ class TestManualPaymentActions:
 
     def test_refunded_payment_cannot_be_marked_paid_again(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="card")
-        conn.execute("UPDATE orders SET payment_status = 'refunded' WHERE id = ?", (order["id"],))
+        conn.execute("UPDATE orders SET payment_status = 'refunded' WHERE id = %s", (order["id"],))
         conn.commit()
 
         with pytest.raises(ManualPaymentActionError) as exc:
@@ -350,19 +355,19 @@ class TestManualPaymentActions:
             payment_method="card",
         )
         stock_after_order = conn.execute(
-            "SELECT stock FROM products WHERE id = ?", (pid,)
-        ).fetchone()[0]
+            "SELECT stock AS n FROM products WHERE id = %s", (pid,)
+        ).fetchone()["n"]
 
         updated = apply_manual_payment_action(conn, order["id"], "cancel", "Customer request")
 
         assert updated["status"] == "cancelled"
         assert updated["payment_status"] == "failed"
         assert (
-            conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0]
+            conn.execute("SELECT stock AS n FROM products WHERE id = %s", (pid,)).fetchone()["n"]
             == stock_after_order + 2
         )
         event = conn.execute(
-            "SELECT event_type, provider_status FROM payment_events WHERE order_id = ?",
+            "SELECT event_type, provider_status FROM payment_events WHERE order_id = %s",
             (order["id"],),
         ).fetchone()
         assert event["event_type"] == "manual_cancel"
@@ -389,7 +394,7 @@ class TestHandlePaymentSucceeded:
         now = datetime.now(UTC).strftime(_DT_FMT)
         handle_payment_succeeded(conn, "evt_002", order["id"], "pi_def", now)
         row = conn.execute(
-            "SELECT event FROM order_emails WHERE order_id = ? AND event = 'placed'",
+            "SELECT event FROM order_emails WHERE order_id = %s AND event = 'placed'",
             (order["id"],),
         ).fetchone()
         assert row is not None
@@ -402,20 +407,20 @@ class TestHandlePaymentSucceeded:
         assert result2 is False
         # Only one placed email queued
         count = conn.execute(
-            "SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND event = 'placed'",
+            "SELECT COUNT(*) AS n FROM order_emails WHERE order_id = %s AND event = 'placed'",
             (order["id"],),
-        ).fetchone()[0]
+        ).fetchone()["n"]
         assert count == 1
         event_count = conn.execute(
-            "SELECT COUNT(*) FROM payment_events WHERE stripe_event_id = 'evt_003'"
-        ).fetchone()[0]
+            "SELECT COUNT(*) AS n FROM payment_events WHERE stripe_event_id = 'evt_003'"
+        ).fetchone()["n"]
         assert event_count == 1
 
     def test_ignores_cancelled_order(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="card")
         conn.execute(
             "UPDATE orders SET status = 'cancelled', stripe_checkout_session_id = 'cs_current' "
-            "WHERE id = ?",
+            "WHERE id = %s",
             (order["id"],),
         )
         conn.commit()
@@ -428,9 +433,9 @@ class TestHandlePaymentSucceeded:
         updated = get_order(conn, order["id"])
         assert updated["payment_status"] == "pending"
         count = conn.execute(
-            "SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND event = 'placed'",
+            "SELECT COUNT(*) AS n FROM order_emails WHERE order_id = %s AND event = 'placed'",
             (order["id"],),
-        ).fetchone()[0]
+        ).fetchone()["n"]
         assert count == 0
 
     def test_ignores_non_card_order(self, conn, delivery):
@@ -442,15 +447,15 @@ class TestHandlePaymentSucceeded:
         updated = get_order(conn, order["id"])
         assert updated["payment_status"] == "cod_pending"
         count = conn.execute(
-            "SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND event = 'placed'",
+            "SELECT COUNT(*) AS n FROM order_emails WHERE order_id = %s AND event = 'placed'",
             (order["id"],),
-        ).fetchone()[0]
+        ).fetchone()["n"]
         assert count == 1  # the original COD placed email only
 
     def test_ignores_mismatched_session_id(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="card")
         conn.execute(
-            "UPDATE orders SET stripe_checkout_session_id = 'cs_current' WHERE id = ?",
+            "UPDATE orders SET stripe_checkout_session_id = 'cs_current' WHERE id = %s",
             (order["id"],),
         )
         conn.commit()
@@ -461,17 +466,17 @@ class TestHandlePaymentSucceeded:
         updated = get_order(conn, order["id"])
         assert updated["payment_status"] == "pending"
         count = conn.execute(
-            "SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND event = 'placed'",
+            "SELECT COUNT(*) AS n FROM order_emails WHERE order_id = %s AND event = 'placed'",
             (order["id"],),
-        ).fetchone()[0]
+        ).fetchone()["n"]
         assert count == 0
 
     def test_late_success_after_reservation_expired_requires_review(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="card")
         expired_at = (datetime.now(UTC) - timedelta(minutes=1)).strftime(_DT_FMT)
         conn.execute(
-            "UPDATE orders SET reserved_until = ?, stripe_checkout_session_id = 'cs_current' "
-            "WHERE id = ?",
+            "UPDATE orders SET reserved_until = %s, stripe_checkout_session_id = 'cs_current' "
+            "WHERE id = %s",
             (expired_at, order["id"]),
         )
         conn.commit()
@@ -490,19 +495,19 @@ class TestHandlePaymentSucceeded:
         updated = get_order(conn, order["id"])
         assert updated["payment_status"] == "review_required"
         count = conn.execute(
-            "SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND event = 'placed'",
+            "SELECT COUNT(*) AS n FROM order_emails WHERE order_id = %s AND event = 'placed'",
             (order["id"],),
-        ).fetchone()[0]
+        ).fetchone()["n"]
         assert count == 0
         event = conn.execute(
-            "SELECT processing_status, details FROM payment_events WHERE stripe_event_id = ?",
+            "SELECT processing_status, details FROM payment_events WHERE stripe_event_id = %s",
             ("evt_expired_success",),
         ).fetchone()
         assert event["processing_status"] == "requires_review"
         assert "reservation_expired" in event["details"]
         assert "requires_admin_review" in event["details"]
         alert = conn.execute(
-            "SELECT alert_type, order_id, source, details FROM admin_alerts WHERE order_id = ?",
+            "SELECT alert_type, order_id, source, details FROM admin_alerts WHERE order_id = %s",
             (order["id"],),
         ).fetchone()
         assert alert["alert_type"] == "payment_requires_review"
@@ -510,7 +515,7 @@ class TestHandlePaymentSucceeded:
         assert "pi_late" in alert["details"]
         admin_email = conn.execute(
             "SELECT event, recipient FROM order_emails "
-            "WHERE order_id = ? AND event = 'admin_payment_review_required'",
+            "WHERE order_id = %s AND event = 'admin_payment_review_required'",
             (order["id"],),
         ).fetchone()
         assert admin_email["recipient"] == "owner@example.com"
@@ -526,7 +531,7 @@ class TestHandleSessionExpired:
         order = _do_checkout(conn, delivery, payment_method="card")
         # Simulate the session id Stripe would have stored after create_checkout_session.
         conn.execute(
-            "UPDATE orders SET stripe_checkout_session_id = 'cs_test_abc' WHERE id = ?",
+            "UPDATE orders SET stripe_checkout_session_id = 'cs_test_abc' WHERE id = %s",
             (order["id"],),
         )
         conn.commit()
@@ -536,7 +541,7 @@ class TestHandleSessionExpired:
         updated = get_order(conn, order["id"])
         assert updated["payment_status"] == "review_required"
         event = conn.execute(
-            "SELECT provider_status FROM payment_events WHERE stripe_event_id = ?",
+            "SELECT provider_status FROM payment_events WHERE stripe_event_id = %s",
             ("evt_exp_001",),
         ).fetchone()
         assert event["provider_status"] == "review_required"
@@ -544,7 +549,7 @@ class TestHandleSessionExpired:
     def test_idempotent_on_duplicate(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="card")
         conn.execute(
-            "UPDATE orders SET stripe_checkout_session_id = 'cs_test_dup' WHERE id = ?",
+            "UPDATE orders SET stripe_checkout_session_id = 'cs_test_dup' WHERE id = %s",
             (order["id"],),
         )
         conn.commit()
@@ -559,7 +564,7 @@ class TestHandleSessionExpired:
         # Simulate: customer retried and paid with cs_test_new; cs_test_old expired late.
         conn.execute(
             "UPDATE orders SET stripe_checkout_session_id = 'cs_test_new',"
-            " payment_status = 'paid' WHERE id = ?",
+            " payment_status = 'paid' WHERE id = %s",
             (order["id"],),
         )
         conn.commit()
@@ -614,19 +619,19 @@ class TestAdditionalStripeEvents:
 
         assert result is False
         count = conn.execute(
-            "SELECT COUNT(*) FROM payment_events WHERE stripe_event_id = 'evt_pi_dup'"
-        ).fetchone()[0]
+            "SELECT COUNT(*) AS n FROM payment_events WHERE stripe_event_id = 'evt_pi_dup'"
+        ).fetchone()["n"]
         assert count == 1
 
     def test_charge_refunded_is_audit_only(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="card")
         conn.execute(
             "UPDATE orders SET payment_status = 'paid', stripe_payment_intent_id = 'pi_refund' "
-            "WHERE id = ?",
+            "WHERE id = %s",
             (order["id"],),
         )
         conn.execute(
-            "UPDATE payments SET stripe_payment_intent_id = 'pi_refund' WHERE order_id = ?",
+            "UPDATE payments SET stripe_payment_intent_id = 'pi_refund' WHERE order_id = %s",
             (order["id"],),
         )
         conn.commit()
@@ -670,8 +675,8 @@ class TestStripeRefundCreation:
         conn.execute(
             """
             UPDATE orders
-            SET payment_status = 'paid', paid_at = ?, stripe_payment_intent_id = 'pi_refund'
-            WHERE id = ?
+            SET payment_status = 'paid', paid_at = %s, stripe_payment_intent_id = 'pi_refund'
+            WHERE id = %s
             """,
             (datetime.now(UTC).strftime(_DT_FMT), order["id"]),
         )
@@ -679,7 +684,7 @@ class TestStripeRefundCreation:
             """
             UPDATE payments
             SET stripe_payment_intent_id = 'pi_refund', provider_status = 'paid'
-            WHERE order_id = ? AND provider = 'stripe'
+            WHERE order_id = %s AND provider = 'stripe'
             """,
             (order["id"],),
         )
@@ -784,7 +789,7 @@ class TestStripeRefundCreation:
         conn.execute(
             """
             INSERT INTO payment_refunds (id, order_id, provider, amount_cents, status)
-            VALUES ('existing-refund', ?, 'stripe', ?, 'pending')
+            VALUES ('existing-refund', %s, 'stripe', %s, 'pending')
             """,
             (order["id"], order["total_cents"] - 10),
         )
@@ -822,7 +827,7 @@ class TestStripeRefundCreation:
 
         assert exc_info.value.code == "STRIPE_REFUND_FAILED"
         refund = conn.execute(
-            "SELECT status, failure_reason FROM payment_refunds WHERE order_id = ?",
+            "SELECT status, failure_reason FROM payment_refunds WHERE order_id = %s",
             (order["id"],),
         ).fetchone()
         assert refund["status"] == "failed"
@@ -832,19 +837,19 @@ class TestStripeRefundCreation:
     def test_refund_succeeded_webhook_marks_full_refund_confirmed(self, conn, delivery):
         order = self._paid_card_order(conn, delivery)
         payment_id = conn.execute(
-            "SELECT id FROM payments WHERE order_id = ? AND provider = 'stripe'",
+            "SELECT id FROM payments WHERE order_id = %s AND provider = 'stripe'",
             (order["id"],),
         ).fetchone()["id"]
         conn.execute(
             """
             INSERT INTO payment_refunds (
                 id, order_id, payment_id, provider, provider_refund_id, amount_cents, status
-            ) VALUES ('refund-full', ?, ?, 'stripe', 're_full', ?, 'pending')
+            ) VALUES ('refund-full', %s, %s, 'stripe', 're_full', %s, 'pending')
             """,
             (order["id"], payment_id, order["total_cents"]),
         )
         conn.execute(
-            "UPDATE orders SET payment_status = 'refund_pending' WHERE id = ?",
+            "UPDATE orders SET payment_status = 'refund_pending' WHERE id = %s",
             (order["id"],),
         )
         conn.commit()
@@ -870,19 +875,19 @@ class TestStripeRefundCreation:
     def test_refund_succeeded_webhook_marks_partial_refund(self, conn, delivery):
         order = self._paid_card_order(conn, delivery)
         payment_id = conn.execute(
-            "SELECT id FROM payments WHERE order_id = ? AND provider = 'stripe'",
+            "SELECT id FROM payments WHERE order_id = %s AND provider = 'stripe'",
             (order["id"],),
         ).fetchone()["id"]
         conn.execute(
             """
             INSERT INTO payment_refunds (
                 id, order_id, payment_id, provider, provider_refund_id, amount_cents, status
-            ) VALUES ('refund-partial', ?, ?, 'stripe', 're_partial', 50, 'pending')
+            ) VALUES ('refund-partial', %s, %s, 'stripe', 're_partial', 50, 'pending')
             """,
             (order["id"], payment_id),
         )
         conn.execute(
-            "UPDATE orders SET payment_status = 'refund_pending' WHERE id = ?",
+            "UPDATE orders SET payment_status = 'refund_pending' WHERE id = %s",
             (order["id"],),
         )
         conn.commit()
@@ -903,19 +908,19 @@ class TestStripeRefundCreation:
     def test_refund_failed_webhook_records_failure_and_review_state(self, conn, delivery):
         order = self._paid_card_order(conn, delivery)
         payment_id = conn.execute(
-            "SELECT id FROM payments WHERE order_id = ? AND provider = 'stripe'",
+            "SELECT id FROM payments WHERE order_id = %s AND provider = 'stripe'",
             (order["id"],),
         ).fetchone()["id"]
         conn.execute(
             """
             INSERT INTO payment_refunds (
                 id, order_id, payment_id, provider, provider_refund_id, amount_cents, status
-            ) VALUES ('refund-failed', ?, ?, 'stripe', 're_failed', 50, 'pending')
+            ) VALUES ('refund-failed', %s, %s, 'stripe', 're_failed', 50, 'pending')
             """,
             (order["id"], payment_id),
         )
         conn.execute(
-            "UPDATE orders SET payment_status = 'refund_pending' WHERE id = ?",
+            "UPDATE orders SET payment_status = 'refund_pending' WHERE id = %s",
             (order["id"],),
         )
         conn.commit()
@@ -958,7 +963,7 @@ class TestStripeRefundCreation:
 
         assert get_order(conn, order["id"])["payment_status"] == "dispute_open"
         event = conn.execute(
-            "SELECT provider_status, details FROM payment_events WHERE stripe_event_id = ?",
+            "SELECT provider_status, details FROM payment_events WHERE stripe_event_id = %s",
             ("evt_dispute_open",),
         ).fetchone()
         assert event["provider_status"] == "dispute_open"
@@ -1004,10 +1009,10 @@ class TestPaymentSecurityEdges:
             "pay_on_delivery_max_cents": 5000,
         }
         count = conn.execute(
-            "SELECT COUNT(*) FROM site_settings "
+            "SELECT COUNT(*) AS n FROM site_settings "
             "WHERE key IN ('card_payments_enabled', 'pay_on_delivery_enabled', "
             "'pay_on_delivery_max_cents')"
-        ).fetchone()[0]
+        ).fetchone()["n"]
         assert count == 3
 
     def test_payment_settings_update_writes_audit_events(self, conn):
@@ -1140,7 +1145,7 @@ class TestPaymentSecurityEdges:
         assert url == "https://checkout.example/async-session"
         assert provider_thread_ids and provider_thread_ids[0] != caller_thread_id
         row = conn.execute(
-            "SELECT stripe_checkout_session_id FROM orders WHERE id = ?",
+            "SELECT stripe_checkout_session_id FROM orders WHERE id = %s",
             (order["id"],),
         ).fetchone()
         assert row["stripe_checkout_session_id"] == "cs_async"
@@ -1161,7 +1166,9 @@ class TestPaymentSecurityEdges:
     def test_retry_rejects_expired_reservation(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="card")
         expired_at = (datetime.now(UTC) - timedelta(minutes=1)).strftime(_DT_FMT)
-        conn.execute("UPDATE orders SET reserved_until = ? WHERE id = ?", (expired_at, order["id"]))
+        conn.execute(
+            "UPDATE orders SET reserved_until = %s WHERE id = %s", (expired_at, order["id"])
+        )
         conn.commit()
 
         with pytest.raises(InvalidRetryStateError):
@@ -1179,7 +1186,7 @@ class TestPaymentSecurityEdges:
         import types
 
         order = _do_checkout(conn, delivery, payment_method="card")
-        conn.execute("UPDATE orders SET payment_status = 'failed' WHERE id = ?", (order["id"],))
+        conn.execute("UPDATE orders SET payment_status = 'failed' WHERE id = %s", (order["id"],))
         conn.commit()
         calls: list[dict] = []
 
@@ -1249,27 +1256,22 @@ class TestPaymentSecurityEdges:
 
 
 @pytest.fixture()
-def stripe_app(tmp_path):
+def stripe_app(app, monkeypatch):
+    """Reuse the worker-DB app, but with the Stripe webhook secret configured.
+
+    Sourced from the session-scoped root ``app`` (bound to this worker's Postgres
+    DB) instead of building a fresh ``init_db(tmp_path)`` app. The webhook route
+    reads ``get_settings()`` per request, so we set ``STRIPE_WEBHOOK_SECRET`` and
+    clear the settings cache; teardown restores it. ``DATABASE_URL`` /
+    ``ADMIN_API_KEY`` remain in the environment, so the re-read settings still
+    point at the worker DB.
+    """
     from app.config import get_settings
-    from app.database import init_db
 
-    db_path = str(tmp_path / "test.db")
-    init_db(db_path)
-
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")  # pragma: allowlist secret
     get_settings.cache_clear()
-    import os
-
-    os.environ["STRIPE_WEBHOOK_SECRET"] = "whsec_test"  # pragma: allowlist secret
-    os.environ["DATABASE_PATH"] = db_path
-
-    from app.main import create_app
-
-    app = create_app()
     yield app
-
     get_settings.cache_clear()
-    os.environ.pop("STRIPE_WEBHOOK_SECRET", None)
-    os.environ.pop("DATABASE_PATH", None)
 
 
 class TestStripeWebhookRoute:
@@ -1368,19 +1370,16 @@ class TestAbandonedCardPaymentReview:
             payment_method="card",
         )
         stock_after_order = conn.execute(
-            "SELECT stock FROM products WHERE id = ?", (pid,)
-        ).fetchone()[0]
+            "SELECT stock AS n FROM products WHERE id = %s", (pid,)
+        ).fetchone()["n"]
         old_time = (datetime.now(UTC) - timedelta(hours=25)).strftime(_DT_FMT)
-        conn.execute("UPDATE orders SET created_at = ? WHERE id = ?", (old_time, order["id"]))
+        conn.execute("UPDATE orders SET created_at = %s WHERE id = %s", (old_time, order["id"]))
         conn.commit()
         self._run(conn)
         updated = get_order(conn, order["id"])
         assert updated["status"] == "pending"
         assert updated["payment_status"] == "review_required"
-        assert (
-            conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0]
-            == stock_after_order
-        )
+        assert _stock(conn, pid) == stock_after_order
         assert updated["reserved_until"] is not None
 
     def test_expired_card_reservation_writes_payment_event_and_expires_stripe(self, conn, delivery):
@@ -1400,12 +1399,12 @@ class TestAbandonedCardPaymentReview:
             payment_method="card",
         )
         stock_after_order = conn.execute(
-            "SELECT stock FROM products WHERE id = ?", (pid,)
-        ).fetchone()[0]
+            "SELECT stock AS n FROM products WHERE id = %s", (pid,)
+        ).fetchone()["n"]
         expired_at = (datetime.now(UTC) - timedelta(minutes=1)).strftime(_DT_FMT)
         conn.execute(
-            "UPDATE orders SET reserved_until = ?, stripe_checkout_session_id = 'cs_expired' "
-            "WHERE id = ?",
+            "UPDATE orders SET reserved_until = %s, stripe_checkout_session_id = 'cs_expired' "
+            "WHERE id = %s",
             (expired_at, order["id"]),
         )
         conn.commit()
@@ -1427,16 +1426,13 @@ class TestAbandonedCardPaymentReview:
         updated = get_order(conn, order["id"])
         assert updated["status"] == "pending"
         assert updated["payment_status"] == "review_required"
-        assert (
-            conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0]
-            == stock_after_order
-        )
+        assert _stock(conn, pid) == stock_after_order
         assert updated["reserved_until"] is not None
         event = conn.execute(
             """
             SELECT event_type, source, provider_status, processing_status, details
             FROM payment_events
-            WHERE order_id = ?
+            WHERE order_id = %s
             """,
             (order["id"],),
         ).fetchone()
@@ -1463,14 +1459,14 @@ class TestAbandonedCardPaymentReview:
             notes=None,
             payment_method="card",
         )
-        assert conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0] == 3
+        assert _stock(conn, pid) == 3
         expired_at = (datetime.now(UTC) - timedelta(minutes=1)).strftime(_DT_FMT)
         conn.execute(
             """
             UPDATE orders
-            SET payment_status = 'review_required', reserved_until = ?,
+            SET payment_status = 'review_required', reserved_until = %s,
                 stripe_checkout_session_id = 'cs_abandoned'
-            WHERE id = ?
+            WHERE id = %s
             """,
             (expired_at, order["id"]),
         )
@@ -1478,7 +1474,7 @@ class TestAbandonedCardPaymentReview:
             """
             UPDATE payments
             SET provider_status = 'review_required', stripe_checkout_session_id = 'cs_abandoned'
-            WHERE order_id = ? AND provider = 'stripe'
+            WHERE order_id = %s AND provider = 'stripe'
             """,
             (order["id"],),
         )
@@ -1491,16 +1487,16 @@ class TestAbandonedCardPaymentReview:
         assert updated["status"] == "cancelled"
         assert updated["payment_status"] == "failed"
         assert updated["reserved_until"] is None
-        assert conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0] == 5
+        assert _stock(conn, pid) == 5
         assert (
             conn.execute(
-                "SELECT COUNT(*) FROM payment_refunds WHERE order_id = ?",
+                "SELECT COUNT(*) AS n FROM payment_refunds WHERE order_id = %s",
                 (order["id"],),
-            ).fetchone()[0]
+            ).fetchone()["n"]
             == 0
         )
         payment = conn.execute(
-            "SELECT provider_status FROM payments WHERE order_id = ? AND provider = 'stripe'",
+            "SELECT provider_status FROM payments WHERE order_id = %s AND provider = 'stripe'",
             (order["id"],),
         ).fetchone()
         assert payment["provider_status"] == "failed"
@@ -1508,7 +1504,7 @@ class TestAbandonedCardPaymentReview:
             """
             SELECT event_type, provider_status, processing_status, details
             FROM payment_events
-            WHERE order_id = ?
+            WHERE order_id = %s
             ORDER BY created_at DESC
             LIMIT 1
             """,
@@ -1523,7 +1519,7 @@ class TestAbandonedCardPaymentReview:
     def test_admin_records_abandoned_card_callback_outcome(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="card")
         conn.execute(
-            "UPDATE orders SET payment_status = 'review_required' WHERE id = ?",
+            "UPDATE orders SET payment_status = 'review_required' WHERE id = %s",
             (order["id"],),
         )
 
@@ -1541,7 +1537,7 @@ class TestAbandonedCardPaymentReview:
         assert updated["payment_status"] == "review_required"
         event = conn.execute(
             "SELECT event_type, provider_status, admin_email, details "
-            "FROM payment_events WHERE order_id = ? ORDER BY created_at DESC LIMIT 1",
+            "FROM payment_events WHERE order_id = %s ORDER BY created_at DESC LIMIT 1",
             (order["id"],),
         ).fetchone()
         assert event["event_type"] == "manual_record_callback"
@@ -1555,19 +1551,19 @@ class TestAbandonedCardPaymentReview:
             """
             UPDATE orders
             SET payment_status = 'review_required', stripe_checkout_session_id = 'cs_abandoned'
-            WHERE id = ?
+            WHERE id = %s
             """,
             (order["id"],),
         )
         stripe_payment = conn.execute(
-            "SELECT id FROM payments WHERE order_id = ? AND provider = 'stripe'",
+            "SELECT id FROM payments WHERE order_id = %s AND provider = 'stripe'",
             (order["id"],),
         ).fetchone()
         conn.execute(
             """
             UPDATE payments
             SET stripe_checkout_session_id = 'cs_abandoned', provider_status = 'review_required'
-            WHERE id = ?
+            WHERE id = %s
             """,
             (stripe_payment["id"],),
         )
@@ -1586,7 +1582,7 @@ class TestAbandonedCardPaymentReview:
         assert updated["payment_status"] == "cod_pending"
         assert updated["reserved_until"] is None
         provider_rows = conn.execute(
-            "SELECT provider, provider_status FROM payments WHERE order_id = ? ORDER BY provider",
+            "SELECT provider, provider_status FROM payments WHERE order_id = %s ORDER BY provider",
             (order["id"],),
         ).fetchall()
         assert [(row["provider"], row["provider_status"]) for row in provider_rows] == [
@@ -1595,7 +1591,7 @@ class TestAbandonedCardPaymentReview:
         ]
         event = conn.execute(
             "SELECT event_type, provider, provider_status, details "
-            "FROM payment_events WHERE order_id = ? ORDER BY created_at DESC LIMIT 1",
+            "FROM payment_events WHERE order_id = %s ORDER BY created_at DESC LIMIT 1",
             (order["id"],),
         ).fetchone()
         assert event["event_type"] == "manual_convert_to_cod"
@@ -1619,9 +1615,9 @@ class TestAbandonedCardPaymentReview:
             notes=None,
             payment_method="card",
         )
-        assert conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0] == 3
+        assert _stock(conn, pid) == 3
         conn.execute(
-            "UPDATE orders SET payment_status = 'review_required' WHERE id = ?",
+            "UPDATE orders SET payment_status = 'review_required' WHERE id = %s",
             (order["id"],),
         )
 
@@ -1634,19 +1630,19 @@ class TestAbandonedCardPaymentReview:
 
         assert updated["status"] == "cancelled"
         assert updated["payment_status"] == "failed"
-        assert conn.execute("SELECT stock FROM products WHERE id = ?", (pid,)).fetchone()[0] == 5
+        assert _stock(conn, pid) == 5
         assert (
             conn.execute(
-                "SELECT COUNT(*) FROM payment_refunds WHERE order_id = ?",
+                "SELECT COUNT(*) AS n FROM payment_refunds WHERE order_id = %s",
                 (order["id"],),
-            ).fetchone()[0]
+            ).fetchone()["n"]
             == 0
         )
 
     def test_does_not_cancel_cod_orders(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="cod")
         old_time = (datetime.now(UTC) - timedelta(hours=25)).strftime(_DT_FMT)
-        conn.execute("UPDATE orders SET created_at = ? WHERE id = ?", (old_time, order["id"]))
+        conn.execute("UPDATE orders SET created_at = %s WHERE id = %s", (old_time, order["id"]))
         conn.commit()
         self._run(conn)
         assert get_order(conn, order["id"])["status"] == "pending"
@@ -1654,7 +1650,7 @@ class TestAbandonedCardPaymentReview:
     def test_does_not_cancel_bank_transfer_orders(self, conn, delivery):
         order = _do_checkout(conn, delivery, payment_method="bank_transfer")
         old_time = (datetime.now(UTC) - timedelta(hours=25)).strftime(_DT_FMT)
-        conn.execute("UPDATE orders SET created_at = ? WHERE id = ?", (old_time, order["id"]))
+        conn.execute("UPDATE orders SET created_at = %s WHERE id = %s", (old_time, order["id"]))
         conn.commit()
         self._run(conn)
         assert get_order(conn, order["id"])["status"] == "pending"
@@ -1663,7 +1659,7 @@ class TestAbandonedCardPaymentReview:
         order = _do_checkout(conn, delivery, payment_method="card")
         old_time = (datetime.now(UTC) - timedelta(hours=25)).strftime(_DT_FMT)
         conn.execute(
-            "UPDATE orders SET created_at = ?, payment_status = 'failed' WHERE id = ?",
+            "UPDATE orders SET created_at = %s, payment_status = 'failed' WHERE id = %s",
             (old_time, order["id"]),
         )
         conn.commit()

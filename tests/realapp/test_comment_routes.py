@@ -1,61 +1,29 @@
 """Route tests for comment endpoints."""
 
-from collections.abc import AsyncGenerator
-
 import pytest
-from httpx import ASGITransport, AsyncClient
 
-from app.config import get_settings
-from app.database import get_db, init_db
-
-ADMIN_API_KEY = "test-admin-key"  # pragma: allowlist secret
+from app.database import get_db
 
 
 @pytest.fixture()
-def db_path(tmp_path) -> str:
-    return str(tmp_path / "test.db")
-
-
-@pytest.fixture()
-def app(db_path, monkeypatch):
-    monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.setenv("ADMIN_API_KEY", ADMIN_API_KEY)
-    get_settings.cache_clear()
-    init_db(db_path)
-
-    from app.main import create_app
-
-    test_app = create_app()
-    yield test_app
-    get_settings.cache_clear()
-
-
-@pytest.fixture()
-async def client(app) -> AsyncGenerator[AsyncClient, None]:
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
-
-
-@pytest.fixture()
-def active_product(db_path):
+def active_product(db):
     """Insert an active product."""
     with get_db() as conn:
         conn.execute(
             "INSERT INTO products (id, name_en, price_cents, stock, is_active)"
-            " VALUES (?, ?, ?, ?, ?)",
+            " VALUES (%s, %s, %s, %s, %s)",
             ("test-candle", "Test Candle", 2500, 10, 1),
         )
     return "test-candle"
 
 
 @pytest.fixture()
-def inactive_product(db_path):
+def inactive_product(db):
     """Insert an inactive product."""
     with get_db() as conn:
         conn.execute(
             "INSERT INTO products (id, name_en, price_cents, stock, is_active)"
-            " VALUES (?, ?, ?, ?, ?)",
+            " VALUES (%s, %s, %s, %s, %s)",
             ("inactive-candle", "Inactive Candle", 2500, 10, 0),
         )
     return "inactive-candle"
@@ -143,19 +111,18 @@ class TestPostCommentRoute:
 
     async def test_hybrid_identity_logged_in_user(self, client, active_product):
         """Logged-in user with name doesn't need display_name in request."""
-        # Create user and link to session
-        # First make a request to establish session
+        # Establish a real session (realapp uses the real SessionMiddleware)
         resp = await client.get(f"/v1/products/{active_product}/reactions")
         session_cookie = resp.cookies.get("session_id")
 
         # Link session to a user
         with get_db() as conn:
             conn.execute(
-                "INSERT INTO users (id, google_id, email, name) VALUES (?, ?, ?, ?)",
+                "INSERT INTO users (id, google_id, email, name) VALUES (%s, %s, %s, %s)",
                 ("user-1", "google-1", "user@test.com", "Logged In User"),
             )
             conn.execute(
-                "UPDATE sessions SET user_id = ? WHERE id = ?",
+                "UPDATE sessions SET user_id = %s WHERE id = %s",
                 ("user-1", session_cookie),
             )
 
@@ -175,11 +142,11 @@ class TestPostCommentRoute:
 
         with get_db() as conn:
             conn.execute(
-                "INSERT INTO users (id, google_id, email, name) VALUES (?, ?, ?, ?)",
+                "INSERT INTO users (id, google_id, email, name) VALUES (%s, %s, %s, %s)",
                 ("user-2", "google-2", "user2@test.com", None),
             )
             conn.execute(
-                "UPDATE sessions SET user_id = ? WHERE id = ?",
+                "UPDATE sessions SET user_id = %s WHERE id = %s",
                 ("user-2", session_cookie),
             )
 
@@ -246,7 +213,7 @@ class TestListCommentsRoute:
             for i in range(5):
                 conn.execute(
                     "INSERT INTO comments (id, product_id, session_id, display_name, body) "
-                    "VALUES (?, ?, ?, ?, ?)",
+                    "VALUES (%s, %s, %s, %s, %s)",
                     (str(uuid.uuid4()), active_product, f"session-{i}", f"User{i}", f"Comment {i}"),
                 )
 

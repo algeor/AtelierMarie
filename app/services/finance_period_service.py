@@ -19,6 +19,7 @@ from app.models.accounting import (
     FinancePeriodResponse,
 )
 from app.services import accounting_config_service, pricing
+from app.services.accounting_config_service import _fmt_ts
 
 _ENGINE_MARKER = "finance_period_service"
 _PAID_PAYMENT_STATUSES = ("paid", "partially_refunded", "refunded")
@@ -43,7 +44,7 @@ class FinancePeriodError(ValueError):
 def _json_dumps(value: object | None) -> str | None:
     if value is None:
         return None
-    return json.dumps(value, separators=(",", ":"), sort_keys=True)
+    return json.dumps(value, separators=(",", ":"), sort_keys=True, default=_fmt_ts)
 
 
 def _json_loads(value: str | None, default: Any = None) -> Any:
@@ -81,7 +82,7 @@ def _period_counts(conn: sqlite3.Connection, period_id: str) -> tuple[int, int]:
             SUM(CASE WHEN status = 'open' AND severity = 'blocking' THEN 1 ELSE 0 END)
                 AS blocking_count
         FROM finance_exceptions
-        WHERE period_id = ?
+        WHERE period_id = %s
         """,
         (period_id,),
     ).fetchone()
@@ -92,8 +93,8 @@ def _period_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> FinancePerio
     open_count, blocking_count = _period_counts(conn, row["id"])
     return FinancePeriodResponse(
         id=row["id"],
-        period_start=row["period_start"],
-        period_end=row["period_end"],
+        period_start=_fmt_ts(row["period_start"]),
+        period_end=_fmt_ts(row["period_end"]),
         currency=row["currency"],
         status=row["status"],
         summary_totals=_json_loads(row["summary_totals_json"], None),
@@ -102,12 +103,12 @@ def _period_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> FinancePerio
         created_by_admin_id=row["created_by_admin_id"],
         updated_by_admin_id=row["updated_by_admin_id"],
         closed_by_admin_id=row["closed_by_admin_id"],
-        closed_at=row["closed_at"],
-        accepted_at=row["accepted_at"],
+        closed_at=_fmt_ts(row["closed_at"]),
+        accepted_at=_fmt_ts(row["accepted_at"]),
         reopened_from_export_id=row["reopened_from_export_id"],
         reopen_reason=row["reopen_reason"],
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
+        created_at=_fmt_ts(row["created_at"]),
+        updated_at=_fmt_ts(row["updated_at"]),
     )
 
 
@@ -124,22 +125,22 @@ def _exception_from_row(row: sqlite3.Row) -> FinanceExceptionResponse:
         details=_json_loads(row["details_json"], None),
         waived_by_admin_id=row["waived_by_admin_id"],
         waiver_reason=row["waiver_reason"],
-        waived_at=row["waived_at"],
-        resolved_at=row["resolved_at"],
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
+        waived_at=_fmt_ts(row["waived_at"]),
+        resolved_at=_fmt_ts(row["resolved_at"]),
+        created_at=_fmt_ts(row["created_at"]),
+        updated_at=_fmt_ts(row["updated_at"]),
     )
 
 
 def _get_period_row(conn: sqlite3.Connection, period_id: str) -> sqlite3.Row:
-    row = conn.execute("SELECT * FROM finance_periods WHERE id = ?", (period_id,)).fetchone()
+    row = conn.execute("SELECT * FROM finance_periods WHERE id = %s", (period_id,)).fetchone()
     if row is None:
         raise FinancePeriodError(404, "FINANCE_PERIOD_NOT_FOUND", "Finance period not found.")
     return row
 
 
 def _get_exception_row(conn: sqlite3.Connection, exception_id: str) -> sqlite3.Row:
-    row = conn.execute("SELECT * FROM finance_exceptions WHERE id = ?", (exception_id,)).fetchone()
+    row = conn.execute("SELECT * FROM finance_exceptions WHERE id = %s", (exception_id,)).fetchone()
     if row is None:
         raise FinancePeriodError(404, "FINANCE_EXCEPTION_NOT_FOUND", "Finance exception not found.")
     return row
@@ -159,9 +160,9 @@ def _assign_orders_to_period(conn: sqlite3.Connection, row: sqlite3.Row) -> None
     conn.execute(
         """
         UPDATE orders
-        SET finance_period_id = ?
-        WHERE substr(created_at, 1, 10) BETWEEN ? AND ?
-          AND (finance_period_id IS NULL OR finance_period_id = ?)
+        SET finance_period_id = %s
+        WHERE (created_at)::date BETWEEN %s AND %s
+          AND (finance_period_id IS NULL OR finance_period_id = %s)
         """,
         (row["id"], row["period_start"], row["period_end"], row["id"]),
     )
@@ -256,7 +257,7 @@ def _tolerance_cents(conn: sqlite3.Connection) -> int:
 
 
 def _period_order_clause() -> str:
-    return "substr(o.created_at, 1, 10) BETWEEN ? AND ? AND o.status != 'cancelled'"
+    return "(o.created_at)::date BETWEEN %s AND %s AND o.status != 'cancelled'"
 
 
 def _collect_exception_specs(
@@ -319,7 +320,7 @@ def _collect_exception_specs(
             SELECT o.id, o.order_number, o.payment_method
             FROM orders o
             WHERE {_period_order_clause()}
-              AND o.payment_method IN ({",".join("?" for _ in required_document_methods)})
+              AND o.payment_method IN ({",".join("%s" for _ in required_document_methods)})
               AND NOT EXISTS (
                   SELECT 1 FROM accounting_documents d
                   WHERE d.order_id = o.id
@@ -349,7 +350,7 @@ def _collect_exception_specs(
         FROM orders o
         WHERE {_period_order_clause()}
           AND o.payment_method IN ('card', 'bank_transfer')
-          AND o.payment_status IN ({",".join("?" for _ in _PAID_PAYMENT_STATUSES)})
+          AND o.payment_status IN ({",".join("%s" for _ in _PAID_PAYMENT_STATUSES)})
           AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.order_id = o.id)
         """,
         (period_start, period_end, *_PAID_PAYMENT_STATUSES),
@@ -432,12 +433,9 @@ def _collect_exception_specs(
         SELECT id, balance_transaction_id, match_status, gross_amount_cents, net_amount_cents
         FROM stripe_balance_transactions
         WHERE match_status IN ('unmatched', 'mismatch', 'duplicate')
-          AND COALESCE(
-                  substr(provider_created_at, 1, 10),
-                  substr(payout_effective_at, 1, 10),
-                  substr(imported_at, 1, 10)
-              )
-              BETWEEN ? AND ?
+          AND COALESCE((provider_created_at)::date, (payout_effective_at)::date,
+                       (imported_at)::date)
+              BETWEEN %s AND %s
         """,
         (period_start, period_end),
     ).fetchall()
@@ -495,8 +493,8 @@ def _collect_exception_specs(
             f"""
             SELECT id, supplier_name, category_key, gross_amount_cents
             FROM expense_evidence
-            WHERE purchase_date BETWEEN ? AND ?
-              AND category_key IN ({",".join("?" for _ in required_expense_categories)})
+            WHERE purchase_date BETWEEN %s AND %s
+              AND category_key IN ({",".join("%s" for _ in required_expense_categories)})
               AND COALESCE(document_number, '') = ''
               AND COALESCE(attachment_reference, '') = ''
             """,
@@ -525,14 +523,14 @@ def _collect_exception_specs(
         rows = conn.execute(
             f"""
             SELECT DISTINCT o.id AS order_id, o.order_number, oi.product_id, oi.product_name,
-                   substr(o.created_at, 1, 10) AS order_date
+                   substr((o.created_at)::text, 1, 10) AS order_date
             FROM orders o
             JOIN order_items oi ON oi.order_id = o.id
             WHERE {_period_order_clause()}
               AND NOT EXISTS (
                   SELECT 1 FROM product_cost_versions pc
                   WHERE pc.product_id = oi.product_id
-                    AND pc.effective_date <= substr(o.created_at, 1, 10)
+                    AND pc.effective_date <= (o.created_at)::date
                     AND pc.review_status != 'archived'
               )
             """,
@@ -716,7 +714,8 @@ def _collect_exception_specs(
         LEFT JOIN order_items oi ON oi.order_id = o.id
         WHERE {_period_order_clause()}
         GROUP BY o.id
-        HAVING ABS(o.total_cents - computed_total) > ?
+        HAVING ABS(o.total_cents - (COALESCE(SUM(oi.price_cents * oi.quantity), 0)
+               + o.shipping_cents)) > %s
         """,
         (period_start, period_end, tolerance_cents),
     ).fetchall()
@@ -761,10 +760,10 @@ def _upsert_exception(
     row = conn.execute(
         """
         SELECT * FROM finance_exceptions
-        WHERE period_id = ?
-          AND exception_type = ?
-          AND COALESCE(target_type, '') = ?
-          AND COALESCE(target_id, '') = ?
+        WHERE period_id = %s
+          AND exception_type = %s
+          AND COALESCE(target_type, '') = %s
+          AND COALESCE(target_id, '') = %s
         ORDER BY created_at DESC
         LIMIT 1
         """,
@@ -777,8 +776,8 @@ def _upsert_exception(
         conn.execute(
             """
             UPDATE finance_exceptions
-            SET severity = ?, message = ?, details_json = ?, updated_at = ?
-            WHERE id = ?
+            SET severity = %s, message = %s, details_json = %s, updated_at = %s
+            WHERE id = %s
             """,
             (
                 spec["severity"],
@@ -794,7 +793,7 @@ def _upsert_exception(
         INSERT INTO finance_exceptions (
             id, period_id, exception_type, severity, target_type, target_id,
             status, message, details_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, %s, %s, 'open', %s, %s, %s, %s)
         """,
         (
             str(uuid.uuid4()),
@@ -824,7 +823,7 @@ def refresh_period_exceptions(
     for row in conn.execute(
         """
         SELECT * FROM finance_exceptions
-        WHERE period_id = ? AND status = 'open'
+        WHERE period_id = %s AND status = 'open'
         """,
         (period_id,),
     ).fetchall():
@@ -838,8 +837,8 @@ def refresh_period_exceptions(
             conn.execute(
                 """
                 UPDATE finance_exceptions
-                SET status = 'resolved', resolved_at = ?, updated_at = ?
-                WHERE id = ?
+                SET status = 'resolved', resolved_at = %s, updated_at = %s
+                WHERE id = %s
                 """,
                 (pricing.now_utc(), pricing.now_utc(), row["id"]),
             )
@@ -847,7 +846,7 @@ def refresh_period_exceptions(
     rows = conn.execute(
         """
         SELECT * FROM finance_exceptions
-        WHERE period_id = ? AND status = 'open'
+        WHERE period_id = %s AND status = 'open'
         ORDER BY severity, created_at
         """,
         (period_id,),
@@ -894,12 +893,9 @@ def calculate_summary_totals(conn: sqlite3.Connection, period: sqlite3.Row) -> d
         SELECT COALESCE(SUM(fee_amount_cents), 0) AS stripe_fees_cents,
                COALESCE(SUM(net_amount_cents), 0) AS net_provider_payouts_cents
         FROM stripe_balance_transactions
-        WHERE COALESCE(
-                  substr(provider_created_at, 1, 10),
-                  substr(payout_effective_at, 1, 10),
-                  substr(imported_at, 1, 10)
-              )
-              BETWEEN ? AND ?
+        WHERE COALESCE((provider_created_at)::date, (payout_effective_at)::date,
+                       (imported_at)::date)
+              BETWEEN %s AND %s
           AND match_status != 'ignored'
         """,
         params,
@@ -922,7 +918,7 @@ def calculate_summary_totals(conn: sqlite3.Connection, period: sqlite3.Row) -> d
                                  THEN gross_amount_cents ELSE 0 END), 0)
                    AS material_packaging_expenses_cents
         FROM expense_evidence
-        WHERE purchase_date BETWEEN ? AND ?
+        WHERE purchase_date BETWEEN %s AND %s
         """,
         params,
     ).fetchone()
@@ -932,7 +928,7 @@ def calculate_summary_totals(conn: sqlite3.Connection, period: sqlite3.Row) -> d
             SELECT pc.estimated_unit_cost_cents
             FROM product_cost_versions pc
             WHERE pc.product_id = oi.product_id
-              AND pc.effective_date <= substr(o.created_at, 1, 10)
+              AND pc.effective_date <= (o.created_at)::date
               AND pc.review_status != 'archived'
             ORDER BY pc.effective_date DESC, pc.created_at DESC
             LIMIT 1
@@ -953,13 +949,11 @@ def calculate_summary_totals(conn: sqlite3.Connection, period: sqlite3.Row) -> d
     inventory_values = conn.execute(
         """
         SELECT item_type,
-               COALESCE(
-                   SUM(CASE WHEN quantity >= 0 THEN total_value_cents ELSE -total_value_cents END),
-                   0
-               )
+               COALESCE(SUM(CASE WHEN quantity >= 0 THEN total_value_cents
+                                 ELSE -total_value_cents END), 0)
                    AS ending_value_cents
         FROM inventory_valuation_layers
-        WHERE substr(valuation_date, 1, 10) <= ?
+        WHERE (valuation_date)::date <= %s
           AND review_state != 'reversed'
         GROUP BY item_type
         """,
@@ -974,7 +968,7 @@ def calculate_summary_totals(conn: sqlite3.Connection, period: sqlite3.Row) -> d
                                  THEN -total_cost_cents ELSE total_cost_cents END), 0)
                    AS cogs_cents
         FROM cogs_ledger
-        WHERE substr(cogs_date, 1, 10) BETWEEN ? AND ?
+        WHERE (cogs_date)::date BETWEEN %s AND %s
         """,
         params,
     ).fetchone()
@@ -983,7 +977,7 @@ def calculate_summary_totals(conn: sqlite3.Connection, period: sqlite3.Row) -> d
         SELECT COALESCE(SUM(vl.total_value_cents), 0) AS writeoffs_cents
         FROM inventory_valuation_layers vl
         JOIN inventory_movements im ON im.id = vl.movement_id
-        WHERE substr(vl.valuation_date, 1, 10) BETWEEN ? AND ?
+        WHERE (vl.valuation_date)::date BETWEEN %s AND %s
           AND im.movement_type IN (
               'return_write_off', 'write_off', 'spoilage',
               'stock_count_correction', 'adjustment'
@@ -992,8 +986,8 @@ def calculate_summary_totals(conn: sqlite3.Connection, period: sqlite3.Row) -> d
         params,
     ).fetchone()
     inventory_exception_count = conn.execute(
-        "SELECT COUNT(*) FROM inventory_exceptions WHERE status = 'open'"
-    ).fetchone()[0]
+        "SELECT COUNT(*) AS n FROM inventory_exceptions WHERE status = 'open'"
+    ).fetchone()["n"]
     return {
         "currency": period["currency"],
         "gross_sales_cents": gross_sales_cents,
@@ -1049,8 +1043,8 @@ def create_period(
         overlap = conn.execute(
             """
             SELECT id FROM finance_periods
-            WHERE currency = ?
-              AND NOT (period_end < ? OR period_start > ?)
+            WHERE currency = %s
+              AND NOT (period_end < %s OR period_start > %s)
             LIMIT 1
             """,
             (body.currency, body.period_start, body.period_end),
@@ -1067,7 +1061,7 @@ def create_period(
             INSERT INTO finance_periods (
                 id, period_start, period_end, currency, status,
                 created_by_admin_id, updated_by_admin_id, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, 'open', %s, %s, %s, %s)
             """,
             (
                 period_id,
@@ -1099,7 +1093,7 @@ def list_periods(status: str | None = None) -> FinancePeriodListResponse:
     with get_db() as conn:
         if status:
             rows = conn.execute(
-                "SELECT * FROM finance_periods WHERE status = ? ORDER BY period_start DESC",
+                "SELECT * FROM finance_periods WHERE status = %s ORDER BY period_start DESC",
                 (status,),
             ).fetchall()
         else:
@@ -1137,8 +1131,9 @@ def start_review(
         conn.execute(
             """
             UPDATE finance_periods
-            SET status = 'review', summary_totals_json = ?, updated_by_admin_id = ?, updated_at = ?
-            WHERE id = ?
+            SET status = 'review', summary_totals_json = %s,
+                updated_by_admin_id = %s, updated_at = %s
+            WHERE id = %s
             """,
             (_json_dumps(summary), actor_user_id, now, period_id),
         )
@@ -1174,7 +1169,7 @@ def close_period(
         blocking = conn.execute(
             """
             SELECT * FROM finance_exceptions
-            WHERE period_id = ? AND status = 'open' AND severity = 'blocking'
+            WHERE period_id = %s AND status = 'open' AND severity = 'blocking'
             ORDER BY created_at
             """,
             (period_id,),
@@ -1195,9 +1190,9 @@ def close_period(
         conn.execute(
             """
             UPDATE finance_periods
-            SET status = 'closed', summary_totals_json = ?, closed_by_admin_id = ?,
-                closed_at = ?, updated_by_admin_id = ?, updated_at = ?
-            WHERE id = ?
+            SET status = 'closed', summary_totals_json = %s, closed_by_admin_id = %s,
+                closed_at = %s, updated_by_admin_id = %s, updated_at = %s
+            WHERE id = %s
             """,
             (_json_dumps(summary), actor_user_id, now, actor_user_id, now, period_id),
         )
@@ -1232,8 +1227,8 @@ def mark_exported(
         conn.execute(
             """
             UPDATE finance_periods
-            SET status = 'exported', updated_by_admin_id = ?, updated_at = ?
-            WHERE id = ?
+            SET status = 'exported', updated_by_admin_id = %s, updated_at = %s
+            WHERE id = %s
             """,
             (actor_user_id, now, period_id),
         )
@@ -1269,9 +1264,9 @@ def accept_period(
         conn.execute(
             """
             UPDATE finance_periods
-            SET status = 'accepted', accepted_at = COALESCE(accepted_at, ?),
-                updated_by_admin_id = ?, updated_at = ?
-            WHERE id = ?
+            SET status = 'accepted', accepted_at = COALESCE(accepted_at, %s),
+                updated_by_admin_id = %s, updated_at = %s
+            WHERE id = %s
             """,
             (now, actor_user_id, now, period_id),
         )
@@ -1309,7 +1304,7 @@ def reopen_period(
         export = conn.execute(
             """
             SELECT id FROM finance_export_packages
-            WHERE period_id = ? AND current_final = 1
+            WHERE period_id = %s AND current_final = 1
             ORDER BY version DESC LIMIT 1
             """,
             (period_id,),
@@ -1318,9 +1313,9 @@ def reopen_period(
         conn.execute(
             """
             UPDATE finance_periods
-            SET status = 'reopened', reopened_from_export_id = ?, reopen_reason = ?,
-                updated_by_admin_id = ?, updated_at = ?
-            WHERE id = ?
+            SET status = 'reopened', reopened_from_export_id = %s, reopen_reason = %s,
+                updated_by_admin_id = %s, updated_at = %s
+            WHERE id = %s
             """,
             (export["id"] if export else None, body.reason, actor_user_id, now, period_id),
         )
@@ -1355,7 +1350,7 @@ def list_exceptions(
             rows = conn.execute(
                 """
                 SELECT * FROM finance_exceptions
-                WHERE period_id = ? AND status = ?
+                WHERE period_id = %s AND status = %s
                 ORDER BY severity, created_at
                 """,
                 (period_id, status),
@@ -1364,7 +1359,7 @@ def list_exceptions(
             rows = conn.execute(
                 """
                 SELECT * FROM finance_exceptions
-                WHERE period_id = ?
+                WHERE period_id = %s
                 ORDER BY status, severity, created_at
                 """,
                 (period_id,),
@@ -1391,8 +1386,8 @@ def resolve_exception(
         conn.execute(
             """
             UPDATE finance_exceptions
-            SET status = 'resolved', resolved_at = ?, updated_at = ?
-            WHERE id = ?
+            SET status = 'resolved', resolved_at = %s, updated_at = %s
+            WHERE id = %s
             """,
             (now, now, exception_id),
         )
@@ -1428,9 +1423,9 @@ def waive_exception(
         conn.execute(
             """
             UPDATE finance_exceptions
-            SET status = 'waived', waived_by_admin_id = ?, waiver_reason = ?,
-                waived_at = ?, updated_at = ?
-            WHERE id = ?
+            SET status = 'waived', waived_by_admin_id = %s, waiver_reason = %s,
+                waived_at = %s, updated_at = %s
+            WHERE id = %s
             """,
             (actor_user_id, body.reason, now, now, exception_id),
         )

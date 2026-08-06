@@ -11,16 +11,19 @@ behaviour a review finding predicted is pinned:
 - retired terms still resolve display names / preserve label ordering
 - the label_slug foreign key rejects orphan assignments
 - delete stays blocked while any product (even inactive) references a term
-- deleted seed terms are NOT resurrected on a second init_db
+- deleted seed terms are NOT resurrected on reconnecting to the DB
 
-Each test uses a fresh, fully-seeded DB file.
+The DB is provisioned by the root conftest (migrated Postgres template clone);
+taxonomy seed rows persist per test (seed tables are never truncated). Under
+Postgres, seeds are baked into the migration/template — ``init_db`` no longer
+seeds — so the "not resurrected on reinit" guarantee is checked by deleting a
+seed term and confirming it stays gone across a fresh pooled connection.
 """
 
-import sqlite3
-
+import psycopg
 import pytest
 
-from app.database import get_db, init_db
+from app.database import get_db
 from app.services import taxonomy_service
 from app.services.taxonomy_service import (
     TaxonomyInUseError,
@@ -28,28 +31,20 @@ from app.services.taxonomy_service import (
 )
 
 
-@pytest.fixture()
-def tax_db(tmp_path) -> str:
-    """Fresh, fully-seeded DB per test (sets the module-global connection path)."""
-    path = str(tmp_path / "tax.db")
-    init_db(path)
-    return path
-
-
 def _insert_product(product_id: str, *, is_active: int = 1) -> None:
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO products (id, name_en, price_cents, is_active) VALUES (?, ?, ?, ?)",
+            "INSERT INTO products (id, name_en, price_cents, is_active) VALUES (%s, %s, %s, %s)",
             (product_id, product_id.title(), 1000, is_active),
         )
 
 
 class TestSlugDerivationThroughService:
-    def test_cyrillic_name_yields_readable_slug(self, tax_db):
+    def test_cyrillic_name_yields_readable_slug(self, app):
         term = taxonomy_service.create_term("labels", "Зима", None, 300)
         assert term["slug"] == "zima"
 
-    def test_three_way_collision_suffixes_to_dash_three(self, tax_db):
+    def test_three_way_collision_suffixes_to_dash_three(self, app):
         first = taxonomy_service.create_term("labels", "Amber", None, 300)
         second = taxonomy_service.create_term("labels", "Amber", None, 301)
         third = taxonomy_service.create_term("labels", "Amber", None, 302)
@@ -57,27 +52,27 @@ class TestSlugDerivationThroughService:
         assert second["slug"] == "amber-2"
         assert third["slug"] == "amber-3"
 
-    def test_client_supplied_slug_is_ignored(self, tax_db):
+    def test_client_supplied_slug_is_ignored(self, app):
         # Slug is always server-derived from name_en.
         term = taxonomy_service.create_term("categories", "Extra Large", None, 5)
         assert term["slug"] == "extra-large"
 
 
 class TestProductTypeDeactivationGuard:
-    def test_cannot_deactivate_last_active_product_type(self, tax_db):
+    def test_cannot_deactivate_last_active_product_type(self, app):
         # Seeds ship two active types (candles, boxes). Retire one, then the
         # remaining one must not be deactivatable.
         taxonomy_service.update_term("product-types", "boxes", {"is_active": False})
         with pytest.raises(TaxonomyValidationError):
             taxonomy_service.update_term("product-types", "candles", {"is_active": False})
 
-    def test_can_deactivate_when_another_active_type_remains(self, tax_db):
+    def test_can_deactivate_when_another_active_type_remains(self, app):
         term = taxonomy_service.update_term("product-types", "boxes", {"is_active": False})
         assert term["is_active"] is False
 
 
 class TestReactivation:
-    def test_deactivate_then_reactivate(self, tax_db):
+    def test_deactivate_then_reactivate(self, app):
         taxonomy_service.update_term("labels", "winter", {"is_active": False})
         reactivated = taxonomy_service.update_term("labels", "winter", {"is_active": True})
         assert reactivated["is_active"] is True
@@ -86,16 +81,16 @@ class TestReactivation:
 
 
 class TestAssignmentValidation:
-    def test_inactive_product_type_rejected_for_new_assignment(self, tax_db):
+    def test_inactive_product_type_rejected_for_new_assignment(self, app):
         taxonomy_service.update_term("product-types", "boxes", {"is_active": False})
         with get_db() as conn, pytest.raises(TaxonomyValidationError):
             taxonomy_service.validate_product_type(conn, "boxes")
 
-    def test_unknown_label_rejected(self, tax_db):
+    def test_unknown_label_rejected(self, app):
         with get_db() as conn, pytest.raises(TaxonomyValidationError):
             taxonomy_service.validate_labels(conn, ["does-not-exist"])
 
-    def test_inactive_label_rejected_unless_current(self, tax_db):
+    def test_inactive_label_rejected_unless_current(self, app):
         taxonomy_service.update_term("labels", "winter", {"is_active": False})
         with get_db() as conn:
             # Not currently assigned -> rejected.
@@ -104,14 +99,14 @@ class TestAssignmentValidation:
             # Already assigned (preserve-current) -> allowed.
             taxonomy_service.validate_labels(conn, ["winter"], current={"winter"})
 
-    def test_duplicate_slugs_in_batch_validate_ok(self, tax_db):
+    def test_duplicate_slugs_in_batch_validate_ok(self, app):
         with get_db() as conn:
             # Must not raise or miscount on repeated slugs.
             taxonomy_service.validate_labels(conn, ["floral", "floral"])
 
 
 class TestRetiredTermResolution:
-    def test_inactive_label_still_resolves_name_and_order(self, tax_db):
+    def test_inactive_label_still_resolves_name_and_order(self, app):
         _insert_product("p1")
         with get_db() as conn:
             taxonomy_service.replace_product_labels(conn, "p1", ["winter", "floral"])
@@ -128,7 +123,7 @@ class TestRetiredTermResolution:
         winter_ref = next(label_ref for label_ref in labels if label_ref["slug"] == "winter")
         assert winter_ref["name"] == "Winter"
 
-    def test_bg_locale_resolves_label_name(self, tax_db):
+    def test_bg_locale_resolves_label_name(self, app):
         _insert_product("p1")
         with get_db() as conn:
             taxonomy_service.replace_product_labels(conn, "p1", ["winter"])
@@ -138,24 +133,24 @@ class TestRetiredTermResolution:
 
 
 class TestLabelForeignKey:
-    def test_orphan_label_assignment_rejected(self, tax_db):
+    def test_orphan_label_assignment_rejected(self, app):
         _insert_product("p1")
-        with get_db() as conn, pytest.raises(sqlite3.IntegrityError):
+        with get_db() as conn, pytest.raises(psycopg.errors.ForeignKeyViolation):
             conn.execute(
-                "INSERT INTO product_label_assignments (product_id, label_slug) VALUES (?, ?)",
+                "INSERT INTO product_label_assignments (product_id, label_slug) VALUES (%s, %s)",
                 ("p1", "no-such-label"),
             )
 
 
 class TestDeleteGuard:
-    def test_delete_blocked_while_referenced_by_active_product(self, tax_db):
+    def test_delete_blocked_while_referenced_by_active_product(self, app):
         _insert_product("p1")
         with get_db() as conn:
             taxonomy_service.replace_product_labels(conn, "p1", ["gift"])
         with pytest.raises(TaxonomyInUseError):
             taxonomy_service.delete_term("labels", "gift")
 
-    def test_delete_blocked_while_referenced_by_inactive_product(self, tax_db):
+    def test_delete_blocked_while_referenced_by_inactive_product(self, app):
         # Soft-deleted products still pin the term (order/history integrity).
         _insert_product("p1", is_active=0)
         with get_db() as conn:
@@ -163,7 +158,7 @@ class TestDeleteGuard:
         with pytest.raises(TaxonomyInUseError):
             taxonomy_service.delete_term("labels", "gift")
 
-    def test_delete_product_type_blocked_by_inactive_product(self, tax_db):
+    def test_delete_product_type_blocked_by_inactive_product(self, app):
         # _count_one counts soft-deleted products for product-types too.
         with get_db() as conn:
             conn.execute(
@@ -173,7 +168,7 @@ class TestDeleteGuard:
         with pytest.raises(TaxonomyInUseError):
             taxonomy_service.delete_term("product-types", "boxes")
 
-    def test_delete_category_blocked_by_inactive_product(self, tax_db):
+    def test_delete_category_blocked_by_inactive_product(self, app):
         # _count_one counts soft-deleted products for categories too.
         with get_db() as conn:
             conn.execute(
@@ -183,16 +178,24 @@ class TestDeleteGuard:
         with pytest.raises(TaxonomyInUseError):
             taxonomy_service.delete_term("categories", "premium")
 
-    def test_delete_unused_term_succeeds(self, tax_db):
+    def test_delete_unused_term_succeeds(self, app):
         taxonomy_service.delete_term("labels", "christmas")
         slugs = [t["slug"] for t in taxonomy_service.list_admin_terms("labels")]
         assert "christmas" not in slugs
 
 
 class TestSeedGatingIsOneShot:
-    def test_deleted_seed_term_not_resurrected_on_reinit(self, tax_db):
-        # Delete an unused seed label, then re-run init_db on the same file.
-        taxonomy_service.delete_term("labels", "christmas")
-        init_db(tax_db)
+    def test_deleted_seed_term_not_resurrected_on_reinit(self, app):
+        # Delete an unused seed label; under Postgres seeds live in the migration
+        # template (init_db no longer seeds), so a fresh pooled connection must
+        # still not see the deleted term — it is never resurrected. Uses a label
+        # no other test consumes ('woody'), since seed tables are not truncated
+        # between tests and a shared label would already be gone.
+        taxonomy_service.delete_term("labels", "woody")
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT slug FROM product_labels WHERE slug = %s", ("woody",)
+            ).fetchall()
+        assert rows == []
         slugs = [t["slug"] for t in taxonomy_service.list_admin_terms("labels")]
-        assert "christmas" not in slugs
+        assert "woody" not in slugs

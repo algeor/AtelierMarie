@@ -5,13 +5,11 @@ covers the integrated paths (persistence, merge semantics, public exposure,
 cart totals, and the critical checkout price snapshot).
 """
 
-import sqlite3
 import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.database import init_db
 from app.models.delivery import DeliveryInfo, DeliveryOffice
 from app.models.products import CreateProductRequest
 from app.services import cart_service, product_service
@@ -26,20 +24,15 @@ def _ts(delta_days: float) -> str:
     return (datetime.now(UTC) + timedelta(days=delta_days)).strftime(_DT_FMT)
 
 
-@pytest.fixture()
-def db_path(tmp_path) -> str:
-    return str(tmp_path / "discounts.db")
-
-
 @pytest.fixture(autouse=True)
-def _clean_tables():
-    """Shadow the conftest autouse fixture — function-scoped db_path starts fresh."""
-    yield
+def _pool(app):
+    """Ensure the worker Postgres pool is initialized for service-only tests.
 
-
-@pytest.fixture(autouse=True)
-def _init(db_path):
-    init_db(db_path)
+    The pure-service tests here call ``product_service`` directly (no ``client``/
+    ``db`` fixture), so they must still trigger the session-scoped ``app`` fixture
+    that opens the psycopg pool via ``init_db``. Replaces the deleted local
+    ``init_db(db_path)`` autouse fixture.
+    """
     yield
 
 
@@ -209,24 +202,16 @@ class TestPriceSort:
 
 
 @pytest.fixture()
-def conn(db_path):
-    connection = sqlite3.connect(db_path)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys=ON")
-    yield connection
-    connection.close()
+def conn(db):
+    """Alias to the root pooled Postgres connection."""
+    return db
 
 
 @pytest.fixture()
 def session_id(conn):
-    sid = str(uuid.uuid4())
-    now = datetime.now(UTC)
-    conn.execute(
-        "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
-        (sid, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
-    )
-    conn.commit()
-    return sid
+    from conftest import make_session
+
+    return make_session(conn, str(uuid.uuid4()))
 
 
 @pytest.fixture()
@@ -245,11 +230,9 @@ def delivery() -> DeliveryInfo:
 
 
 def _add_to_cart(conn, session_id, product_id, quantity):
-    conn.execute(
-        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, ?, ?)",
-        (session_id, product_id, quantity),
-    )
-    conn.commit()
+    from conftest import add_cart_item
+
+    add_cart_item(conn, session_id, product_id, quantity)
 
 
 # ---------------------------------------------------------------------------
@@ -304,9 +287,10 @@ class TestCheckoutSnapshot:
         assert order["total_cents"] == 5200
         # The snapshot lands in order_items too.
         snap = conn.execute(
-            "SELECT price_cents FROM order_items WHERE order_id = ? AND product_id = 'disc'",
+            "SELECT price_cents AS price_cents FROM order_items "
+            "WHERE order_id = %s AND product_id = 'disc'",
             (order["id"],),
-        ).fetchone()[0]
+        ).fetchone()["price_cents"]
         assert snap == 2600
 
     def test_floor_clamp_one_cent_99_percent(self, conn, session_id, delivery):

@@ -67,14 +67,14 @@ def _public_video(row: sqlite3.Row | None) -> dict | None:
 
 
 def _ensure_product_exists(conn: sqlite3.Connection, product_id: str) -> None:
-    row = conn.execute("SELECT 1 FROM products WHERE id = ?", (product_id,)).fetchone()
+    row = conn.execute("SELECT 1 FROM products WHERE id = %s", (product_id,)).fetchone()
     if row is None:
         raise ProductNotFoundError(f"Product not found: {product_id}")
 
 
 def _ensure_no_processing_video(conn: sqlite3.Connection, product_id: str) -> None:
     existing = conn.execute(
-        "SELECT status FROM product_videos WHERE product_id = ?",
+        "SELECT status FROM product_videos WHERE product_id = %s",
         (product_id,),
     ).fetchone()
     if existing is not None and existing["status"] in ("queued", "transcoding"):
@@ -94,7 +94,7 @@ def _video_rows_for_products(
 ) -> dict[str, sqlite3.Row]:
     if not product_ids:
         return {}
-    placeholders = ", ".join("?" for _ in product_ids)
+    placeholders = ", ".join("%s" for _ in product_ids)
     rows = conn.execute(
         f"""
         SELECT *
@@ -130,7 +130,7 @@ def _primary_thumbnail(conn: sqlite3.Connection, product_id: str) -> str | None:
         """
         SELECT thumbnail_url, image_url
         FROM product_images
-        WHERE product_id = ?
+        WHERE product_id = %s
         ORDER BY is_primary DESC, sort_order, created_at, id
         LIMIT 1
         """,
@@ -207,10 +207,9 @@ def queue_video_upload_path(
         probe = video_service.validate_video_upload(temp_path, product_id)
         old_files: tuple[str | None, str | None, str | None] = (None, None, None)
         with get_db() as conn:
-            conn.execute("BEGIN IMMEDIATE")
             _ensure_product_exists(conn, product_id)
             existing = conn.execute(
-                "SELECT * FROM product_videos WHERE product_id = ?",
+                "SELECT * FROM product_videos WHERE product_id = %s",
                 (product_id,),
             ).fetchone()
             if existing is not None and existing["status"] in ("queued", "transcoding"):
@@ -221,17 +220,17 @@ def queue_video_upload_path(
                     existing["poster_url"],
                     existing["source_path"],
                 )
-                conn.execute("DELETE FROM product_videos WHERE product_id = ?", (product_id,))
+                conn.execute("DELETE FROM product_videos WHERE product_id = %s", (product_id,))
             conn.execute(
                 """
                 INSERT INTO product_videos (
                     id, product_id, status, source_path, duration_secs, sort_order,
                     failure_reason, created_at, updated_at
-                ) VALUES (?, ?, 'queued', ?, ?, 0, NULL, datetime('now'), datetime('now'))
+                ) VALUES (%s, %s, 'queued', %s, %s, 0, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """,
                 (video_id, product_id, str(temp_path), probe["duration_secs"]),
             )
-            row = conn.execute("SELECT * FROM product_videos WHERE id = ?", (video_id,)).fetchone()
+            row = conn.execute("SELECT * FROM product_videos WHERE id = %s", (video_id,)).fetchone()
         video_service.unlink_video_files(*old_files)
         return _row_to_video(row)
     except Exception:
@@ -244,7 +243,7 @@ def get_video(product_id: str) -> dict:
     with get_db() as conn:
         _ensure_product_exists(conn, product_id)
         row = conn.execute(
-            "SELECT * FROM product_videos WHERE product_id = ?", (product_id,)
+            "SELECT * FROM product_videos WHERE product_id = %s", (product_id,)
         ).fetchone()
     if row is None:
         raise ProductVideoNotFoundError(f"Product video not found: {product_id}")
@@ -254,15 +253,14 @@ def get_video(product_id: str) -> dict:
 def delete_video(product_id: str) -> None:
     """Delete a product video row and unlink all associated files."""
     with get_db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
-            "SELECT * FROM product_videos WHERE product_id = ?", (product_id,)
+            "SELECT * FROM product_videos WHERE product_id = %s", (product_id,)
         ).fetchone()
         if row is None:
             raise ProductVideoNotFoundError(f"Product video not found: {product_id}")
         if row["status"] == "transcoding":
             raise ProductVideoProcessingConflictError("video is still processing")
-        conn.execute("DELETE FROM product_videos WHERE product_id = ?", (product_id,))
+        conn.execute("DELETE FROM product_videos WHERE product_id = %s", (product_id,))
     video_service.unlink_video_files(row["video_url"], row["poster_url"], row["source_path"])
 
 
@@ -277,20 +275,19 @@ def delete_video_if_exists(product_id: str) -> None:
 def update_sort_order(product_id: str, sort_order: int) -> dict:
     """Set the insertion index used by the frontend gallery merge."""
     with get_db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
         _ensure_product_exists(conn, product_id)
         cursor = conn.execute(
             """
             UPDATE product_videos
-            SET sort_order = ?, updated_at = datetime('now')
-            WHERE product_id = ?
+            SET sort_order = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE product_id = %s
             """,
             (sort_order, product_id),
         )
         if cursor.rowcount == 0:
             raise ProductVideoNotFoundError(f"Product video not found: {product_id}")
         row = conn.execute(
-            "SELECT * FROM product_videos WHERE product_id = ?", (product_id,)
+            "SELECT * FROM product_videos WHERE product_id = %s", (product_id,)
         ).fetchone()
     return _row_to_video(row)
 
@@ -308,7 +305,7 @@ def _mark_expired_transcodes_failed(conn: sqlite3.Connection) -> tuple[int, list
         FROM product_videos
         WHERE status = 'transcoding'
           AND lease_expires_at IS NOT NULL
-          AND lease_expires_at < ?
+          AND lease_expires_at < %s
         """,
         (now,),
     ).fetchall()
@@ -316,10 +313,10 @@ def _mark_expired_transcodes_failed(conn: sqlite3.Connection) -> tuple[int, list
         """
         UPDATE product_videos
         SET status = 'failed', failure_reason = 'processing interrupted',
-            source_path = NULL, lease_expires_at = NULL, updated_at = datetime('now')
+            source_path = NULL, lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP
         WHERE status = 'transcoding'
           AND lease_expires_at IS NOT NULL
-          AND lease_expires_at < ?
+          AND lease_expires_at < %s
         """,
         (now,),
     )
@@ -335,8 +332,8 @@ def _refresh_lease(video_id: str) -> None:
         conn.execute(
             """
             UPDATE product_videos
-            SET lease_expires_at = ?, updated_at = datetime('now')
-            WHERE id = ? AND status = 'transcoding'
+            SET lease_expires_at = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s AND status = 'transcoding'
             """,
             (_lease_deadline(), video_id),
         )
@@ -357,9 +354,9 @@ def _update_ready_if_owned(video_id: str, video_url: str, poster_url: str | None
         cursor = conn.execute(
             """
             UPDATE product_videos
-            SET status = 'ready', video_url = ?, poster_url = ?, source_path = NULL,
-                failure_reason = NULL, lease_expires_at = NULL, updated_at = datetime('now')
-            WHERE id = ? AND status = 'transcoding'
+            SET status = 'ready', video_url = %s, poster_url = %s, source_path = NULL,
+                failure_reason = NULL, lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s AND status = 'transcoding'
             """,
             (video_url, poster_url, video_id),
         )
@@ -371,10 +368,10 @@ def _update_failed_if_owned(video_id: str, failure_reason: str) -> bool:
         cursor = conn.execute(
             """
             UPDATE product_videos
-            SET status = 'failed', failure_reason = ?, source_path = NULL,
+            SET status = 'failed', failure_reason = %s, source_path = NULL,
                 lease_expires_at = NULL,
-                updated_at = datetime('now')
-            WHERE id = ? AND status = 'transcoding'
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s AND status = 'transcoding'
             """,
             (failure_reason, video_id),
         )
@@ -389,7 +386,7 @@ def _claim_one_queued(conn: sqlite3.Connection) -> sqlite3.Row | None:
         FROM product_videos
         WHERE status = 'transcoding'
           AND lease_expires_at IS NOT NULL
-          AND lease_expires_at > ?
+          AND lease_expires_at > %s
         LIMIT 1
         """,
         (now,),
@@ -410,20 +407,19 @@ def _claim_one_queued(conn: sqlite3.Connection) -> sqlite3.Row | None:
     cursor = conn.execute(
         """
         UPDATE product_videos
-        SET status = 'transcoding', lease_expires_at = ?, updated_at = datetime('now')
-        WHERE id = ? AND status = 'queued'
+        SET status = 'transcoding', lease_expires_at = %s, updated_at = CURRENT_TIMESTAMP
+        WHERE id = %s AND status = 'queued'
         """,
         (_lease_deadline(), row["id"]),
     )
     if cursor.rowcount != 1:
         return None
-    return conn.execute("SELECT * FROM product_videos WHERE id = ?", (row["id"],)).fetchone()
+    return conn.execute("SELECT * FROM product_videos WHERE id = %s", (row["id"],)).fetchone()
 
 
 def drain_video_transcodes() -> int:
     """Run one video transcode job if available; return changed row count."""
     with get_db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
         changed, cleanup_files = _mark_expired_transcodes_failed(conn)
         claimed = _claim_one_queued(conn)
 

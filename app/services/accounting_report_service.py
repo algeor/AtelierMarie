@@ -16,7 +16,7 @@ def _latest_econt_cod_evidence(conn: sqlite3.Connection, order_id: str) -> dict[
         """
         SELECT id, action, response_json, created_at
         FROM order_courier_events
-        WHERE order_id = ? AND courier = 'econt' AND response_json IS NOT NULL
+        WHERE order_id = %s AND courier = 'econt' AND response_json IS NOT NULL
         ORDER BY created_at DESC, id DESC
         """,
         (order_id,),

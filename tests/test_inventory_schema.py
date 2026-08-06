@@ -1,21 +1,26 @@
 """Schema coverage for inventory, recipe/BOM, production, valuation, and COGS tables."""
 
-import sqlite3
-
+import psycopg
 import pytest
 
-
-def _table_names(conn: sqlite3.Connection) -> set[str]:
-    rows = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
-    return {row[0] for row in rows}
+from app.database import IntegrityError
 
 
-def _index_names(conn: sqlite3.Connection) -> set[str]:
-    rows = conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'").fetchall()
-    return {row[0] for row in rows}
+def _table_names(conn: psycopg.Connection) -> set[str]:
+    rows = conn.execute(
+        "SELECT tablename AS name FROM pg_tables WHERE schemaname = 'public'"
+    ).fetchall()
+    return {row["name"] for row in rows}
 
 
-def test_inventory_schema_tables_exist(db: sqlite3.Connection):
+def _index_names(conn: psycopg.Connection) -> set[str]:
+    rows = conn.execute(
+        "SELECT indexname AS name FROM pg_indexes WHERE schemaname = 'public'"
+    ).fetchall()
+    return {row["name"] for row in rows}
+
+
+def test_inventory_schema_tables_exist(db: psycopg.Connection):
     expected_tables = {
         "inventory_settings",
         "product_inventory_profiles",
@@ -40,7 +45,7 @@ def test_inventory_schema_tables_exist(db: sqlite3.Connection):
     assert expected_tables <= _table_names(db)
 
 
-def test_inventory_settings_bootstrap_is_disabled_by_default(db: sqlite3.Connection):
+def test_inventory_settings_bootstrap_is_disabled_by_default(db: psycopg.Connection):
     row = db.execute(
         """
         SELECT ledger_mode, valuation_enabled, valuation_method, cogs_date_basis,
@@ -58,13 +63,15 @@ def test_inventory_settings_bootstrap_is_disabled_by_default(db: sqlite3.Connect
         "missing_cost_behavior": "block_official",
         "accountant_reviewed": 0,
     }
-    marker = db.execute(
-        "SELECT 1 FROM schema_migrations WHERE name = 'inventory_settings_bootstrap_v1'"
-    ).fetchone()
+    # The SQLite-era ``schema_migrations`` bootstrap marker is replaced under
+    # Postgres by Alembic's ``alembic_version``; the default settings row above
+    # is seeded by the initial migration, so a populated version stamp proves the
+    # same bootstrap ran.
+    marker = db.execute("SELECT 1 FROM alembic_version WHERE version_num IS NOT NULL").fetchone()
     assert marker is not None
 
 
-def test_material_receipt_and_movement_constraints(db: sqlite3.Connection):
+def test_material_receipt_and_movement_constraints(db: psycopg.Connection):
     db.execute(
         """
         INSERT INTO materials (
@@ -111,23 +118,22 @@ def test_material_receipt_and_movement_constraints(db: sqlite3.Connection):
     db.commit()
 
     on_hand = db.execute(
-        "SELECT SUM(quantity_delta) FROM inventory_movements WHERE item_id = 'mat-wax'"
-    ).fetchone()[0]
+        "SELECT SUM(quantity_delta) AS total FROM inventory_movements WHERE item_id = 'mat-wax'"
+    ).fetchone()["total"]
     assert on_hand == 5000
 
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(IntegrityError):
         db.execute(
             """
-            INSERT INTO inventory_movements (
-                id, item_type, item_id, movement_type, quantity_delta, uom
-            )
+            INSERT INTO inventory_movements (id, item_type, item_id, movement_type,
+                                             quantity_delta, uom)
             VALUES ('bad-movement', 'material', 'mat-wax', 'silent_edit', 1, 'g')
             """
         )
     db.rollback()
 
 
-def test_recipe_batch_valuation_and_cogs_tables_accept_linked_rows(db: sqlite3.Connection):
+def test_recipe_batch_valuation_and_cogs_tables_accept_linked_rows(db: psycopg.Connection):
     db.execute(
         "INSERT INTO products (id, name_en, price_cents, stock) "
         "VALUES ('prod-candle', 'Candle', 2500, 0)"
@@ -165,10 +171,8 @@ def test_recipe_batch_valuation_and_cogs_tables_accept_linked_rows(db: sqlite3.C
         INSERT INTO production_batches (
             id, batch_number, product_id, recipe_version_id, planned_output_quantity,
             actual_output_quantity, production_date, cost_snapshot_id, status
-        ) VALUES (
-            'batch-1', 'B-2026-001', 'prod-candle', 'recipe-1', 24, 24, '2026-09-02',
-            'cost-1', 'produced'
-        )
+        ) VALUES ('batch-1', 'B-2026-001', 'prod-candle', 'recipe-1', 24, 24,
+                  '2026-09-02', 'cost-1', 'produced')
         """
     )
     db.execute(
@@ -186,9 +190,8 @@ def test_recipe_batch_valuation_and_cogs_tables_accept_linked_rows(db: sqlite3.C
             id, production_batch_id, recipe_component_id, material_id,
             expected_quantity, actual_quantity, waste_quantity, uom, movement_id,
             review_state
-        ) VALUES (
-            'consume-1', 'batch-1', 'component-1', 'mat-wick', 24, 24, 0, 'piece', NULL, 'reviewed'
-        )
+        ) VALUES ('consume-1', 'batch-1', 'component-1', 'mat-wick', 24, 24, 0,
+                  'piece', NULL, 'reviewed')
         """
     )
     db.execute(
@@ -196,10 +199,8 @@ def test_recipe_batch_valuation_and_cogs_tables_accept_linked_rows(db: sqlite3.C
         INSERT INTO production_batch_outputs (
             id, production_batch_id, product_id, batch_number, quantity, uom,
             unit_cost_amount, movement_id, valuation_review_state
-        ) VALUES (
-            'output-1', 'batch-1', 'prod-candle', 'B-2026-001', 24, 'unit', '0.10',
-            'move-output-1', 'reviewed'
-        )
+        ) VALUES ('output-1', 'batch-1', 'prod-candle', 'B-2026-001', 24, 'unit',
+                  '0.10', 'move-output-1', 'reviewed')
         """
     )
     db.execute(
@@ -241,20 +242,18 @@ def test_recipe_batch_valuation_and_cogs_tables_accept_linked_rows(db: sqlite3.C
         """
         INSERT INTO inventory_exceptions (
             id, exception_type, severity, target_type, target_id, message
-        ) VALUES (
-            'inv-ex-1', 'missing_opening_balance_review', 'blocking', 'product', 'prod-candle',
-            'Review opening value'
-        )
+        ) VALUES ('inv-ex-1', 'missing_opening_balance_review', 'blocking',
+                  'product', 'prod-candle', 'Review opening value')
         """
     )
     db.commit()
 
-    assert db.execute("SELECT COUNT(*) FROM production_batches").fetchone()[0] == 1
-    assert db.execute("SELECT COUNT(*) FROM cogs_ledger").fetchone()[0] == 1
-    assert db.execute("SELECT COUNT(*) FROM inventory_exceptions").fetchone()[0] == 1
+    assert db.execute("SELECT COUNT(*) AS n FROM production_batches").fetchone()["n"] == 1
+    assert db.execute("SELECT COUNT(*) AS n FROM cogs_ledger").fetchone()["n"] == 1
+    assert db.execute("SELECT COUNT(*) AS n FROM inventory_exceptions").fetchone()["n"] == 1
 
 
-def test_inventory_schema_indexes_exist(db: sqlite3.Connection):
+def test_inventory_schema_indexes_exist(db: psycopg.Connection):
     expected_indexes = {
         "idx_inventory_movements_item_date",
         "idx_inventory_movements_source",

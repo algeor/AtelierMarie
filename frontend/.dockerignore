@@ -1,6 +1,7 @@
 node_modules
 .next
 .next-build
+.next-dev
 npm-debug.log
 .env*.local
 .git

@@ -9,7 +9,6 @@ Covers task 3.2 of shipping-pricing (Phase A):
 The courier clients are patched at the module boundary so no HTTP happens.
 """
 
-import sqlite3
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -20,7 +19,6 @@ from app.constants import (
     FREE_SHIPPING_THRESHOLD_CENTS,
     PACKAGING_WEIGHT_GRAMS,
 )
-from app.database import init_db
 from app.models.shipping import ShippingQuote
 from app.services import delivery_service, shipping_service
 
@@ -28,14 +26,8 @@ _DT_FMT = "%Y-%m-%d %H:%M:%S"
 
 
 @pytest.fixture()
-def conn(tmp_path):
-    path = str(tmp_path / "svc.db")
-    init_db(path)
-    connection = sqlite3.connect(path)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys=ON")
-    yield connection
-    connection.close()
+def conn(db):
+    return db
 
 
 @pytest.fixture()
@@ -43,7 +35,7 @@ def session_id(conn):
     sid = str(uuid.uuid4())
     now = datetime.now(UTC)
     conn.execute(
-        "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
+        "INSERT INTO sessions (id, created_at, expires_at) VALUES (%s, %s, %s)",
         (sid, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
     )
     conn.commit()
@@ -53,7 +45,7 @@ def session_id(conn):
 def _seed_product(conn, pid: str, weight_grams: int, price_cents: int = 1000) -> None:
     conn.execute(
         "INSERT INTO products (id, name_en, price_cents, stock, weight_grams, is_active)"
-        " VALUES (?, ?, ?, 100, ?, 1)",
+        " VALUES (%s, %s, %s, 100, %s, 1)",
         (pid, pid, price_cents, weight_grams),
     )
     conn.commit()
@@ -61,7 +53,7 @@ def _seed_product(conn, pid: str, weight_grams: int, price_cents: int = 1000) ->
 
 def _add_to_cart(conn, session_id: str, pid: str, quantity: int) -> None:
     conn.execute(
-        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, ?, ?)",
+        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (%s, %s, %s)",
         (session_id, pid, quantity),
     )
     conn.commit()

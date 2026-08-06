@@ -4,7 +4,7 @@ import pytest
 
 
 @pytest.fixture()
-def _products(app, db_path):
+def _products(app, db):
     """Seed test products via the service layer."""
     from app.services import product_service
 

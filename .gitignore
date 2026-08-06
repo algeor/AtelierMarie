@@ -32,3 +32,6 @@ dev/
 .agents
 .claude
 .codex
+
+# Runtime-generated accounting exports (not source of record)
+data/exports/

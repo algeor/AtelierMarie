@@ -1,15 +1,12 @@
 """Tests for session cookie middleware."""
 
-import sqlite3
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
 
 from app.config import get_settings
-
-# SQLite-compatible datetime format (matches middleware's _SQLITE_DT_FMT)
-_DT_FMT = "%Y-%m-%d %H:%M:%S"
+from app.database import get_db
 
 
 @pytest.mark.asyncio
@@ -36,15 +33,14 @@ async def test_new_session_is_persisted_in_db(client: AsyncClient):
     assert session_id is not None
 
     # Verify the row exists in the database
-    from app.database import _db_path
-
-    conn = sqlite3.connect(_db_path)
-    row = conn.execute("SELECT id, expires_at FROM sessions WHERE id = ?", (session_id,)).fetchone()
-    conn.close()
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, expires_at FROM sessions WHERE id = %s", (session_id,)
+        ).fetchone()
 
     assert row is not None
-    assert row[0] == session_id
-    assert row[1] is not None  # expires_at was set
+    assert row["id"] == session_id
+    assert row["expires_at"] is not None  # expires_at was set
 
 
 @pytest.mark.asyncio
@@ -75,21 +71,19 @@ async def test_existing_session_is_preserved(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_expired_session_gets_new_cookie(client: AsyncClient, db_path: str):
+async def test_expired_session_gets_new_cookie(client: AsyncClient):
     """A request with an expired session cookie gets a fresh session."""
     settings = get_settings()
 
     # Insert an expired session directly into DB (valid UUID4 format)
     expired_id = "12345678-1234-4abc-8def-123456789abc"
-    expired_at = (datetime.now(UTC) - timedelta(seconds=1)).strftime(_DT_FMT)
-    now = datetime.now(UTC).strftime(_DT_FMT)
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
-        (expired_id, now, expired_at),
-    )
-    conn.commit()
-    conn.close()
+    now = datetime.now(UTC)
+    expired_at = now - timedelta(seconds=1)
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO sessions (id, created_at, expires_at) VALUES (%s, %s, %s)",
+            (expired_id, now, expired_at),
+        )
 
     # Send the expired session cookie
     client.cookies.set(settings.session_cookie_name, expired_id)
@@ -157,121 +151,122 @@ async def test_options_request_skips_session(client: AsyncClient):
     assert set_cookie is None
 
 
-def test_cleanup_expired_sessions_removes_only_expired(db_path: str, app):
+def test_cleanup_expired_sessions_removes_only_expired(app):
     """cleanup_expired_sessions deletes expired rows and leaves valid ones."""
     from app.database import cleanup_expired_sessions
 
-    conn = sqlite3.connect(db_path)
-
-    # Insert one expired and one valid session (SQLite-compatible format)
-    past = (datetime.now(UTC) - timedelta(days=1)).strftime(_DT_FMT)
-    future = (datetime.now(UTC) + timedelta(days=1)).strftime(_DT_FMT)
-    conn.execute("INSERT INTO sessions (id, expires_at) VALUES (?, ?)", ("expired-1", past))
-    conn.execute("INSERT INTO sessions (id, expires_at) VALUES (?, ?)", ("valid-1", future))
-    conn.commit()
-    conn.close()
+    now = datetime.now(UTC)
+    past = now - timedelta(days=1)
+    future = now + timedelta(days=1)
+    with get_db() as conn:
+        conn.execute("DELETE FROM sessions")
+        conn.execute("INSERT INTO sessions (id, expires_at) VALUES (%s, %s)", ("expired-1", past))
+        conn.execute("INSERT INTO sessions (id, expires_at) VALUES (%s, %s)", ("valid-1", future))
 
     count = cleanup_expired_sessions()
     assert count == 1
 
     # Verify only the expired session was removed
-    conn = sqlite3.connect(db_path)
-    rows = conn.execute("SELECT id FROM sessions").fetchall()
-    conn.close()
+    with get_db() as conn:
+        rows = conn.execute("SELECT id FROM sessions ORDER BY id").fetchall()
     assert len(rows) == 1
-    assert rows[0][0] == "valid-1"
+    assert rows[0]["id"] == "valid-1"
 
 
-def test_cleanup_expired_sessions_empty_table(db_path: str, app):
+def test_cleanup_expired_sessions_empty_table(app):
     """cleanup_expired_sessions returns 0 when no sessions exist."""
     from app.database import cleanup_expired_sessions
+
+    with get_db() as conn:
+        conn.execute("DELETE FROM sessions")
 
     count = cleanup_expired_sessions()
     assert count == 0
 
 
 @pytest.mark.asyncio
-async def test_sliding_expiry_updates_within_threshold(client: AsyncClient, db_path: str):
+async def test_sliding_expiry_updates_within_threshold(client: AsyncClient):
     """When a session is within 7 days of expiring, its expiry gets extended."""
     settings = get_settings()
 
     # Insert a session that expires in 3 days (within 7-day threshold)
     session_id = "11111111-2222-4333-8444-555555555555"
     now = datetime.now(UTC)
-    created_at = (now - timedelta(days=25)).strftime(_DT_FMT)
-    expires_at = (now + timedelta(days=3)).strftime(_DT_FMT)
+    created_at = now - timedelta(days=25)
+    expires_at = now + timedelta(days=3)
 
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
-        (session_id, created_at, expires_at),
-    )
-    conn.commit()
-    conn.close()
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO sessions (id, created_at, expires_at) VALUES (%s, %s, %s)",
+            (session_id, created_at, expires_at),
+        )
 
     # Make a request with this session
     client.cookies.set(settings.session_cookie_name, session_id)
     await client.get("/v1/products")
 
     # Verify expires_at was extended
-    conn = sqlite3.connect(db_path)
-    row = conn.execute("SELECT expires_at FROM sessions WHERE id = ?", (session_id,)).fetchone()
-    conn.close()
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT expires_at FROM sessions WHERE id = %s", (session_id,)
+        ).fetchone()
 
-    new_expires = datetime.strptime(row[0], _DT_FMT).replace(tzinfo=UTC)
+    new_expires = row["expires_at"]
+    if new_expires.tzinfo is None:
+        new_expires = new_expires.replace(tzinfo=UTC)
     # Should now be ~30 days from now (not 3 days)
     assert new_expires > now + timedelta(days=25)
 
 
 @pytest.mark.asyncio
-async def test_sliding_expiry_no_update_when_far_from_expiry(client: AsyncClient, db_path: str):
+async def test_sliding_expiry_no_update_when_far_from_expiry(client: AsyncClient):
     """When a session is far from expiring, its expiry is NOT updated."""
     settings = get_settings()
 
     # Insert a session that expires in 20 days (outside 7-day threshold)
     session_id = "22222222-3333-4444-8555-666666666666"
     now = datetime.now(UTC)
-    created_at = (now - timedelta(days=10)).strftime(_DT_FMT)
-    original_expires = (now + timedelta(days=20)).strftime(_DT_FMT)
+    created_at = now - timedelta(days=10)
+    original_expires = now + timedelta(days=20)
 
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
-        (session_id, created_at, original_expires),
-    )
-    conn.commit()
-    conn.close()
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO sessions (id, created_at, expires_at) VALUES (%s, %s, %s)",
+            (session_id, created_at, original_expires),
+        )
 
     # Make a request with this session
     client.cookies.set(settings.session_cookie_name, session_id)
     await client.get("/v1/products")
 
     # Verify expires_at was NOT changed
-    conn = sqlite3.connect(db_path)
-    row = conn.execute("SELECT expires_at FROM sessions WHERE id = ?", (session_id,)).fetchone()
-    conn.close()
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT expires_at FROM sessions WHERE id = %s", (session_id,)
+        ).fetchone()
 
-    assert row[0] == original_expires
+    stored = row["expires_at"]
+    if stored.tzinfo is None:
+        stored = stored.replace(tzinfo=UTC)
+    assert abs((stored - original_expires).total_seconds()) < 1
 
 
 @pytest.mark.asyncio
-async def test_absolute_lifetime_cap_rejects_old_session(client: AsyncClient, db_path: str):
+async def test_absolute_lifetime_cap_rejects_old_session(client: AsyncClient):
     """A session older than 180 days is rejected even if expires_at is in the future."""
     settings = get_settings()
 
     # Insert a session created 181 days ago with a future expires_at
     session_id = "33333333-4444-4555-8666-777777777777"
     now = datetime.now(UTC)
-    created_at = (now - timedelta(days=181)).strftime(_DT_FMT)
-    expires_at = (now + timedelta(days=5)).strftime(_DT_FMT)
+    created_at = now - timedelta(days=181)
+    expires_at = now + timedelta(days=5)
 
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
-        (session_id, created_at, expires_at),
-    )
-    conn.commit()
-    conn.close()
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO sessions (id, created_at, expires_at) VALUES (%s, %s, %s)",
+            (session_id, created_at, expires_at),
+        )
 
     # Make a request with this session
     client.cookies.set(settings.session_cookie_name, session_id)

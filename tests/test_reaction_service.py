@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.database import init_db
+from app.database import get_db
 from app.services.reaction_service import (
     ProductNotFoundError,
     RateLimitExceededError,
@@ -12,24 +12,12 @@ from app.services.reaction_service import (
 
 
 @pytest.fixture()
-def db(tmp_path, monkeypatch):
-    """Initialize a fresh database for each test."""
-    db_path = str(tmp_path / "test.db")
-    init_db(db_path)
-    # Patch the module-level _db_path so get_db() connects to our test DB
-    monkeypatch.setattr("app.database._db_path", db_path)
-    return db_path
-
-
-@pytest.fixture()
 def active_product(db):
     """Insert an active product for testing."""
-    from app.database import get_db
-
     with get_db() as conn:
         conn.execute(
             "INSERT INTO products (id, name_en, price_cents, stock, is_active)"
-            " VALUES (?, ?, ?, ?, ?)",
+            " VALUES (%s, %s, %s, %s, %s)",
             ("test-candle", "Test Candle", 2500, 10, 1),
         )
     return "test-candle"
@@ -38,12 +26,10 @@ def active_product(db):
 @pytest.fixture()
 def inactive_product(db):
     """Insert an inactive product for testing."""
-    from app.database import get_db
-
     with get_db() as conn:
         conn.execute(
             "INSERT INTO products (id, name_en, price_cents, stock, is_active)"
-            " VALUES (?, ?, ?, ?, ?)",
+            " VALUES (%s, %s, %s, %s, %s)",
             ("inactive-candle", "Inactive Candle", 2500, 10, 0),
         )
     return "inactive-candle"

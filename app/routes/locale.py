@@ -31,7 +31,7 @@ async def update_locale(body: UpdateLocaleRequest, request: Request) -> JSONResp
 
     with get_db() as conn:
         conn.execute(
-            "UPDATE sessions SET preferred_locale = ? WHERE id = ?",
+            "UPDATE sessions SET preferred_locale = %s WHERE id = %s",
             (body.locale, session_id),
         )
 

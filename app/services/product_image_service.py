@@ -73,7 +73,7 @@ def images_for_products(conn: sqlite3.Connection, product_ids: list[str]) -> dic
     """Load ordered images for a product id set."""
     if not product_ids:
         return {}
-    placeholders = ", ".join("?" for _ in product_ids)
+    placeholders = ", ".join("%s" for _ in product_ids)
     rows = conn.execute(
         f"""
         SELECT id, product_id, image_url, thumbnail_url, zoom_url, sort_order, is_primary
@@ -116,13 +116,12 @@ def add_image(product_id: str, file_bytes: bytes) -> dict:
     image_id = uuid.uuid4().hex
 
     with get_db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
         _ensure_product_exists(conn, product_id)
         current = conn.execute(
             """
             SELECT COUNT(*) AS count, COALESCE(MAX(sort_order), -1) AS max_order
             FROM product_images
-            WHERE product_id = ?
+            WHERE product_id = %s
             """,
             (product_id,),
         ).fetchone()
@@ -137,7 +136,7 @@ def add_image(product_id: str, file_bytes: bytes) -> dict:
             INSERT INTO product_images (
                 id, product_id, image_url, thumbnail_url, zoom_url,
                 sort_order, is_primary, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
             """,
             (
                 image_id,
@@ -153,7 +152,7 @@ def add_image(product_id: str, file_bytes: bytes) -> dict:
             """
             SELECT id, image_url, thumbnail_url, zoom_url, sort_order, is_primary
             FROM product_images
-            WHERE id = ? AND product_id = ?
+            WHERE id = %s AND product_id = %s
             """,
             (image_id, product_id),
         ).fetchone()
@@ -164,12 +163,11 @@ def add_image(product_id: str, file_bytes: bytes) -> dict:
 def delete_image(product_id: str, image_id: str) -> None:
     """Delete an image row, promote primary when needed, and unlink files."""
     with get_db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             """
             SELECT id, image_url, thumbnail_url, zoom_url, is_primary
             FROM product_images
-            WHERE product_id = ? AND id = ?
+            WHERE product_id = %s AND id = %s
             """,
             (product_id, image_id),
         ).fetchone()
@@ -177,14 +175,14 @@ def delete_image(product_id: str, image_id: str) -> None:
             raise ProductImageNotFoundError(f"Image not found: {image_id}")
 
         conn.execute(
-            "DELETE FROM product_images WHERE product_id = ? AND id = ?", (product_id, image_id)
+            "DELETE FROM product_images WHERE product_id = %s AND id = %s", (product_id, image_id)
         )
         if row["is_primary"]:
             replacement = conn.execute(
                 """
                 SELECT id
                 FROM product_images
-                WHERE product_id = ?
+                WHERE product_id = %s
                 ORDER BY sort_order, created_at, id
                 LIMIT 1
                 """,
@@ -192,7 +190,7 @@ def delete_image(product_id: str, image_id: str) -> None:
             ).fetchone()
             if replacement is not None:
                 conn.execute(
-                    "UPDATE product_images SET is_primary = 1 WHERE product_id = ? AND id = ?",
+                    "UPDATE product_images SET is_primary = 1 WHERE product_id = %s AND id = %s",
                     (product_id, replacement["id"]),
                 )
 
@@ -202,13 +200,12 @@ def delete_image(product_id: str, image_id: str) -> None:
 def reorder_images(product_id: str, ordered_ids: list[str]) -> list[dict]:
     """Update image sort order without changing the primary image."""
     with get_db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
         _ensure_product_exists(conn, product_id)
         rows = conn.execute(
             """
             SELECT id
             FROM product_images
-            WHERE product_id = ?
+            WHERE product_id = %s
             ORDER BY sort_order, created_at, id
             """,
             (product_id,),
@@ -218,7 +215,7 @@ def reorder_images(product_id: str, ordered_ids: list[str]) -> list[dict]:
             raise ProductImageOrderError("ordered_ids must match all images for the product")
         for sort_order, ordered_id in enumerate(ordered_ids):
             conn.execute(
-                "UPDATE product_images SET sort_order = ? WHERE product_id = ? AND id = ?",
+                "UPDATE product_images SET sort_order = %s WHERE product_id = %s AND id = %s",
                 (sort_order, product_id, ordered_id),
             )
         return images_for_products(conn, [product_id]).get(product_id, [])
@@ -227,27 +224,28 @@ def reorder_images(product_id: str, ordered_ids: list[str]) -> list[dict]:
 def set_primary(product_id: str, image_id: str) -> dict:
     """Set exactly one image as primary for a product."""
     with get_db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             """
             SELECT id
             FROM product_images
-            WHERE product_id = ? AND id = ?
+            WHERE product_id = %s AND id = %s
             """,
             (product_id, image_id),
         ).fetchone()
         if row is None:
             raise ProductImageNotFoundError(f"Image not found: {image_id}")
-        conn.execute("UPDATE product_images SET is_primary = 0 WHERE product_id = ?", (product_id,))
         conn.execute(
-            "UPDATE product_images SET is_primary = 1 WHERE product_id = ? AND id = ?",
+            "UPDATE product_images SET is_primary = 0 WHERE product_id = %s", (product_id,)
+        )
+        conn.execute(
+            "UPDATE product_images SET is_primary = 1 WHERE product_id = %s AND id = %s",
             (product_id, image_id),
         )
         result = conn.execute(
             """
             SELECT id, image_url, thumbnail_url, zoom_url, sort_order, is_primary
             FROM product_images
-            WHERE product_id = ? AND id = ?
+            WHERE product_id = %s AND id = %s
             """,
             (product_id, image_id),
         ).fetchone()
@@ -264,13 +262,12 @@ def add_existing_image_url(product_id: str, image_url: str) -> dict | None:
     image_id = uuid.uuid4().hex
     thumbnail_url = _derive_thumbnail_url(image_url)
     with get_db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
         _ensure_product_exists(conn, product_id)
         current = conn.execute(
             """
             SELECT COUNT(*) AS count, COALESCE(MAX(sort_order), -1) AS max_order
             FROM product_images
-            WHERE product_id = ?
+            WHERE product_id = %s
             """,
             (product_id,),
         ).fetchone()
@@ -282,7 +279,7 @@ def add_existing_image_url(product_id: str, image_url: str) -> dict | None:
             INSERT INTO product_images (
                 id, product_id, image_url, thumbnail_url, zoom_url,
                 sort_order, is_primary, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
             """,
             (
                 image_id,
@@ -298,7 +295,7 @@ def add_existing_image_url(product_id: str, image_url: str) -> dict | None:
             """
             SELECT id, image_url, thumbnail_url, zoom_url, sort_order, is_primary
             FROM product_images
-            WHERE id = ? AND product_id = ?
+            WHERE id = %s AND product_id = %s
             """,
             (image_id, product_id),
         ).fetchone()
@@ -306,7 +303,7 @@ def add_existing_image_url(product_id: str, image_url: str) -> dict | None:
 
 
 def _ensure_product_exists(conn: sqlite3.Connection, product_id: str) -> None:
-    row = conn.execute("SELECT 1 FROM products WHERE id = ?", (product_id,)).fetchone()
+    row = conn.execute("SELECT 1 FROM products WHERE id = %s", (product_id,)).fetchone()
     if row is None:
         raise ProductNotFoundError(f"Product not found: {product_id}")
 

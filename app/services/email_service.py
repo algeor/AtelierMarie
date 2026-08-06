@@ -14,14 +14,14 @@ no send-level idempotency key (design Decisions 11, 14, 25). Logs bind
 """
 
 import json
-import sqlite3
 from datetime import UTC, datetime, timedelta
 
+import psycopg
 import structlog
 
 from app.config import Settings, get_settings
 from app.constants import STATUS_TO_EMAIL_EVENT
-from app.database import get_db
+from app.database import IntegrityError, get_db
 from app.email.providers import (
     EmailProvider,
     PermanentEmailError,
@@ -156,13 +156,13 @@ def _build_delivery_email_context(order_data: OrderData, locale: str) -> dict:
     }
 
 
-def _latest_payment_review_context(conn: sqlite3.Connection, order_id: str) -> dict:
+def _latest_payment_review_context(conn: psycopg.Connection, order_id: str) -> dict:
     """Return safe metadata for the latest payment review event."""
     row = conn.execute(
         """
         SELECT stripe_event_id, details
         FROM payment_events
-        WHERE order_id = ? AND processing_status = 'requires_review'
+        WHERE order_id = %s AND processing_status = 'requires_review'
         ORDER BY created_at DESC, id DESC
         LIMIT 1
         """,
@@ -274,7 +274,7 @@ def recipient_for(customer_email: str, event: str, settings: Settings) -> str:
 
 
 def queue_order_email(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     order_id: str,
     event: str,
     recipient: str,
@@ -286,7 +286,8 @@ def queue_order_email(
     order state change and survives any crash. The sweeper delivers it later.
     """
     conn.execute(
-        "INSERT INTO order_emails (order_id, event, recipient, status) VALUES (?, ?, ?, 'queued')",
+        "INSERT INTO order_emails (order_id, event, recipient, status) "
+        "VALUES (%s, %s, %s, 'queued')",
         (order_id, event, recipient or ""),
     )
 
@@ -300,20 +301,20 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def _is_suppressed(conn: sqlite3.Connection, email: str) -> bool:
-    row = conn.execute("SELECT 1 FROM suppressed_emails WHERE email = ?", (email,)).fetchone()
+def _is_suppressed(conn: psycopg.Connection, email: str) -> bool:
+    row = conn.execute("SELECT 1 FROM suppressed_emails WHERE email = %s", (email,)).fetchone()
     return row is not None
 
 
-def _already_sent(conn: sqlite3.Connection, order_id: str, event: str) -> bool:
+def _already_sent(conn: psycopg.Connection, order_id: str, event: str) -> bool:
     row = conn.execute(
-        "SELECT 1 FROM order_emails WHERE order_id = ? AND event = ? AND status = 'sent'",
+        "SELECT 1 FROM order_emails WHERE order_id = %s AND event = %s AND status = 'sent'",
         (order_id, event),
     ).fetchone()
     return row is not None
 
 
-def _try_acquire_claim(conn: sqlite3.Connection, order_id: str, event: str) -> bool:
+def _try_acquire_claim(conn: psycopg.Connection, order_id: str, event: str) -> bool:
     """Atomically claim (order_id, event) for this sweeper.
 
     Returns True if the claim was acquired (fresh, or taken over from an expired
@@ -324,56 +325,51 @@ def _try_acquire_claim(conn: sqlite3.Connection, order_id: str, event: str) -> b
     now_s = now.strftime(_DT_FMT)
     lease_s = (now + timedelta(seconds=CLAIM_LEASE_SECONDS)).strftime(_DT_FMT)
 
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    with conn.transaction():
         cursor = conn.execute(
             """
-            INSERT OR IGNORE INTO order_email_send_claims
+            INSERT INTO order_email_send_claims
                 (order_id, event, status, lease_expires_at, updated_at)
-            VALUES (?, ?, 'in_flight', ?, ?)
+            VALUES (%s, %s, 'in_flight', %s, %s)
+            ON CONFLICT DO NOTHING
             """,
             (order_id, event, lease_s, now_s),
         )
         if cursor.rowcount == 1:
-            conn.execute("COMMIT")
             return True
 
         # Row exists — take it over only if failed or the lease has expired.
         cursor = conn.execute(
             """
             UPDATE order_email_send_claims
-            SET status = 'in_flight', lease_expires_at = ?, updated_at = ?
-            WHERE order_id = ? AND event = ?
+            SET status = 'in_flight', lease_expires_at = %s, updated_at = %s
+            WHERE order_id = %s AND event = %s
               AND status != 'sent'
-              AND (status = 'failed' OR lease_expires_at IS NULL OR lease_expires_at < ?)
+              AND (status = 'failed' OR lease_expires_at IS NULL OR lease_expires_at < %s)
             """,
             (lease_s, now_s, order_id, event, now_s),
         )
-        conn.execute("COMMIT")
         return cursor.rowcount == 1
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
 
 
-def _claim_status(conn: sqlite3.Connection, order_id: str, event: str) -> str | None:
+def _claim_status(conn: psycopg.Connection, order_id: str, event: str) -> str | None:
     row = conn.execute(
-        "SELECT status FROM order_email_send_claims WHERE order_id = ? AND event = ?",
+        "SELECT status FROM order_email_send_claims WHERE order_id = %s AND event = %s",
         (order_id, event),
     ).fetchone()
     return row["status"] if row else None
 
 
-def _release_claim(conn: sqlite3.Connection, order_id: str, event: str, status: str) -> None:
+def _release_claim(conn: psycopg.Connection, order_id: str, event: str, status: str) -> None:
     conn.execute(
-        "UPDATE order_email_send_claims SET status = ?, updated_at = ? "
-        "WHERE order_id = ? AND event = ?",
+        "UPDATE order_email_send_claims SET status = %s, updated_at = %s "
+        "WHERE order_id = %s AND event = %s",
         (status, _now().strftime(_DT_FMT), order_id, event),
     )
 
 
 def _update_row(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     row_id: int,
     status: str,
     *,
@@ -387,22 +383,22 @@ def _update_row(
     (email-service spec). IntegrityError on the partial UNIQUE index (another
     'sent' row already exists) is folded into a duplicate skip.
     """
-    fields = ["status = ?", "reason = ?", "sent_at = ?"]
+    fields = ["status = %s", "reason = %s", "sent_at = %s"]
     params: list = [status, reason, _now().strftime(_DT_FMT)]
     if attempts is not None:
-        fields.append("attempts = ?")
+        fields.append("attempts = %s")
         params.append(attempts)
     if next_attempt_at is not None or status != "failed":
-        fields.append("next_attempt_at = ?")
+        fields.append("next_attempt_at = %s")
         params.append(next_attempt_at)
     params.append(row_id)
     try:
-        conn.execute(f"UPDATE order_emails SET {', '.join(fields)} WHERE id = ?", params)
-    except sqlite3.IntegrityError:
+        conn.execute(f"UPDATE order_emails SET {', '.join(fields)} WHERE id = %s", params)
+    except IntegrityError:
         # A concurrent worker already recorded 'sent' for this (order_id, event).
         conn.execute(
-            "UPDATE order_emails SET status = 'skipped_duplicate', reason = ?, sent_at = ? "
-            "WHERE id = ?",
+            "UPDATE order_emails SET status = 'skipped_duplicate', reason = %s, sent_at = %s "
+            "WHERE id = %s",
             ("duplicate sent row", _now().strftime(_DT_FMT), row_id),
         )
     except Exception:
@@ -449,7 +445,7 @@ def _process_outbox_row(
     with get_db() as conn:
         row = conn.execute(
             "SELECT id, order_id, event, recipient, status, attempts "
-            "FROM order_emails WHERE id = ?",
+            "FROM order_emails WHERE id = %s",
             (row_id,),
         ).fetchone()
         if row is None or row["status"] not in ("queued", "failed"):
@@ -596,10 +592,10 @@ def drain_email_outbox(
             """
             SELECT id FROM order_emails
             WHERE status IN ('queued', 'failed')
-              AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
-              AND attempts < ?
+              AND (next_attempt_at IS NULL OR next_attempt_at <= %s)
+              AND attempts < %s
             ORDER BY id
-            LIMIT ?
+            LIMIT %s
             """,
             (now_s, MAX_ATTEMPTS, _SWEEP_BATCH_LIMIT),
         ).fetchall()
@@ -632,7 +628,7 @@ def send_order_email(order_id: str, event: str) -> None:
     provider = get_email_provider(settings)
     with get_db() as conn:
         row = conn.execute(
-            "SELECT id FROM order_emails WHERE order_id = ? AND event = ? "
+            "SELECT id FROM order_emails WHERE order_id = %s AND event = %s "
             "AND status IN ('queued', 'failed') ORDER BY id LIMIT 1",
             (order_id, event),
         ).fetchone()

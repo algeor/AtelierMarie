@@ -1,14 +1,14 @@
 """Tests for Econt fulfillment service mapping, persistence, and audit behavior."""
 
 import json
-import sqlite3
 import uuid
+from datetime import UTC, datetime, timedelta
 
+import psycopg
 import pytest
 from pydantic import SecretStr
 
 from app.config import get_settings
-from app.database import init_db
 from app.models.delivery import DeliveryInfo, DeliveryOffice
 from app.models.econt import EcontShipmentStatus, EcontTraceEvent
 from app.services import return_service
@@ -65,14 +65,38 @@ class FakeEcontClient:
 
 
 @pytest.fixture()
-def conn(tmp_path):
-    path = str(tmp_path / "econt-fulfillment.db")
-    init_db(path)
-    db = sqlite3.connect(path)
-    db.row_factory = sqlite3.Row
-    db.execute("PRAGMA foreign_keys=ON")
-    yield db
-    db.close()
+def conn(db):
+    return db
+
+
+@pytest.fixture(autouse=True)
+def _reset_econt_settings(db):
+    """Restore the seeded ``econt_settings`` default row before each test.
+
+    ``econt_settings`` is a seed table (never TRUNCATEd between tests under the
+    template-clone model), so mutations by ``_configure_econt`` and other tests
+    would otherwise leak across tests. The old per-``tmp_path`` SQLite fixture
+    gave every test a pristine default row; this reproduces that by rewriting the
+    row to the migration-seeded defaults (notably ``enabled = 0``).
+    """
+    db.execute(
+        """
+        UPDATE econt_settings
+        SET enabled = 0, environment = 'demo', shop_id = NULL,
+            credential_source = 'env', sender_delivery_mode = 'office',
+            sender_office_code = NULL, default_pack_count = 1,
+            shipment_description = 'Atelier Marie order', declared_value_enabled = 0,
+            default_payment_side = 'receiver', return_parcel_destination = 'sender',
+            days_until_return = 7, return_parcel_payment_side = 'sender',
+            reject_action = 'return_to_sender', reject_payment_side = 'sender',
+            reject_return_payment_side = 'sender', courier_currency = 'EUR',
+            currency_conversion_rate = NULL, office_locator_enabled = 0,
+            auto_confirm_on_label = 0, auto_delivered_on_trace = 0
+        WHERE id = 'default'
+        """
+    )
+    db.commit()
+    yield
 
 
 @pytest.fixture()
@@ -83,7 +107,7 @@ def econt_secret(monkeypatch):
 
 
 def _configure_econt(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     auto_confirm_on_label: bool = False,
     auto_delivered_on_trace: bool = False,
@@ -93,7 +117,7 @@ def _configure_econt(
         UPDATE econt_settings
         SET enabled = 1, shop_id = 'shop-1', sender_office_code = '1127',
             default_pack_count = 2, shipment_description = 'Atelier Marie candles',
-            auto_confirm_on_label = ?, auto_delivered_on_trace = ?
+            auto_confirm_on_label = %s, auto_delivered_on_trace = %s
         WHERE id = 'default'
         """,
         (1 if auto_confirm_on_label else 0, 1 if auto_delivered_on_trace else 0),
@@ -101,22 +125,23 @@ def _configure_econt(
     conn.commit()
 
 
-def _seed_admin(conn: sqlite3.Connection, user_id: str = "admin-1") -> None:
+def _seed_admin(conn: psycopg.Connection, user_id: str = "admin-1") -> None:
     conn.execute(
         """
-        INSERT OR IGNORE INTO users (id, google_id, email, name, is_admin)
-        VALUES (?, ?, ?, 'Admin', 1)
+        INSERT INTO users (id, google_id, email, name, is_admin)
+        VALUES (%s, %s, %s, 'Admin', 1)
+        ON CONFLICT DO NOTHING
         """,
         (user_id, f"google-{user_id}", f"{user_id}@example.com"),
     )
     conn.commit()
 
 
-def _make_order(conn: sqlite3.Connection, *, courier="econt", payment_method="cod") -> str:
+def _make_order(conn: psycopg.Connection, *, courier="econt", payment_method="cod") -> str:
     session_id = uuid.uuid4().hex
     conn.execute(
-        "INSERT INTO sessions (id, expires_at) VALUES (?, datetime('now', '+1 day'))",
-        (session_id,),
+        "INSERT INTO sessions (id, expires_at) VALUES (%s, %s)",
+        (session_id, datetime.now(UTC) + timedelta(days=1)),
     )
     conn.execute(
         """
@@ -127,7 +152,7 @@ def _make_order(conn: sqlite3.Connection, *, courier="econt", payment_method="co
     conn.execute(
         """
         INSERT INTO cart_items (session_id, product_id, quantity)
-        VALUES (?, 'weighted-candle', 2)
+        VALUES (%s, 'weighted-candle', 2)
         """,
         (session_id,),
     )
@@ -151,7 +176,7 @@ def _make_order(conn: sqlite3.Connection, *, courier="econt", payment_method="co
         delivery=delivery,
         payment_method=payment_method,
     )
-    conn.execute("UPDATE orders SET status = 'confirmed' WHERE id = ?", (order["id"],))
+    conn.execute("UPDATE orders SET status = 'confirmed' WHERE id = %s", (order["id"],))
     conn.commit()
     return order["id"]
 
@@ -233,7 +258,7 @@ class TestEcontPayloadMapping:
 class TestEcontReadiness:
     def test_readiness_lists_settings_and_order_blockers(self, conn):
         order_id = _make_order(conn)
-        conn.execute("UPDATE orders SET status = 'pending' WHERE id = ?", (order_id,))
+        conn.execute("UPDATE orders SET status = 'pending' WHERE id = %s", (order_id,))
 
         readiness = validate_label_readiness(conn, order_id)
 
@@ -259,12 +284,12 @@ class TestEcontReadiness:
         _configure_econt(conn)
         order_id = _make_order(conn)
         row = conn.execute(
-            "SELECT delivery_details FROM orders WHERE id = ?", (order_id,)
+            "SELECT delivery_details FROM orders WHERE id = %s", (order_id,)
         ).fetchone()
         details = json.loads(row["delivery_details"])
         details.pop("office_code", None)
         conn.execute(
-            "UPDATE orders SET delivery_details = ? WHERE id = ?",
+            "UPDATE orders SET delivery_details = %s WHERE id = %s",
             (json.dumps(details), order_id),
         )
         conn.commit()
@@ -291,7 +316,7 @@ class TestEcontActions:
 
         assert result == {"status": "synced", "courier_order_id": "remote-order-1"}
         row = conn.execute(
-            "SELECT courier_order_id, courier_sync_status FROM orders WHERE id = ?",
+            "SELECT courier_order_id, courier_sync_status FROM orders WHERE id = %s",
             (order_id,),
         ).fetchone()
         assert row["courier_order_id"] == "remote-order-1"
@@ -343,7 +368,7 @@ class TestEcontActions:
             """
             SELECT courier_provider, courier_shipment_number, courier_label_url,
                    courier_sync_status, tracking_number, tracking_carrier, tracking_url
-            FROM orders WHERE id = ?
+            FROM orders WHERE id = %s
             """,
             (order_id,),
         ).fetchone()
@@ -367,7 +392,7 @@ class TestEcontActions:
     ):
         _configure_econt(conn, auto_confirm_on_label=True)
         order_id = _make_order(conn)
-        conn.execute("UPDATE orders SET status = 'pending' WHERE id = ?", (order_id,))
+        conn.execute("UPDATE orders SET status = 'pending' WHERE id = %s", (order_id,))
         conn.commit()
         client = FakeEcontClient()
 
@@ -378,7 +403,7 @@ class TestEcontActions:
         assert readiness["ready"] is False
         assert "order_status_not_supported" in readiness["blockers"]
         assert "order_status_not_supported" in exc_info.value.blockers
-        row = conn.execute("SELECT status FROM orders WHERE id = ?", (order_id,)).fetchone()
+        row = conn.execute("SELECT status FROM orders WHERE id = %s", (order_id,)).fetchone()
         assert row["status"] == "pending"
         assert client.created_orders == []
 
@@ -390,7 +415,7 @@ class TestEcontActions:
             """
             UPDATE orders
             SET courier_shipment_number = 'existing', courier_label_url = 'https://label'
-            WHERE id = ?
+            WHERE id = %s
             """,
             (order_id,),
         )
@@ -427,7 +452,7 @@ class TestEcontActions:
         assert result["status_updated_to"] == "shipped"
         assert result["shipment_number"] == "1234567890"
         row = conn.execute(
-            "SELECT status, tracking_number, tracking_carrier FROM orders WHERE id = ?",
+            "SELECT status, tracking_number, tracking_carrier FROM orders WHERE id = %s",
             (order_id,),
         ).fetchone()
         assert row["status"] == "shipped"
@@ -452,7 +477,7 @@ class TestEcontActions:
             await create_label_and_mark_shipped(conn, order_id, client=client)
 
         row = conn.execute(
-            "SELECT status, tracking_number, courier_sync_status FROM orders WHERE id = ?",
+            "SELECT status, tracking_number, courier_sync_status FROM orders WHERE id = %s",
             (order_id,),
         ).fetchone()
         assert row["status"] == "confirmed"
@@ -473,7 +498,7 @@ class TestEcontActions:
             await create_label(conn, order_id, client=client)
 
         row = conn.execute(
-            "SELECT courier_sync_status, courier_last_error FROM orders WHERE id = ?",
+            "SELECT courier_sync_status, courier_last_error FROM orders WHERE id = %s",
             (order_id,),
         ).fetchone()
         assert row["courier_sync_status"] == "failed"
@@ -491,7 +516,7 @@ class TestEcontActions:
             """
             UPDATE orders
             SET courier_shipment_number = '1234567890', tracking_number = '1234567890'
-            WHERE id = ?
+            WHERE id = %s
             """,
             (order_id,),
         )
@@ -501,7 +526,7 @@ class TestEcontActions:
 
         assert result["status"] == "trace_synced"
         row = conn.execute(
-            "SELECT courier_sync_status FROM orders WHERE id = ?",
+            "SELECT courier_sync_status FROM orders WHERE id = %s",
             (order_id,),
         ).fetchone()
         assert row["courier_sync_status"] == "trace_synced"
@@ -520,7 +545,7 @@ class TestEcontActions:
             UPDATE orders
             SET status = 'shipped', courier_shipment_number = '1234567890',
                 tracking_number = '1234567890', tracking_carrier = 'econt'
-            WHERE id = ?
+            WHERE id = %s
             """,
             (order_id,),
         )
@@ -531,7 +556,7 @@ class TestEcontActions:
 
         assert result["status"] == "trace_synced"
         row = conn.execute(
-            "SELECT status, payment_status FROM orders WHERE id = ?",
+            "SELECT status, payment_status FROM orders WHERE id = %s",
             (order_id,),
         ).fetchone()
         assert row["status"] == "shipped"
@@ -556,13 +581,13 @@ class TestEcontActions:
             UPDATE orders
             SET status = 'shipped', courier_shipment_number = '1234567890',
                 tracking_number = '1234567890', tracking_carrier = 'econt'
-            WHERE id = ?
+            WHERE id = %s
             """,
             (order_id,),
         )
         stock_before = conn.execute(
             "SELECT stock FROM products WHERE id = 'weighted-candle'"
-        ).fetchone()[0]
+        ).fetchone()["stock"]
         conn.commit()
         client = FakeEcontClient()
         client.next_trace = EcontShipmentStatus(
@@ -583,18 +608,20 @@ class TestEcontActions:
 
         assert result["courier_status"] == "return_in_transit"
         order = conn.execute(
-            "SELECT status, payment_status, courier_status FROM orders WHERE id = ?",
+            "SELECT status, payment_status, courier_status FROM orders WHERE id = %s",
             (order_id,),
         ).fetchone()
         assert order["status"] == "shipped"
         assert order["payment_status"] == "cod_pending"
         assert order["courier_status"] == "return_in_transit"
         assert (
-            conn.execute("SELECT stock FROM products WHERE id = 'weighted-candle'").fetchone()[0]
+            conn.execute("SELECT stock FROM products WHERE id = 'weighted-candle'").fetchone()[
+                "stock"
+            ]
             == stock_before
         )
         case = conn.execute(
-            "SELECT reason, source, status FROM order_returns WHERE order_id = ?",
+            "SELECT reason, source, status FROM order_returns WHERE order_id = %s",
             (order_id,),
         ).fetchone()
         assert dict(case) == {"reason": "not_picked_up", "source": "econt", "status": "requested"}
@@ -614,7 +641,7 @@ class TestEcontActions:
             UPDATE orders
             SET status = 'shipped', courier_shipment_number = '1234567890',
                 tracking_number = '1234567890', tracking_carrier = 'econt'
-            WHERE id = ?
+            WHERE id = %s
             """,
             (order_id,),
         )
@@ -629,7 +656,7 @@ class TestEcontActions:
 
         assert result["courier_status"] == "failed"
         case = conn.execute(
-            "SELECT reason, source, status FROM order_returns WHERE order_id = ?",
+            "SELECT reason, source, status FROM order_returns WHERE order_id = %s",
             (order_id,),
         ).fetchone()
         assert dict(case) == {"reason": "other", "source": "econt", "status": "requested"}
@@ -643,7 +670,7 @@ class TestEcontActions:
             UPDATE orders
             SET status = 'shipped', courier_shipment_number = '1234567890',
                 tracking_number = '1234567890', tracking_carrier = 'econt'
-            WHERE id = ?
+            WHERE id = %s
             """,
             (order_id,),
         )
@@ -668,7 +695,7 @@ class TestEcontActions:
         cases = conn.execute(
             """
             SELECT id, status, received_at, inspected_at, closed_at
-            FROM order_returns WHERE order_id = ?
+            FROM order_returns WHERE order_id = %s
             """,
             (order_id,),
         ).fetchall()
@@ -697,7 +724,7 @@ class TestEcontActions:
             """
             SELECT status, courier_provider, courier_status, courier_sync_status,
                    courier_shipment_number, tracking_number
-            FROM orders WHERE id = ?
+            FROM orders WHERE id = %s
             """,
             (order_id,),
         ).fetchone()
@@ -708,7 +735,7 @@ class TestEcontActions:
         assert order["courier_shipment_number"] is None
         assert order["tracking_number"] is None
         case = conn.execute(
-            "SELECT reason, source, status FROM order_returns WHERE order_id = ?",
+            "SELECT reason, source, status FROM order_returns WHERE order_id = %s",
             (order_id,),
         ).fetchone()
         assert dict(case) == {"reason": "not_picked_up", "source": "econt", "status": "requested"}
@@ -729,7 +756,7 @@ class TestEcontActions:
             """
             UPDATE orders
             SET status = 'shipped', courier_shipment_number = '1234567890'
-            WHERE id = ?
+            WHERE id = %s
             """,
             (order_id,),
         )
@@ -749,7 +776,7 @@ class TestEcontActions:
                 courier_label_created_at = '2026-07-01 10:00:00',
                 courier_last_error = '{"category":"transient"}',
                 tracking_number = '1234567890', tracking_carrier = 'econt', tracking_url = 'https://track'
-            WHERE id = ?
+            WHERE id = %s
             """,
             (order_id,),
         )
@@ -765,7 +792,7 @@ class TestEcontActions:
                    courier_label_url, courier_label_created_at, courier_last_error,
                    courier_last_synced_at, tracking_number, tracking_carrier,
                    tracking_url, courier_sync_status
-            FROM orders WHERE id = ?
+            FROM orders WHERE id = %s
             """,
             (order_id,),
         ).fetchone()

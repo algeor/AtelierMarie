@@ -1,7 +1,8 @@
-"""SQLite-backed rate limits for payment and checkout surfaces."""
+"""Postgres-backed rate limits for payment and checkout surfaces."""
 
-import sqlite3
 from dataclasses import dataclass
+
+import psycopg
 
 CHECKOUT_SESSION_LIMIT = 5
 CHECKOUT_SESSION_WINDOW_SECONDS = 15 * 60
@@ -49,7 +50,7 @@ def _key(value: str | None) -> str:
 
 
 def _count_bucket(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     action: str,
     bucket: _RateLimitBucket,
@@ -59,7 +60,7 @@ def _count_bucket(
             """
             SELECT COUNT(*) AS count
             FROM payment_rate_limit_events
-            WHERE action = ? AND scope = ? AND key = ?
+            WHERE action = %s AND scope = %s AND key = %s
             """,
             (action, bucket.scope, bucket.key),
         ).fetchone()
@@ -68,10 +69,10 @@ def _count_bucket(
             """
             SELECT COUNT(*) AS count
             FROM payment_rate_limit_events
-            WHERE action = ?
-              AND scope = ?
-              AND key = ?
-              AND created_at >= datetime('now', ?)
+            WHERE action = %s
+              AND scope = %s
+              AND key = %s
+              AND created_at >= CURRENT_TIMESTAMP - %s::interval
             """,
             (action, bucket.scope, bucket.key, bucket.window_modifier),
         ).fetchone()
@@ -79,7 +80,7 @@ def _count_bucket(
 
 
 def _check_buckets(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     action: str,
     buckets: list[_RateLimitBucket],
@@ -95,34 +96,31 @@ def _check_buckets(
 
 
 def _consume_rate_limit(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     action: str,
     buckets: list[_RateLimitBucket],
 ) -> None:
     """Check all buckets, then record the accepted attempt atomically."""
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    with conn.transaction():
         conn.execute(
-            "DELETE FROM payment_rate_limit_events WHERE created_at < datetime('now', '-2 days')"
+            "DELETE FROM payment_rate_limit_events"
+            " WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '2 days'"
         )
         _check_buckets(conn, action=action, buckets=buckets)
 
-        conn.executemany(
-            """
-            INSERT INTO payment_rate_limit_events (action, scope, key)
-            VALUES (?, ?, ?)
-            """,
-            [(action, bucket.scope, bucket.key) for bucket in buckets],
-        )
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
+        with conn.cursor() as cur:
+            cur.executemany(
+                """
+                INSERT INTO payment_rate_limit_events (action, scope, key)
+                VALUES (%s, %s, %s)
+                """,
+                [(action, bucket.scope, bucket.key) for bucket in buckets],
+            )
 
 
 def consume_checkout_order_rate_limit(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     session_id: str,
     ip_address: str | None,
@@ -136,7 +134,7 @@ def consume_checkout_order_rate_limit(
                 scope="session",
                 key=_key(session_id),
                 limit=CHECKOUT_SESSION_LIMIT,
-                window_modifier="-15 minutes",
+                window_modifier="15 minutes",
                 window_seconds=CHECKOUT_SESSION_WINDOW_SECONDS,
                 message="Too many checkout attempts. Please try again later.",
             ),
@@ -144,7 +142,7 @@ def consume_checkout_order_rate_limit(
                 scope="ip",
                 key=_key(ip_address),
                 limit=CHECKOUT_IP_LIMIT,
-                window_modifier="-1 hour",
+                window_modifier="1 hour",
                 window_seconds=CHECKOUT_IP_WINDOW_SECONDS,
                 message="Too many checkout attempts from this network. Please try again later.",
             ),
@@ -157,14 +155,14 @@ def _stripe_session_bucket(session_id: str) -> _RateLimitBucket:
         scope="session",
         key=_key(session_id),
         limit=STRIPE_SESSION_SESSION_LIMIT,
-        window_modifier="-1 hour",
+        window_modifier="1 hour",
         window_seconds=STRIPE_SESSION_SESSION_WINDOW_SECONDS,
         message="Too many Stripe Checkout attempts. Please try again later.",
     )
 
 
 def assert_stripe_session_rate_limit_available(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     session_id: str,
 ) -> None:
@@ -177,7 +175,7 @@ def assert_stripe_session_rate_limit_available(
 
 
 def consume_stripe_session_rate_limit(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     order_id: str,
     session_id: str,
@@ -201,7 +199,7 @@ def consume_stripe_session_rate_limit(
 
 
 def consume_pay_on_delivery_rate_limit(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     session_id: str,
     ip_address: str | None,
@@ -215,7 +213,7 @@ def consume_pay_on_delivery_rate_limit(
                 scope="session",
                 key=_key(session_id),
                 limit=PAY_ON_DELIVERY_SESSION_LIMIT,
-                window_modifier="-1 hour",
+                window_modifier="1 hour",
                 window_seconds=PAY_ON_DELIVERY_SESSION_WINDOW_SECONDS,
                 message="Too many pay-on-delivery attempts. Please try again later.",
             ),
@@ -223,7 +221,7 @@ def consume_pay_on_delivery_rate_limit(
                 scope="ip",
                 key=_key(ip_address),
                 limit=PAY_ON_DELIVERY_IP_LIMIT,
-                window_modifier="-1 day",
+                window_modifier="1 day",
                 window_seconds=PAY_ON_DELIVERY_IP_WINDOW_SECONDS,
                 message=(
                     "Too many pay-on-delivery attempts from this network. Please try again later."
@@ -234,7 +232,7 @@ def consume_pay_on_delivery_rate_limit(
 
 
 def consume_payment_status_poll_rate_limit(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     session_id: str,
     ip_address: str | None,
@@ -248,7 +246,7 @@ def consume_payment_status_poll_rate_limit(
                 scope="session",
                 key=_key(session_id),
                 limit=PAYMENT_STATUS_POLL_LIMIT,
-                window_modifier="-5 minutes",
+                window_modifier="5 minutes",
                 window_seconds=PAYMENT_STATUS_POLL_WINDOW_SECONDS,
                 message="Too many payment status checks. Please try again later.",
             ),
@@ -256,7 +254,7 @@ def consume_payment_status_poll_rate_limit(
                 scope="ip",
                 key=_key(ip_address),
                 limit=PAYMENT_STATUS_POLL_LIMIT,
-                window_modifier="-5 minutes",
+                window_modifier="5 minutes",
                 window_seconds=PAYMENT_STATUS_POLL_WINDOW_SECONDS,
                 message="Too many payment status checks. Please try again later.",
             ),

@@ -38,7 +38,7 @@ def _resolve_display_name(
         row = conn.execute(
             "SELECT s.user_id, u.name FROM sessions s "
             "LEFT JOIN users u ON s.user_id = u.id "
-            "WHERE s.id = ?",
+            "WHERE s.id = %s",
             (session_id,),
         ).fetchone()
 

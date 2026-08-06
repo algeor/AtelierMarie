@@ -1,55 +1,50 @@
 """Tests for admin dashboard endpoint and error handlers."""
 
-import sqlite3
-
 import pytest
 
 
 @pytest.fixture()
-def _seeded_data(db_path, app):
+def _seeded_data(db, app):
     """Seed products and orders for dashboard tests."""
-    conn = sqlite3.connect(db_path)
-    conn.execute("PRAGMA foreign_keys=ON")
-
     # Products
-    conn.executemany(
-        "INSERT INTO products (id, name_en, price_cents, stock, is_active) VALUES (?, ?, ?, ?, ?)",
-        [
-            ("candle-a", "Candle A", 2500, 20, 1),
-            ("candle-b", "Candle B", 3500, 3, 1),  # low stock
-            ("candle-c", "Candle C", 1500, 0, 1),  # out of stock (low stock)
-            ("candle-d", "Candle D", 4000, 50, 0),  # inactive
-        ],
-    )
+    with db.cursor() as cur:
+        cur.executemany(
+            "INSERT INTO products (id, name_en, price_cents, stock, is_active) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            [
+                ("candle-a", "Candle A", 2500, 20, 1),
+                ("candle-b", "Candle B", 3500, 3, 1),  # low stock
+                ("candle-c", "Candle C", 1500, 0, 1),  # out of stock (low stock)
+                ("candle-d", "Candle D", 4000, 50, 0),  # inactive
+            ],
+        )
 
     # Session for orders
-    conn.execute("INSERT INTO sessions (id, expires_at) VALUES ('sess-1', '2099-01-01 00:00:00')")
+    db.execute("INSERT INTO sessions (id, expires_at) VALUES ('sess-1', '2099-01-01 00:00:00')")
 
     # Orders
-    conn.executemany(
-        "INSERT INTO orders (id, session_id, status, total_cents, customer_email, "
-        "payment_method, payment_status) VALUES (?, 'sess-1', ?, ?, ?, ?, ?)",
-        [
-            ("order-1", "pending", 5000, "a@test.com", "card", "pending"),
-            ("order-2", "confirmed", 7000, "b@test.com", "card", "paid"),
-            ("order-3", "shipped", 3500, "c@test.com", "cod", "cod_pending"),
-            ("order-4", "delivered", 2500, "d@test.com", "cod", "paid"),
-            ("order-5", "cancelled", 4000, "e@test.com", "card", "failed"),
-        ],
-    )
-
-    conn.executemany(
-        "INSERT INTO contact_messages (name, email, message, locale, email_status) "
-        "VALUES (?, ?, ?, 'en', ?)",
-        [
-            ("Queued Customer", "queued@test.com", "Please reply", "queued"),
-            ("Failed Customer", "failed@test.com", "Please retry", "failed"),
-            ("Sent Customer", "sent@test.com", "Already handled", "sent"),
-        ],
-    )
-
-    conn.commit()
-    conn.close()
+    with db.cursor() as cur:
+        cur.executemany(
+            "INSERT INTO orders (id, session_id, status, total_cents, customer_email, "
+            "payment_method, payment_status) VALUES (%s, 'sess-1', %s, %s, %s, %s, %s)",
+            [
+                ("order-1", "pending", 5000, "a@test.com", "card", "pending"),
+                ("order-2", "confirmed", 7000, "b@test.com", "card", "paid"),
+                ("order-3", "shipped", 3500, "c@test.com", "cod", "cod_pending"),
+                ("order-4", "delivered", 2500, "d@test.com", "cod", "paid"),
+                ("order-5", "cancelled", 4000, "e@test.com", "card", "failed"),
+            ],
+        )
+        cur.executemany(
+            "INSERT INTO contact_messages (name, email, message, locale, email_status) "
+            "VALUES (%s, %s, %s, 'en', %s)",
+            [
+                ("Queued Customer", "queued@test.com", "Please reply", "queued"),
+                ("Failed Customer", "failed@test.com", "Please retry", "failed"),
+                ("Sent Customer", "sent@test.com", "Already handled", "sent"),
+            ],
+        )
+    db.commit()
 
 
 class TestAdminDashboard:

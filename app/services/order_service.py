@@ -1,16 +1,16 @@
 """Order service — checkout, retrieval, and state management.
 
-All functions accept an explicit sqlite3.Connection and primitive parameters.
+All functions accept an explicit psycopg.Connection and primitive parameters.
 Routes destructure Pydantic models before calling these functions.
 """
 
 import json
 import secrets
-import sqlite3
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, TypedDict, get_args
 
+import psycopg
 import structlog
 
 from app.constants import (
@@ -53,23 +53,23 @@ class AccountingAdminFields(TypedDict):
     finance_hub_links: dict[str, str | None] | None
 
 
-def _generate_order_number(conn: sqlite3.Connection) -> str:
+def _generate_order_number(conn: psycopg.Connection) -> str:
     """Generate AM-xxxxxx public order numbers with bounded collision retries."""
     for _ in range(10):
         code = "AM-" + "".join(secrets.choice(_ORDER_NUMBER_ALPHABET) for _ in range(6))
-        exists = conn.execute("SELECT 1 FROM orders WHERE order_number = ?", (code,)).fetchone()
+        exists = conn.execute("SELECT 1 FROM orders WHERE order_number = %s", (code,)).fetchone()
         if exists is None:
             return code
     msg = "Could not generate a unique order number"
     raise OrderServiceError(msg)
 
 
-def _generate_payment_return_token(conn: sqlite3.Connection) -> str:
+def _generate_payment_return_token(conn: psycopg.Connection) -> str:
     """Generate a bearer token used for payment return/status flows."""
     for _ in range(10):
         token = secrets.token_urlsafe(24)
         exists = conn.execute(
-            "SELECT 1 FROM orders WHERE payment_return_token = ?",
+            "SELECT 1 FROM orders WHERE payment_return_token = %s",
             (token,),
         ).fetchone()
         if exists is None:
@@ -131,6 +131,22 @@ def _localized_product_name(locale: Locale) -> str:
     return "COALESCE(NULLIF(p.name_en, ''), p.name_bg, '') AS name"
 
 
+def _fmt_ts(value: object) -> str | None:
+    """Render a timestamp column read as the canonical `_DT_FMT` string.
+
+    Postgres TIMESTAMPTZ columns come back from psycopg (dict_row) as
+    ``datetime`` objects, but OrderData/OrderResponse declare these fields as
+    ``str``. Timestamps are written as `_DT_FMT` strings on INSERT, so we
+    normalise reads to the same shape. ``None`` passes through; an existing
+    string (legacy/echoed value) is returned unchanged.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.strftime(_DT_FMT)
+    return str(value)
+
+
 def _normalize_quoted_at(value: str | None) -> str | None:
     """Keep `quoted_at` only if it parses as our SQLite timestamp format.
 
@@ -162,10 +178,10 @@ def _order_item_key(order_id: str, product_id: str) -> str:
     return f"{order_id}:{product_id}"
 
 
-def _ledger_modes_for_products(conn: sqlite3.Connection, product_ids: list[str]) -> dict[str, str]:
+def _ledger_modes_for_products(conn: psycopg.Connection, product_ids: list[str]) -> dict[str, str]:
     if not product_ids:
         return {}
-    placeholders = ",".join("?" for _ in product_ids)
+    placeholders = ",".join("%s" for _ in product_ids)
     rows = conn.execute(
         f"""
         SELECT product_id, inventory_mode
@@ -177,9 +193,9 @@ def _ledger_modes_for_products(conn: sqlite3.Connection, product_ids: list[str])
     return {row["product_id"]: row["inventory_mode"] for row in rows}
 
 
-def _product_inventory_mode(conn: sqlite3.Connection, product_id: str) -> str:
+def _product_inventory_mode(conn: psycopg.Connection, product_id: str) -> str:
     row = conn.execute(
-        "SELECT inventory_mode FROM product_inventory_profiles WHERE product_id = ?",
+        "SELECT inventory_mode FROM product_inventory_profiles WHERE product_id = %s",
         (product_id,),
     ).fetchone()
     return row["inventory_mode"] if row is not None else "legacy"
@@ -190,7 +206,7 @@ def _is_ledger_managed_mode(mode: str | None) -> bool:
 
 
 def _insert_inventory_exception(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     exception_type: str,
     message: str,
@@ -204,11 +220,11 @@ def _insert_inventory_exception(
         """
         SELECT 1
         FROM inventory_exceptions
-        WHERE exception_type = ?
-          AND target_type = ?
-          AND target_id = ?
-          AND source_type = ?
-          AND source_id = ?
+        WHERE exception_type = %s
+          AND target_type = %s
+          AND target_id = %s
+          AND source_type = %s
+          AND source_id = %s
           AND status = 'open'
         """,
         (exception_type, target_type, target_id, source_type, source_id),
@@ -220,7 +236,7 @@ def _insert_inventory_exception(
         INSERT INTO inventory_exceptions (
             id, exception_type, severity, target_type, target_id,
             source_type, source_id, message
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             str(uuid.uuid4()),
@@ -236,7 +252,7 @@ def _insert_inventory_exception(
 
 
 def _record_finished_good_movement(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     product_id: str,
     movement_type: str,
@@ -265,7 +281,8 @@ def _record_finished_good_movement(
             source_type, source_id, product_id, order_id, order_item_key,
             actor_user_id, actor_email, reason, notes, reversal_of_movement_id,
             review_state, occurred_at, metadata_json
-        ) VALUES (?, 'finished_good', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (%s, 'finished_good', %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                  %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             movement_id,
@@ -290,7 +307,7 @@ def _record_finished_good_movement(
     )
     if update_stock_cache:
         cursor = conn.execute(
-            "UPDATE products SET stock = stock + ? WHERE id = ?",
+            "UPDATE products SET stock = stock + %s WHERE id = %s",
             (quantity_delta, product_id),
         )
         if cursor.rowcount == 0:
@@ -299,18 +316,18 @@ def _record_finished_good_movement(
 
 
 def _sale_issue_movement(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     order_id: str,
     product_id: str,
-) -> sqlite3.Row | None:
+) -> dict | None:
     return conn.execute(
         """
         SELECT *
         FROM inventory_movements
-        WHERE order_id = ?
-          AND product_id = ?
-          AND order_item_key = ?
+        WHERE order_id = %s
+          AND product_id = %s
+          AND order_item_key = %s
           AND movement_type = 'sale_issue'
         ORDER BY occurred_at DESC, created_at DESC, id DESC
         LIMIT 1
@@ -320,7 +337,7 @@ def _sale_issue_movement(
 
 
 def _accounting_admin_fields(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     order_id: str,
     total_cents: int,
@@ -337,7 +354,7 @@ def _accounting_admin_fields(
         SELECT period_id, exception_type, severity
         FROM finance_exceptions
         WHERE target_type = 'order'
-          AND target_id = ?
+          AND target_id = %s
           AND status = 'open'
         """,
         (order_id,),
@@ -349,7 +366,7 @@ def _accounting_admin_fields(
     linked_period_id = finance_period_id or exception_period_id
 
     document_rows = conn.execute(
-        "SELECT status FROM accounting_documents WHERE order_id = ?",
+        "SELECT status FROM accounting_documents WHERE order_id = %s",
         (order_id,),
     ).fetchall()
     exception_types = {row["exception_type"] for row in exception_rows}
@@ -369,9 +386,9 @@ def _accounting_admin_fields(
     elif payment_status in _PAID_ACCOUNTING_STATUSES:
         has_payment_evidence = conn.execute(
             """
-            SELECT 1 FROM payments WHERE order_id = ?
+            SELECT 1 FROM payments WHERE order_id = %s
             UNION
-            SELECT 1 FROM payment_events WHERE order_id = ?
+            SELECT 1 FROM payment_events WHERE order_id = %s
             LIMIT 1
             """,
             (order_id, order_id),
@@ -391,7 +408,7 @@ def _accounting_admin_fields(
             """
             SELECT match_status
             FROM stripe_balance_transactions
-            WHERE payment_intent_id = ?
+            WHERE payment_intent_id = %s
             ORDER BY imported_at DESC
             LIMIT 1
             """,
@@ -411,7 +428,7 @@ def _accounting_admin_fields(
             """
             SELECT amount_cents, mismatch_review
             FROM cod_settlements
-            WHERE order_id = ?
+            WHERE order_id = %s
             """,
             (order_id,),
         ).fetchone()
@@ -470,7 +487,7 @@ def _payment_provider_for_method(payment_method: str) -> str:
 
 
 def _ensure_payment_row(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     order_id: str,
     provider: str,
@@ -482,7 +499,7 @@ def _ensure_payment_row(
         """
         SELECT id
         FROM payments
-        WHERE order_id = ? AND provider = ?
+        WHERE order_id = %s AND provider = %s
         ORDER BY created_at DESC
         LIMIT 1
         """,
@@ -490,7 +507,7 @@ def _ensure_payment_row(
     ).fetchone()
     if row is not None:
         conn.execute(
-            "UPDATE payments SET provider_status = ? WHERE id = ?",
+            "UPDATE payments SET provider_status = %s WHERE id = %s",
             (provider_status, row["id"]),
         )
         return row["id"]
@@ -501,7 +518,7 @@ def _ensure_payment_row(
         INSERT INTO payments (
             id, order_id, provider, amount_cents, currency, provider_status,
             created_at, updated_at
-        ) VALUES (?, ?, ?, ?, 'EUR', ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, 'EUR', %s, %s, %s)
         """,
         (payment_id, order_id, provider, amount_cents, provider_status, now, now),
     )
@@ -509,7 +526,7 @@ def _ensure_payment_row(
 
 
 def _append_payment_event(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     order_id: str,
     payment_id: str | None,
@@ -527,7 +544,7 @@ def _append_payment_event(
         INSERT INTO payment_events (
             id, order_id, payment_id, event_type, source, provider, provider_status,
             processing_status, details, admin_user_id, admin_email, admin_note, request_id
-        ) VALUES (?, ?, ?, ?, 'admin', ?, ?, 'processed', ?, ?, ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, 'admin', %s, %s, 'processed', %s, %s, %s, %s, %s)
         """,
         (
             str(uuid.uuid4()),
@@ -691,22 +708,22 @@ class TrackingRequiredError(OrderServiceError):
         super().__init__(f"Tracking information required when shipping: {', '.join(missing)}")
 
 
-def _order_weight_grams(conn: sqlite3.Connection, order_id: str) -> int:
+def _order_weight_grams(conn: psycopg.Connection, order_id: str) -> int:
     row = conn.execute(
         """
         SELECT COALESCE(
-            SUM(COALESCE(NULLIF(p.weight_grams, 0), ?) * oi.quantity), ?
+            SUM(COALESCE(NULLIF(p.weight_grams, 0), %s) * oi.quantity), %s
         ) AS weight_grams
         FROM order_items oi
         LEFT JOIN products p ON p.id = oi.product_id
-        WHERE oi.order_id = ?
+        WHERE oi.order_id = %s
         """,
         (_DEFAULT_SHIPMENT_WEIGHT_GRAMS, _DEFAULT_SHIPMENT_WEIGHT_GRAMS, order_id),
     ).fetchone()
     return max(1, int(row["weight_grams"] if row else _DEFAULT_SHIPMENT_WEIGHT_GRAMS))
 
 
-def _speedy_waybill_kwargs(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
+def _speedy_waybill_kwargs(conn: psycopg.Connection, row: dict) -> dict:
     """Build Speedy shipment kwargs from an order row."""
     from app.config import get_settings
 
@@ -754,9 +771,7 @@ def _speedy_waybill_kwargs(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
     return kwargs
 
 
-async def _create_speedy_waybill(
-    conn: sqlite3.Connection, row: sqlite3.Row
-) -> tuple[str, str | None]:
+async def _create_speedy_waybill(conn: psycopg.Connection, row: dict) -> tuple[str, str | None]:
     """Create a Speedy waybill from an order row."""
     from app.services import speedy_client
 
@@ -850,7 +865,7 @@ class OrderListData(TypedDict):
 
 
 def checkout(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     session_id: str,
     customer_email: str,
     delivery: DeliveryInfo,
@@ -870,8 +885,11 @@ def checkout(
 ) -> OrderData:
     """Convert cart to an order atomically.
 
-    Uses BEGIN IMMEDIATE to serialize concurrent checkouts — prevents
-    two sessions from decrementing stock past zero simultaneously.
+    Runs inside a single transaction (``conn.transaction()``) to serialize
+    concurrent checkouts — prevents two sessions from decrementing stock past
+    zero simultaneously. The CHECK (stock >= 0) constraint is the final guard:
+    a race that would drive stock negative raises CheckViolation, mapped to
+    InsufficientStockError, and the transaction rolls back.
 
     Validates stock, creates order with price snapshots, decrements stock,
     and clears cart items — all within an explicit transaction.
@@ -930,8 +948,7 @@ def checkout(
 
     delivery_details_json = json.dumps(delivery_details, ensure_ascii=False)
 
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    with conn.transaction():
         name_expr = _localized_product_name(locale)
         # 1. Fetch cart items with product info
         cart_rows = conn.execute(
@@ -941,7 +958,7 @@ def checkout(
                    p.stock, p.is_active
             FROM cart_items ci
             JOIN products p ON p.id = ci.product_id
-            WHERE ci.session_id = ?
+            WHERE ci.session_id = %s
             """,  # noqa: S608 - locale selects a fixed SQL expression above.
             (session_id,),
         ).fetchall()
@@ -987,8 +1004,8 @@ def checkout(
             (now_dt + timedelta(minutes=15)).strftime(_DT_FMT) if payment_method == "card" else None
         )
         internal_sequence = conn.execute(
-            "SELECT COALESCE(MAX(internal_sequence), 0) + 1 FROM orders"
-        ).fetchone()[0]
+            "SELECT COALESCE(MAX(internal_sequence), 0) + 1 AS next_seq FROM orders"
+        ).fetchone()["next_seq"]
         order_number = _generate_order_number(conn)
         payment_return_token = _generate_payment_return_token(conn)
         # Effective (discounted) price per row, computed once from a single `now`
@@ -1001,8 +1018,8 @@ def checkout(
                 row["discount_percent"],
                 pricing.discount_is_active(
                     row["discount_percent"],
-                    row["discount_starts_at"],
-                    row["discount_ends_at"],
+                    _fmt_ts(row["discount_starts_at"]),
+                    _fmt_ts(row["discount_ends_at"]),
                     now,
                 ),
             )
@@ -1117,10 +1134,10 @@ def checkout(
                                accounting_readiness_status,
                                analytics_consent, created_at, updated_at)
             VALUES (
-                ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?
+                %s, %s, %s, 'pending', %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s
             )
             """,
             (
@@ -1167,7 +1184,7 @@ def checkout(
                 INSERT INTO payments (
                     id, order_id, provider, amount_cents, currency, provider_status,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, 'EUR', ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, 'EUR', %s, %s, %s)
                 """,
                 (
                     str(uuid.uuid4()),
@@ -1187,7 +1204,7 @@ def checkout(
             conn.execute(
                 """
                 INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity)
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s)
                 """,
                 (order_id, row["product_id"], row["name"], snapshot_price, row["quantity"]),
             )
@@ -1223,10 +1240,10 @@ def checkout(
                     )
                 else:
                     conn.execute(
-                        "UPDATE products SET stock = stock - ? WHERE id = ?",
+                        "UPDATE products SET stock = stock - %s WHERE id = %s",
                         (row["quantity"], row["product_id"]),
                     )
-            except sqlite3.IntegrityError as e:
+            except psycopg.errors.CheckViolation as e:
                 # CHECK (stock >= 0) constraint violated — race condition.
                 raise InsufficientStockError(
                     [
@@ -1240,9 +1257,9 @@ def checkout(
 
         # 6. Clear cart items for products included in this order
         product_ids = cart_product_ids
-        placeholders = ",".join("?" * len(product_ids))
+        placeholders = ",".join("%s" for _ in product_ids)
         conn.execute(
-            f"DELETE FROM cart_items WHERE session_id = ? AND product_id IN ({placeholders})",
+            f"DELETE FROM cart_items WHERE session_id = %s AND product_id IN ({placeholders})",
             [session_id, *product_ids],
         )
 
@@ -1256,20 +1273,15 @@ def checkout(
         if customer_event is not None:
             conn.execute(
                 "INSERT INTO order_emails (order_id, event, recipient, status) "
-                "VALUES (?, ?, ?, 'queued')",
+                "VALUES (%s, %s, %s, 'queued')",
                 (order_id, customer_event, customer_email),
             )
         # Admin new-order alert rides the same outbox.
         conn.execute(
             "INSERT INTO order_emails (order_id, event, recipient, status) "
-            "VALUES (?, 'admin_new_order', ?, 'queued')",
+            "VALUES (%s, 'admin_new_order', %s, 'queued')",
             (order_id, admin_notification_email or ""),
         )
-
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
 
     return OrderData(
         id=order_id,
@@ -1335,15 +1347,15 @@ def checkout(
     )
 
 
-def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderData | None:
+def _fetch_order_with_items(conn: psycopg.Connection, order_id: str) -> OrderData | None:
     """Fetch an order and its items. Returns None if not found."""
-    row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+    row = conn.execute("SELECT * FROM orders WHERE id = %s", (order_id,)).fetchone()
     if not row:
         return None
 
     item_rows = conn.execute(
         "SELECT product_id, product_name, price_cents, quantity"
-        " FROM order_items WHERE order_id = ?",
+        " FROM order_items WHERE order_id = %s",
         (order_id,),
     ).fetchall()
 
@@ -1379,7 +1391,9 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
     shipping_is_fallback = bool(
         row["shipping_is_fallback"] if "shipping_is_fallback" in row_keys else 0
     )
-    shipping_quoted_at = row["shipping_quoted_at"] if "shipping_quoted_at" in row_keys else None
+    shipping_quoted_at = (
+        _fmt_ts(row["shipping_quoted_at"]) if "shipping_quoted_at" in row_keys else None
+    )
     invoice_profile = _decode_json_dict(
         row["invoice_profile_json"] if "invoice_profile_json" in row_keys else None,
         order_id=order_id,
@@ -1442,7 +1456,9 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
         ),
         courier_label_url=row["courier_label_url"] if "courier_label_url" in row_keys else None,
         courier_label_created_at=(
-            row["courier_label_created_at"] if "courier_label_created_at" in row_keys else None
+            _fmt_ts(row["courier_label_created_at"])
+            if "courier_label_created_at" in row_keys
+            else None
         ),
         courier_sync_status=(
             row["courier_sync_status"] if "courier_sync_status" in row_keys else None
@@ -1451,15 +1467,15 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
             row["courier_last_error"] if "courier_last_error" in row_keys else None
         ),
         courier_last_synced_at=(
-            row["courier_last_synced_at"] if "courier_last_synced_at" in row_keys else None
+            _fmt_ts(row["courier_last_synced_at"]) if "courier_last_synced_at" in row_keys else None
         ),
         locale=(row["locale"] if "locale" in row_keys and row["locale"] else "en"),
         notes=row["notes"],
         payment_method=payment_method,
         payment_status=payment_status,
-        reserved_until=row["reserved_until"] if "reserved_until" in row_keys else None,
-        paid_at=row["paid_at"] if "paid_at" in row_keys else None,
-        collected_at=row["collected_at"] if "collected_at" in row_keys else None,
+        reserved_until=(_fmt_ts(row["reserved_until"]) if "reserved_until" in row_keys else None),
+        paid_at=_fmt_ts(row["paid_at"]) if "paid_at" in row_keys else None,
+        collected_at=_fmt_ts(row["collected_at"]) if "collected_at" in row_keys else None,
         payment_return_token=(
             row["payment_return_token"] if "payment_return_token" in row_keys else None
         ),
@@ -1499,16 +1515,16 @@ def _fetch_order_with_items(conn: sqlite3.Connection, order_id: str) -> OrderDat
         blocking_exception_count=accounting_admin_fields["blocking_exception_count"],
         finance_hub_links=accounting_admin_fields["finance_hub_links"],
         analytics_consent=bool(row["analytics_consent"] if "analytics_consent" in row_keys else 0),
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
+        created_at=_fmt_ts(row["created_at"]),
+        updated_at=_fmt_ts(row["updated_at"]),
         items=items,
     )
 
 
-def get_order_inventory_context(conn: sqlite3.Connection, order_id: str) -> dict[str, object]:
+def get_order_inventory_context(conn: psycopg.Connection, order_id: str) -> dict[str, object]:
     """Return admin-only inventory context for one order."""
     item_rows = conn.execute(
-        "SELECT product_id, quantity FROM order_items WHERE order_id = ? ORDER BY product_id",
+        "SELECT product_id, quantity FROM order_items WHERE order_id = %s ORDER BY product_id",
         (order_id,),
     ).fetchall()
     product_ids = [row["product_id"] for row in item_rows]
@@ -1530,12 +1546,12 @@ def get_order_inventory_context(conn: sqlite3.Connection, order_id: str) -> dict
         SELECT id, product_id, movement_type, order_item_key, reversal_of_movement_id,
                source_type, source_id, review_state
         FROM inventory_movements
-        WHERE order_id = ?
+        WHERE order_id = %s
         ORDER BY occurred_at, created_at, id
         """,
         (order_id,),
     ).fetchall()
-    movements_by_product: dict[str, list[sqlite3.Row]] = {}
+    movements_by_product: dict[str, list[dict]] = {}
     for movement in movement_rows:
         if movement["product_id"]:
             movements_by_product.setdefault(movement["product_id"], []).append(movement)
@@ -1545,20 +1561,20 @@ def get_order_inventory_context(conn: sqlite3.Connection, order_id: str) -> dict
         SELECT id, product_id, source_movement_id, source_valuation_layer_id,
                source_finished_batch_id, review_state
         FROM cogs_ledger
-        WHERE order_id = ?
+        WHERE order_id = %s
           AND review_state != 'reversed'
         ORDER BY created_at, id
         """,
         (order_id,),
     ).fetchall()
-    cogs_by_product: dict[str, sqlite3.Row] = {}
+    cogs_by_product: dict[str, dict] = {}
     for row in cogs_rows:
         if row["product_id"] and row["product_id"] not in cogs_by_product:
             cogs_by_product[row["product_id"]] = row
 
-    latest_batches: dict[str, sqlite3.Row] = {}
+    latest_batches: dict[str, dict] = {}
     if product_ids:
-        placeholders = ",".join("?" for _ in product_ids)
+        placeholders = ",".join("%s" for _ in product_ids)
         for row in conn.execute(
             f"""
             SELECT pip.product_id, pb.id, pb.batch_number
@@ -1576,11 +1592,11 @@ def get_order_inventory_context(conn: sqlite3.Connection, order_id: str) -> dict
         FROM inventory_exceptions
         WHERE status = 'open'
           AND (
-            (target_type = 'order' AND target_id = ?)
-            OR (source_type = 'order' AND source_id = ?)
-            OR (source_type = 'order_item' AND source_id LIKE ?)
+            (target_type = 'order' AND target_id = %s)
+            OR (source_type = 'order' AND source_id = %s)
+            OR (source_type = 'order_item' AND source_id LIKE %s)
             OR (target_type = 'product' AND target_id IN (
-                SELECT product_id FROM order_items WHERE order_id = ?
+                SELECT product_id FROM order_items WHERE order_id = %s
             ))
           )
         ORDER BY created_at DESC, id DESC
@@ -1665,7 +1681,7 @@ def get_order_inventory_context(conn: sqlite3.Connection, order_id: str) -> dict
 
 
 def get_order(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     order_id: str,
     session_id: str,
     user_id: str | None = None,
@@ -1686,7 +1702,7 @@ def get_order(
     return order
 
 
-def get_order_admin(conn: sqlite3.Connection, order_id: str) -> OrderData:
+def get_order_admin(conn: psycopg.Connection, order_id: str) -> OrderData:
     """Fetch order without ownership check (admin auth enforced at route level)."""
     order = _fetch_order_with_items(conn, order_id)
     if order is None:
@@ -1695,7 +1711,7 @@ def get_order_admin(conn: sqlite3.Connection, order_id: str) -> OrderData:
 
 
 def list_orders(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     session_id: str,
     user_id: str | None = None,
     page: int = 1,
@@ -1717,18 +1733,21 @@ def list_orders(
     offset = (page - 1) * limit
 
     if user_id is not None:
-        where_clause = "WHERE user_id = ?"
+        where_clause = "WHERE user_id = %s"
         params: list = [user_id]
     else:
-        where_clause = "WHERE session_id = ?"
+        where_clause = "WHERE session_id = %s"
         params = [session_id]
 
     # Total count
-    total = conn.execute(f"SELECT COUNT(*) FROM orders {where_clause}", params).fetchone()[0]
+    total = conn.execute(
+        f"SELECT COUNT(*) AS count FROM orders {where_clause}",  # noqa: S608
+        params,
+    ).fetchone()["count"]
 
     # Paginated results
     rows = conn.execute(
-        f"SELECT id FROM orders {where_clause} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        f"SELECT id FROM orders {where_clause} ORDER BY created_at DESC LIMIT %s OFFSET %s",
         [*params, limit, offset],
     ).fetchall()
 
@@ -1742,7 +1761,7 @@ def list_orders(
 
 
 def list_orders_admin(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     status: OrderStatus | None = None,
     payment_status: str | None = None,
     payment_method: str | None = None,
@@ -1768,16 +1787,16 @@ def list_orders_admin(
     conditions = []
     params: list = []
     if status is not None:
-        conditions.append("status = ?")
+        conditions.append("status = %s")
         params.append(status)
     if payment_status is not None:
-        conditions.append("payment_status = ?")
+        conditions.append("payment_status = %s")
         params.append(payment_status)
     if payment_method is not None:
-        conditions.append("payment_method = ?")
+        conditions.append("payment_method = %s")
         params.append(payment_method)
     if finance_period_id is not None:
-        conditions.append("finance_period_id = ?")
+        conditions.append("finance_period_id = %s")
         params.append(finance_period_id)
     if review_filter == "abandoned_payment":
         conditions.append("payment_method = 'card'")
@@ -2011,10 +2030,13 @@ def list_orders_admin(
 
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
-    total = conn.execute(f"SELECT COUNT(*) FROM orders {where_clause}", params).fetchone()[0]
+    total = conn.execute(
+        f"SELECT COUNT(*) AS count FROM orders {where_clause}",  # noqa: S608
+        params,
+    ).fetchone()["count"]
 
     rows = conn.execute(
-        f"SELECT id FROM orders {where_clause} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        f"SELECT id FROM orders {where_clause} ORDER BY created_at DESC LIMIT %s OFFSET %s",
         [*params, limit, offset],
     ).fetchall()
 
@@ -2027,7 +2049,7 @@ def list_orders_admin(
     return OrderListData(items=items, total=total, page=page, limit=limit)
 
 
-def list_payment_events(conn: sqlite3.Connection, order_id: str) -> list[dict]:
+def list_payment_events(conn: psycopg.Connection, order_id: str) -> list[dict]:
     """Return safe admin payment timeline rows for an order."""
     rows = conn.execute(
         """
@@ -2035,7 +2057,7 @@ def list_payment_events(conn: sqlite3.Connection, order_id: str) -> list[dict]:
                stripe_event_type, provider, provider_status, processing_status,
                details, admin_user_id, admin_email, admin_note, request_id, created_at
         FROM payment_events
-        WHERE order_id = ?
+        WHERE order_id = %s
         ORDER BY created_at ASC, id ASC
         """,
         (order_id,),
@@ -2044,7 +2066,7 @@ def list_payment_events(conn: sqlite3.Connection, order_id: str) -> list[dict]:
 
 
 async def update_status_async(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     order_id: str,
     new_status: OrderStatus,
     tracking_number: str | None = None,
@@ -2062,7 +2084,7 @@ async def update_status_async(
             "SELECT id, status, payment_method, delivery_method, delivery_courier,"
             " delivery_details, customer_name, total_cents, shipping_cents, payment_status"
             ", tracking_number, tracking_carrier, tracking_url, courier_shipment_number"
-            " FROM orders WHERE id = ?",
+            " FROM orders WHERE id = %s",
             (order_id,),
         ).fetchone()
         if not row:
@@ -2090,7 +2112,7 @@ async def update_status_async(
 
 
 def update_status(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     order_id: str,
     new_status: OrderStatus,
     tracking_number: str | None = None,
@@ -2112,7 +2134,7 @@ def update_status(
         "SELECT id, status, payment_method, delivery_method, delivery_courier,"
         " delivery_details, customer_name, total_cents, shipping_cents, payment_status"
         ", tracking_number, tracking_carrier, tracking_url, courier_shipment_number"
-        " FROM orders WHERE id = ?",
+        " FROM orders WHERE id = %s",
         (order_id,),
     ).fetchone()
 
@@ -2160,21 +2182,21 @@ def update_status(
         conn.execute(
             """
             UPDATE orders
-            SET status = ?, tracking_number = ?, tracking_carrier = ?, tracking_url = ?,
-                label_url = COALESCE(?, label_url),
-                courier_provider = COALESCE(?, courier_provider),
+            SET status = %s, tracking_number = %s, tracking_carrier = %s, tracking_url = %s,
+                label_url = COALESCE(%s, label_url),
+                courier_provider = COALESCE(%s, courier_provider),
                 courier_shipment_number = CASE
-                    WHEN ? IS NOT NULL THEN ? ELSE courier_shipment_number END,
+                    WHEN %s::text IS NOT NULL THEN %s ELSE courier_shipment_number END,
                 courier_sync_status = CASE
-                    WHEN ? = 'speedy' THEN 'waybill_created' ELSE courier_sync_status END,
+                    WHEN %s = 'speedy' THEN 'waybill_created' ELSE courier_sync_status END,
                 courier_last_error = CASE
-                    WHEN ? = 'speedy' THEN NULL ELSE courier_last_error END,
+                    WHEN %s = 'speedy' THEN NULL ELSE courier_last_error END,
                 courier_last_synced_at = CASE
-                    WHEN ? = 'speedy' THEN ? ELSE courier_last_synced_at END,
+                    WHEN %s = 'speedy' THEN %s ELSE courier_last_synced_at END,
                 courier_label_created_at = CASE
-                    WHEN ? = 'speedy' THEN COALESCE(courier_label_created_at, ?)
+                    WHEN %s = 'speedy' THEN COALESCE(courier_label_created_at, %s)
                     ELSE courier_label_created_at END
-            WHERE id = ?
+            WHERE id = %s
             """,
             (
                 new_status,
@@ -2196,7 +2218,7 @@ def update_status(
         )
     else:
         conn.execute(
-            "UPDATE orders SET status = ? WHERE id = ?",
+            "UPDATE orders SET status = %s WHERE id = %s",
             (new_status, order_id),
         )
 
@@ -2207,16 +2229,16 @@ def update_status(
         conn.execute(
             "UPDATE orders "
             "SET payment_status = 'paid', "
-            "paid_at = COALESCE(paid_at, ?), "
-            "collected_at = COALESCE(collected_at, ?) "
-            "WHERE id = ?",
+            "paid_at = COALESCE(paid_at, %s), "
+            "collected_at = COALESCE(collected_at, %s) "
+            "WHERE id = %s",
             (now, now, order_id),
         )
 
     # Restore stock on cancellation
     if new_status == "cancelled":
         item_rows = conn.execute(
-            "SELECT product_id, quantity FROM order_items WHERE order_id = ?",
+            "SELECT product_id, quantity FROM order_items WHERE order_id = %s",
             (order_id,),
         ).fetchall()
         for item in item_rows:
@@ -2255,7 +2277,7 @@ def update_status(
                 )
             else:
                 cursor = conn.execute(
-                    "UPDATE products SET stock = stock + ? WHERE id = ?",
+                    "UPDATE products SET stock = stock + %s WHERE id = %s",
                     (item["quantity"], product_id),
                 )
                 if cursor.rowcount == 0:
@@ -2281,7 +2303,7 @@ def update_status(
 
 
 def mark_bank_transfer_paid(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     order_id: str,
 ) -> OrderData:
     """Mark a bank_transfer order's payment_status as 'paid'.
@@ -2291,7 +2313,7 @@ def mark_bank_transfer_paid(
     Raises OrderNotFoundError if not found.
     """
     row = conn.execute(
-        "SELECT id, payment_method, payment_status FROM orders WHERE id = ?",
+        "SELECT id, payment_method, payment_status FROM orders WHERE id = %s",
         (order_id,),
     ).fetchone()
     if not row:
@@ -2309,12 +2331,13 @@ def mark_bank_transfer_paid(
 
     now = datetime.now(UTC).strftime(_DT_FMT)
     conn.execute(
-        "UPDATE orders SET payment_status = 'paid', paid_at = COALESCE(paid_at, ?) WHERE id = ?",
+        "UPDATE orders SET payment_status = 'paid', paid_at = COALESCE(paid_at, %s) WHERE id = %s",
         (now, order_id),
     )
     conn.execute(
-        "INSERT OR IGNORE INTO order_emails (order_id, event, recipient, status)"
-        " VALUES (?, 'placed', (SELECT customer_email FROM orders WHERE id = ?), 'queued')",
+        "INSERT INTO order_emails (order_id, event, recipient, status)"
+        " VALUES (%s, 'placed', (SELECT customer_email FROM orders WHERE id = %s), 'queued')"
+        " ON CONFLICT DO NOTHING",
         (order_id, order_id),
     )
     order = _fetch_order_with_items(conn, order_id)
@@ -2324,7 +2347,7 @@ def mark_bank_transfer_paid(
 
 
 def apply_manual_payment_action(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     order_id: str,
     action: str,
     note: str,
@@ -2344,7 +2367,7 @@ def apply_manual_payment_action(
         SELECT id, status, payment_method, payment_status, total_cents, customer_email,
                stripe_checkout_session_id, stripe_payment_intent_id
         FROM orders
-        WHERE id = ?
+        WHERE id = %s
         """,
         (order_id,),
     ).fetchone()
@@ -2373,8 +2396,8 @@ def apply_manual_payment_action(
             )
         new_payment_status = "paid"
         conn.execute(
-            "UPDATE orders SET payment_status = 'paid', paid_at = COALESCE(paid_at, ?) "
-            "WHERE id = ?",
+            "UPDATE orders SET payment_status = 'paid', paid_at = COALESCE(paid_at, %s) "
+            "WHERE id = %s",
             (now, order_id),
         )
         queue_placed_email = payment_method in {"card", "bank_transfer"}
@@ -2394,9 +2417,9 @@ def apply_manual_payment_action(
             """
             UPDATE orders
             SET payment_status = 'paid',
-                paid_at = COALESCE(paid_at, ?),
-                collected_at = COALESCE(collected_at, ?)
-            WHERE id = ?
+                paid_at = COALESCE(paid_at, %s),
+                collected_at = COALESCE(collected_at, %s)
+            WHERE id = %s
             """,
             (now, now, order_id),
         )
@@ -2410,7 +2433,7 @@ def apply_manual_payment_action(
                 409,
             )
         new_payment_status = "refunded"
-        conn.execute("UPDATE orders SET payment_status = 'refunded' WHERE id = ?", (order_id,))
+        conn.execute("UPDATE orders SET payment_status = 'refunded' WHERE id = %s", (order_id,))
     elif action == "mark_failed":
         if old_payment_status in {"paid", "refunded"}:
             raise ManualPaymentActionError(
@@ -2419,7 +2442,7 @@ def apply_manual_payment_action(
                 409,
             )
         new_payment_status = "failed"
-        conn.execute("UPDATE orders SET payment_status = 'failed' WHERE id = ?", (order_id,))
+        conn.execute("UPDATE orders SET payment_status = 'failed' WHERE id = %s", (order_id,))
     elif action == "mark_review":
         if old_payment_status in {"paid", "refunded"}:
             raise ManualPaymentActionError(
@@ -2429,7 +2452,7 @@ def apply_manual_payment_action(
             )
         new_payment_status = "review_required"
         conn.execute(
-            "UPDATE orders SET payment_status = 'review_required' WHERE id = ?",
+            "UPDATE orders SET payment_status = 'review_required' WHERE id = %s",
             (order_id,),
         )
     elif action == "record_callback":
@@ -2453,7 +2476,7 @@ def apply_manual_payment_action(
             )
         new_payment_status = "review_required"
         event_details_extra["callback_outcome"] = callback_outcome
-        conn.execute("UPDATE orders SET updated_at = ? WHERE id = ?", (now, order_id))
+        conn.execute("UPDATE orders SET updated_at = %s WHERE id = %s", (now, order_id))
     elif action == "convert_to_cod":
         if payment_method != "card":
             raise ManualPaymentActionError(
@@ -2483,7 +2506,7 @@ def apply_manual_payment_action(
             """
             SELECT id, stripe_checkout_session_id, stripe_payment_intent_id, provider_status
             FROM payments
-            WHERE order_id = ? AND provider = 'stripe'
+            WHERE order_id = %s AND provider = 'stripe'
             ORDER BY created_at DESC
             LIMIT 1
             """,
@@ -2518,8 +2541,8 @@ def apply_manual_payment_action(
             """
             UPDATE orders
             SET payment_method = 'cod', payment_status = 'cod_pending',
-                reserved_until = NULL, updated_at = ?
-            WHERE id = ?
+                reserved_until = NULL, updated_at = %s
+            WHERE id = %s
             """,
             (now, order_id),
         )
@@ -2531,14 +2554,15 @@ def apply_manual_payment_action(
         update_status(conn, order_id, "cancelled")
         if old_payment_status not in {"paid", "refunded"}:
             new_payment_status = "failed"
-            conn.execute("UPDATE orders SET payment_status = 'failed' WHERE id = ?", (order_id,))
+            conn.execute("UPDATE orders SET payment_status = 'failed' WHERE id = %s", (order_id,))
     else:
         raise ManualPaymentActionError("INVALID_PAYMENT_ACTION", f"Unknown action: {action}")
 
     if queue_placed_email:
         conn.execute(
-            "INSERT OR IGNORE INTO order_emails (order_id, event, recipient, status) "
-            "VALUES (?, 'placed', ?, 'queued')",
+            "INSERT INTO order_emails (order_id, event, recipient, status) "
+            "VALUES (%s, 'placed', %s, 'queued') "
+            "ON CONFLICT DO NOTHING",
             (order_id, row["customer_email"]),
         )
 

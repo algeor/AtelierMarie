@@ -42,7 +42,7 @@ async def get_current_user(
         row = conn.execute(
             "SELECT u.id, u.email, u.name, u.avatar_url, u.is_admin "
             "FROM sessions s JOIN users u ON s.user_id = u.id "
-            "WHERE s.id = ? AND s.user_id = ?",
+            "WHERE s.id = %s AND s.user_id = %s",
             (session_id, user_id),
         ).fetchone()
 

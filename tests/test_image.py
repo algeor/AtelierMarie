@@ -5,13 +5,13 @@ EXIF stripping, pixel flood, overwrite, directory auto-creation.
 """
 
 import io
-import sqlite3
 from pathlib import Path
 
 import pytest
 from httpx import AsyncClient
 from PIL import Image
 
+from app.database import get_db
 from app.services.image_service import (
     FileTooLargeError,
     ImageProcessingError,
@@ -204,16 +204,14 @@ class TestImageUploadRoute:
     """Task 58: Upload route integration tests."""
 
     @pytest.fixture()
-    def _product(self, db_path, app):
+    def _product(self, db, app):
         """Seed a product for upload tests."""
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "INSERT INTO products (id, name_en, price_cents, stock, is_active) "
-            "VALUES (?, ?, ?, ?, 1)",
-            ("test-candle-img", "Test Candle", 2500, 10),
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO products (id, name_en, price_cents, stock, is_active) "
+                "VALUES (%s, %s, %s, %s, 1)",
+                ("test-candle-img", "Test Candle", 2500, 10),
+            )
 
     @pytest.mark.asyncio
     async def test_upload_happy_path(self, admin_client: AsyncClient, _product, tmp_path, app):
@@ -288,7 +286,7 @@ class TestImageUploadRoute:
 
     @pytest.mark.asyncio
     async def test_upload_inserts_product_image_row(
-        self, admin_client: AsyncClient, _product, db_path, tmp_path, app
+        self, admin_client: AsyncClient, _product, tmp_path, app
     ):
         """After upload, a product_images row is inserted."""
         img_data = _make_jpeg(800, 600)
@@ -306,16 +304,14 @@ class TestImageUploadRoute:
         finally:
             settings.static_file_path = original
 
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        row = conn.execute(
-            (
-                "SELECT image_url, thumbnail_url, zoom_url, is_primary "
-                "FROM product_images WHERE product_id = ?"
-            ),
-            ("test-candle-img",),
-        ).fetchone()
-        conn.close()
+        with get_db() as conn:
+            row = conn.execute(
+                (
+                    "SELECT image_url, thumbnail_url, zoom_url, is_primary "
+                    "FROM product_images WHERE product_id = %s"
+                ),
+                ("test-candle-img",),
+            ).fetchone()
         assert row["image_url"].startswith("/static/products/test-candle-img_")
         assert row["thumbnail_url"].startswith("/static/products/test-candle-img_")
         assert row["zoom_url"].startswith("/static/products/test-candle-img_")

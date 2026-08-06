@@ -1,30 +1,49 @@
 # Database Schema - AtelierMarie
 
-Refreshed: 2026-07-31
+Refreshed: 2026-08-04 (Postgres migration)
 
-This document reflects the current schema created by `app.database.init_db()` plus
-the first-party analytics DuckDB schema from `app.services.analytics_service`.
+This document reflects the current schema created by the initial Alembic
+migration (`alembic/versions/20260802_0001_initial_postgres_schema.py`) plus the
+first-party analytics DuckDB schema from `app.services.analytics_service`.
+
+The **authoritative** schema source is the Alembic migration graph. `alembic
+upgrade head` builds the entire schema; there is no runtime schema creation
+(`init_db()` only opens the connection pool and verifies the DB is at head).
 
 Verification used:
 
-- `app/database.py` (`_SCHEMA_SQL` and startup migrations)
-- a fresh temporary SQLite database initialized through `init_db()`
-- the local `./atelier_marie.db` catalog, compared read-only against fresh schema
+- `alembic/versions/20260802_0001_initial_postgres_schema.py`
+- a fresh Postgres database migrated with `alembic upgrade head`, introspected
+  with `psql` / `pg_dump --schema-only`
 - `analytics-data/analytics.duckdb`, inspected with `uv run python`
 
 ## Storage Rules
 
-- Main app database: SQLite at `DATABASE_PATH`, default `./atelier_marie.db`.
-- SQLite startup enables `PRAGMA journal_mode=WAL` and `PRAGMA foreign_keys=ON`.
-- Timestamps are stored as text from `datetime('now')` unless supplied by code.
+- Main app database: Postgres, addressed by `DATABASE_URL`
+  (default `postgresql://atelier:atelier@localhost:5432/atelier_marie`).
+- Foreign keys are always enforced in Postgres — no per-connection PRAGMA.
+  Pooled connections run with `TimeZone=UTC` and `autocommit=False`.
+- Timestamps are `timestamptz`, default `CURRENT_TIMESTAMP`; services and the
+  DB layer serialize them to ISO-8601 strings for API responses.
+- `updated_at` columns are maintained by a shared `set_updated_at()` trigger
+  function attached per table (replacing the old SQLite `AFTER UPDATE` triggers).
 - Money values are integer cents.
-- Boolean values are integers constrained to `0` or `1` where the fresh schema has
-  a check constraint.
-- JSON payloads are stored in `TEXT` columns.
-- Analytics storage is separate DuckDB at `ANALYTICS_DUCKDB_PATH`, default
+- Boolean values are stored as `integer` constrained to `0` or `1` via
+  `CHECK (col IN (0, 1))` — the 0/1 flag semantics from SQLite are preserved so
+  no application/serialization code changed (migration Decision 2.6).
+- JSON payloads are stored in `text` columns.
+- Full-text product search uses expression **GIN** indexes over
+  `to_tsvector('simple', name || ' ' || description)` per locale
+  (`idx_products_search_en`, `idx_products_search_bg`) — see the Search section.
+- Analytics storage is a separate DuckDB at `ANALYTICS_DUCKDB_PATH`, default
   `./analytics-data/analytics.duckdb`.
 
-## Main SQLite Tables
+> **Type mapping note:** In the per-table listings below, `TEXT` = Postgres
+> `text`, `INTEGER` = `integer`, and any timestamp column is `timestamptz`.
+> These map 1:1 from the pre-migration SQLite schema; the migration deliberately
+> kept column names, nullability, and check constraints identical.
+
+## Main Tables
 
 ### Products And Taxonomy
 
@@ -56,8 +75,8 @@ Verification used:
 | `is_featured` | INTEGER | Not null, default `0` |
 | `translation_stale_bg` | INTEGER | Not null, default `0` |
 | `translation_stale_en` | INTEGER | Not null, default `0` |
-| `created_at` | TEXT | Not null, default `datetime('now')` |
-| `updated_at` | TEXT | Not null, default `datetime('now')`; trigger maintained |
+| `created_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
+| `updated_at` | TEXT | Not null, default `CURRENT_TIMESTAMP`; trigger maintained |
 
 `product_types`, `product_categories`, `product_labels`
 
@@ -70,8 +89,8 @@ These three tables share the same shape:
 | `name_bg` | TEXT | Nullable |
 | `sort_order` | INTEGER | Not null, default `0` |
 | `is_active` | INTEGER | Not null, default `1` |
-| `created_at` | TEXT | Not null, default `datetime('now')` |
-| `updated_at` | TEXT | Not null, default `datetime('now')` |
+| `created_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
+| `updated_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
 
 `product_label_assignments`
 
@@ -85,7 +104,7 @@ These three tables share the same shape:
 | Column | Type | Constraints / notes |
 |---|---:|---|
 | `name` | TEXT | Primary key |
-| `applied_at` | TEXT | Not null, default `datetime('now')` |
+| `applied_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
 
 `taxonomy_category_migration`
 
@@ -107,7 +126,7 @@ These three tables share the same shape:
 | `zoom_url` | TEXT | Nullable |
 | `sort_order` | INTEGER | Not null, default `0` |
 | `is_primary` | INTEGER | Not null, default `0`, `CHECK (is_primary IN (0, 1))` |
-| `created_at` | TEXT | Not null, default `datetime('now')` |
+| `created_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
 
 `product_videos`
 
@@ -123,8 +142,8 @@ These three tables share the same shape:
 | `sort_order` | INTEGER | Not null, default `0` |
 | `failure_reason` | TEXT | Nullable |
 | `lease_expires_at` | TEXT | Nullable |
-| `created_at` | TEXT | Not null, default `datetime('now')` |
-| `updated_at` | TEXT | Not null, default `datetime('now')`; trigger maintained |
+| `created_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
+| `updated_at` | TEXT | Not null, default `CURRENT_TIMESTAMP`; trigger maintained |
 
 ### Identity, Sessions, And Cart
 
@@ -138,7 +157,7 @@ These three tables share the same shape:
 | `name` | TEXT | Nullable |
 | `avatar_url` | TEXT | Nullable |
 | `is_admin` | INTEGER | Not null, default `0` |
-| `created_at` | TEXT | Not null, default `datetime('now')` |
+| `created_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
 | `last_login_at` | TEXT | Nullable |
 
 `sessions`
@@ -148,7 +167,7 @@ These three tables share the same shape:
 | `id` | TEXT | Primary key |
 | `user_id` | TEXT | FK -> `users(id)` |
 | `preferred_locale` | TEXT | Not null, default `'en'` |
-| `created_at` | TEXT | Not null, default `datetime('now')` |
+| `created_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
 | `expires_at` | TEXT | Not null |
 
 `analytics_consents`
@@ -159,7 +178,7 @@ These three tables share the same shape:
 | `analytics` | INTEGER | Not null, `CHECK (analytics IN (0, 1))` |
 | `consent_version` | TEXT | Not null |
 | `locale` | TEXT | Not null, default `'en'`, one of `en`, `bg` |
-| `updated_at` | TEXT | Not null, default `datetime('now')` |
+| `updated_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
 
 `cart_items`
 
@@ -168,7 +187,7 @@ These three tables share the same shape:
 | `session_id` | TEXT | PK part, FK -> `sessions(id)` `ON DELETE CASCADE` |
 | `product_id` | TEXT | PK part, FK -> `products(id)` |
 | `quantity` | INTEGER | Not null, default `1`, fresh DB check `1..10` |
-| `added_at` | TEXT | Not null, default `datetime('now')` |
+| `added_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
 
 Note: older existing DBs may still allow cart quantity up to `99`; fresh DBs
 enforce the current config limit of `10`.
@@ -218,8 +237,8 @@ enforce the current config limit of `10`.
 | `stripe_checkout_session_id` | TEXT | Nullable |
 | `stripe_payment_intent_id` | TEXT | Nullable |
 | `analytics_consent` | INTEGER | Not null, default `0`, `CHECK (analytics_consent IN (0, 1))` |
-| `created_at` | TEXT | Not null, default `datetime('now')` |
-| `updated_at` | TEXT | Not null, default `datetime('now')`; trigger maintained |
+| `created_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
+| `updated_at` | TEXT | Not null, default `CURRENT_TIMESTAMP`; trigger maintained |
 
 Note: several `orders` columns are migration-added on older DBs, so existing DBs
 can have fewer DB-level check constraints than a fresh DB. Service and Pydantic
@@ -256,7 +275,7 @@ validation still enforce the contract.
 | `reason` | TEXT | Nullable |
 | `attempts` | INTEGER | Not null, default `0` |
 | `next_attempt_at` | TEXT | Nullable |
-| `sent_at` | TEXT | Not null, default `datetime('now')` |
+| `sent_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
 
 `order_email_send_claims`
 
@@ -266,7 +285,7 @@ validation still enforce the contract.
 | `event` | TEXT | PK part |
 | `status` | TEXT | Not null; `in_flight`, `sent`, or `failed` |
 | `lease_expires_at` | TEXT | Nullable |
-| `updated_at` | TEXT | Not null, default `datetime('now')` |
+| `updated_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
 
 `suppressed_emails`
 
@@ -274,7 +293,7 @@ validation still enforce the contract.
 |---|---:|---|
 | `email` | TEXT | Primary key |
 | `reason` | TEXT | Not null; hard bounce, soft bounce, or complaint reason |
-| `suppressed_at` | TEXT | Not null, default `datetime('now')` |
+| `suppressed_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
 
 ### Contact, Social, And Promotions
 
@@ -294,7 +313,7 @@ validation still enforce the contract.
 | `email_claimed_until` | TEXT | Nullable |
 | `email_sent_at` | TEXT | Nullable |
 | `email_error` | TEXT | Nullable |
-| `created_at` | TEXT | Not null, default `datetime('now')` |
+| `created_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
 
 `reactions`
 
@@ -303,7 +322,7 @@ validation still enforce the contract.
 | `session_id` | TEXT | PK part; no DB FK |
 | `product_id` | TEXT | PK part, FK -> `products(id)` `ON DELETE CASCADE` |
 | `reaction_type` | TEXT | PK part, one of `heart`, `thumbs_up` |
-| `created_at` | TEXT | Not null, default `datetime('now')` |
+| `created_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
 
 `reaction_toggle_log`
 
@@ -311,7 +330,7 @@ validation still enforce the contract.
 |---|---:|---|
 | `session_id` | TEXT | Not null |
 | `product_id` | TEXT | Not null |
-| `toggled_at` | TEXT | Not null, default `datetime('now')` |
+| `toggled_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
 
 `comments`
 
@@ -323,7 +342,7 @@ validation still enforce the contract.
 | `user_id` | TEXT | FK -> `users(id)` `ON DELETE SET NULL` |
 | `display_name` | TEXT | Not null |
 | `body` | TEXT | Not null |
-| `created_at` | TEXT | Not null, default `datetime('now')` |
+| `created_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
 
 `promotion_campaigns`
 
@@ -341,8 +360,8 @@ validation still enforce the contract.
 | `applied_at` | TEXT | Nullable |
 | `removed_at` | TEXT | Nullable |
 | `last_result` | TEXT | Nullable JSON summary |
-| `created_at` | TEXT | Not null, default `datetime('now')` |
-| `updated_at` | TEXT | Not null, default `datetime('now')` |
+| `created_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
+| `updated_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
 
 `promotion_campaign_products`
 
@@ -370,7 +389,7 @@ validation still enforce the contract.
 | `starts_at` | TEXT | Nullable |
 | `ends_at` | TEXT | Nullable |
 | `version` | INTEGER | Not null, default `1` |
-| `updated_at` | TEXT | Not null, default `datetime('now')` |
+| `updated_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
 
 `delivery_settings`
 
@@ -381,7 +400,7 @@ validation still enforce the contract.
 | `speedy_door_enabled` | INTEGER | Not null, default `1`, boolean check |
 | `econt_office_enabled` | INTEGER | Not null, default `1`, boolean check |
 | `econt_door_enabled` | INTEGER | Not null, default `1`, boolean check |
-| `updated_at` | TEXT | Not null, default `datetime('now')`; trigger maintained |
+| `updated_at` | TEXT | Not null, default `CURRENT_TIMESTAMP`; trigger maintained |
 
 `site_settings`
 
@@ -391,7 +410,7 @@ validation still enforce the contract.
 | `value` | TEXT | Not null JSON/string payload |
 | `value_type` | TEXT | Not null, default `json` |
 | `is_public` | INTEGER | Not null, default `0`, boolean check |
-| `updated_at` | TEXT | Not null, default `datetime('now')`; trigger maintained |
+| `updated_at` | TEXT | Not null, default `CURRENT_TIMESTAMP`; trigger maintained |
 
 Current Speedy admin keys:
 
@@ -409,7 +428,7 @@ Current Speedy admin keys:
 | `admin_id` | TEXT | Nullable |
 | `admin_email` | TEXT | Nullable |
 | `request_id` | TEXT | Nullable |
-| `created_at` | TEXT | Not null, default `datetime('now')` |
+| `created_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
 
 `faq_sections`
 
@@ -420,8 +439,8 @@ Current Speedy admin keys:
 | `title_bg` | TEXT | Nullable |
 | `icon` | TEXT | Nullable |
 | `sort_order` | INTEGER | Not null, default `0` |
-| `created_at` | TEXT | Not null, default `datetime('now')` |
-| `updated_at` | TEXT | Not null, default `datetime('now')`; trigger maintained |
+| `created_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
+| `updated_at` | TEXT | Not null, default `CURRENT_TIMESTAMP`; trigger maintained |
 
 `faq_items`
 
@@ -435,8 +454,8 @@ Current Speedy admin keys:
 | `answer_bg` | TEXT | Nullable |
 | `sort_order` | INTEGER | Not null, default `0` |
 | `is_published` | INTEGER | Not null, default `1` |
-| `created_at` | TEXT | Not null, default `datetime('now')` |
-| `updated_at` | TEXT | Not null, default `datetime('now')`; trigger maintained |
+| `created_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
+| `updated_at` | TEXT | Not null, default `CURRENT_TIMESTAMP`; trigger maintained |
 
 `about_sections`
 
@@ -456,8 +475,8 @@ Current Speedy admin keys:
 | `image_id` | TEXT | Nullable |
 | `sort_order` | INTEGER | Not null, default `0` |
 | `is_published` | INTEGER | Not null, default `1`, boolean check |
-| `created_at` | TEXT | Not null, default `datetime('now')` |
-| `updated_at` | TEXT | Not null, default `datetime('now')` |
+| `created_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
+| `updated_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
 
 `about_items`
 
@@ -473,26 +492,26 @@ Current Speedy admin keys:
 | `link_href` | TEXT | Nullable |
 | `sort_order` | INTEGER | Not null, default `0` |
 | `is_published` | INTEGER | Not null, default `1`, boolean check |
-| `created_at` | TEXT | Not null, default `datetime('now')` |
-| `updated_at` | TEXT | Not null, default `datetime('now')` |
+| `created_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
+| `updated_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
 
 ## Full-Text Search
 
-Fresh schema creates two content-backed FTS5 virtual tables:
+Product search uses Postgres full-text search — no FTS virtual/shadow tables.
+Two expression **GIN** indexes on `products` cover the localized search columns:
 
-| Virtual table | Indexed columns | Content table |
-|---|---|---|
-| `products_fts_en` | `name_en`, `description_en` | `products` |
-| `products_fts_bg` | `name_bg`, `description_bg` | `products` |
+| Index | Expression |
+|---|---|
+| `idx_products_search_en` | `to_tsvector('simple', COALESCE(name_en,'') \|\| ' ' \|\| COALESCE(description_en,''))` |
+| `idx_products_search_bg` | `to_tsvector('simple', COALESCE(name_bg,'') \|\| ' ' \|\| COALESCE(description_bg,''))` |
 
-SQLite also creates internal FTS shadow tables, such as
-`products_fts_en_data`, `products_fts_en_idx`, `products_fts_bg_data`, and
-similar. Treat those as SQLite internals, not app-owned tables.
-
-FTS sync triggers:
-
-- `products_fts_en_insert`, `products_fts_en_update`, `products_fts_en_delete`
-- `products_fts_bg_insert`, `products_fts_bg_update`, `products_fts_bg_delete`
+The `'simple'` text-search configuration is used deliberately (no
+language-specific stemming) so English and Bulgarian queries behave
+consistently. Queries match with `to_tsvector(...) @@ plainto_tsquery('simple',
+%s)` and order by `ts_rank(...)`; user input is normalized in
+`product_service._sanitize_fts5_query` (name retained from the SQLite era; it now
+prepares input for `plainto_tsquery`). Category/taxonomy, stock, and active
+filters are applied as ordinary SQL predicates alongside the FTS match.
 
 ## Indexes
 
@@ -531,12 +550,12 @@ FTS sync triggers:
 
 | Trigger | Table | Effect |
 |---|---|---|
-| `products_updated_at` | `products` | sets `updated_at = datetime('now')` after update |
-| `product_videos_updated_at` | `product_videos` | sets `updated_at = datetime('now')` after update |
-| `orders_updated_at` | `orders` | sets `updated_at = datetime('now')` after update |
-| `delivery_settings_updated_at` | `delivery_settings` | sets `updated_at = datetime('now')` after update |
-| `faq_sections_updated_at` | `faq_sections` | sets `updated_at = datetime('now')` after update |
-| `faq_items_updated_at` | `faq_items` | sets `updated_at = datetime('now')` after update |
+| `products_updated_at` | `products` | sets `updated_at = CURRENT_TIMESTAMP` after update |
+| `product_videos_updated_at` | `product_videos` | sets `updated_at = CURRENT_TIMESTAMP` after update |
+| `orders_updated_at` | `orders` | sets `updated_at = CURRENT_TIMESTAMP` after update |
+| `delivery_settings_updated_at` | `delivery_settings` | sets `updated_at = CURRENT_TIMESTAMP` after update |
+| `faq_sections_updated_at` | `faq_sections` | sets `updated_at = CURRENT_TIMESTAMP` after update |
+| `faq_items_updated_at` | `faq_items` | sets `updated_at = CURRENT_TIMESTAMP` after update |
 
 ## Foreign Key Summary
 
@@ -656,7 +675,7 @@ and the append-only `order_courier_events` audit table.
 | `response_json` | TEXT | Nullable redacted JSON response snapshot |
 | `error_json` | TEXT | Nullable redacted JSON error snapshot |
 | `actor_user_id` | TEXT | Nullable admin actor id |
-| `created_at` | TEXT | Not null, default `datetime('now')` |
+| `created_at` | TEXT | Not null, default `CURRENT_TIMESTAMP` |
 
 Indexes:
 

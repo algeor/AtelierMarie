@@ -1,18 +1,15 @@
 """Unit tests for the product service layer."""
 
-import sqlite3
-
 import pytest
 
-from app.database import get_db, init_db
+from app.database import IntegrityError, get_db
 from app.services import product_service
 from app.services.product_service import DuplicateError, NotFoundError
 
 
 @pytest.fixture()
-def _seeded_db(db_path):
-    """Initialize DB and seed with test products."""
-    init_db(db_path)
+def _seeded_db(db):
+    """Seed with test products (root db fixture provides migrated Postgres)."""
     product_service.create_product(
         {
             "id": "lavender-dream-300ml",
@@ -108,8 +105,7 @@ class TestGetProduct:
         assert product["name"] == "Lavender Dream"
         assert product["price_cents"] == 3200
 
-    def test_resolves_safety_metadata_with_locale_fallback(self, db_path):
-        init_db(db_path)
+    def test_resolves_safety_metadata_with_locale_fallback(self, db):
         product_service.create_product(
             {
                 "id": "safety-candle",
@@ -145,8 +141,7 @@ class TestGetProduct:
 class TestCreateProduct:
     """Tests for create_product."""
 
-    def test_creates_new_product(self, db_path):
-        init_db(db_path)
+    def test_creates_new_product(self, db):
         product = product_service.create_product(
             {
                 "id": "test-candle-100ml",
@@ -178,8 +173,7 @@ class TestCreateProduct:
 class TestUpsertProduct:
     """Tests for upsert_product."""
 
-    def test_creates_new_product(self, db_path):
-        init_db(db_path)
+    def test_creates_new_product(self, db):
         product = product_service.upsert_product(
             "new-candle",
             {
@@ -337,19 +331,17 @@ class TestAdminFunctions:
 class TestProductConstraints:
     """Tests for database-level constraints."""
 
-    def test_negative_stock_rejected(self, db_path):
-        init_db(db_path)
-        with pytest.raises(sqlite3.IntegrityError):
+    def test_negative_stock_rejected(self, db):
+        with pytest.raises(IntegrityError):
             with get_db() as conn:
                 conn.execute(
                     "INSERT INTO products "
                     "(id, name_en, price_cents, stock, is_active, created_at, updated_at) "
                     "VALUES ('bad-stock', 'Bad', 1000, -1, 1, "
-                    "datetime('now'), datetime('now'))"
+                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
                 )
 
-    def test_zero_stock_allowed(self, db_path):
-        init_db(db_path)
+    def test_zero_stock_allowed(self, db):
         product = product_service.create_product(
             {
                 "id": "zero-stock",

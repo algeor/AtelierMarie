@@ -4,9 +4,9 @@ Reads/writes the singleton non-secret settings row and merges it with env-backed
 secret/config state. Raw private keys are never returned.
 """
 
-import sqlite3
 from typing import Any
 
+import psycopg
 import structlog
 
 from app.config import Settings, get_settings
@@ -21,6 +21,7 @@ from app.models.econt import (
 )
 from app.services import pricing
 from app.services.econt_delivery_client import EcontDeliveryClient, EcontDeliveryError
+from app.services.order_service import _fmt_ts
 
 logger = structlog.get_logger(__name__)
 
@@ -68,15 +69,18 @@ _BOOL_FIELDS = {
 }
 
 
-def _get_row(conn: sqlite3.Connection) -> sqlite3.Row:
-    row = conn.execute("SELECT * FROM econt_settings WHERE id = ?", (_SETTINGS_ID,)).fetchone()
+def _get_row(conn: psycopg.Connection) -> dict:
+    row = conn.execute("SELECT * FROM econt_settings WHERE id = %s", (_SETTINGS_ID,)).fetchone()
     if row is None:
-        conn.execute("INSERT OR IGNORE INTO econt_settings (id) VALUES (?)", (_SETTINGS_ID,))
-        row = conn.execute("SELECT * FROM econt_settings WHERE id = ?", (_SETTINGS_ID,)).fetchone()
+        conn.execute(
+            "INSERT INTO econt_settings (id) VALUES (%s) ON CONFLICT (id) DO NOTHING",
+            (_SETTINGS_ID,),
+        )
+        row = conn.execute("SELECT * FROM econt_settings WHERE id = %s", (_SETTINGS_ID,)).fetchone()
     return row
 
 
-def _configured_secret(settings: Settings, row: sqlite3.Row) -> bool:
+def _configured_secret(settings: Settings, row: dict) -> bool:
     if row["credential_source"] == "env":
         return bool(settings.econt_delivery_private_key.get_secret_value())
     # Stored encrypted secrets are intentionally not implemented before an app
@@ -84,7 +88,7 @@ def _configured_secret(settings: Settings, row: sqlite3.Row) -> bool:
     return False
 
 
-def _effective_shop_id(settings: Settings, row: sqlite3.Row) -> str | None:
+def _effective_shop_id(settings: Settings, row: dict) -> str | None:
     return row["shop_id"] or settings.econt_delivery_shop_id or None
 
 
@@ -112,7 +116,7 @@ def _effective_locator_origins(settings: Settings, environment: str) -> list[str
     return [_DEMO_LOCATOR_ORIGIN]
 
 
-def _secret_state(settings: Settings, row: sqlite3.Row) -> EcontSecretState:
+def _secret_state(settings: Settings, row: dict) -> EcontSecretState:
     return EcontSecretState(
         credential_source=row["credential_source"],
         private_key_configured=_configured_secret(settings, row),
@@ -121,7 +125,7 @@ def _secret_state(settings: Settings, row: sqlite3.Row) -> EcontSecretState:
     )
 
 
-def _readiness(settings: Settings, row: sqlite3.Row) -> EcontReadiness:
+def _readiness(settings: Settings, row: dict) -> EcontReadiness:
     blockers: list[str] = []
 
     if not row["enabled"]:
@@ -141,7 +145,7 @@ def _readiness(settings: Settings, row: sqlite3.Row) -> EcontReadiness:
     return EcontReadiness(ready=not blockers, blockers=blockers)
 
 
-def _row_to_response(row: sqlite3.Row, settings: Settings) -> EcontSettingsResponse:
+def _row_to_response(row: dict, settings: Settings) -> EcontSettingsResponse:
     return EcontSettingsResponse(
         enabled=bool(row["enabled"]),
         environment=row["environment"],
@@ -176,9 +180,9 @@ def _row_to_response(row: sqlite3.Row, settings: Settings) -> EcontSettingsRespo
         office_locator_origins=_effective_locator_origins(settings, row["environment"]),
         secret_state=_secret_state(settings, row),
         last_health_status=row["last_health_status"],
-        last_health_checked_at=row["last_health_checked_at"],
+        last_health_checked_at=_fmt_ts(row["last_health_checked_at"]),
         last_health_error=row["last_health_error"],
-        updated_at=row["updated_at"],
+        updated_at=_fmt_ts(row["updated_at"]),
     )
 
 
@@ -218,10 +222,10 @@ def update_econt_settings(body: EcontSettingsUpdate) -> EcontSettingsResponse:
     settings = get_settings()
     with get_db() as conn:
         _get_row(conn)
-        assignments = ", ".join(f"{field} = ?" for field in updates)
+        assignments = ", ".join(f"{field} = %s" for field in updates)
         params = [*updates.values(), pricing.now_utc(), _SETTINGS_ID]
         conn.execute(
-            f"UPDATE econt_settings SET {assignments}, updated_at = ? WHERE id = ?",  # noqa: S608
+            f"UPDATE econt_settings SET {assignments}, updated_at = %s WHERE id = %s",  # noqa: S608
             params,
         )
         row = _get_row(conn)
@@ -291,7 +295,7 @@ async def test_econt_configuration() -> EcontConnectionTestResponse:
 
 
 def _record_health(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     status: str,
     checked_at: str,
     error: str | None,
@@ -299,8 +303,8 @@ def _record_health(
     conn.execute(
         """
         UPDATE econt_settings
-        SET last_health_status = ?, last_health_checked_at = ?, last_health_error = ?
-        WHERE id = ?
+        SET last_health_status = %s, last_health_checked_at = %s, last_health_error = %s
+        WHERE id = %s
         """,
         (status, checked_at, error, _SETTINGS_ID),
     )

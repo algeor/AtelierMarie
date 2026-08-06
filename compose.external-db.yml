@@ -1,0 +1,25 @@
+# Use with a managed/external Postgres database:
+#   COMPOSE_DATABASE_URL=postgresql://user:pass@host:5432/db \
+#   docker compose -f compose.yml -f compose.external-db.yml up --build frontend
+services:
+  postgres:
+    profiles:
+      - local-postgres
+
+  migrate:
+    environment:
+      DATABASE_URL: ${COMPOSE_DATABASE_URL:?Set COMPOSE_DATABASE_URL to your managed Postgres URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+
+  backend:
+    environment:
+      DATABASE_URL: ${COMPOSE_DATABASE_URL:?Set COMPOSE_DATABASE_URL to your managed Postgres URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+      migrate:
+        condition: service_completed_successfully

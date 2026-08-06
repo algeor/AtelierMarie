@@ -39,7 +39,7 @@ def _read_payload() -> dict:
 def main() -> int:
     payload = _read_payload()
     settings = get_settings()
-    init_db(settings.database_path)
+    init_db(settings.database_url)
 
     source = str(payload.get("source") or "deploy_audit")
     provided_items = payload.get("items") or []

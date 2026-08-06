@@ -3,6 +3,7 @@
 import uuid
 
 from app.database import get_db
+from app.services.order_service import _fmt_ts
 from app.utils.sanitize import contains_blocked_word, is_url_only, sanitize_text, unsanitize_text
 
 
@@ -31,7 +32,7 @@ def _validate_product_active(product_id: str) -> None:
     """Verify product exists and is active. Raises ProductNotFoundError otherwise."""
     with get_db() as conn:
         row = conn.execute(
-            "SELECT id FROM products WHERE id = ? AND is_active = 1",
+            "SELECT id FROM products WHERE id = %s AND is_active = 1",
             (product_id,),
         ).fetchone()
     if row is None:
@@ -42,7 +43,7 @@ def _check_product_limit(session_id: str, product_id: str) -> None:
     """Check per-product comment limit (max 3 per session per product)."""
     with get_db() as conn:
         row = conn.execute(
-            "SELECT COUNT(*) as cnt FROM comments WHERE session_id = ? AND product_id = ?",
+            "SELECT COUNT(*) as cnt FROM comments WHERE session_id = %s AND product_id = %s",
             (session_id, product_id),
         ).fetchone()
     if row["cnt"] >= _MAX_COMMENTS_PER_PRODUCT:
@@ -54,7 +55,7 @@ def _check_hourly_limit(session_id: str) -> None:
     with get_db() as conn:
         row = conn.execute(
             "SELECT COUNT(*) as cnt FROM comments "
-            "WHERE session_id = ? AND created_at > datetime('now', '-1 hour')",
+            "WHERE session_id = %s AND created_at > CURRENT_TIMESTAMP - INTERVAL '1 hour'",
             (session_id,),
         ).fetchone()
     if row["cnt"] >= _MAX_COMMENTS_PER_HOUR:
@@ -126,7 +127,7 @@ def create_comment(
     with get_db() as conn:
         conn.execute(
             "INSERT INTO comments (id, product_id, session_id, user_id, display_name, body) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s, %s, %s)",
             (comment_id, product_id, session_id, user_id, display_name, body),
         )
 
@@ -142,14 +143,18 @@ def _comment_row_to_dict(row) -> dict:
     data = dict(row)
     data["display_name"] = unsanitize_text(data.get("display_name"))
     data["body"] = unsanitize_text(data.get("body"))
+    if "created_at" in data:
+        data["created_at"] = _fmt_ts(data["created_at"])
     return data
 
 
 def _get_comment_created_at(comment_id: str) -> str:
     """Fetch the created_at timestamp for a just-inserted comment."""
     with get_db() as conn:
-        row = conn.execute("SELECT created_at FROM comments WHERE id = ?", (comment_id,)).fetchone()
-    return row["created_at"] if row else ""
+        row = conn.execute(
+            "SELECT created_at FROM comments WHERE id = %s", (comment_id,)
+        ).fetchone()
+    return _fmt_ts(row["created_at"]) if row else ""
 
 
 def list_comments(
@@ -181,7 +186,7 @@ def list_comments(
     with get_db() as conn:
         # Total count
         count_row = conn.execute(
-            "SELECT COUNT(*) as cnt FROM comments WHERE product_id = ?",
+            "SELECT COUNT(*) as cnt FROM comments WHERE product_id = %s",
             (product_id,),
         ).fetchone()
         total = count_row["cnt"]
@@ -189,7 +194,7 @@ def list_comments(
         # Paginated results
         rows = conn.execute(
             f"SELECT id, display_name, body, created_at FROM comments "  # noqa: S608
-            f"WHERE product_id = ? ORDER BY created_at {order_direction} LIMIT ? OFFSET ?",
+            f"WHERE product_id = %s ORDER BY created_at {order_direction} LIMIT %s OFFSET %s",
             (product_id, limit, offset),
         ).fetchall()
 
@@ -199,7 +204,7 @@ def list_comments(
 def delete_comment(comment_id: str) -> None:
     """Hard delete a comment by ID. Raises CommentNotFoundError if missing."""
     with get_db() as conn:
-        cursor = conn.execute("DELETE FROM comments WHERE id = ?", (comment_id,))
+        cursor = conn.execute("DELETE FROM comments WHERE id = %s", (comment_id,))
         if cursor.rowcount == 0:
             raise CommentNotFoundError(f"Comment not found: {comment_id}")
 
@@ -224,7 +229,7 @@ def list_all_comments(
     params: list = []
 
     if product_id:
-        conditions.append("c.product_id = ?")
+        conditions.append("c.product_id = %s")
         params.append(product_id)
 
     where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
@@ -241,7 +246,7 @@ def list_all_comments(
             f"COALESCE(NULLIF(p.name_en, ''), p.name_bg, '') as product_name, "
             f"c.display_name, c.body, c.created_at "
             f"FROM comments c JOIN products p ON c.product_id = p.id "
-            f"{where_clause} ORDER BY c.created_at DESC LIMIT ? OFFSET ?",
+            f"{where_clause} ORDER BY c.created_at DESC LIMIT %s OFFSET %s",
             [*params, limit, offset],
         ).fetchall()
 

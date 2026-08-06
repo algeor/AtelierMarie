@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
-from app.database import get_db
+from app.database import IntegrityError, get_db
 from app.models.inventory import (
     COGSLedgerListResponse,
     COGSLedgerResponse,
@@ -117,6 +117,27 @@ def _bool_int(value: bool | None) -> int | None:
     return 1 if value else 0
 
 
+# TIMESTAMPTZ/DATE read policy (Decision 15): psycopg returns ``datetime``/``date``
+# objects for these columns, but the inventory response models declare the fields
+# as ``str``. Coerce reads to the canonical string shape they were written with so
+# Pydantic validation passes; ``None`` and existing strings pass through unchanged.
+_DT_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _s(value: Any) -> Any:
+    """Render a DATE/TIMESTAMPTZ column value as its canonical string form."""
+    if isinstance(value, datetime):
+        return value.strftime(_DT_FMT)
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
+
+
+def _coerce_row_dates(row: Any) -> dict[str, Any]:
+    """Copy a row to a plain dict, coercing DATE/TIMESTAMPTZ values to strings."""
+    return {key: _s(value) for key, value in dict(row).items()}
+
+
 def _validate_material_units(
     *,
     stock_uom: str,
@@ -186,10 +207,10 @@ def _material_response_from_row(row: sqlite3.Row) -> MaterialResponse:
         on_hand_quantity=float(row["on_hand_quantity"] or 0),
         reorder_status=_reorder_status(row),
         open_exception_count=int(row["open_exception_count"] or 0),
-        latest_movement_at=row["latest_movement_at"],
+        latest_movement_at=_s(row["latest_movement_at"]),
         notes=row["notes"],
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
+        created_at=_s(row["created_at"]),
+        updated_at=_s(row["updated_at"]),
     )
 
 
@@ -209,8 +230,8 @@ def _movement_response_from_row(row: sqlite3.Row) -> InventoryMovementResponse:
         reason=row["reason"],
         notes=row["notes"],
         review_state=row["review_state"],
-        occurred_at=row["occurred_at"],
-        created_at=row["created_at"],
+        occurred_at=_s(row["occurred_at"]),
+        created_at=_s(row["created_at"]),
     )
 
 
@@ -225,18 +246,21 @@ def _exception_response_from_row(row: sqlite3.Row) -> dict[str, object]:
         "source_id": row["source_id"],
         "status": row["status"],
         "message": row["message"],
-        "created_at": row["created_at"],
+        "created_at": _s(row["created_at"]),
     }
 
 
 def _lot_status(row: sqlite3.Row, production_date: date | None, near_expiry_days: int) -> str:
-    expiry_text = row["use_by_date"] or row["expiry_date"]
-    if not expiry_text or production_date is None:
+    expiry_value = _s(row["use_by_date"]) or _s(row["expiry_date"])
+    if not expiry_value or production_date is None:
         return "unknown"
-    try:
-        expiry = date.fromisoformat(expiry_text[:10])
-    except ValueError:
-        return "unknown"
+    if isinstance(expiry_value, date):
+        expiry = expiry_value
+    else:
+        try:
+            expiry = date.fromisoformat(str(expiry_value)[:10])
+        except ValueError:
+            return "unknown"
     if expiry < production_date:
         return "expired"
     if expiry <= production_date + timedelta(days=near_expiry_days):
@@ -255,8 +279,8 @@ def _lot_response_from_row(
         material_id=row["material_id"],
         receipt_id=row["receipt_id"],
         supplier_lot=row["supplier_lot"],
-        expiry_date=row["expiry_date"],
-        use_by_date=row["use_by_date"],
+        expiry_date=_s(row["expiry_date"]),
+        use_by_date=_s(row["use_by_date"]),
         received_quantity=float(row["received_quantity"]),
         stock_uom=row["stock_uom"],
         remaining_quantity_snapshot=row["remaining_quantity_snapshot"],
@@ -265,13 +289,13 @@ def _lot_response_from_row(
         supplier_name=row["supplier_name"],
         review_state=row["review_state"],
         lot_status=_lot_status(row, production_date, near_expiry_days),
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
+        created_at=_s(row["created_at"]),
+        updated_at=_s(row["updated_at"]),
     )
 
 
 def _get_material_row(conn: sqlite3.Connection, material_id: str) -> sqlite3.Row:
-    row = conn.execute("SELECT * FROM materials WHERE id = ?", (material_id,)).fetchone()
+    row = conn.execute("SELECT * FROM materials WHERE id = %s", (material_id,)).fetchone()
     if row is None:
         raise MaterialNotFoundError(f"Material not found: {material_id}")
     return row
@@ -282,7 +306,7 @@ def _get_material_with_metrics(conn: sqlite3.Connection, material_id: str) -> sq
         f"""
         SELECT m.*, {_material_on_hand_expr()}
         FROM materials m
-        WHERE m.id = ?
+        WHERE m.id = %s
         """,  # noqa: S608
         (material_id,),
     ).fetchone()
@@ -303,15 +327,15 @@ def list_materials(
     where: list[str] = []
     params: list[object] = []
     if active is not None:
-        where.append("m.active = ?")
+        where.append("m.active = %s")
         params.append(1 if active else 0)
     if category:
-        where.append("m.category = ?")
+        where.append("m.category = %s")
         params.append(category)
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
 
     with get_db() as conn:
-        limit_sql = "" if needs_reorder else "LIMIT ? OFFSET ?"
+        limit_sql = "" if needs_reorder else "LIMIT %s OFFSET %s"
         query_params = tuple(params) if needs_reorder else (*params, limit, offset)
         rows = conn.execute(
             f"""
@@ -330,9 +354,9 @@ def list_materials(
             materials = materials[offset : offset + limit]
         else:
             total = conn.execute(
-                f"SELECT COUNT(*) FROM materials m {where_sql}",  # noqa: S608
+                f"SELECT COUNT(*) AS n FROM materials m {where_sql}",  # noqa: S608
                 params,
-            ).fetchone()[0]
+            ).fetchone()["n"]
     return MaterialListResponse(materials=materials, total=total)
 
 
@@ -345,7 +369,7 @@ def get_material(material_id: str) -> MaterialDetailResponse:
             for row in conn.execute(
                 """
                 SELECT * FROM material_lots
-                WHERE material_id = ?
+                WHERE material_id = %s
                 ORDER BY COALESCE(expiry_date, use_by_date, '9999-12-31'), created_at DESC
                 """,
                 (material_id,),
@@ -356,7 +380,7 @@ def get_material(material_id: str) -> MaterialDetailResponse:
             for row in conn.execute(
                 """
                 SELECT * FROM inventory_movements
-                WHERE item_type = 'material' AND item_id = ?
+                WHERE item_type = 'material' AND item_id = %s
                 ORDER BY occurred_at DESC, created_at DESC
                 LIMIT 25
                 """,
@@ -370,7 +394,7 @@ def get_material(material_id: str) -> MaterialDetailResponse:
                 SELECT * FROM inventory_exceptions
                 WHERE status = 'open'
                   AND target_type = 'material'
-                  AND target_id = ?
+                  AND target_id = %s
                 ORDER BY created_at DESC
                 """,
                 (material_id,),
@@ -408,7 +432,7 @@ def create_material(
                     preferred_supplier_sku, reorder_threshold, active, lot_tracked,
                     expiry_tracked, evidence_required, notes, created_by_admin_id,
                     updated_by_admin_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     material_id,
@@ -432,7 +456,7 @@ def create_material(
             )
             row = _get_material_with_metrics(conn, material_id)
             return _material_response_from_row(row)
-    except sqlite3.IntegrityError as exc:
+    except IntegrityError as exc:
         raise InventoryValidationError("Material SKU or data violates schema constraints") from exc
 
 
@@ -460,13 +484,13 @@ def update_material(
             if key in updates:
                 updates[key] = _bool_int(updates[key])
         if updates:
-            set_clause = ", ".join(f"{key} = ?" for key in updates)
+            set_clause = ", ".join(f"{key} = %s" for key in updates)
             try:
                 conn.execute(
-                    f"UPDATE materials SET {set_clause} WHERE id = ?",  # noqa: S608
+                    f"UPDATE materials SET {set_clause} WHERE id = %s",  # noqa: S608
                     (*updates.values(), material_id),
                 )
-            except sqlite3.IntegrityError as exc:
+            except IntegrityError as exc:
                 raise InventoryValidationError(
                     "Material SKU or data violates schema constraints"
                 ) from exc
@@ -521,7 +545,7 @@ def _insert_exception(
         INSERT INTO inventory_exceptions (
             id, exception_type, severity, target_type, target_id,
             source_type, source_id, message, created_by_admin_id
-        ) VALUES (?, ?, ?, 'material', ?, ?, ?, ?, ?)
+        ) VALUES (%s, %s, %s, 'material', %s, %s, %s, %s, %s)
         """,
         (
             exception_id,
@@ -569,7 +593,10 @@ def create_material_receipt(
                 supplier_name, supplier_lot, expiry_date, use_by_date,
                 expense_evidence_id, document_reference, review_state,
                 created_by_admin_id, updated_by_admin_id, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            )
             """,
             (
                 receipt_id,
@@ -600,7 +627,7 @@ def create_material_receipt(
                 id, material_id, receipt_id, supplier_lot, expiry_date, use_by_date,
                 received_quantity, stock_uom, remaining_quantity_snapshot,
                 unit_cost_amount, currency, supplier_name, review_state
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 lot_id,
@@ -624,7 +651,10 @@ def create_material_receipt(
                 id, item_type, item_id, movement_type, quantity_delta, uom,
                 source_type, source_id, material_lot_id, actor_user_id,
                 actor_email, notes, review_state, occurred_at
-            ) VALUES (?, 'material', ?, 'receipt', ?, ?, 'material_receipt', ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (
+                %s, 'material', %s, 'receipt', %s, %s, 'material_receipt',
+                %s, %s, %s, %s, %s, %s, %s
+            )
             """,
             (
                 movement_id,
@@ -637,7 +667,7 @@ def create_material_receipt(
                 actor_email,
                 data["notes"],
                 "reviewed" if review_state == "reviewed" else "unreviewed",
-                data["receipt_date"],
+                now_utc(),
             ),
         )
         exception_ids = [
@@ -652,11 +682,11 @@ def create_material_receipt(
             for issue in issues
         ]
         receipt = conn.execute(
-            "SELECT * FROM material_receipts WHERE id = ?", (receipt_id,)
+            "SELECT * FROM material_receipts WHERE id = %s", (receipt_id,)
         ).fetchone()
         exceptions = []
         if exception_ids:
-            placeholders = ",".join("?" for _ in exception_ids)
+            placeholders = ",".join("%s" for _ in exception_ids)
             exceptions = [
                 _exception_response_from_row(row)
                 for row in conn.execute(
@@ -666,7 +696,7 @@ def create_material_receipt(
             ]
 
     return MaterialReceiptResponse(
-        **dict(receipt),
+        **_coerce_row_dates(receipt),
         movement_id=movement_id,
         lot_id=lot_id,
         exceptions=exceptions,
@@ -695,8 +725,8 @@ def create_material_adjustment(
                 source_type, source_id, actor_user_id, actor_email, reason,
                 notes, review_state, occurred_at
             ) VALUES (
-                ?, 'material', ?, ?, ?, ?, 'manual_material_adjustment', ?, ?, ?, ?, ?,
-                'reviewed', ?
+                %s, 'material', %s, %s, %s, %s, 'manual_material_adjustment',
+                %s, %s, %s, %s, %s, 'reviewed', %s
             )
             """,
             (
@@ -714,7 +744,7 @@ def create_material_adjustment(
             ),
         )
         row = conn.execute(
-            "SELECT * FROM inventory_movements WHERE id = ?", (movement_id,)
+            "SELECT * FROM inventory_movements WHERE id = %s", (movement_id,)
         ).fetchone()
     return _movement_response_from_row(row)
 
@@ -737,7 +767,7 @@ def list_material_lots(
         rows = conn.execute(
             """
             SELECT * FROM material_lots
-            WHERE material_id = ?
+            WHERE material_id = %s
             ORDER BY COALESCE(expiry_date, use_by_date, '9999-12-31'), created_at DESC
             """,
             (material_id,),
@@ -758,9 +788,9 @@ def list_material_movements(
         rows = conn.execute(
             """
             SELECT * FROM inventory_movements
-            WHERE item_type = 'material' AND item_id = ?
+            WHERE item_type = 'material' AND item_id = %s
             ORDER BY occurred_at DESC, created_at DESC
-            LIMIT ?
+            LIMIT %s
             """,
             (material_id, limit),
         ).fetchall()
@@ -782,22 +812,22 @@ def list_inventory_movements(
     where: list[str] = []
     params: list[object] = []
     if item_type:
-        where.append("item_type = ?")
+        where.append("item_type = %s")
         params.append(item_type)
     if item_id:
-        where.append("item_id = ?")
+        where.append("item_id = %s")
         params.append(item_id)
     if source_type:
-        where.append("source_type = ?")
+        where.append("source_type = %s")
         params.append(source_type)
     if source_id:
-        where.append("source_id = ?")
+        where.append("source_id = %s")
         params.append(source_id)
     if order_id:
-        where.append("order_id = ?")
+        where.append("order_id = %s")
         params.append(order_id)
     if movement_type:
-        where.append("movement_type = ?")
+        where.append("movement_type = %s")
         params.append(movement_type)
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
 
@@ -807,23 +837,25 @@ def list_inventory_movements(
             SELECT * FROM inventory_movements
             {where_sql}
             ORDER BY occurred_at DESC, created_at DESC
-            LIMIT ? OFFSET ?
+            LIMIT %s OFFSET %s
             """,  # noqa: S608
             (*params, limit, offset),
         ).fetchall()
         total = conn.execute(
-            f"SELECT COUNT(*) FROM inventory_movements {where_sql}",  # noqa: S608
+            f"SELECT COUNT(*) AS n FROM inventory_movements {where_sql}",  # noqa: S608
             params,
-        ).fetchone()[0]
+        ).fetchone()["n"]
     return [_movement_response_from_row(row) for row in rows], int(total)
 
 
 def _product_exists(conn: sqlite3.Connection, product_id: str) -> bool:
-    return conn.execute("SELECT 1 FROM products WHERE id = ?", (product_id,)).fetchone() is not None
+    return (
+        conn.execute("SELECT 1 FROM products WHERE id = %s", (product_id,)).fetchone() is not None
+    )
 
 
 def _get_recipe_row(conn: sqlite3.Connection, recipe_id: str) -> sqlite3.Row:
-    row = conn.execute("SELECT * FROM recipe_versions WHERE id = ?", (recipe_id,)).fetchone()
+    row = conn.execute("SELECT * FROM recipe_versions WHERE id = %s", (recipe_id,)).fetchone()
     if row is None:
         raise RecipeNotFoundError(f"Recipe not found: {recipe_id}")
     return row
@@ -863,8 +895,8 @@ def _component_response_from_row(row: sqlite3.Row) -> RecipeComponentResponse:
         substitute_group=row["substitute_group"],
         sort_order=row["sort_order"],
         review_state=row["review_state"],
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
+        created_at=_s(row["created_at"]),
+        updated_at=_s(row["updated_at"]),
     )
 
 
@@ -885,9 +917,9 @@ def _snapshot_response_from_row(row: sqlite3.Row | None) -> RecipeCostSnapshotRe
         missing_cost_count=row["missing_cost_count"],
         estimate_label=row["estimate_label"],
         review_state=row["review_state"],
-        calculated_at=row["calculated_at"],
+        calculated_at=_s(row["calculated_at"]),
         created_by_admin_id=row["created_by_admin_id"],
-        created_at=row["created_at"],
+        created_at=_s(row["created_at"]),
     )
 
 
@@ -898,7 +930,7 @@ def _recipe_components(conn: sqlite3.Connection, recipe_id: str) -> list[RecipeC
                m.category AS material_category
         FROM recipe_components rc
         LEFT JOIN materials m ON m.id = rc.material_id
-        WHERE rc.recipe_version_id = ?
+        WHERE rc.recipe_version_id = %s
         ORDER BY rc.sort_order, rc.created_at, rc.id
         """,
         (recipe_id,),
@@ -918,7 +950,7 @@ def _recipe_diagnostics_for_row(
                m.purchase_to_stock_factor
         FROM recipe_components rc
         LEFT JOIN materials m ON m.id = rc.material_id
-        WHERE rc.recipe_version_id = ?
+        WHERE rc.recipe_version_id = %s
         ORDER BY rc.sort_order, rc.id
         """,
         (row["id"],),
@@ -980,7 +1012,7 @@ def _recipe_diagnostics_for_row(
         latest_cost = conn.execute(
             """
             SELECT 1 FROM material_receipts
-            WHERE material_id = ?
+            WHERE material_id = %s
               AND review_state = 'reviewed'
               AND unit_cost_amount IS NOT NULL
             ORDER BY receipt_date DESC, created_at DESC
@@ -1005,7 +1037,7 @@ def _recipe_response_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Rec
     latest_snapshot = conn.execute(
         """
         SELECT * FROM recipe_cost_snapshots
-        WHERE recipe_version_id = ?
+        WHERE recipe_version_id = %s
         ORDER BY calculated_at DESC, created_at DESC
         LIMIT 1
         """,
@@ -1016,21 +1048,21 @@ def _recipe_response_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Rec
         product_id=row["product_id"],
         version_label=row["version_label"],
         status=row["status"],
-        effective_date=row["effective_date"],
+        effective_date=_s(row["effective_date"]),
         output_quantity=float(row["output_quantity"]),
         output_uom=row["output_uom"],
         review_state=row["review_state"],
         accountant_reviewed=bool(row["accountant_reviewed"]),
         reviewed_by_admin_id=row["reviewed_by_admin_id"],
-        reviewed_at=row["reviewed_at"],
+        reviewed_at=_s(row["reviewed_at"]),
         notes=row["notes"],
         created_by_admin_id=row["created_by_admin_id"],
         updated_by_admin_id=row["updated_by_admin_id"],
         components=_recipe_components(conn, row["id"]),
         latest_cost_snapshot=_snapshot_response_from_row(latest_snapshot),
         diagnostics=_recipe_diagnostics_for_row(conn, row),
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
+        created_at=_s(row["created_at"]),
+        updated_at=_s(row["updated_at"]),
     )
 
 
@@ -1039,7 +1071,7 @@ def _replace_recipe_components(
     recipe_id: str,
     components: list[RecipeComponentRequest],
 ) -> None:
-    conn.execute("DELETE FROM recipe_components WHERE recipe_version_id = ?", (recipe_id,))
+    conn.execute("DELETE FROM recipe_components WHERE recipe_version_id = %s", (recipe_id,))
     for index, component in enumerate(components):
         _validate_recipe_component(conn, component)
         conn.execute(
@@ -1048,7 +1080,7 @@ def _replace_recipe_components(
                 id, recipe_version_id, material_id, quantity, uom,
                 quantity_basis, wastage_percent, required, substitute_group,
                 sort_order, review_state
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'valid')
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'valid')
             """,
             (
                 _uuid(),
@@ -1082,7 +1114,7 @@ def create_recipe_version(
                     id, product_id, version_label, status, effective_date,
                     output_quantity, output_uom, notes, created_by_admin_id,
                     updated_by_admin_id
-                ) VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, 'draft', %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     recipe_id,
@@ -1097,7 +1129,7 @@ def create_recipe_version(
                 ),
             )
             _replace_recipe_components(conn, recipe_id, request.components)
-        except sqlite3.IntegrityError as exc:
+        except IntegrityError as exc:
             raise InventoryValidationError(
                 "Recipe version label must be unique per product"
             ) from exc
@@ -1120,13 +1152,13 @@ def update_recipe_version(
         if actor_user_id is not None:
             updates["updated_by_admin_id"] = actor_user_id
         if updates:
-            set_clause = ", ".join(f"{key} = ?" for key in updates)
+            set_clause = ", ".join(f"{key} = %s" for key in updates)
             try:
                 conn.execute(
-                    f"UPDATE recipe_versions SET {set_clause} WHERE id = ?",  # noqa: S608
+                    f"UPDATE recipe_versions SET {set_clause} WHERE id = %s",  # noqa: S608
                     (*updates.values(), recipe_id),
                 )
-            except sqlite3.IntegrityError as exc:
+            except IntegrityError as exc:
                 raise InventoryValidationError(
                     "Recipe version label must be unique per product"
                 ) from exc
@@ -1144,10 +1176,10 @@ def list_recipe_versions(
     where: list[str] = []
     params: list[object] = []
     if product_id:
-        where.append("product_id = ?")
+        where.append("product_id = %s")
         params.append(product_id)
     if status:
-        where.append("status = ?")
+        where.append("status = %s")
         params.append(status)
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
     with get_db() as conn:
@@ -1174,24 +1206,24 @@ def activate_recipe_version(
     with get_db() as conn:
         row = _get_recipe_row(conn, recipe_id)
         component_count = conn.execute(
-            "SELECT COUNT(*) FROM recipe_components WHERE recipe_version_id = ?",
+            "SELECT COUNT(*) AS n FROM recipe_components WHERE recipe_version_id = %s",
             (recipe_id,),
-        ).fetchone()[0]
+        ).fetchone()["n"]
         if component_count == 0:
             raise InventoryValidationError("Cannot activate a recipe without components")
         conn.execute(
             """
             UPDATE recipe_versions
-            SET status = 'archived', updated_by_admin_id = COALESCE(?, updated_by_admin_id)
-            WHERE product_id = ? AND id != ? AND status = 'active'
+            SET status = 'archived', updated_by_admin_id = COALESCE(%s, updated_by_admin_id)
+            WHERE product_id = %s AND id != %s AND status = 'active'
             """,
             (actor_user_id, row["product_id"], recipe_id),
         )
         conn.execute(
             """
             UPDATE recipe_versions
-            SET status = 'active', updated_by_admin_id = COALESCE(?, updated_by_admin_id)
-            WHERE id = ?
+            SET status = 'active', updated_by_admin_id = COALESCE(%s, updated_by_admin_id)
+            WHERE id = %s
             """,
             (actor_user_id, recipe_id),
         )
@@ -1209,8 +1241,8 @@ def archive_recipe_version(
         conn.execute(
             """
             UPDATE recipe_versions
-            SET status = 'archived', updated_by_admin_id = COALESCE(?, updated_by_admin_id)
-            WHERE id = ?
+            SET status = 'archived', updated_by_admin_id = COALESCE(%s, updated_by_admin_id)
+            WHERE id = %s
             """,
             (actor_user_id, recipe_id),
         )
@@ -1230,9 +1262,9 @@ def get_active_recipe_for_product(
         row = conn.execute(
             """
             SELECT * FROM recipe_versions
-            WHERE product_id = ?
+            WHERE product_id = %s
               AND status = 'active'
-              AND effective_date <= ?
+              AND effective_date <= %s
             ORDER BY effective_date DESC, created_at DESC, id DESC
             LIMIT 1
             """,
@@ -1261,7 +1293,7 @@ def create_recipe_cost_snapshot(
                    m.stock_uom, m.purchase_uom, m.purchase_to_stock_factor
             FROM recipe_components rc
             JOIN materials m ON m.id = rc.material_id
-            WHERE rc.recipe_version_id = ?
+            WHERE rc.recipe_version_id = %s
             ORDER BY rc.sort_order, rc.id
             """,
             (recipe_id,),
@@ -1280,7 +1312,7 @@ def create_recipe_cost_snapshot(
                 """
                 SELECT id, unit_cost_amount, currency
                 FROM material_receipts
-                WHERE material_id = ?
+                WHERE material_id = %s
                   AND review_state = 'reviewed'
                   AND unit_cost_amount IS NOT NULL
                 ORDER BY receipt_date DESC, created_at DESC
@@ -1345,7 +1377,7 @@ def create_recipe_cost_snapshot(
                 batch_cost_cents, expected_unit_cost_cents,
                 source_cost_references_json, missing_cost_count, review_state,
                 created_by_admin_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 snapshot_id,
@@ -1364,7 +1396,7 @@ def create_recipe_cost_snapshot(
             ),
         )
         row = conn.execute(
-            "SELECT * FROM recipe_cost_snapshots WHERE id = ?", (snapshot_id,)
+            "SELECT * FROM recipe_cost_snapshots WHERE id = %s", (snapshot_id,)
         ).fetchone()
     snapshot = _snapshot_response_from_row(row)
     assert snapshot is not None
@@ -1383,10 +1415,10 @@ def review_recipe_version(
         conn.execute(
             """
             UPDATE recipe_versions
-            SET review_state = ?, accountant_reviewed = ?, reviewed_by_admin_id = ?,
-                reviewed_at = ?, notes = COALESCE(?, notes),
-                updated_by_admin_id = COALESCE(?, updated_by_admin_id)
-            WHERE id = ?
+            SET review_state = %s, accountant_reviewed = %s, reviewed_by_admin_id = %s,
+                reviewed_at = %s, notes = COALESCE(%s, notes),
+                updated_by_admin_id = COALESCE(%s, updated_by_admin_id)
+            WHERE id = %s
             """,
             (
                 request.review_state,
@@ -1418,7 +1450,7 @@ def product_recipe_diagnostics(product_id: str) -> RecipeDiagnosticsListResponse
         row = conn.execute(
             """
             SELECT * FROM recipe_versions
-            WHERE product_id = ? AND status = 'active'
+            WHERE product_id = %s AND status = 'active'
             ORDER BY effective_date DESC, created_at DESC, id DESC
             LIMIT 1
             """,
@@ -1440,7 +1472,7 @@ def product_recipe_diagnostics(product_id: str) -> RecipeDiagnosticsListResponse
 
 
 def _get_batch_row(conn: sqlite3.Connection, batch_id: str) -> sqlite3.Row:
-    row = conn.execute("SELECT * FROM production_batches WHERE id = ?", (batch_id,)).fetchone()
+    row = conn.execute("SELECT * FROM production_batches WHERE id = %s", (batch_id,)).fetchone()
     if row is None:
         raise ProductionBatchNotFoundError(f"Production batch not found: {batch_id}")
     return row
@@ -1464,8 +1496,8 @@ def _batch_consumption_response_from_row(row: sqlite3.Row) -> ProductionBatchCon
         currency=row["currency"],
         movement_id=row["movement_id"],
         review_state=row["review_state"],
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
+        created_at=_s(row["created_at"]),
+        updated_at=_s(row["updated_at"]),
     )
 
 
@@ -1482,7 +1514,7 @@ def _batch_output_response_from_row(row: sqlite3.Row) -> ProductionBatchOutputRe
         movement_id=row["movement_id"],
         remaining_quantity_snapshot=row["remaining_quantity_snapshot"],
         valuation_review_state=row["valuation_review_state"],
-        created_at=row["created_at"],
+        created_at=_s(row["created_at"]),
     )
 
 
@@ -1494,7 +1526,7 @@ def _batch_response_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Prod
             SELECT pbc.*, m.name AS material_name
             FROM production_batch_consumption pbc
             LEFT JOIN materials m ON m.id = pbc.material_id
-            WHERE pbc.production_batch_id = ?
+            WHERE pbc.production_batch_id = %s
             ORDER BY pbc.created_at, pbc.id
             """,
             (row["id"],),
@@ -1503,8 +1535,8 @@ def _batch_response_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Prod
     outputs = [
         _batch_output_response_from_row(item)
         for item in conn.execute(
-            "SELECT * FROM production_batch_outputs WHERE production_batch_id = ? "
-            "ORDER BY created_at",
+            "SELECT * FROM production_batch_outputs "
+            "WHERE production_batch_id = %s ORDER BY created_at",
             (row["id"],),
         ).fetchall()
     ]
@@ -1513,7 +1545,7 @@ def _batch_response_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Prod
         for item in conn.execute(
             """
             SELECT * FROM inventory_exceptions
-            WHERE source_type = 'production_batch' AND source_id = ? AND status = 'open'
+            WHERE source_type = 'production_batch' AND source_id = %s AND status = 'open'
             ORDER BY created_at DESC
             """,
             (row["id"],),
@@ -1530,8 +1562,8 @@ def _batch_response_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Prod
         else float(row["actual_output_quantity"]),
         output_uom=row["output_uom"],
         status=row["status"],
-        production_date=row["production_date"],
-        ready_date=row["ready_date"],
+        production_date=_s(row["production_date"]),
+        ready_date=_s(row["ready_date"]),
         cost_snapshot_id=row["cost_snapshot_id"],
         variance_review_state=row["variance_review_state"],
         actor_user_id=row["actor_user_id"],
@@ -1541,8 +1573,8 @@ def _batch_response_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Prod
         exceptions=exceptions,
         created_by_admin_id=row["created_by_admin_id"],
         updated_by_admin_id=row["updated_by_admin_id"],
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
+        created_at=_s(row["created_at"]),
+        updated_at=_s(row["updated_at"]),
     )
 
 
@@ -1551,7 +1583,7 @@ def _material_on_hand(conn: sqlite3.Connection, material_id: str) -> float:
         """
         SELECT COALESCE(SUM(quantity_delta), 0) AS quantity
         FROM inventory_movements
-        WHERE item_type = 'material' AND item_id = ?
+        WHERE item_type = 'material' AND item_id = %s
         """,
         (material_id,),
     ).fetchone()
@@ -1563,7 +1595,7 @@ def _latest_material_cost(conn: sqlite3.Connection, material_id: str) -> str | N
         """
         SELECT unit_cost_amount
         FROM material_receipts
-        WHERE material_id = ?
+        WHERE material_id = %s
           AND review_state = 'reviewed'
           AND unit_cost_amount IS NOT NULL
         ORDER BY receipt_date DESC, created_at DESC
@@ -1610,7 +1642,7 @@ def _expected_consumption_rows(
         SELECT rc.*, m.stock_uom, m.purchase_uom, m.purchase_to_stock_factor
         FROM recipe_components rc
         JOIN materials m ON m.id = rc.material_id
-        WHERE rc.recipe_version_id = ?
+        WHERE rc.recipe_version_id = %s
         ORDER BY rc.sort_order, rc.id
         """,
         (recipe_id,),
@@ -1638,7 +1670,7 @@ def _seed_batch_expected_consumption(
     planned_output_quantity: float,
 ) -> None:
     conn.execute(
-        "DELETE FROM production_batch_consumption WHERE production_batch_id = ?", (batch_id,)
+        "DELETE FROM production_batch_consumption WHERE production_batch_id = %s", (batch_id,)
     )
     for component_id, material_id, expected_quantity, stock_uom in _expected_consumption_rows(
         conn, recipe_id, planned_output_quantity
@@ -1648,7 +1680,7 @@ def _seed_batch_expected_consumption(
             INSERT INTO production_batch_consumption (
                 id, production_batch_id, recipe_component_id, material_id,
                 expected_quantity, waste_quantity, uom, review_state
-            ) VALUES (?, ?, ?, ?, ?, 0, ?, 'draft')
+            ) VALUES (%s, %s, %s, %s, %s, 0, %s, 'draft')
             """,
             (_uuid(), batch_id, component_id, material_id, expected_quantity, stock_uom),
         )
@@ -1668,9 +1700,9 @@ def create_production_batch(
             active_recipe = conn.execute(
                 """
                 SELECT * FROM recipe_versions
-                WHERE product_id = ?
+                WHERE product_id = %s
                   AND status = 'active'
-                  AND effective_date <= ?
+                  AND effective_date <= %s
                 ORDER BY effective_date DESC, created_at DESC, id DESC
                 LIMIT 1
                 """,
@@ -1693,7 +1725,7 @@ def create_production_batch(
                     planned_output_quantity, output_uom, production_date,
                     ready_date, actor_user_id, notes, created_by_admin_id,
                     updated_by_admin_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     batch_id,
@@ -1710,7 +1742,7 @@ def create_production_batch(
                     actor_user_id,
                 ),
             )
-        except sqlite3.IntegrityError as exc:
+        except IntegrityError as exc:
             raise InventoryValidationError("Batch number must be unique") from exc
         _seed_batch_expected_consumption(
             conn,
@@ -1736,9 +1768,9 @@ def update_production_batch(
         if actor_user_id is not None:
             updates["updated_by_admin_id"] = actor_user_id
         if updates:
-            set_clause = ", ".join(f"{key} = ?" for key in updates)
+            set_clause = ", ".join(f"{key} = %s" for key in updates)
             conn.execute(
-                f"UPDATE production_batches SET {set_clause} WHERE id = ?",  # noqa: S608
+                f"UPDATE production_batches SET {set_clause} WHERE id = %s",  # noqa: S608
                 (*updates.values(), batch_id),
             )
         updated = _get_batch_row(conn, batch_id)
@@ -1760,10 +1792,10 @@ def list_production_batches(
     where: list[str] = []
     params: list[object] = []
     if product_id:
-        where.append("product_id = ?")
+        where.append("product_id = %s")
         params.append(product_id)
     if status:
-        where.append("status = ?")
+        where.append("status = %s")
         params.append(status)
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
     with get_db() as conn:
@@ -1791,8 +1823,8 @@ def cancel_production_batch(
         conn.execute(
             """
             UPDATE production_batches
-            SET status = 'cancelled', updated_by_admin_id = COALESCE(?, updated_by_admin_id)
-            WHERE id = ?
+            SET status = 'cancelled', updated_by_admin_id = COALESCE(%s, updated_by_admin_id)
+            WHERE id = %s
             """,
             (actor_user_id, batch_id),
         )
@@ -1815,7 +1847,7 @@ def _batch_exception(
         INSERT INTO inventory_exceptions (
             id, exception_type, severity, target_type, target_id,
             source_type, source_id, message, created_by_admin_id
-        ) VALUES (?, ?, ?, ?, ?, 'production_batch', ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, %s, 'production_batch', %s, %s, %s)
         """,
         (
             _uuid(),
@@ -1843,7 +1875,7 @@ def post_production_batch(
         if batch["status"] != "draft":
             raise InventoryValidationError("Only draft batches can be posted")
         consumption_rows = conn.execute(
-            "SELECT * FROM production_batch_consumption WHERE production_batch_id = ?",
+            "SELECT * FROM production_batch_consumption WHERE production_batch_id = %s",
             (batch_id,),
         ).fetchall()
         actual_by_id = {
@@ -1889,8 +1921,8 @@ def post_production_batch(
                 """
                 UPDATE production_batches
                 SET variance_review_state = 'warning',
-                    updated_by_admin_id = COALESCE(?, updated_by_admin_id)
-                WHERE id = ?
+                    updated_by_admin_id = COALESCE(%s, updated_by_admin_id)
+                WHERE id = %s
                 """,
                 (actor_user_id, batch_id),
             )
@@ -1900,7 +1932,7 @@ def post_production_batch(
         for row, actual_quantity, _waste_quantity, lot_id in actual_lines:
             if not lot_id or actual_quantity == 0:
                 continue
-            lot = conn.execute("SELECT * FROM material_lots WHERE id = ?", (lot_id,)).fetchone()
+            lot = conn.execute("SELECT * FROM material_lots WHERE id = %s", (lot_id,)).fetchone()
             if lot is None:
                 raise InventoryValidationError("Selected material lot does not exist")
             if lot["material_id"] != row["material_id"]:
@@ -1927,8 +1959,8 @@ def post_production_batch(
                 """
                 UPDATE production_batches
                 SET variance_review_state = 'warning',
-                    updated_by_admin_id = COALESCE(?, updated_by_admin_id)
-                WHERE id = ?
+                    updated_by_admin_id = COALESCE(%s, updated_by_admin_id)
+                WHERE id = %s
                 """,
                 (actor_user_id, batch_id),
             )
@@ -1953,7 +1985,9 @@ def post_production_batch(
                     actor_user_id=actor_user_id,
                 )
             if lot_id:
-                lot = conn.execute("SELECT * FROM material_lots WHERE id = ?", (lot_id,)).fetchone()
+                lot = conn.execute(
+                    "SELECT * FROM material_lots WHERE id = %s", (lot_id,)
+                ).fetchone()
                 expiry_text = lot["use_by_date"] or lot["expiry_date"] if lot else None
                 if expiry_text and expiry_text[:10] < batch["production_date"][:10]:
                     exception_created = True
@@ -1993,8 +2027,8 @@ def post_production_batch(
                         id, item_type, item_id, movement_type, quantity_delta, uom,
                         source_type, source_id, material_lot_id, actor_user_id,
                         actor_email, review_state, occurred_at
-                    ) VALUES (?, 'material', ?, 'production_consumption', ?, ?,
-                              'production_batch', ?, ?, ?, ?, ?, ?)
+                    ) VALUES (%s, 'material', %s, 'production_consumption', %s, %s,
+                              'production_batch', %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         movement_id,
@@ -2013,20 +2047,20 @@ def post_production_batch(
                     conn.execute(
                         """
                         UPDATE material_lots
-                        SET remaining_quantity_snapshot = MAX(
-                            COALESCE(remaining_quantity_snapshot, received_quantity) - ?,
+                        SET remaining_quantity_snapshot = GREATEST(
+                            COALESCE(remaining_quantity_snapshot, received_quantity) - %s,
                             0
                         )
-                        WHERE id = ?
+                        WHERE id = %s
                         """,
                         (actual_quantity, lot_id),
                     )
             conn.execute(
                 """
                 UPDATE production_batch_consumption
-                SET actual_quantity = ?, waste_quantity = ?, material_lot_id = ?,
-                    unit_cost_amount = ?, movement_id = ?, review_state = ?
-                WHERE id = ?
+                SET actual_quantity = %s, waste_quantity = %s, material_lot_id = %s,
+                    unit_cost_amount = %s, movement_id = %s, review_state = %s
+                WHERE id = %s
                 """,
                 (
                     actual_quantity,
@@ -2063,8 +2097,8 @@ def post_production_batch(
                 id, item_type, item_id, movement_type, quantity_delta, uom,
                 source_type, source_id, product_id, actor_user_id, actor_email,
                 review_state, occurred_at
-            ) VALUES (?, 'finished_good', ?, 'production_output', ?, ?,
-                      'production_batch', ?, ?, ?, ?, ?, ?)
+            ) VALUES (%s, 'finished_good', %s, 'production_output', %s, %s,
+                      'production_batch', %s, %s, %s, %s, %s, %s)
             """,
             (
                 output_movement_id,
@@ -2085,7 +2119,7 @@ def post_production_batch(
                 id, production_batch_id, product_id, batch_number, quantity,
                 uom, unit_cost_amount, movement_id, remaining_quantity_snapshot,
                 valuation_review_state
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 _uuid(),
@@ -2101,16 +2135,16 @@ def post_production_batch(
             ),
         )
         conn.execute(
-            "UPDATE products SET stock = stock + ? WHERE id = ?",
+            "UPDATE products SET stock = stock + %s WHERE id = %s",
             (request.actual_output_quantity, batch["product_id"]),
         )
         conn.execute(
             """
             UPDATE production_batches
-            SET status = 'produced', actual_output_quantity = ?,
-                variance_review_state = ?, actor_user_id = COALESCE(?, actor_user_id),
-                notes = COALESCE(?, notes), updated_by_admin_id = COALESCE(?, updated_by_admin_id)
-            WHERE id = ?
+            SET status = 'produced', actual_output_quantity = %s,
+                variance_review_state = %s, actor_user_id = COALESCE(%s, actor_user_id),
+                notes = COALESCE(%s, notes), updated_by_admin_id = COALESCE(%s, updated_by_admin_id)
+            WHERE id = %s
             """,
             (
                 request.actual_output_quantity,
@@ -2123,23 +2157,24 @@ def post_production_batch(
         )
         conn.execute(
             """
-            INSERT OR IGNORE INTO product_inventory_profiles (
+            INSERT INTO product_inventory_profiles (
                 product_id, inventory_mode, stock_source, latest_batch_id,
                 valuation_readiness, updated_by_admin_id
-            ) VALUES (?, 'legacy', 'mixed', ?, 'estimate_only', ?)
+            ) VALUES (%s, 'legacy', 'mixed', %s, 'estimate_only', %s)
+            ON CONFLICT (product_id) DO NOTHING
             """,
             (batch["product_id"], batch_id, actor_user_id),
         )
         conn.execute(
             """
             UPDATE product_inventory_profiles
-            SET latest_batch_id = ?, stock_source = 'mixed',
+            SET latest_batch_id = %s, stock_source = 'mixed',
                 valuation_readiness = CASE
                     WHEN valuation_readiness = 'ready' THEN valuation_readiness
                     ELSE 'estimate_only'
                 END,
-                updated_by_admin_id = COALESCE(?, updated_by_admin_id)
-            WHERE product_id = ?
+                updated_by_admin_id = COALESCE(%s, updated_by_admin_id)
+            WHERE product_id = %s
             """,
             (batch_id, actor_user_id, batch["product_id"]),
         )
@@ -2167,8 +2202,8 @@ def correct_production_batch(
                 source_type, source_id, product_id, actor_user_id, actor_email,
                 reason, notes, review_state, occurred_at
             ) VALUES (
-                ?, ?, ?, 'adjustment', ?, ?, 'production_batch_correction', ?, ?, ?, ?, ?, ?,
-                'reviewed', ?
+                %s, %s, %s, 'adjustment', %s, %s, 'production_batch_correction',
+                %s, %s, %s, %s, %s, %s, 'reviewed', %s
             )
             """,
             (
@@ -2188,11 +2223,11 @@ def correct_production_batch(
         )
         if request.item_type == "finished_good":
             conn.execute(
-                "UPDATE products SET stock = MAX(stock + ?, 0) WHERE id = ?",
+                "UPDATE products SET stock = GREATEST(stock + %s, 0) WHERE id = %s",
                 (request.quantity_delta, request.item_id),
             )
         row = conn.execute(
-            "SELECT * FROM inventory_movements WHERE id = ?", (movement_id,)
+            "SELECT * FROM inventory_movements WHERE id = %s", (movement_id,)
         ).fetchone()
     return _movement_response_from_row(row)
 
@@ -2207,7 +2242,7 @@ def production_traceability(batch_id: str) -> ProductionTraceabilityResponse:
                 """
                 SELECT * FROM inventory_movements
                 WHERE source_type = 'production_batch'
-                  AND source_id = ?
+                  AND source_id = %s
                   AND item_type = 'material'
                 ORDER BY occurred_at, created_at
                 """,
@@ -2220,7 +2255,7 @@ def production_traceability(batch_id: str) -> ProductionTraceabilityResponse:
                 """
                 SELECT * FROM inventory_movements
                 WHERE source_type = 'production_batch'
-                  AND source_id = ?
+                  AND source_id = %s
                   AND item_type = 'finished_good'
                 ORDER BY occurred_at, created_at
                 """,
@@ -2256,7 +2291,7 @@ def _settings_response_from_row(row: sqlite3.Row) -> InventoryValuationSettingsR
         ledger_mode=row["ledger_mode"],
         valuation_enabled=bool(row["valuation_enabled"]),
         valuation_method=row["valuation_method"],
-        effective_date=row["effective_date"],
+        effective_date=_s(row["effective_date"]),
         cogs_date_basis=row["cogs_date_basis"],
         rounding_policy=row["rounding_policy"],
         missing_cost_behavior=row["missing_cost_behavior"],
@@ -2267,15 +2302,17 @@ def _settings_response_from_row(row: sqlite3.Row) -> InventoryValuationSettingsR
         accountant_reviewed=bool(row["accountant_reviewed"]),
         reviewed_by_admin_id=row["reviewed_by_admin_id"],
         reviewed_by_name=row["reviewed_by_name"],
-        reviewed_at=row["reviewed_at"],
+        reviewed_at=_s(row["reviewed_at"]),
         review_notes=row["review_notes"],
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
+        created_at=_s(row["created_at"]),
+        updated_at=_s(row["updated_at"]),
     )
 
 
 def _ensure_inventory_settings(conn: sqlite3.Connection) -> sqlite3.Row:
-    conn.execute("INSERT OR IGNORE INTO inventory_settings (id) VALUES ('default')")
+    conn.execute(
+        "INSERT INTO inventory_settings (id) VALUES ('default') ON CONFLICT (id) DO NOTHING"
+    )
     return conn.execute("SELECT * FROM inventory_settings WHERE id = 'default'").fetchone()
 
 
@@ -2306,14 +2343,14 @@ def update_inventory_valuation_settings(
         conn.execute(
             """
             UPDATE inventory_settings
-            SET ledger_mode = ?, valuation_enabled = ?, valuation_method = ?,
-                effective_date = ?, cogs_date_basis = ?, rounding_policy = ?,
-                missing_cost_behavior = ?, included_cost_components_json = ?,
-                write_off_mapping_json = ?, currency = ?,
+            SET ledger_mode = %s, valuation_enabled = %s, valuation_method = %s,
+                effective_date = %s, cogs_date_basis = %s, rounding_policy = %s,
+                missing_cost_behavior = %s, included_cost_components_json = %s,
+                write_off_mapping_json = %s, currency = %s,
                 settings_version = settings_version + 1,
-                accountant_reviewed = ?, reviewed_by_admin_id = ?,
-                reviewed_by_name = ?, reviewed_at = CASE WHEN ? = 1 THEN ? ELSE reviewed_at END,
-                review_notes = ?
+                accountant_reviewed = %s, reviewed_by_admin_id = %s,
+                reviewed_by_name = %s, reviewed_at = CASE WHEN %s = 1 THEN %s ELSE reviewed_at END,
+                review_notes = %s
             WHERE id = 'default'
             """,
             (
@@ -2351,11 +2388,11 @@ def _layer_response_from_row(row: sqlite3.Row) -> ValuationLayerResponse:
         valuation_method=row["valuation_method"],
         source_type=row["source_type"],
         source_id=row["source_id"],
-        valuation_date=row["valuation_date"],
+        valuation_date=_s(row["valuation_date"]),
         review_state=row["review_state"],
         method_metadata_json=row["method_metadata_json"],
         reversal_layer_id=row["reversal_layer_id"],
-        created_at=row["created_at"],
+        created_at=_s(row["created_at"]),
     )
 
 
@@ -2367,7 +2404,7 @@ def _cogs_response_from_row(row: sqlite3.Row) -> COGSLedgerResponse:
         order_item_key=row["order_item_key"],
         product_id=row["product_id"],
         quantity_sold=float(row["quantity_sold"]),
-        cogs_date=row["cogs_date"],
+        cogs_date=_s(row["cogs_date"]),
         unit_cost_amount=row["unit_cost_amount"],
         total_cost_cents=row["total_cost_cents"],
         currency=row["currency"],
@@ -2377,7 +2414,7 @@ def _cogs_response_from_row(row: sqlite3.Row) -> COGSLedgerResponse:
         source_finished_batch_id=row["source_finished_batch_id"],
         review_state=row["review_state"],
         reversal_cogs_id=row["reversal_cogs_id"],
-        created_at=row["created_at"],
+        created_at=_s(row["created_at"]),
     )
 
 
@@ -2391,13 +2428,13 @@ def _weighted_average_before(
     params: list[object] = [item_type, item_id]
     date_filter = ""
     if valuation_date:
-        date_filter = "AND valuation_date <= ?"
+        date_filter = "AND valuation_date <= %s"
         params.append(valuation_date)
     rows = conn.execute(
         f"""
         SELECT quantity, total_value_cents
         FROM inventory_valuation_layers
-        WHERE item_type = ? AND item_id = ? {date_filter}
+        WHERE item_type = %s AND item_id = %s {date_filter}
           AND review_state != 'reversed'
         ORDER BY valuation_date, created_at, id
         """,  # noqa: S608
@@ -2446,9 +2483,9 @@ def _source_layer_for_positive_movement(
         SELECT vl.*
         FROM inventory_movements sale
         JOIN inventory_valuation_layers vl ON vl.movement_id = sale.id
-        WHERE sale.order_id = ?
-          AND sale.product_id = ?
-          AND sale.order_item_key = ?
+        WHERE sale.order_id = %s
+          AND sale.product_id = %s
+          AND sale.order_item_key = %s
           AND sale.movement_type = 'sale_issue'
           AND vl.review_state != 'reversed'
         ORDER BY vl.valuation_date DESC, vl.created_at DESC, vl.id DESC
@@ -2473,11 +2510,11 @@ def _ensure_inventory_exception(
         """
         SELECT 1 FROM inventory_exceptions
         WHERE status = 'open'
-          AND exception_type = ?
-          AND COALESCE(target_type, '') = COALESCE(?, '')
-          AND COALESCE(target_id, '') = COALESCE(?, '')
-          AND COALESCE(source_type, '') = COALESCE(?, '')
-          AND COALESCE(source_id, '') = COALESCE(?, '')
+          AND exception_type = %s
+          AND COALESCE(target_type, '') = COALESCE(%s, '')
+          AND COALESCE(target_id, '') = COALESCE(%s, '')
+          AND COALESCE(source_type, '') = COALESCE(%s, '')
+          AND COALESCE(source_id, '') = COALESCE(%s, '')
         """,
         (exception_type, target_type, target_id, source_type, source_id),
     ).fetchone()
@@ -2488,7 +2525,7 @@ def _ensure_inventory_exception(
         INSERT INTO inventory_exceptions (
             id, exception_type, severity, target_type, target_id,
             source_type, source_id, message
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             _uuid(),
@@ -2519,7 +2556,10 @@ def record_opening_balance(
             INSERT INTO inventory_movements (
                 id, item_type, item_id, movement_type, quantity_delta, uom,
                 source_type, source_id, actor_user_id, notes, review_state
-            ) VALUES (?, ?, ?, 'opening_balance', ?, ?, 'opening_balance_review', ?, ?, ?, ?)
+            ) VALUES (
+                %s, %s, %s, 'opening_balance', %s, %s, 'opening_balance_review',
+                %s, %s, %s, %s
+            )
             """,
             (
                 movement_id,
@@ -2536,19 +2576,20 @@ def record_opening_balance(
         if request.item_type == "finished_good":
             conn.execute(
                 """
-                INSERT OR IGNORE INTO product_inventory_profiles (
+                INSERT INTO product_inventory_profiles (
                     product_id, inventory_mode, stock_source, opening_balance_state,
                     valuation_readiness, updated_by_admin_id
-                ) VALUES (?, 'fallback', 'mixed', ?, 'estimate_only', ?)
+                ) VALUES (%s, 'fallback', 'mixed', %s, 'estimate_only', %s)
+                ON CONFLICT (product_id) DO NOTHING
                 """,
                 (request.item_id, "reviewed" if request.reviewed else "unreviewed", actor_user_id),
             )
             conn.execute(
                 """
                 UPDATE product_inventory_profiles
-                SET opening_balance_state = ?,
-                    updated_by_admin_id = COALESCE(?, updated_by_admin_id)
-                WHERE product_id = ?
+                SET opening_balance_state = %s,
+                    updated_by_admin_id = COALESCE(%s, updated_by_admin_id)
+                WHERE product_id = %s
                 """,
                 ("reviewed" if request.reviewed else "unreviewed", actor_user_id, request.item_id),
             )
@@ -2587,7 +2628,10 @@ def record_opening_balance(
                 id, movement_id, item_type, item_id, quantity, unit_value_amount,
                 total_value_cents, currency, valuation_method, source_type,
                 source_id, valuation_date, review_state
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'opening_balance_review', ?, date('now'), ?)
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, 'opening_balance_review',
+                %s, CURRENT_DATE, %s
+            )
             """,
             (
                 layer_id,
@@ -2607,7 +2651,7 @@ def record_opening_balance(
         )
         return _layer_response_from_row(
             conn.execute(
-                "SELECT * FROM inventory_valuation_layers WHERE id = ?", (layer_id,)
+                "SELECT * FROM inventory_valuation_layers WHERE id = %s", (layer_id,)
             ).fetchone()
         )
 
@@ -2635,7 +2679,8 @@ def generate_valuation_layers() -> ValuationLayerListResponse:
             total_value_cents: int | None = None
             if movement["movement_type"] == "receipt":
                 receipt = conn.execute(
-                    "SELECT unit_cost_amount, total_cost_cents FROM material_receipts WHERE id = ?",
+                    "SELECT unit_cost_amount, total_cost_cents "
+                    "FROM material_receipts WHERE id = %s",
                     (movement["source_id"],),
                 ).fetchone()
                 if receipt and receipt["unit_cost_amount"]:
@@ -2651,7 +2696,7 @@ def generate_valuation_layers() -> ValuationLayerListResponse:
                     total_value_cents = receipt["total_cost_cents"]
             elif quantity > 0 and movement["movement_type"] == "production_output":
                 output = conn.execute(
-                    "SELECT unit_cost_amount FROM production_batch_outputs WHERE movement_id = ?",
+                    "SELECT unit_cost_amount FROM production_batch_outputs WHERE movement_id = %s",
                     (movement["id"],),
                 ).fetchone()
                 if output and output["unit_cost_amount"]:
@@ -2711,7 +2756,7 @@ def generate_valuation_layers() -> ValuationLayerListResponse:
                     id, movement_id, item_type, item_id, quantity, unit_value_amount,
                     total_value_cents, currency, valuation_method, source_type,
                     source_id, valuation_date, review_state
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     layer_id,
@@ -2732,7 +2777,7 @@ def generate_valuation_layers() -> ValuationLayerListResponse:
             created.append(
                 _layer_response_from_row(
                     conn.execute(
-                        "SELECT * FROM inventory_valuation_layers WHERE id = ?", (layer_id,)
+                        "SELECT * FROM inventory_valuation_layers WHERE id = %s", (layer_id,)
                     ).fetchone()
                 )
             )
@@ -2745,10 +2790,10 @@ def list_valuation_layers(
     where: list[str] = []
     params: list[object] = []
     if item_type:
-        where.append("item_type = ?")
+        where.append("item_type = %s")
         params.append(item_type)
     if item_id:
-        where.append("item_id = ?")
+        where.append("item_id = %s")
         params.append(item_id)
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
     with get_db() as conn:
@@ -2763,19 +2808,19 @@ def list_valuation_layers(
 
 def _cogs_date_from_order(row: sqlite3.Row, basis: str) -> str:
     if basis == "payment_date" and row["paid_at"]:
-        return row["paid_at"]
+        return _s(row["paid_at"])
     if basis == "shipment_date" and row["status"] in {
         "shipped",
         "delivered",
         "return_in_transit",
         "returned",
     }:
-        return row["updated_at"]
+        return _s(row["updated_at"])
     if basis == "delivery_date" and row["status"] in {"delivered", "return_in_transit", "returned"}:
-        return row["updated_at"]
+        return _s(row["updated_at"])
     if basis == "period_close":
-        return row["updated_at"] or row["created_at"]
-    return row["created_at"]
+        return _s(row["updated_at"]) or _s(row["created_at"])
+    return _s(row["created_at"])
 
 
 def _sale_movement_for_order_item(
@@ -2785,9 +2830,9 @@ def _sale_movement_for_order_item(
         """
         SELECT *
         FROM inventory_movements
-        WHERE order_id = ?
-          AND product_id = ?
-          AND order_item_key = ?
+        WHERE order_id = %s
+          AND product_id = %s
+          AND order_item_key = %s
           AND movement_type = 'sale_issue'
         ORDER BY occurred_at DESC, created_at DESC, id DESC
         LIMIT 1
@@ -2805,7 +2850,7 @@ def _valuation_layer_for_movement(
         """
         SELECT *
         FROM inventory_valuation_layers
-        WHERE movement_id = ?
+        WHERE movement_id = %s
         ORDER BY valuation_date DESC, created_at DESC, id DESC
         LIMIT 1
         """,
@@ -2818,7 +2863,7 @@ def _latest_finished_batch_id(conn: sqlite3.Connection, product_id: str) -> str 
         """
         SELECT latest_batch_id
         FROM product_inventory_profiles
-        WHERE product_id = ?
+        WHERE product_id = %s
         """,
         (product_id,),
     ).fetchone()
@@ -2855,7 +2900,7 @@ def generate_cogs_rows() -> COGSLedgerListResponse:
                     conn,
                     item_type="finished_good",
                     item_id=row["product_id"],
-                    valuation_date=row["created_at"],
+                    valuation_date=_s(row["created_at"]),
                 )
                 unit_value_text = (
                     None
@@ -2890,7 +2935,7 @@ def generate_cogs_rows() -> COGSLedgerListResponse:
                     quantity_sold, cogs_date, unit_cost_amount, total_cost_cents,
                     currency, valuation_method, source_movement_id,
                     source_valuation_layer_id, source_finished_batch_id, review_state
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     cogs_id,
@@ -2912,7 +2957,7 @@ def generate_cogs_rows() -> COGSLedgerListResponse:
             )
             created.append(
                 _cogs_response_from_row(
-                    conn.execute("SELECT * FROM cogs_ledger WHERE id = ?", (cogs_id,)).fetchone()
+                    conn.execute("SELECT * FROM cogs_ledger WHERE id = %s", (cogs_id,)).fetchone()
                 )
             )
 
@@ -2932,7 +2977,7 @@ def generate_cogs_rows() -> COGSLedgerListResponse:
              AND reversal.source_movement_id = im.id
             WHERE im.movement_type IN ('return_restock', 'cancellation_reversal')
               AND im.quantity_delta > 0
-              AND COALESCE(im.metadata_json, '') NOT LIKE '%write_off_pending%'
+              AND COALESCE(im.metadata_json, '') NOT LIKE '%%write_off_pending%%'
               AND reversal.id IS NULL
             ORDER BY im.occurred_at, im.created_at, im.id
             """
@@ -2960,7 +3005,7 @@ def generate_cogs_rows() -> COGSLedgerListResponse:
                     currency, valuation_method, source_movement_id,
                     source_valuation_layer_id, source_finished_batch_id,
                     review_state, reversal_cogs_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'reversed', ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'reversed', %s)
                 """,
                 (
                     cogs_id,
@@ -2969,7 +3014,7 @@ def generate_cogs_rows() -> COGSLedgerListResponse:
                     row["order_item_key"],
                     row["product_id"],
                     row["quantity_delta"],
-                    row["occurred_at"],
+                    _s(row["occurred_at"]),
                     str(unit_value.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)),
                     total_cost,
                     settings["currency"],
@@ -2982,7 +3027,7 @@ def generate_cogs_rows() -> COGSLedgerListResponse:
             )
             created.append(
                 _cogs_response_from_row(
-                    conn.execute("SELECT * FROM cogs_ledger WHERE id = ?", (cogs_id,)).fetchone()
+                    conn.execute("SELECT * FROM cogs_ledger WHERE id = %s", (cogs_id,)).fetchone()
                 )
             )
     return COGSLedgerListResponse(rows=created, total=len(created))
@@ -2994,10 +3039,10 @@ def list_cogs_rows(
     where: list[str] = []
     params: list[object] = []
     if product_id:
-        where.append("product_id = ?")
+        where.append("product_id = %s")
         params.append(product_id)
     if order_id:
-        where.append("order_id = ?")
+        where.append("order_id = %s")
         params.append(order_id)
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
     with get_db() as conn:
@@ -3013,14 +3058,14 @@ def inventory_close_preview(period_start: str, period_end: str) -> InventoryClos
     with get_db() as conn:
         settings = _ensure_inventory_settings(conn)
         exception_count = conn.execute(
-            "SELECT COUNT(*) FROM inventory_exceptions WHERE status = 'open'"
-        ).fetchone()[0]
+            "SELECT COUNT(*) AS n FROM inventory_exceptions WHERE status = 'open'"
+        ).fetchone()["n"]
         rows = conn.execute(
             """
             SELECT im.movement_type, vl.quantity, vl.total_value_cents
             FROM inventory_valuation_layers vl
             LEFT JOIN inventory_movements im ON im.id = vl.movement_id
-            WHERE vl.valuation_date BETWEEN ? AND ?
+            WHERE vl.valuation_date BETWEEN %s AND %s
             """,
             (period_start, period_end),
         ).fetchall()
@@ -3109,7 +3154,7 @@ def valuation_exceptions(
             SELECT item_type, item_id, SUM(quantity_delta) AS quantity
             FROM inventory_movements
             GROUP BY item_type, item_id
-            HAVING quantity < 0
+            HAVING SUM(quantity_delta) < 0
             """
         ).fetchall():
             _ensure_inventory_exception(
@@ -3138,20 +3183,20 @@ def valuation_exceptions(
         where = ["status = 'open'"]
         params: list[object] = []
         if target_type:
-            where.append("target_type = ?")
+            where.append("target_type = %s")
             params.append(target_type)
         if target_id:
-            where.append("target_id = ?")
+            where.append("target_id = %s")
             params.append(target_id)
         if source_type:
-            where.append("source_type = ?")
+            where.append("source_type = %s")
             params.append(source_type)
         if source_id:
-            where.append("source_id = ?")
+            where.append("source_id = %s")
             params.append(source_id)
         if order_id:
             where.append("source_type = 'order'")
-            where.append("source_id = ?")
+            where.append("source_id = %s")
             params.append(order_id)
         where_sql = " AND ".join(where)
         exceptions = [

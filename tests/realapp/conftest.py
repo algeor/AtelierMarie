@@ -1,7 +1,19 @@
 """Fixtures for tests requiring the REAL session middleware.
 
-Function-scoped: each test gets its own database, app, and client.
-This subdirectory isolates the cost of per-test init_db + full middleware.
+Ported to the Postgres template-clone model (design Decision 15). These tests
+run against the same per-worker Postgres database provisioned by the root
+``tests/conftest.py`` (session-scoped ``worker_database_url``), but build the app
+with the REAL session middleware rather than any fake/test session shim.
+
+What changed from the SQLite version:
+
+- ``db_path`` is no longer a per-test tmp SQLite file; the worker ``DATABASE_URL``
+  comes from the root conftest and the app opens the psycopg pool via
+  ``init_db(url)`` (the single chokepoint).
+- ``_clean_tables`` is no longer a no-op — the root conftest's autouse truncation
+  handles per-test isolation, so the local no-op override is removed.
+- Realapp tests exercise the real ``SessionMiddleware``, so they do NOT rely on
+  the fake-session row; each test drives session creation through the middleware.
 """
 
 from collections.abc import AsyncGenerator
@@ -10,10 +22,10 @@ from pathlib import Path
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.config import get_settings
-from app.database import init_db
-
 _REALAPP_DIR = str(Path(__file__).parent)
+
+# Reuse the root harness's admin key so admin_client auth lines up.
+ADMIN_API_KEY = "test-admin-key"
 
 
 def pytest_collection_modifyitems(items):
@@ -23,50 +35,39 @@ def pytest_collection_modifyitems(items):
             item.add_marker(pytest.mark.integration)
 
 
-_DT_FMT = "%Y-%m-%d %H:%M:%S"
+@pytest.fixture(scope="session")
+def app(worker_database_url: str):
+    """Session-scoped app with the REAL ``SessionMiddleware`` (no fake swap).
 
-ADMIN_API_KEY = "test-admin-key-realapp"
+    Overrides the root ``app`` fixture (which installs ``FakeSessionMiddleware``)
+    so realapp tests exercise real session creation through the middleware. Binds
+    ``DATABASE_URL`` to this worker's Postgres DB and opens the pool via
+    ``init_db`` — the single chokepoint — exactly like the root fixture, but skips
+    the ASGI middleware swap.
+    """
+    import os
 
+    from app.config import get_settings
+    from app.database import close_db, init_db
 
-@pytest.fixture()
-def db_path(tmp_path) -> str:
-    """Function-scoped DB path (fresh DB per test)."""
-    return str(tmp_path / "test.db")
-
-
-@pytest.fixture()
-def app(db_path, monkeypatch):
-    """Function-scoped app with REAL session middleware."""
-    monkeypatch.setenv("DATABASE_PATH", db_path)
-    monkeypatch.setenv("ADMIN_API_KEY", ADMIN_API_KEY)
+    os.environ["DATABASE_URL"] = worker_database_url
+    os.environ["ADMIN_API_KEY"] = ADMIN_API_KEY
     get_settings.cache_clear()
-    init_db(db_path)
+    init_db(worker_database_url)
 
     from app.main import create_app
 
     test_app = create_app()
     yield test_app
+
+    close_db()
     get_settings.cache_clear()
 
 
 @pytest.fixture()
-async def client(app) -> AsyncGenerator[AsyncClient, None]:
-    """Function-scoped async HTTP client with real middleware."""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
-
-
-@pytest.fixture()
 async def admin_client(app) -> AsyncGenerator[AsyncClient, None]:
-    """Function-scoped async HTTP client with admin Bearer auth."""
+    """Async HTTP client with admin Bearer auth (realapp/real middleware)."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         c.headers["Authorization"] = f"Bearer {ADMIN_API_KEY}"
         yield c
-
-
-@pytest.fixture(autouse=True)
-def _clean_tables():
-    """No-op: function-scoped DB means each test starts fresh — no cleanup needed."""
-    yield

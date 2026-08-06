@@ -52,7 +52,7 @@ Copy `.env.example` to `.env` when needed.
 
 Important settings:
 
-- `DATABASE_PATH`: SQLite file path. Defaults to `./atelier_marie.db`.
+- `DATABASE_URL`: Postgres connection string. Defaults to `postgresql://atelier:atelier@localhost:5432/atelier_marie`.
 - `ADMIN_API_KEY`: admin API key, required in production.
 - `JWT_SECRET`: must not be the dev default in production.
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`: card payments.
@@ -140,6 +140,6 @@ make format
 
 - Do not use `source .venv/bin/activate` in scripts. Existing project guidance prefers `.venv/bin/...` or `make`.
 - Frontend mock mode can hide backend contract bugs. If you changed API shape, test real backend mode too.
-- SQLite migrations run from `app/database.py` during startup. If a column exists locally, still test fresh DB behavior.
+- Alembic migrations (`alembic upgrade head`) build the schema. If a column exists locally, still test fresh DB behavior.
 - Analytics can be off. Do not write a feature that only works when analytics storage exists.
 - Stripe webhooks need raw body signature verification. Do not parse first, verify later.

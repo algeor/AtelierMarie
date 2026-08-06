@@ -10,6 +10,22 @@ Uses the module-scoped app/client from conftest.py (FakeSessionMiddleware).
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _reset_delivery_settings(db):
+    """Reset the ``delivery_settings`` singleton between tests.
+
+    ``delivery_settings`` is a migration-seed table (never truncated by the root
+    ``_clean_tables``), but the admin-update tests in this module mutate the
+    singleton. Deleting the row lets the service re-create it with all-enabled
+    defaults on the next read (Decision 15).
+    """
+    db.execute("DELETE FROM delivery_settings")
+    db.commit()
+    yield
+    db.execute("DELETE FROM delivery_settings")
+    db.commit()
+
+
 class TestListOffices:
     """`GET /v1/delivery/offices` — covers courier-offices-data spec scenarios."""
 
