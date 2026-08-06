@@ -4,6 +4,7 @@ import sqlite3
 import uuid
 
 from app.database import get_db
+from app.services import object_storage_service
 from app.services.image_service import process_image, validate_image_file
 from app.utils.sanitize import is_safe_http_or_relative_url, sanitize_text, unsanitize_text
 
@@ -55,7 +56,15 @@ _ITEM_URL_FIELDS = {"link_href"}
 def _image_url(owner_slug: str, image_id: str | None) -> str | None:
     if not image_id:
         return None
-    return f"/static/products/{owner_slug}_{image_id}.webp"
+    # Owner images are uploaded to R2 under the shared products/ prefix with the
+    # same stem as product images. Reconstruct the R2 public URL from the stored
+    # image_id. If R2 is unconfigured (dev/test without R2), degrade gracefully
+    # to no image rather than crashing a read path.
+    key = object_storage_service.object_key_for_stem(f"{owner_slug}_{image_id}", ".webp")
+    try:
+        return object_storage_service.public_url(key)
+    except object_storage_service.StorageConfigError:
+        return None
 
 
 def _section_owner_slug(slug: str) -> str:

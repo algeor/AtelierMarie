@@ -11,7 +11,7 @@ import structlog
 from app.config import get_settings
 from app.constants import SQLITE_DATETIME_FORMAT, VIDEO_TRANSCODE_LEASE_SECONDS
 from app.database import get_db
-from app.services import video_service
+from app.services import object_storage_service, video_service
 
 logger = structlog.get_logger(__name__)
 
@@ -307,9 +307,15 @@ def update_sort_order(product_id: str, sort_order: int) -> dict:
     return _row_to_video(row)
 
 
-def _output_urls_for_row(row: sqlite3.Row) -> tuple[str, str]:
-    stem = f"{row['product_id']}_{row['id']}"
-    return (f"/static/products/{stem}_video.mp4", f"/static/products/{stem}_poster.webp")
+def _staged_output_paths_for_row(row: sqlite3.Row) -> tuple[str, str]:
+    """Local temp paths where transcode outputs for ``row`` would be staged.
+
+    Used to clean up partial ffmpeg outputs of an interrupted/expired transcode.
+    Only fully-successful transcodes reach R2, so a not-yet-ready row can only
+    have leftovers on local disk, never in the object store.
+    """
+    video_path, poster_path = video_service.output_paths(row["product_id"], row["id"])
+    return (str(video_path), str(poster_path))
 
 
 def _mark_expired_transcodes_failed(conn: sqlite3.Connection) -> tuple[int, list[str | None]]:
@@ -337,8 +343,8 @@ def _mark_expired_transcodes_failed(conn: sqlite3.Connection) -> tuple[int, list
     )
     cleanup: list[str | None] = []
     for row in expired:
-        video_url, poster_url = _output_urls_for_row(row)
-        cleanup.extend([row["source_path"], video_url, poster_url])
+        video_path, poster_path = _staged_output_paths_for_row(row)
+        cleanup.extend([row["source_path"], video_path, poster_path])
     return cursor.rowcount, cleanup
 
 
@@ -432,6 +438,31 @@ def _claim_one_queued(conn: sqlite3.Connection) -> sqlite3.Row | None:
     return conn.execute("SELECT * FROM product_videos WHERE id = %s", (row["id"],)).fetchone()
 
 
+def _upload_transcode_outputs(
+    product_id: str, video_id: str, video_path: str, poster_path: str | None
+) -> tuple[str, str | None]:
+    """Upload staged MP4 (and poster, if any) to R2; return their public URLs.
+
+    Reads the local ffmpeg outputs and uploads them under their derived object
+    keys. Raises :class:`object_storage_service.MediaStorageError` on failure so
+    the caller can route the row through the fail/cleanup path (no ``ready``
+    transition on an upload error). ``poster_path`` is ``None`` when poster
+    extraction fell back to a primary thumbnail URL (already stored, nothing to
+    upload here).
+    """
+    video_key = object_storage_service.object_key_for_video(product_id, video_id)
+    video_url = object_storage_service.upload_bytes(
+        video_key, Path(video_path).read_bytes(), "video/mp4"
+    )
+    poster_url: str | None = None
+    if poster_path is not None:
+        poster_key = object_storage_service.object_key_for_video_poster(product_id, video_id)
+        poster_url = object_storage_service.upload_bytes(
+            poster_key, Path(poster_path).read_bytes(), "image/webp"
+        )
+    return video_url, poster_url
+
+
 def drain_video_transcodes() -> int:
     """Run one video transcode job if available; return changed row count."""
     with get_db() as conn:
@@ -445,48 +476,65 @@ def drain_video_transcodes() -> int:
         return changed
 
     processed = 1
-    cleanup_on_failure: list[str | None] = [claimed["source_path"]]
-    output_video_url, output_poster_url = _output_urls_for_row(claimed)
-    cleanup_on_failure.extend([output_video_url, output_poster_url])
+    staged_video_path, staged_poster_path = _staged_output_paths_for_row(claimed)
+    # Local ffmpeg outputs + the raw source are the only artifacts to clean on
+    # failure: R2 objects are written only after a fully successful transcode,
+    # so a failed job never leaves a durable object to delete.
+    cleanup_on_failure: list[str | None] = [
+        claimed["source_path"],
+        staged_video_path,
+        staged_poster_path,
+    ]
     try:
-        transcoded = _run_with_lease_refresh(
+        _run_with_lease_refresh(
             claimed["id"],
             video_service.transcode,
             claimed["source_path"],
             claimed["product_id"],
             claimed["id"],
         )
+        poster_source_path: str | None = None
+        fallback_poster_url: str | None = None
         try:
-            static_root = Path(get_settings().static_file_path).resolve()
-            video_path = (
-                static_root / transcoded["video_url"].removeprefix("/static/").lstrip("/")
-            ).resolve()
             poster = _run_with_lease_refresh(
                 claimed["id"],
                 video_service.extract_poster,
-                video_path,
+                staged_video_path,
                 claimed["product_id"],
                 claimed["id"],
             )
-            poster_url = poster["poster_url"]
+            poster_source_path = poster["poster_path"]
         except video_service.VideoServiceError as exc:
             logger.warning("product_video_poster_fallback", video_id=claimed["id"], error=str(exc))
             with get_db() as conn:
-                poster_url = _primary_thumbnail(conn, claimed["product_id"])
-            if poster_url is None:
+                fallback_poster_url = _primary_thumbnail(conn, claimed["product_id"])
+            if fallback_poster_url is None:
                 logger.warning(
                     "product_video_poster_unavailable",
                     video_id=claimed["id"],
                     error=str(exc),
                 )
 
-        if not _update_ready_if_owned(claimed["id"], transcoded["video_url"], poster_url):
+        video_url, uploaded_poster_url = _run_with_lease_refresh(
+            claimed["id"],
+            _upload_transcode_outputs,
+            claimed["product_id"],
+            claimed["id"],
+            staged_video_path,
+            poster_source_path,
+        )
+        poster_url = uploaded_poster_url if poster_source_path is not None else fallback_poster_url
+
+        if not _update_ready_if_owned(claimed["id"], video_url, poster_url):
             logger.warning(
                 "product_video_ready_update_skipped",
                 video_id=claimed["id"],
                 reason="row no longer transcoding",
             )
-        video_service.unlink_video_files(claimed["source_path"])
+        # Durable copies now live in R2; drop the raw source and staged outputs.
+        video_service.unlink_video_files(
+            claimed["source_path"], staged_video_path, staged_poster_path
+        )
     except Exception as exc:
         logger.warning("product_video_transcode_failed", video_id=claimed["id"], error=str(exc))
         video_service.unlink_video_files(*cleanup_on_failure)

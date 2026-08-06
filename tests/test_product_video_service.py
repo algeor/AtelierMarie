@@ -7,7 +7,66 @@ from pathlib import Path
 import pytest
 
 from app.database import get_db
-from app.services import product_service, product_video_service, video_service
+from app.services import (
+    object_storage_service,
+    product_service,
+    product_video_service,
+    video_service,
+)
+
+
+class _FakeStorageBackend:
+    """In-memory key->bytes backend (design Decision 8); records deletes."""
+
+    def __init__(self) -> None:
+        self.objects: dict[str, bytes] = {}
+        self.deleted: list[str] = []
+
+    def put_object(self, key: str, data: bytes, content_type: str) -> None:
+        self.objects[key] = data
+
+    def delete_object(self, key: str) -> None:
+        self.deleted.append(key)
+        self.objects.pop(key, None)
+
+
+@pytest.fixture()
+def fake_storage(monkeypatch):
+    from app.config import get_settings
+
+    backend = _FakeStorageBackend()
+    object_storage_service.set_backend(backend)
+    monkeypatch.setattr(
+        get_settings(), "r2_public_base_url", "https://media.example.com", raising=False
+    )
+    yield backend
+    object_storage_service.set_backend(None)
+
+
+def _stage_transcode(product_id, video_id):
+    """Write a staged MP4 to the computed local output path and return it."""
+    video_path, _poster_path = video_service.output_paths(product_id, video_id)
+    video_path.write_bytes(b"mp4-bytes")
+    return {"video_path": str(video_path)}
+
+
+def _stage_poster(product_id, video_id):
+    """Write a staged poster to the computed local output path and return it."""
+    _video_path, poster_path = video_service.output_paths(product_id, video_id)
+    poster_path.write_bytes(b"webp-bytes")
+    return {"poster_path": str(poster_path)}
+
+
+def _patch_ffmpeg_staging(monkeypatch, *, transcode=None, poster=None):
+    """Patch transcode/extract_poster to write staged local outputs (defaults)."""
+    monkeypatch.setattr(
+        "app.services.video_service.transcode",
+        transcode or (lambda s, p, v: _stage_transcode(p, v)),
+    )
+    monkeypatch.setattr(
+        "app.services.video_service.extract_poster",
+        poster or (lambda s, p, v: _stage_poster(p, v)),
+    )
 
 
 @pytest.fixture()
@@ -151,64 +210,63 @@ def test_replace_ready_video_unlinks_old_files(_video_product, monkeypatch):
     assert "/static/products/old.webp" in deleted
 
 
-def test_drain_video_transcodes_success(_video_product, monkeypatch):
+def test_drain_video_transcodes_success(_video_product, fake_storage, monkeypatch):
     source = Path(_video_product / "video-temp" / "source.upload")
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_bytes(b"fake")
-    monkeypatch.setattr(
-        "app.services.video_service.transcode",
-        lambda source_path, product_id, video_id: {"video_url": "/static/products/out.mp4"},
-    )
-    monkeypatch.setattr(
-        "app.services.video_service.extract_poster",
-        lambda source_path, product_id, video_id: {"poster_url": "/static/products/poster.webp"},
-    )
+    _patch_ffmpeg_staging(monkeypatch)
 
+    video_id = "dddddddddddddddddddddddddddddddd"
     with get_db() as conn:
         conn.execute(
             """
             INSERT INTO product_videos (id, product_id, status, source_path, duration_secs)
             VALUES (%s, 'video-product', 'queued', %s, 8.0)
             """,
-            ("dddddddddddddddddddddddddddddddd", str(source)),
+            (video_id, str(source)),
         )
 
     assert product_video_service.drain_video_transcodes() == 1
 
+    video_key = f"products/video-product_{video_id}_video.mp4"
+    poster_key = f"products/video-product_{video_id}_poster.webp"
     with get_db() as conn:
         row = conn.execute(
             "SELECT * FROM product_videos WHERE product_id = 'video-product'"
         ).fetchone()
     assert row["status"] == "ready"
-    assert row["video_url"] == "/static/products/out.mp4"
-    assert row["poster_url"] == "/static/products/poster.webp"
+    assert row["video_url"] == f"https://media.example.com/{video_key}"
+    assert row["poster_url"] == f"https://media.example.com/{poster_key}"
     assert row["source_path"] is None
+    # Durable copies are in R2; the raw source and staged outputs are gone.
+    assert video_key in fake_storage.objects
+    assert poster_key in fake_storage.objects
     assert not source.exists()
+    staged_video, staged_poster = video_service.output_paths("video-product", video_id)
+    assert not staged_video.exists()
+    assert not staged_poster.exists()
 
 
 def test_drain_video_transcodes_keeps_ready_when_poster_has_no_fallback(
-    _video_product, monkeypatch
+    _video_product, fake_storage, monkeypatch
 ):
     source = Path(_video_product / "video-temp" / "source.upload")
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_bytes(b"fake")
-    monkeypatch.setattr(
-        "app.services.video_service.transcode",
-        lambda source_path, product_id, video_id: {"video_url": "/static/products/out.mp4"},
-    )
 
     def fail_poster(source_path, product_id, video_id):
         raise video_service.VideoProcessingError("poster failed")
 
-    monkeypatch.setattr("app.services.video_service.extract_poster", fail_poster)
+    _patch_ffmpeg_staging(monkeypatch, poster=fail_poster)
 
+    video_id = "abababababababababababababababab"
     with get_db() as conn:
         conn.execute(
             """
             INSERT INTO product_videos (id, product_id, status, source_path, duration_secs)
             VALUES (%s, 'video-product', 'queued', %s, 8.0)
             """,
-            ("abababababababababababababababab", str(source)),
+            (video_id, str(source)),
         )
 
     assert product_video_service.drain_video_transcodes() == 1
@@ -216,12 +274,56 @@ def test_drain_video_transcodes_keeps_ready_when_poster_has_no_fallback(
     with get_db() as conn:
         row = conn.execute("SELECT status, video_url, poster_url FROM product_videos").fetchone()
     assert row["status"] == "ready"
-    assert row["video_url"] == "/static/products/out.mp4"
+    assert (
+        row["video_url"] == f"https://media.example.com/products/video-product_{video_id}_video.mp4"
+    )
     assert row["poster_url"] is None
 
 
+def test_drain_video_transcodes_poster_fallback_uses_primary_thumbnail(
+    _video_product, fake_storage, monkeypatch
+):
+    source = Path(_video_product / "video-temp" / "source.upload")
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(b"fake")
+
+    def fail_poster(source_path, product_id, video_id):
+        raise video_service.VideoProcessingError("poster failed")
+
+    _patch_ffmpeg_staging(monkeypatch, poster=fail_poster)
+
+    thumb_url = "https://media.example.com/products/video-product_img_thumb.webp"
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO product_images (
+                id, product_id, image_url, thumbnail_url, is_primary, sort_order
+            ) VALUES (
+                'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'video-product',
+                'https://media.example.com/products/video-product_img.webp', %s, 1, 0
+            )
+            """,
+            (thumb_url,),
+        )
+        conn.execute(
+            """
+            INSERT INTO product_videos (id, product_id, status, source_path, duration_secs)
+            VALUES ('bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc', 'video-product', 'queued', %s, 8.0)
+            """,
+            (str(source),),
+        )
+
+    assert product_video_service.drain_video_transcodes() == 1
+
+    with get_db() as conn:
+        row = conn.execute("SELECT status, poster_url FROM product_videos").fetchone()
+    assert row["status"] == "ready"
+    # Poster falls back to the primary thumbnail (already an R2 URL post-migration).
+    assert row["poster_url"] == thumb_url
+
+
 def test_drain_video_transcodes_does_not_overwrite_row_no_longer_transcoding(
-    _video_product, monkeypatch
+    _video_product, fake_storage, monkeypatch
 ):
     source = Path(_video_product / "video-temp" / "source.upload")
     source.parent.mkdir(parents=True, exist_ok=True)
@@ -237,13 +339,9 @@ def test_drain_video_transcodes_does_not_overwrite_row_no_longer_transcoding(
                 """,
                 (video_id,),
             )
-        return {"video_url": f"/static/products/{product_id}_{video_id}_video.mp4"}
+        return _stage_transcode(product_id, video_id)
 
-    monkeypatch.setattr("app.services.video_service.transcode", transcode)
-    monkeypatch.setattr(
-        "app.services.video_service.extract_poster",
-        lambda source_path, product_id, video_id: {"poster_url": "/static/products/poster.webp"},
-    )
+    _patch_ffmpeg_staging(monkeypatch, transcode=transcode)
     with get_db() as conn:
         conn.execute(
             """
@@ -264,7 +362,7 @@ def test_drain_video_transcodes_does_not_overwrite_row_no_longer_transcoding(
     assert row["video_url"] is None
 
 
-def test_drain_processes_only_one_queued_video_per_sweep(_video_product, monkeypatch):
+def test_drain_processes_only_one_queued_video_per_sweep(_video_product, fake_storage, monkeypatch):
     from app.services import product_service
 
     product_service.create_product(
@@ -275,18 +373,7 @@ def test_drain_processes_only_one_queued_video_per_sweep(_video_product, monkeyp
     source_one.parent.mkdir(parents=True, exist_ok=True)
     source_one.write_bytes(b"one")
     source_two.write_bytes(b"two")
-    monkeypatch.setattr(
-        "app.services.video_service.transcode",
-        lambda source_path, product_id, video_id: {
-            "video_url": f"/static/products/{product_id}-{video_id}.mp4"
-        },
-    )
-    monkeypatch.setattr(
-        "app.services.video_service.extract_poster",
-        lambda source_path, product_id, video_id: {
-            "poster_url": f"/static/products/{product_id}-{video_id}.webp"
-        },
-    )
+    _patch_ffmpeg_staging(monkeypatch)
 
     with get_db() as conn:
         conn.execute(
@@ -313,7 +400,9 @@ def test_drain_processes_only_one_queued_video_per_sweep(_video_product, monkeyp
     assert {row["status"]: row["count"] for row in rows} == {"queued": 1, "ready": 1}
 
 
-def test_concurrent_drains_only_one_claims_single_queued_video(_video_product, monkeypatch):
+def test_concurrent_drains_only_one_claims_single_queued_video(
+    _video_product, fake_storage, monkeypatch
+):
     source = Path(_video_product / "video-temp" / "source.upload")
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_bytes(b"fake")
@@ -323,13 +412,9 @@ def test_concurrent_drains_only_one_claims_single_queued_video(_video_product, m
     def transcode(source_path, product_id, video_id):
         claimed.set()
         assert release.wait(timeout=5)
-        return {"video_url": "/static/products/out.mp4"}
+        return _stage_transcode(product_id, video_id)
 
-    monkeypatch.setattr("app.services.video_service.transcode", transcode)
-    monkeypatch.setattr(
-        "app.services.video_service.extract_poster",
-        lambda source_path, product_id, video_id: {"poster_url": "/static/products/poster.webp"},
-    )
+    _patch_ffmpeg_staging(monkeypatch, transcode=transcode)
     with get_db() as conn:
         conn.execute(
             """
@@ -382,15 +467,53 @@ def test_drain_video_transcodes_failure_is_terminal(_video_product, monkeypatch)
     assert row["source_path"] is None
 
 
+def test_drain_video_transcodes_r2_upload_failure_does_not_go_ready(
+    _video_product, fake_storage, monkeypatch
+):
+    source = Path(_video_product / "video-temp" / "source.upload")
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(b"fake")
+    _patch_ffmpeg_staging(monkeypatch)
+
+    def boom(key, data, content_type):
+        raise object_storage_service.MediaStorageError("R2 upload failed")
+
+    monkeypatch.setattr(object_storage_service, "upload_bytes", boom)
+
+    video_id = "aeaeaeaeaeaeaeaeaeaeaeaeaeaeaeae"
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO product_videos (id, product_id, status, source_path, duration_secs)
+            VALUES (%s, 'video-product', 'queued', %s, 8.0)
+            """,
+            (video_id, str(source)),
+        )
+
+    assert product_video_service.drain_video_transcodes() == 1
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT status, video_url, poster_url, source_path FROM product_videos"
+        ).fetchone()
+    assert row["status"] == "failed"
+    assert row["video_url"] is None
+    assert row["poster_url"] is None
+    assert row["source_path"] is None
+    # Staged local outputs are cleaned up on the failure path.
+    staged_video, staged_poster = video_service.output_paths("video-product", video_id)
+    assert not staged_video.exists()
+    assert not staged_poster.exists()
+    assert not source.exists()
+
+
 def test_expired_transcode_marked_failed(_video_product):
     source = Path(_video_product / "video-temp" / "expired.upload")
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_bytes(b"raw")
+    # Staged transcode outputs now live in the local temp dir, not /static.
     partial = Path(
-        _video_product
-        / "static"
-        / "products"
-        / "video-product_ffffffffffffffffffffffffffffffff_video.mp4"
+        _video_product / "video-temp" / "video-product_ffffffffffffffffffffffffffffffff_video.mp4"
     )
     partial.parent.mkdir(parents=True, exist_ok=True)
     partial.write_bytes(b"partial")

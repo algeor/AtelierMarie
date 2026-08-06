@@ -5,13 +5,13 @@ EXIF stripping, pixel flood, overwrite, directory auto-creation.
 """
 
 import io
-from pathlib import Path
 
 import pytest
 from httpx import AsyncClient
 from PIL import Image
 
 from app.database import get_db
+from app.services import object_storage_service
 from app.services.image_service import (
     FileTooLargeError,
     ImageProcessingError,
@@ -20,6 +20,44 @@ from app.services.image_service import (
     process_image,
     validate_image_file,
 )
+
+_R2_PUBLIC_BASE = "https://cdn.test.example"
+
+
+class _FakeStorageBackend:
+    """In-memory storage backend (key -> bytes) for tests; no live bucket."""
+
+    def __init__(self) -> None:
+        self.objects: dict[str, bytes] = {}
+
+    def put_object(self, key: str, data: bytes, content_type: str) -> None:
+        self.objects[key] = data
+
+    def delete_object(self, key: str) -> None:
+        self.objects.pop(key, None)
+
+
+@pytest.fixture()
+def fake_storage():
+    """Inject an in-memory R2 backend and configure the public base URL."""
+    from app.config import get_settings
+
+    settings = get_settings()
+    original_base = settings.r2_public_base_url
+    settings.r2_public_base_url = _R2_PUBLIC_BASE
+    backend = _FakeStorageBackend()
+    object_storage_service.set_backend(backend)
+    try:
+        yield backend
+    finally:
+        object_storage_service.set_backend(None)
+        settings.r2_public_base_url = original_base
+
+
+def _open_variant(backend: _FakeStorageBackend, key: str) -> Image.Image:
+    """Open a WebP variant stored in the fake backend under an R2 object key."""
+    return Image.open(io.BytesIO(backend.objects[key]))
+
 
 # --- Helpers ---
 
@@ -113,86 +151,76 @@ class TestValidateImageFile:
 class TestProcessImage:
     """Task 57: process_image tests."""
 
-    def test_landscape_image_resized_within_bounds(self, tmp_path):
+    def test_landscape_image_resized_within_bounds(self, fake_storage):
         """Landscape image is resized to fit within configured bounding boxes."""
         img_data = _make_jpeg(6000, 4000)
-        result = process_image(img_data, "landscape-candle", str(tmp_path))
+        result = process_image(img_data, "landscape-candle")
 
-        assert result["image_url"] == "/static/products/landscape-candle.webp"
-        assert result["thumbnail_url"] == "/static/products/landscape-candle_thumb.webp"
-        assert result["zoom_url"] == "/static/products/landscape-candle_zoom.webp"
+        assert result["image_url"] == f"{_R2_PUBLIC_BASE}/products/landscape-candle.webp"
+        assert (
+            result["thumbnail_url"] == f"{_R2_PUBLIC_BASE}/products/landscape-candle_thumb.webp"
+        )
+        assert result["zoom_url"] == f"{_R2_PUBLIC_BASE}/products/landscape-candle_zoom.webp"
 
-        # Verify main image dimensions
-        main_path = tmp_path / "products" / "landscape-candle.webp"
-        zoom_path = tmp_path / "products" / "landscape-candle_zoom.webp"
-        assert main_path.exists()
-        with Image.open(main_path) as img:
+        # Verify main image dimensions from the uploaded object bytes.
+        assert "products/landscape-candle.webp" in fake_storage.objects
+        with _open_variant(fake_storage, "products/landscape-candle.webp") as img:
             assert img.size == (2000, 1333)
-        with Image.open(zoom_path) as img:
+        with _open_variant(fake_storage, "products/landscape-candle_zoom.webp") as img:
             assert img.size == (3000, 2000)
 
-    def test_portrait_image_resized(self, tmp_path):
+    def test_portrait_image_resized(self, fake_storage):
         """Portrait image fits within bounding box."""
         img_data = _make_jpeg(3000, 6000)
-        process_image(img_data, "portrait-candle", str(tmp_path))
+        process_image(img_data, "portrait-candle")
 
-        main_path = tmp_path / "products" / "portrait-candle.webp"
-        zoom_path = tmp_path / "products" / "portrait-candle_zoom.webp"
-        with Image.open(main_path) as img:
+        with _open_variant(fake_storage, "products/portrait-candle.webp") as img:
             assert img.size == (1250, 2500)
-        with Image.open(zoom_path) as img:
+        with _open_variant(fake_storage, "products/portrait-candle_zoom.webp") as img:
             assert img.size == (1875, 3750)
 
-    def test_small_image_no_upscale(self, tmp_path):
+    def test_small_image_no_upscale(self, fake_storage):
         """Small image is NOT upscaled (thumbnail mode)."""
         img_data = _make_jpeg(200, 150)
-        process_image(img_data, "small-candle", str(tmp_path))
+        process_image(img_data, "small-candle")
 
-        main_path = tmp_path / "products" / "small-candle.webp"
-        thumb_path = tmp_path / "products" / "small-candle_thumb.webp"
-        zoom_path = tmp_path / "products" / "small-candle_zoom.webp"
-        with Image.open(main_path) as img:
+        with _open_variant(fake_storage, "products/small-candle.webp") as img:
             assert img.width == 200
             assert img.height == 150
-        with Image.open(thumb_path) as img:
+        with _open_variant(fake_storage, "products/small-candle_thumb.webp") as img:
             assert img.width == 200
             assert img.height == 150
-        with Image.open(zoom_path) as img:
+        with _open_variant(fake_storage, "products/small-candle_zoom.webp") as img:
             assert img.width == 200
             assert img.height == 150
 
-    def test_output_is_webp_format(self, tmp_path):
+    def test_output_is_webp_format(self, fake_storage):
         """Main, thumbnail, and zoom are saved as WebP."""
         img_data = _make_jpeg(800, 600)
-        process_image(img_data, "webp-test", str(tmp_path))
+        process_image(img_data, "webp-test")
 
-        main_path = tmp_path / "products" / "webp-test.webp"
-        thumb_path = tmp_path / "products" / "webp-test_thumb.webp"
-        zoom_path = tmp_path / "products" / "webp-test_zoom.webp"
-
-        with Image.open(main_path) as img:
+        with _open_variant(fake_storage, "products/webp-test.webp") as img:
             assert img.format == "WEBP"
-        with Image.open(thumb_path) as img:
+        with _open_variant(fake_storage, "products/webp-test_thumb.webp") as img:
             assert img.format == "WEBP"
-        with Image.open(zoom_path) as img:
+        with _open_variant(fake_storage, "products/webp-test_zoom.webp") as img:
             assert img.format == "WEBP"
 
-    def test_main_thumb_and_zoom_created(self, tmp_path):
-        """Main, thumbnail, and zoom files are created."""
+    def test_main_thumb_and_zoom_created(self, fake_storage):
+        """Main, thumbnail, and zoom objects are uploaded."""
         img_data = _make_jpeg(800, 600)
-        process_image(img_data, "both-test", str(tmp_path))
+        process_image(img_data, "both-test")
 
-        assert (tmp_path / "products" / "both-test.webp").exists()
-        assert (tmp_path / "products" / "both-test_thumb.webp").exists()
-        assert (tmp_path / "products" / "both-test_zoom.webp").exists()
+        assert "products/both-test.webp" in fake_storage.objects
+        assert "products/both-test_thumb.webp" in fake_storage.objects
+        assert "products/both-test_zoom.webp" in fake_storage.objects
 
-    def test_thumbnail_smaller_than_main(self, tmp_path):
+    def test_thumbnail_smaller_than_main(self, fake_storage):
         """Thumbnail dimensions are within 400x500."""
         img_data = _make_jpeg(2000, 2000)
-        process_image(img_data, "thumb-size-test", str(tmp_path))
+        process_image(img_data, "thumb-size-test")
 
-        thumb_path = tmp_path / "products" / "thumb-size-test_thumb.webp"
-        with Image.open(thumb_path) as img:
+        with _open_variant(fake_storage, "products/thumb-size-test_thumb.webp") as img:
             assert img.width <= 400
             assert img.height <= 500
 
@@ -214,23 +242,16 @@ class TestImageUploadRoute:
             )
 
     @pytest.mark.asyncio
-    async def test_upload_happy_path(self, admin_client: AsyncClient, _product, tmp_path, app):
+    async def test_upload_happy_path(
+        self, admin_client: AsyncClient, _product, fake_storage, app
+    ):
         """Admin + valid image -> 201 with gallery image."""
         img_data = _make_jpeg(800, 600)
 
-        # Patch static path to use tmp_path
-        from app.config import get_settings
-
-        settings = get_settings()
-        original = settings.static_file_path
-        settings.static_file_path = str(tmp_path)
-        try:
-            response = await admin_client.post(
-                "/v1/admin/products/test-candle-img/images",
-                files={"file": ("image.jpg", img_data, "image/jpeg")},
-            )
-        finally:
-            settings.static_file_path = original
+        response = await admin_client.post(
+            "/v1/admin/products/test-candle-img/images",
+            files={"file": ("image.jpg", img_data, "image/jpeg")},
+        )
 
         assert response.status_code == 201
         body = response.json()
@@ -238,8 +259,8 @@ class TestImageUploadRoute:
         assert "image_url" in body
         assert "thumbnail_url" in body
         assert "zoom_url" in body
-        assert body["image_url"].startswith("/static/products/test-candle-img_")
-        assert body["zoom_url"].startswith("/static/products/test-candle-img_")
+        assert body["image_url"].startswith(f"{_R2_PUBLIC_BASE}/products/test-candle-img_")
+        assert body["zoom_url"].startswith(f"{_R2_PUBLIC_BASE}/products/test-candle-img_")
         assert body["is_primary"] is True
 
     @pytest.mark.asyncio
@@ -286,23 +307,15 @@ class TestImageUploadRoute:
 
     @pytest.mark.asyncio
     async def test_upload_inserts_product_image_row(
-        self, admin_client: AsyncClient, _product, tmp_path, app
+        self, admin_client: AsyncClient, _product, fake_storage, app
     ):
         """After upload, a product_images row is inserted."""
         img_data = _make_jpeg(800, 600)
 
-        from app.config import get_settings
-
-        settings = get_settings()
-        original = settings.static_file_path
-        settings.static_file_path = str(tmp_path)
-        try:
-            await admin_client.post(
-                "/v1/admin/products/test-candle-img/images",
-                files={"file": ("image.jpg", img_data, "image/jpeg")},
-            )
-        finally:
-            settings.static_file_path = original
+        await admin_client.post(
+            "/v1/admin/products/test-candle-img/images",
+            files={"file": ("image.jpg", img_data, "image/jpeg")},
+        )
 
         with get_db() as conn:
             row = conn.execute(
@@ -312,9 +325,9 @@ class TestImageUploadRoute:
                 ),
                 ("test-candle-img",),
             ).fetchone()
-        assert row["image_url"].startswith("/static/products/test-candle-img_")
-        assert row["thumbnail_url"].startswith("/static/products/test-candle-img_")
-        assert row["zoom_url"].startswith("/static/products/test-candle-img_")
+        assert row["image_url"].startswith(f"{_R2_PUBLIC_BASE}/products/test-candle-img_")
+        assert row["thumbnail_url"].startswith(f"{_R2_PUBLIC_BASE}/products/test-candle-img_")
+        assert row["zoom_url"].startswith(f"{_R2_PUBLIC_BASE}/products/test-candle-img_")
         assert row["is_primary"] == 1
 
 
@@ -324,55 +337,52 @@ class TestImageUploadRoute:
 class TestImageOverwrite:
     """Task 59: Upload twice, second replaces first."""
 
-    def test_overwrite_replaces_existing(self, tmp_path):
+    def test_overwrite_replaces_existing(self, fake_storage):
         """Second upload overwrites the first."""
         img1 = _make_jpeg(100, 100)
         img2 = _make_png(200, 200)
 
-        result1 = process_image(img1, "overwrite-test", str(tmp_path))
-        result2 = process_image(img2, "overwrite-test", str(tmp_path))
+        result1 = process_image(img1, "overwrite-test")
+        result2 = process_image(img2, "overwrite-test")
 
         # Both return same URLs
         assert result1["image_url"] == result2["image_url"]
 
-        # File contains the second image (200x200, not 100x100)
-        main_path = tmp_path / "products" / "overwrite-test.webp"
-        with Image.open(main_path) as img:
+        # Object contains the second image (200x200, not 100x100)
+        with _open_variant(fake_storage, "products/overwrite-test.webp") as img:
             assert img.width == 200
             assert img.height == 200
 
-    def test_image_id_creates_distinct_files(self, tmp_path):
+    def test_image_id_creates_distinct_files(self, fake_storage):
         """Supplying image_id appends instead of overwriting."""
         img1 = _make_jpeg(100, 100)
         img2 = _make_png(200, 200)
         id1 = "a" * 32
         id2 = "b" * 32
 
-        result1 = process_image(img1, "gallery-test", str(tmp_path), image_id=id1)
-        result2 = process_image(img2, "gallery-test", str(tmp_path), image_id=id2)
+        result1 = process_image(img1, "gallery-test", image_id=id1)
+        result2 = process_image(img2, "gallery-test", image_id=id2)
 
         assert result1["image_url"] != result2["image_url"]
-        assert (tmp_path / "products" / f"gallery-test_{id1}.webp").exists()
-        assert (tmp_path / "products" / f"gallery-test_{id2}.webp").exists()
-        assert (tmp_path / "products" / f"gallery-test_{id1}_zoom.webp").exists()
-        assert (tmp_path / "products" / f"gallery-test_{id2}_zoom.webp").exists()
+        assert f"products/gallery-test_{id1}.webp" in fake_storage.objects
+        assert f"products/gallery-test_{id2}.webp" in fake_storage.objects
+        assert f"products/gallery-test_{id1}_zoom.webp" in fake_storage.objects
+        assert f"products/gallery-test_{id2}_zoom.webp" in fake_storage.objects
 
 
 # --- Test directory auto-creation ---
 
 
 class TestDirectoryAutoCreation:
-    """Task 60: Directory created on first upload."""
+    """Task 60: objects uploaded to R2 (no local disk dependency)."""
 
-    def test_products_dir_created_if_missing(self, tmp_path):
-        """Process creates products/ subdirectory if it doesn't exist."""
-        # Use a nested non-existent path
-        static_path = str(tmp_path / "new_static")
+    def test_products_objects_uploaded(self, fake_storage):
+        """Process uploads variant objects under the products/ prefix."""
         img_data = _make_jpeg(100, 100)
 
-        process_image(img_data, "auto-dir-test", static_path)
+        process_image(img_data, "auto-dir-test")
 
-        assert (Path(static_path) / "products" / "auto-dir-test.webp").exists()
+        assert "products/auto-dir-test.webp" in fake_storage.objects
 
 
 # --- Test corrupted image ---
@@ -381,14 +391,14 @@ class TestDirectoryAutoCreation:
 class TestCorruptedImage:
     """Task 61: Corrupted image handled gracefully."""
 
-    def test_valid_magic_bytes_but_truncated_body(self, tmp_path):
+    def test_valid_magic_bytes_but_truncated_body(self):
         """JPEG magic bytes but truncated → ImageProcessingError, not crash."""
         # Valid JPEG header but no actual image data
         truncated = b"\xff\xd8\xff\xe0" + b"\x00" * 20
         validate_image_file(truncated, "corrupted-test")  # Passes validation
 
         with pytest.raises(ImageProcessingError):
-            process_image(truncated, "corrupted-test", str(tmp_path))
+            process_image(truncated, "corrupted-test")
 
 
 # --- Test pixel flood ---
@@ -397,7 +407,7 @@ class TestCorruptedImage:
 class TestPixelFlood:
     """Task 62: Pixel flood protection."""
 
-    def test_exactly_25m_pixels_accepted(self, tmp_path):
+    def test_exactly_25m_pixels_accepted(self, fake_storage):
         """5000×5000 = 25M pixels → accepted."""
         # Create a very large but valid JPEG
         img = Image.new("RGB", (5000, 5000), color=(128, 128, 128))
@@ -406,11 +416,11 @@ class TestPixelFlood:
         img_data = buf.getvalue()
 
         # Should not raise
-        result = process_image(img_data, "large-ok", str(tmp_path))
+        result = process_image(img_data, "large-ok")
         assert "image_url" in result
         assert "zoom_url" in result
 
-    def test_over_25m_pixels_rejected(self, tmp_path):
+    def test_over_25m_pixels_rejected(self):
         """5001×5000 > 25M pixels → rejected."""
         # Temporarily increase MAX_IMAGE_PIXELS to create the test image. Use
         # try/finally so a failure mid-creation cannot leave the global disabled
@@ -427,7 +437,7 @@ class TestPixelFlood:
             Image.MAX_IMAGE_PIXELS = old_max  # Restore for processing
 
         with pytest.raises(ImageProcessingError, match="image_dimensions_too_large"):
-            process_image(img_data, "too-large", str(tmp_path))
+            process_image(img_data, "too-large")
 
 
 # --- Test path traversal prevention ---
@@ -463,13 +473,12 @@ class TestPathTraversal:
 class TestExifStripping:
     """Task 64: EXIF data stripped from output."""
 
-    def test_output_has_no_exif(self, tmp_path):
+    def test_output_has_no_exif(self, fake_storage):
         """Upload JPEG with EXIF, verify output WebP has no EXIF."""
         img_data = _make_jpeg_with_exif()
-        process_image(img_data, "exif-test", str(tmp_path))
+        process_image(img_data, "exif-test")
 
-        main_path = tmp_path / "products" / "exif-test.webp"
-        with Image.open(main_path) as img:
+        with _open_variant(fake_storage, "products/exif-test.webp") as img:
             exif = img.getexif()
             # WebP output should have no EXIF data
             assert len(exif) == 0
@@ -524,24 +533,22 @@ def _make_jpeg_with_orientation(width: int, height: int, orientation: int) -> by
 class TestExifOrientationApplied:
     """EXIF orientation is baked into the pixels before resizing (upright output)."""
 
-    def test_orientation_6_uprights_portrait_photo(self, tmp_path):
+    def test_orientation_6_uprights_portrait_photo(self, fake_storage):
         # Stored 120x60 landscape, orientation 6 → display is 60x120 portrait.
         img_data = _make_jpeg_with_orientation(120, 60, orientation=6)
-        process_image(img_data, "sideways-candle", str(tmp_path))
+        process_image(img_data, "sideways-candle")
 
-        main_path = tmp_path / "products" / "sideways-candle.webp"
-        with Image.open(main_path) as img:
+        with _open_variant(fake_storage, "products/sideways-candle.webp") as img:
             # After exif_transpose the image is uprighted: portrait, not landscape.
             assert img.width < img.height
             assert img.size == (60, 120)
 
-    def test_no_orientation_flag_leaves_dimensions(self, tmp_path):
+    def test_no_orientation_flag_leaves_dimensions(self, fake_storage):
         # A plain image (editor canvas export carries no EXIF) is a no-op.
         img_data = _make_jpeg(120, 60)
-        process_image(img_data, "plain-candle", str(tmp_path))
+        process_image(img_data, "plain-candle")
 
-        main_path = tmp_path / "products" / "plain-candle.webp"
-        with Image.open(main_path) as img:
+        with _open_variant(fake_storage, "products/plain-candle.webp") as img:
             assert img.size == (120, 60)
 
 

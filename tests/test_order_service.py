@@ -22,6 +22,7 @@ from app.services.order_service import (
     update_status,
     update_status_async,
 )
+from tests.conftest import FakeStorageBackend
 
 # --- Fixtures ---
 
@@ -160,6 +161,44 @@ class TestCheckoutSuccess:
         # Cart cleared
         cart_count = conn.execute(
             "SELECT COUNT(*) AS count FROM cart_items WHERE session_id = %s", (session_id,)
+        ).fetchone()["count"]
+        assert cart_count == 0
+
+    def test_checkout_succeeds_when_object_storage_is_down(
+        self, conn, cart_with_items, products, delivery
+    ):
+        """Layer-1 isolation: checkout must not depend on the media storage layer.
+
+        Media storage is Layer-1-adjacent but off the critical path. Even with the
+        object-storage backend raising on every call (R2 outage), a checkout must
+        still create the order, snapshot prices, decrement stock, and clear the
+        cart. Checkout never touches object storage, so a failing backend proves
+        the isolation guarantee rather than merely exercising a mock.
+        """
+        from app.services import object_storage_service
+
+        object_storage_service.set_backend(FakeStorageBackend(fail=True))
+        try:
+            order = checkout(
+                conn=conn,
+                session_id=cart_with_items,
+                customer_email="marie@example.com",
+                customer_name="Marie",
+                delivery=delivery,
+            )
+            conn.commit()
+        finally:
+            object_storage_service.set_backend(None)
+
+        assert order["status"] == "pending"
+        assert order["total_cents"] == 2500 * 2 + 3500 * 1
+        lavender_stock = conn.execute(
+            "SELECT stock FROM products WHERE id = 'lavender-dream'"
+        ).fetchone()["stock"]
+        assert lavender_stock == 8
+        cart_count = conn.execute(
+            "SELECT COUNT(*) AS count FROM cart_items WHERE session_id = %s",
+            (cart_with_items,),
         ).fetchone()["count"]
         assert cart_count == 0
 
