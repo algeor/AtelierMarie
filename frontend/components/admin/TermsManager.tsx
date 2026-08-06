@@ -2,6 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
+import { useSearchParams } from "next/navigation";
+import { AdminMobileTargetSelect } from "@/components/admin/AdminMobileTargetSelect";
+import { AdminTranslationGapButton, MissingBgLabel, isMissingTranslation, type AdminTranslationGap } from "@/components/admin/AdminTranslationGaps";
 import { getAdminTerms, updateTermsPage, updateTermsSection } from "@/lib/api";
 import { SaveConfirmation } from "@/components/admin/SaveConfirmation";
 import { Button } from "@/components/ui/Button";
@@ -75,6 +78,7 @@ function sectionDraft(section: TermsSectionAdminResponse): SectionDraft {
 export function TermsManager() {
   const t = useTranslations("admin.terms");
   const tCommon = useTranslations("common");
+  const searchParams = useSearchParams();
   const [terms, setTerms] = useState<TermsAdminResponse | null>(null);
   const [selectedTarget, setSelectedTarget] = useState<Target>("page");
   const [drafts, setDrafts] = useState<Record<string, SectionDraft>>({});
@@ -105,14 +109,42 @@ export function TermsManager() {
   }, []);
 
   useEffect(() => {
-    if (!terms || selectedTarget === "page") return;
-    if (!terms.sections.some((section) => section.slug === selectedTarget)) {
+    if (!terms) return;
+    const requestedTarget = searchParams?.get("target") ?? null;
+    if (requestedTarget && (requestedTarget === "page" || terms.sections.some((section) => section.slug === requestedTarget))) {
+      setSelectedTarget(requestedTarget);
+      return;
+    }
+    if (selectedTarget !== "page" && !terms.sections.some((section) => section.slug === selectedTarget)) {
       setSelectedTarget("page");
     }
-  }, [terms, selectedTarget]);
+  }, [terms, selectedTarget, searchParams]);
 
   const selectedSection = selectedTarget === "page" ? null : terms?.sections.find((section) => section.slug === selectedTarget) ?? null;
   const overview = useMemo(() => summarizeTerms(terms, drafts), [terms, drafts]);
+  const allTranslationGaps = terms ? [
+    ...termsPageTranslationGaps(terms.page, () => setSelectedTarget("page")),
+    ...terms.sections.flatMap((section) => termsSectionTranslationGaps(section, drafts[section.slug] ?? sectionDraft(section), () => setSelectedTarget(section.slug))),
+  ] : [];
+  const mobileTargetOptions = terms ? [
+    {
+      value: "page",
+      label: t("pageSection"),
+      group: "Page",
+      description: "SEO, hero, policy links, and navigation labels",
+    },
+    ...terms.sections.map((section) => {
+      const draft = drafts[section.slug] ?? sectionDraft(section);
+      const paragraphs = splitParagraphs(draft.body_en).length;
+      const formLines = splitLines(draft.model_form_lines_en)?.length ?? 0;
+      return {
+        value: section.slug,
+        label: section.title_en,
+        group: "Terms sections",
+        description: `${paragraphs} paragraph${paragraphs === 1 ? "" : "s"}${formLines > 0 ? ` · ${formLines} form line${formLines === 1 ? "" : "s"}` : ""}`,
+      };
+    }),
+  ] : [];
 
   function showSaved(message = tCommon("saved")) {
     if (saveNoticeTimerRef.current) clearTimeout(saveNoticeTimerRef.current);
@@ -215,7 +247,7 @@ export function TermsManager() {
   if (!terms && !error) return <p className="text-sm text-soft-brown">{t("loading")}</p>;
 
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-5">
       <header className="rounded-brand border border-admin-border/50 bg-admin-surface p-4 shadow-sm sm:p-5">
         <div className="max-w-2xl">
           <p className="text-xs font-semibold uppercase tracking-wide text-admin-muted">Legal copy workspace</p>
@@ -226,7 +258,7 @@ export function TermsManager() {
           <OverviewTile label="Sections" value={String(overview.sections)} detail="legal blocks" />
           <OverviewTile label="Paragraphs" value={String(overview.paragraphs)} detail="public copy" />
           <OverviewTile label="Form lines" value={String(overview.formLines)} detail="withdrawal form" />
-          <OverviewTile label="Translation gaps" value={String(overview.translationGaps)} detail="need review" warning={overview.translationGaps > 0} />
+          <OverviewTile label="Translation gaps" value={<AdminTranslationGapButton gaps={allTranslationGaps} label="Terms translation gaps" />} detail="need review" warning={overview.translationGaps > 0} />
         </div>
       </header>
 
@@ -234,36 +266,55 @@ export function TermsManager() {
       {saveNotice && <SaveConfirmation key={saveNotice.id} message={saveNotice.message} />}
 
       {terms ? (
-        <div className="grid gap-5 xl:grid-cols-[21rem_minmax(0,1fr)]">
-          <aside className="space-y-3 xl:sticky xl:top-24 xl:self-start">
+        <div className="grid min-w-0 gap-5 xl:grid-cols-[21rem_minmax(0,1fr)]">
+          <AdminMobileTargetSelect
+            label="Edit target"
+            value={selectedTarget}
+            onChange={(value) => setSelectedTarget(value)}
+            options={mobileTargetOptions}
+          />
+
+          <aside className="hidden min-w-0 space-y-3 xl:sticky xl:top-24 xl:block xl:self-start">
             <div className="flex items-center justify-between gap-3">
               <h2 className="font-heading text-xl font-semibold text-charcoal">Edit target</h2>
               <span className="rounded-brand bg-admin-surface px-2 py-1 text-xs font-medium text-soft-brown">{terms.sections.length + 1} total</span>
             </div>
-            <div className="space-y-2">
-              <TargetCard
-                title={t("pageSection")}
-                detail={terms.page.title_en}
-                selected={selectedTarget === "page"}
-                countLabel="Page fields"
-                gaps={pageTranslationGapCount(terms.page)}
-                onSelect={() => setSelectedTarget("page")}
-              />
-              {terms.sections.map((section) => (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <MenuGroupLabel>Page</MenuGroupLabel>
                 <TargetCard
-                  key={section.slug}
-                  title={section.title_en}
-                  detail={section.slug}
-                  selected={selectedTarget === section.slug}
-                  countLabel={`${section.body_en.length} paragraph${section.body_en.length === 1 ? "" : "s"}`}
-                  gaps={sectionTranslationGapCount(section, drafts[section.slug] ?? sectionDraft(section))}
-                  onSelect={() => setSelectedTarget(section.slug)}
+                  title={t("pageSection")}
+                  detail={terms.page.title_en}
+                  selected={selectedTarget === "page"}
+                  countLabel="SEO, hero, links"
+                  gaps={termsPageTranslationGaps(terms.page, () => setSelectedTarget("page"))}
+                  onSelect={() => setSelectedTarget("page")}
                 />
-              ))}
+              </div>
+
+              <div className="space-y-2">
+                <MenuGroupLabel>Terms sections</MenuGroupLabel>
+                {terms.sections.map((section) => {
+                  const draft = drafts[section.slug] ?? sectionDraft(section);
+                  const paragraphs = splitParagraphs(draft.body_en).length;
+                  const formLines = splitLines(draft.model_form_lines_en)?.length ?? 0;
+                  return (
+                    <TargetCard
+                      key={section.slug}
+                      title={section.title_en}
+                      detail={section.slug}
+                      selected={selectedTarget === section.slug}
+                      countLabel={`${paragraphs} paragraph${paragraphs === 1 ? "" : "s"}${formLines > 0 ? ` · ${formLines} form line${formLines === 1 ? "" : "s"}` : ""}`}
+                      gaps={termsSectionTranslationGaps(section, draft, () => setSelectedTarget(section.slug))}
+                      onSelect={() => setSelectedTarget(section.slug)}
+                    />
+                  );
+                })}
+              </div>
             </div>
           </aside>
 
-          <section className="rounded-brand border border-admin-border/50 bg-admin-surface shadow-sm">
+          <section className="min-w-0 overflow-hidden rounded-brand border border-admin-border/50 bg-admin-surface shadow-sm">
             {selectedTarget === "page" ? (
               <PageEditor page={terms.page} onChange={updatePageField} onSave={savePage} />
             ) : selectedSection ? (
@@ -288,7 +339,7 @@ function PageEditor({ page, onChange, onSave }: { page: TermsPageAdminResponse; 
     <div>
       <EditorHeader title={t("pageSection")} detail="SEO, hero, related policy links, and page navigation labels." />
       <div className="space-y-5 p-4 sm:p-5">
-        <div className="grid gap-5 lg:grid-cols-2">
+        <div className="grid min-w-0 gap-5 lg:grid-cols-2">
           <LanguagePanel title={t("english")}>
             <PageFields page={page} suffix="en" onChange={onChange} />
           </LanguagePanel>
@@ -316,7 +367,7 @@ function SectionEditor({ section, draft, onSectionChange, onDraftChange, onSave 
     <div>
       <EditorHeader title={section.title_en} detail={`${section.slug} · ${section.body_en.length} paragraph${section.body_en.length === 1 ? "" : "s"}`} />
       <div className="space-y-5 p-4 sm:p-5">
-        <div className="grid gap-5 lg:grid-cols-2">
+        <div className="grid min-w-0 gap-5 lg:grid-cols-2">
           <LanguagePanel title={t("english")}>
             <SectionFields section={section} draft={draft} suffix="en" onSectionChange={onSectionChange} onDraftChange={onDraftChange} />
           </LanguagePanel>
@@ -335,41 +386,52 @@ function SectionEditor({ section, draft, onSectionChange, onDraftChange, onSave 
 function EditorHeader({ title, detail }: { title: string; detail: string }) {
   return (
     <div className="border-b border-admin-border/40 p-4 sm:p-5">
-      <h2 className="font-heading text-2xl font-semibold text-charcoal">{title}</h2>
+      <h2 className="break-words font-heading text-2xl font-semibold text-charcoal">{title}</h2>
       <p className="mt-1 text-sm leading-6 text-soft-brown">{detail}</p>
     </div>
   );
 }
 
-function TargetCard({ title, detail, selected, countLabel, gaps, onSelect }: { title: string; detail: string; selected: boolean; countLabel: string; gaps: number; onSelect: () => void }) {
+function TargetCard({ title, detail, selected, countLabel, gaps, onSelect }: {
+  title: string;
+  detail: string;
+  selected: boolean;
+  countLabel: string;
+  gaps: AdminTranslationGap[];
+  onSelect: () => void;
+}) {
   return (
     <article className={cn("rounded-brand border bg-admin-surface p-3 transition-colors", selected ? "border-admin-primary shadow-md" : "border-admin-border/45 hover:border-admin-accent")}>
-      <button type="button" onClick={onSelect} className="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-focus focus-visible:ring-offset-2 focus-visible:ring-offset-admin-surface" aria-current={selected ? "true" : undefined}>
+      <button type="button" onClick={onSelect} className="block w-full min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-focus focus-visible:ring-offset-2 focus-visible:ring-offset-admin-surface" aria-current={selected ? "true" : undefined}>
         <h3 className="truncate font-heading text-lg text-charcoal">{title}</h3>
         <p className="mt-0.5 truncate text-xs text-soft-brown">{detail}</p>
         <div className="mt-3 flex flex-wrap gap-2">
           <span className="rounded-pill border border-champagne-beige bg-warm-ivory px-2 py-1 text-xs font-semibold text-soft-brown">{countLabel}</span>
-          {gaps > 0 ? <GapBadge count={gaps} /> : <span className="rounded-pill border border-green-200 bg-green-50 px-2 py-1 text-xs font-semibold text-green-700">EN/BG ready</span>}
+          <AdminTranslationGapButton gaps={gaps} label={`${title} translation gaps`} />
         </div>
       </button>
     </article>
   );
 }
 
-function OverviewTile({ label, value, detail, warning = false }: { label: string; value: string; detail: string; warning?: boolean }) {
+function MenuGroupLabel({ children }: { children: string }) {
+  return (
+    <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-gold">
+      {children}
+    </p>
+  );
+}
+
+function OverviewTile({ label, value, detail, warning = false }: { label: string; value: ReactNode; detail: string; warning?: boolean }) {
   return (
     <div className="rounded-brand border border-champagne-beige bg-warm-ivory px-4 py-3">
       <p className="text-xs font-semibold uppercase tracking-wide text-soft-brown">{label}</p>
       <div className="mt-1 flex items-end gap-2">
-        <span className={cn("font-heading text-2xl font-semibold", warning ? "text-amber-700" : "text-charcoal")}>{value}</span>
+        <div className={cn("font-heading text-2xl font-semibold", warning ? "text-amber-700" : "text-charcoal")}>{value}</div>
         <span className="pb-1 text-xs text-soft-brown">{detail}</span>
       </div>
     </div>
   );
-}
-
-function GapBadge({ count }: { count: number }) {
-  return <span className="rounded-pill border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">{count} BG gap{count === 1 ? "" : "s"}</span>;
 }
 
 function StickyActions({ children }: { children: ReactNode }) {
@@ -378,7 +440,7 @@ function StickyActions({ children }: { children: ReactNode }) {
 
 function LanguagePanel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="space-y-4 rounded-brand border border-champagne-beige bg-warm-ivory p-4">
+    <div className="min-w-0 space-y-4 rounded-brand border border-champagne-beige bg-warm-ivory p-4">
       <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-gold">{title}</h3>
       {children}
     </div>
@@ -388,20 +450,23 @@ function LanguagePanel({ title, children }: { title: string; children: ReactNode
 function PageFields({ page, suffix, onChange }: { page: TermsPageAdminResponse; suffix: "en" | "bg"; onChange: (field: PageField, value: string) => void }) {
   const t = useTranslations("admin.terms");
   const field = (name: string) => `${name}_${suffix}` as PageField;
+  const gapProps = (name: string, label: string, en: string | null | undefined, bg: string | null | undefined) => suffix === "bg"
+    ? { id: termsPageFieldId(name), label: <>{label}<MissingBgLabel show={isMissingTranslation(en, bg)} /></> }
+    : { label };
   return (
     <div className="space-y-3">
-      <TextInput label={t("metaTitle")} value={String(page[field("meta_title")] ?? "")} onChange={(value) => onChange(field("meta_title"), value)} />
-      <TextArea label={t("metaDescription")} rows={3} value={String(page[field("meta_description")] ?? "")} onChange={(value) => onChange(field("meta_description"), value)} />
-      <TextInput label={t("eyebrow")} value={String(page[field("eyebrow")] ?? "")} onChange={(value) => onChange(field("eyebrow"), value)} />
-      <TextInput label={t("pageTitle")} value={String(page[field("title")] ?? "")} onChange={(value) => onChange(field("title"), value)} />
-      <TextArea label={t("subtitleField")} rows={3} value={String(page[field("subtitle")] ?? "")} onChange={(value) => onChange(field("subtitle"), value)} />
-      <TextInput label={t("lastUpdated")} value={String(page[field("last_updated")] ?? "")} onChange={(value) => onChange(field("last_updated"), value)} />
-      <TextArea label={t("identityIntro")} rows={3} value={String(page[field("identity_intro")] ?? "")} onChange={(value) => onChange(field("identity_intro"), value)} />
-      <TextInput label={t("policyLinksTitle")} value={String(page[field("policy_links_title")] ?? "")} onChange={(value) => onChange(field("policy_links_title"), value)} />
-      <TextInput label={t("privacyLink")} value={String(page[field("privacy_link")] ?? "")} onChange={(value) => onChange(field("privacy_link"), value)} />
-      <TextInput label={t("cookiesLink")} value={String(page[field("cookies_link")] ?? "")} onChange={(value) => onChange(field("cookies_link"), value)} />
-      <TextInput label={t("navLabel")} value={String(page[field("nav_label")] ?? "")} onChange={(value) => onChange(field("nav_label"), value)} />
-      <TextInput label={t("backToTop")} value={String(page[field("back_to_top")] ?? "")} onChange={(value) => onChange(field("back_to_top"), value)} />
+      <TextInput {...gapProps("meta-title", t("metaTitle"), page.meta_title_en, page.meta_title_bg)} value={String(page[field("meta_title")] ?? "")} onChange={(value) => onChange(field("meta_title"), value)} />
+      <TextArea {...gapProps("meta-description", t("metaDescription"), page.meta_description_en, page.meta_description_bg)} rows={3} value={String(page[field("meta_description")] ?? "")} onChange={(value) => onChange(field("meta_description"), value)} />
+      <TextInput {...gapProps("eyebrow", t("eyebrow"), page.eyebrow_en, page.eyebrow_bg)} value={String(page[field("eyebrow")] ?? "")} onChange={(value) => onChange(field("eyebrow"), value)} />
+      <TextInput {...gapProps("title", t("pageTitle"), page.title_en, page.title_bg)} value={String(page[field("title")] ?? "")} onChange={(value) => onChange(field("title"), value)} />
+      <TextArea {...gapProps("subtitle", t("subtitleField"), page.subtitle_en, page.subtitle_bg)} rows={3} value={String(page[field("subtitle")] ?? "")} onChange={(value) => onChange(field("subtitle"), value)} />
+      <TextInput {...gapProps("last-updated", t("lastUpdated"), page.last_updated_en, page.last_updated_bg)} value={String(page[field("last_updated")] ?? "")} onChange={(value) => onChange(field("last_updated"), value)} />
+      <TextArea {...gapProps("identity-intro", t("identityIntro"), page.identity_intro_en, page.identity_intro_bg)} rows={3} value={String(page[field("identity_intro")] ?? "")} onChange={(value) => onChange(field("identity_intro"), value)} />
+      <TextInput {...gapProps("policy-links-title", t("policyLinksTitle"), page.policy_links_title_en, page.policy_links_title_bg)} value={String(page[field("policy_links_title")] ?? "")} onChange={(value) => onChange(field("policy_links_title"), value)} />
+      <TextInput {...gapProps("privacy-link", t("privacyLink"), page.privacy_link_en, page.privacy_link_bg)} value={String(page[field("privacy_link")] ?? "")} onChange={(value) => onChange(field("privacy_link"), value)} />
+      <TextInput {...gapProps("cookies-link", t("cookiesLink"), page.cookies_link_en, page.cookies_link_bg)} value={String(page[field("cookies_link")] ?? "")} onChange={(value) => onChange(field("cookies_link"), value)} />
+      <TextInput {...gapProps("nav-label", t("navLabel"), page.nav_label_en, page.nav_label_bg)} value={String(page[field("nav_label")] ?? "")} onChange={(value) => onChange(field("nav_label"), value)} />
+      <TextInput {...gapProps("back-to-top", t("backToTop"), page.back_to_top_en, page.back_to_top_bg)} value={String(page[field("back_to_top")] ?? "")} onChange={(value) => onChange(field("back_to_top"), value)} />
     </div>
   );
 }
@@ -420,33 +485,36 @@ function SectionFields({ section, draft, suffix, onSectionChange, onDraftChange 
   const modelIntroField = `model_form_intro_${suffix}` as SectionTextField;
   const bodyField = `body_${suffix}` as keyof SectionDraft;
   const modelLinesField = `model_form_lines_${suffix}` as keyof SectionDraft;
+  const gapProps = (name: string, label: string, en: string | null | undefined, bg: string | null | undefined) => suffix === "bg"
+    ? { id: termsSectionFieldId(section.slug, name), label: <>{label}<MissingBgLabel show={isMissingTranslation(en, bg)} /></> }
+    : { label };
 
   return (
     <div className="space-y-3">
-      <TextInput label={t("sectionTitle")} value={String(section[titleField] ?? "")} onChange={(value) => onSectionChange(titleField, value)} />
-      <TextInput label={t("sectionNav")} value={String(section[navField] ?? "")} onChange={(value) => onSectionChange(navField, value)} />
-      <TextArea label={t("body")} rows={8} value={draft[bodyField]} onChange={(value) => onDraftChange(bodyField, value)} />
-      <TextInput label={t("modelFormTitle")} value={String(section[modelTitleField] ?? "")} onChange={(value) => onSectionChange(modelTitleField, value)} />
-      <TextArea label={t("modelFormIntro")} rows={3} value={String(section[modelIntroField] ?? "")} onChange={(value) => onSectionChange(modelIntroField, value)} />
-      <TextArea label={t("modelFormLines")} rows={5} value={draft[modelLinesField]} onChange={(value) => onDraftChange(modelLinesField, value)} />
+      <TextInput {...gapProps("title", t("sectionTitle"), section.title_en, section.title_bg)} value={String(section[titleField] ?? "")} onChange={(value) => onSectionChange(titleField, value)} />
+      <TextInput {...gapProps("nav", t("sectionNav"), section.nav_en, section.nav_bg)} value={String(section[navField] ?? "")} onChange={(value) => onSectionChange(navField, value)} />
+      <TextArea {...gapProps("body", t("body"), draft.body_en, draft.body_bg)} rows={8} value={draft[bodyField]} onChange={(value) => onDraftChange(bodyField, value)} />
+      <TextInput {...gapProps("model-form-title", t("modelFormTitle"), section.model_form_title_en, section.model_form_title_bg)} value={String(section[modelTitleField] ?? "")} onChange={(value) => onSectionChange(modelTitleField, value)} />
+      <TextArea {...gapProps("model-form-intro", t("modelFormIntro"), section.model_form_intro_en, section.model_form_intro_bg)} rows={3} value={String(section[modelIntroField] ?? "")} onChange={(value) => onSectionChange(modelIntroField, value)} />
+      <TextArea {...gapProps("model-form-lines", t("modelFormLines"), draft.model_form_lines_en, draft.model_form_lines_bg)} rows={5} value={draft[modelLinesField]} onChange={(value) => onDraftChange(modelLinesField, value)} />
     </div>
   );
 }
 
-function TextInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function TextInput({ id, label, value, onChange }: { id?: string; label: ReactNode; value: string; onChange: (value: string) => void }) {
   return (
     <label className="block text-sm font-medium text-charcoal">
       {label}
-      <input value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 h-10 w-full rounded-brand border border-champagne-beige bg-admin-surface px-3 text-sm text-charcoal focus:border-muted-gold focus:outline-none focus:ring-2 focus:ring-muted-gold/20" />
+      <input id={id} value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 h-10 w-full rounded-brand border border-champagne-beige bg-admin-surface px-3 text-sm text-charcoal focus:border-muted-gold focus:outline-none focus:ring-2 focus:ring-muted-gold/20" />
     </label>
   );
 }
 
-function TextArea({ label, rows, value, onChange }: { label: string; rows: number; value: string; onChange: (value: string) => void }) {
+function TextArea({ id, label, rows, value, onChange }: { id?: string; label: ReactNode; rows: number; value: string; onChange: (value: string) => void }) {
   return (
     <label className="block text-sm font-medium text-charcoal">
       {label}
-      <textarea value={value} rows={rows} onChange={(event) => onChange(event.target.value)} className="mt-1 w-full rounded-brand border border-champagne-beige bg-admin-surface px-3 py-2 text-sm leading-6 text-charcoal focus:border-muted-gold focus:outline-none focus:ring-2 focus:ring-muted-gold/20" />
+      <textarea id={id} value={value} rows={rows} onChange={(event) => onChange(event.target.value)} className="mt-1 w-full rounded-brand border border-champagne-beige bg-admin-surface px-3 py-2 text-sm leading-6 text-charcoal focus:border-muted-gold focus:outline-none focus:ring-2 focus:ring-muted-gold/20" />
     </label>
   );
 }
@@ -462,35 +530,52 @@ function summarizeTerms(terms: TermsAdminResponse | null, drafts: Record<string,
 }
 
 function pageTranslationGapCount(page: TermsPageAdminResponse) {
-  const pairs: Array<[string | null | undefined, string | null | undefined]> = [
-    [page.meta_title_en, page.meta_title_bg],
-    [page.meta_description_en, page.meta_description_bg],
-    [page.eyebrow_en, page.eyebrow_bg],
-    [page.title_en, page.title_bg],
-    [page.subtitle_en, page.subtitle_bg],
-    [page.last_updated_en, page.last_updated_bg],
-    [page.identity_intro_en, page.identity_intro_bg],
-    [page.policy_links_title_en, page.policy_links_title_bg],
-    [page.privacy_link_en, page.privacy_link_bg],
-    [page.cookies_link_en, page.cookies_link_bg],
-    [page.nav_label_en, page.nav_label_bg],
-    [page.back_to_top_en, page.back_to_top_bg],
-  ];
-  return pairs.filter(([en, bg]) => !isBlank(en) && isBlank(bg)).length;
+  return termsPageTranslationGaps(page).length;
 }
 
 function sectionTranslationGapCount(section: TermsSectionAdminResponse, draft: SectionDraft) {
-  const pairs: Array<[string | null | undefined, string | null | undefined]> = [
-    [section.title_en, section.title_bg],
-    [section.nav_en, section.nav_bg],
-    [draft.body_en, draft.body_bg],
-    [section.model_form_title_en, section.model_form_title_bg],
-    [section.model_form_intro_en, section.model_form_intro_bg],
-    [draft.model_form_lines_en, draft.model_form_lines_bg],
-  ];
-  return pairs.filter(([en, bg]) => !isBlank(en) && isBlank(bg)).length;
+  return termsSectionTranslationGaps(section, draft).length;
 }
 
-function isBlank(value: string | null | undefined) {
-  return !value || value.trim().length === 0;
+function termsPageTranslationGaps(page: TermsPageAdminResponse, onFix?: () => void): AdminTranslationGap[] {
+  const fields: Array<[string, string, string | null | undefined, string | null | undefined]> = [
+    ["meta-title", "Page > Meta title BG", page.meta_title_en, page.meta_title_bg],
+    ["meta-description", "Page > Meta description BG", page.meta_description_en, page.meta_description_bg],
+    ["eyebrow", "Page > Eyebrow BG", page.eyebrow_en, page.eyebrow_bg],
+    ["title", "Page > Title BG", page.title_en, page.title_bg],
+    ["subtitle", "Page > Subtitle BG", page.subtitle_en, page.subtitle_bg],
+    ["last-updated", "Page > Last updated BG", page.last_updated_en, page.last_updated_bg],
+    ["identity-intro", "Page > Identity intro BG", page.identity_intro_en, page.identity_intro_bg],
+    ["policy-links-title", "Page > Policy links title BG", page.policy_links_title_en, page.policy_links_title_bg],
+    ["privacy-link", "Page > Privacy link BG", page.privacy_link_en, page.privacy_link_bg],
+    ["cookies-link", "Page > Cookies link BG", page.cookies_link_en, page.cookies_link_bg],
+    ["nav-label", "Page > Nav label BG", page.nav_label_en, page.nav_label_bg],
+    ["back-to-top", "Page > Back to top BG", page.back_to_top_en, page.back_to_top_bg],
+  ];
+  return fields
+    .filter(([, , en, bg]) => isMissingTranslation(en, bg))
+    .map(([name, label]) => ({ id: `terms-page-${name}`, label, fieldId: termsPageFieldId(name), onFix }));
+}
+
+function termsSectionTranslationGaps(section: TermsSectionAdminResponse, draft: SectionDraft, onFix?: () => void): AdminTranslationGap[] {
+  const title = section.title_en || section.slug;
+  const fields: Array<[string, string, string | null | undefined, string | null | undefined]> = [
+    ["title", `${title} > Title BG`, section.title_en, section.title_bg],
+    ["nav", `${title} > Nav BG`, section.nav_en, section.nav_bg],
+    ["body", `${title} > Body BG`, draft.body_en, draft.body_bg],
+    ["model-form-title", `${title} > Model form title BG`, section.model_form_title_en, section.model_form_title_bg],
+    ["model-form-intro", `${title} > Model form intro BG`, section.model_form_intro_en, section.model_form_intro_bg],
+    ["model-form-lines", `${title} > Model form lines BG`, draft.model_form_lines_en, draft.model_form_lines_bg],
+  ];
+  return fields
+    .filter(([, , en, bg]) => isMissingTranslation(en, bg))
+    .map(([name, label]) => ({ id: `terms-${section.slug}-${name}`, label, fieldId: termsSectionFieldId(section.slug, name), onFix }));
+}
+
+function termsPageFieldId(name: string) {
+  return `terms-page-${name}-bg`;
+}
+
+function termsSectionFieldId(slug: string, name: string) {
+  return `terms-${slug}-${name}-bg`;
 }

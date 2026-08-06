@@ -2,6 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
+import { useSearchParams } from "next/navigation";
+import { AdminMobileTargetSelect } from "@/components/admin/AdminMobileTargetSelect";
+import { AdminTranslationGapButton, MissingBgLabel, isMissingTranslation, type AdminTranslationGap } from "@/components/admin/AdminTranslationGaps";
 import {
   createFaqItem,
   deleteFaqItem,
@@ -36,9 +39,14 @@ const EMPTY_DRAFT: Draft = {
   answer_bg: "",
 };
 
+function isFaqTab(value: string | null): value is FaqTab {
+  return value === "questions" || value === "settings";
+}
+
 export function FaqManager() {
   const t = useTranslations("admin.faq");
   const tCommon = useTranslations("common");
+  const searchParams = useSearchParams();
   const [faq, setFaq] = useState<FaqAdminResponse | null>(null);
   const [selectedSectionSlug, setSelectedSectionSlug] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<FaqTab>("questions");
@@ -74,13 +82,52 @@ export function FaqManager() {
 
   useEffect(() => {
     if (!faq || faq.sections.length === 0) return;
+    const requestedSlug = searchParams?.get("section") ?? null;
+    const requestedPart = searchParams?.get("part") ?? null;
+    const requestedSection = requestedSlug ? faq.sections.find((section) => section.slug === requestedSlug) : null;
+
+    if (requestedSection) {
+      setSelectedSectionSlug(requestedSection.slug);
+      if (isFaqTab(requestedPart)) setActiveTab(requestedPart);
+      return;
+    }
+
     if (!selectedSectionSlug || !faq.sections.some((section) => section.slug === selectedSectionSlug)) {
       setSelectedSectionSlug(faq.sections[0]!.slug);
     }
-  }, [faq, selectedSectionSlug]);
+  }, [faq, selectedSectionSlug, searchParams]);
 
   const selectedSection = faq?.sections.find((section) => section.slug === selectedSectionSlug) ?? faq?.sections[0] ?? null;
   const overview = useMemo(() => summarizeFaq(faq), [faq]);
+  const allTranslationGaps = (faq?.sections ?? []).flatMap((section) => faqSectionTranslationGaps(section, {
+    onSectionField: () => selectFaqPart(section.slug, "settings"),
+    onItemField: (itemId) => {
+      setSelectedSectionSlug(section.slug);
+      setActiveTab("questions");
+      setEditingItemId(itemId);
+      setAddingForSection(null);
+      setValidation({});
+    },
+  }));
+  const mobileTargetValue = selectedSectionSlug ? `${activeTab}:${selectedSectionSlug}` : "";
+  const mobileTargetOptions = (faq?.sections ?? []).flatMap((section) => {
+    const group = `${section.icon ? `${section.icon} ` : ""}${section.title_en}`;
+    const published = section.items.filter((item) => item.is_published).length;
+    return [
+      {
+        value: `questions:${section.slug}`,
+        label: "Questions",
+        group,
+        description: `${published}/${section.items.length} published`,
+      },
+      {
+        value: `settings:${section.slug}`,
+        label: "Section settings",
+        group,
+        description: section.slug,
+      },
+    ];
+  });
 
   function showSaved(message = tCommon("saved")) {
     if (saveNoticeTimerRef.current) clearTimeout(saveNoticeTimerRef.current);
@@ -91,6 +138,14 @@ export function FaqManager() {
   function selectSection(slug: string) {
     setSelectedSectionSlug(slug);
     setActiveTab("questions");
+    setEditingItemId(null);
+    setAddingForSection(null);
+    setValidation({});
+  }
+
+  function selectFaqPart(slug: string, tab: FaqTab) {
+    setSelectedSectionSlug(slug);
+    setActiveTab(tab);
     setEditingItemId(null);
     setAddingForSection(null);
     setValidation({});
@@ -241,6 +296,24 @@ export function FaqManager() {
     }
   }
 
+  async function moveSection(slug: string, delta: -1 | 1) {
+    if (!faq) return;
+    const ordered = [...faq.sections].sort((a, b) => a.sort_order - b.sort_order || a.slug.localeCompare(b.slug));
+    const index = ordered.findIndex((section) => section.slug === slug);
+    const nextIndex = index + delta;
+    if (index < 0 || nextIndex < 0 || nextIndex >= ordered.length) return;
+    const [section] = ordered.splice(index, 1);
+    ordered.splice(nextIndex, 0, section!);
+    setError(null);
+    try {
+      await Promise.all(ordered.map((candidate, sortOrder) => updateFaqSection(candidate.slug, { sort_order: sortOrder })));
+      setFaq({ sections: ordered.map((candidate, sort_order) => ({ ...candidate, sort_order })) });
+      showSaved();
+    } catch {
+      setError(t("saveError"));
+    }
+  }
+
   async function createItem(sectionSlug: string) {
     const draft = drafts[sectionSlug] ?? EMPTY_DRAFT;
     const key = `new-${sectionSlug}`;
@@ -284,7 +357,7 @@ export function FaqManager() {
   if (!faq && !error) return <p className="text-sm text-soft-brown">{t("loading")}</p>;
 
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-5">
       <header className="rounded-brand border border-admin-border/50 bg-admin-surface p-4 shadow-sm sm:p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl">
@@ -297,43 +370,72 @@ export function FaqManager() {
           <OverviewTile label="Sections" value={String(overview.sections)} detail="categories" />
           <OverviewTile label="Questions" value={String(overview.items)} detail="total" />
           <OverviewTile label="Published" value={`${overview.published}/${overview.items}`} detail="visible" />
-          <OverviewTile label="Translation gaps" value={String(overview.translationGaps)} detail="need review" warning={overview.translationGaps > 0} />
+          <OverviewTile label="Translation gaps" value={<AdminTranslationGapButton gaps={allTranslationGaps} label="FAQ translation gaps" />} detail="need review" warning={overview.translationGaps > 0} />
         </div>
       </header>
 
       {error && <p className="rounded-brand bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
       {saveNotice && <SaveConfirmation key={saveNotice.id} message={saveNotice.message} />}
 
-      <div className="grid gap-5 xl:grid-cols-[21rem_minmax(0,1fr)]">
-        <aside className="space-y-3 xl:sticky xl:top-24 xl:self-start">
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[21rem_minmax(0,1fr)]">
+        <AdminMobileTargetSelect
+          label="FAQ part"
+          value={mobileTargetValue}
+          onChange={(value) => {
+            const [tab, slug] = value.split(":") as [FaqTab | undefined, string | undefined];
+            if (!slug) return;
+            selectFaqPart(slug, tab ?? "questions");
+          }}
+          options={mobileTargetOptions}
+        />
+
+        <aside className="hidden min-w-0 space-y-3 xl:sticky xl:top-24 xl:block xl:self-start">
           <div className="flex items-center justify-between gap-3">
             <h2 className="font-heading text-xl font-semibold text-charcoal">FAQ sections</h2>
             <span className="rounded-brand bg-admin-surface px-2 py-1 text-xs font-medium text-soft-brown">{faq?.sections.length ?? 0} total</span>
           </div>
           <div className="space-y-2">
-            {faq?.sections.map((section) => (
-              <SectionNavCard
-                key={section.slug}
-                section={section}
-                selected={selectedSection?.slug === section.slug}
-                onSelect={() => selectSection(section.slug)}
-              />
-            ))}
+            {faq?.sections.map((section, index) => {
+              const gaps = faqSectionTranslationGaps(section, {
+                onSectionField: () => selectFaqPart(section.slug, "settings"),
+                onItemField: (itemId) => {
+                  setSelectedSectionSlug(section.slug);
+                  setActiveTab("questions");
+                  setEditingItemId(itemId);
+                  setAddingForSection(null);
+                  setValidation({});
+                },
+              });
+              return (
+                <SectionNavCard
+                  key={section.slug}
+                  section={section}
+                  index={index}
+                  totalSections={faq.sections.length}
+                  selected={selectedSection?.slug === section.slug}
+                  activeTab={activeTab}
+                  translationGaps={gaps}
+                  onSelect={() => selectSection(section.slug)}
+                  onSelectPart={(tab) => selectFaqPart(section.slug, tab)}
+                  onMove={(delta) => moveSection(section.slug, delta)}
+                />
+              );
+            })}
           </div>
         </aside>
 
         {selectedSection ? (
-          <section className="rounded-brand border border-admin-border/50 bg-admin-surface shadow-sm">
+          <section className="min-w-0 overflow-hidden rounded-brand border border-admin-border/50 bg-admin-surface shadow-sm">
             <div className="border-b border-admin-border/40 p-4 sm:p-5">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div>
+                <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     {selectedSection.icon ? <span className="text-xl" aria-hidden="true">{selectedSection.icon}</span> : null}
-                    <h2 className="font-heading text-2xl font-semibold text-charcoal">{selectedSection.title_en}</h2>
+                    <h2 className="min-w-0 break-words font-heading text-2xl font-semibold text-charcoal">{selectedSection.title_en}</h2>
                   </div>
                   <p className="mt-1 text-sm text-soft-brown">{selectedSection.items.length} question{selectedSection.items.length === 1 ? "" : "s"}</p>
                 </div>
-                <span className="rounded-brand bg-admin-surface-muted px-3 py-2 text-xs text-soft-brown">{selectedSection.slug}</span>
+                <span className="break-words rounded-brand bg-admin-surface-muted px-3 py-2 text-xs text-soft-brown">{selectedSection.slug}</span>
               </div>
               <div className="mt-4 flex gap-2 overflow-x-auto" role="tablist" aria-label="FAQ editor sections">
                 <TabButton active={activeTab === "questions"} onClick={() => setActiveTab("questions")}>Questions</TabButton>
@@ -423,7 +525,7 @@ function QuestionsTab({
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
+        <div className="min-w-0">
           <h3 className="font-heading text-xl font-semibold text-charcoal">Questions</h3>
           <p className="text-sm text-soft-brown">Open one question to edit its bilingual answer.</p>
         </div>
@@ -438,20 +540,23 @@ function QuestionsTab({
           return (
             <article key={item.id} className="rounded-brand border border-champagne-beige bg-warm-ivory p-4">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-full bg-admin-surface px-2 py-1 text-xs font-semibold text-soft-brown">{String(index + 1).padStart(2, "0")}</span>
                     <StatusBadge active={item.is_published} activeLabel={t("published")} inactiveLabel={t("hidden")} />
-                    {itemTranslationGapCount(item) > 0 ? <GapBadge count={itemTranslationGapCount(item)} /> : null}
+                    <AdminTranslationGapButton
+                      gaps={faqItemTranslationGaps(section.slug, item, { onItemField: () => onEditItem(item.id) })}
+                      label={`${item.question_en || `Question ${index + 1}`} translation gaps`}
+                    />
                   </div>
-                  <h4 className="mt-2 font-heading text-xl text-charcoal">{item.question_en}</h4>
+                  <h4 className="mt-2 break-words font-heading text-xl text-charcoal">{item.question_en}</h4>
                   <p className="mt-1 line-clamp-2 text-sm leading-6 text-soft-brown">{item.answer_en}</p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="ghost" disabled={index === 0} onClick={() => onMoveItem(item.id, -1)}>{t("moveUp")}</Button>
-                  <Button type="button" variant="ghost" disabled={index === section.items.length - 1} onClick={() => onMoveItem(item.id, 1)}>{t("moveDown")}</Button>
-                  <Button type="button" variant="secondary" onClick={() => onToggleItem(item)}>{item.is_published ? t("hide") : t("show")}</Button>
-                  <Button type="button" variant={editing ? "secondary" : "primary"} onClick={() => onEditItem(editing ? null : item.id)}>{editing ? "Close" : "Edit"}</Button>
+                <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap">
+                  <Button type="button" size="sm" variant="ghost" disabled={index === 0} onClick={() => onMoveItem(item.id, -1)}>{t("moveUp")}</Button>
+                  <Button type="button" size="sm" variant="ghost" disabled={index === section.items.length - 1} onClick={() => onMoveItem(item.id, 1)}>{t("moveDown")}</Button>
+                  <Button type="button" size="sm" variant="secondary" onClick={() => onToggleItem(item)}>{item.is_published ? t("hide") : t("show")}</Button>
+                  <Button type="button" size="sm" variant={editing ? "secondary" : "primary"} onClick={() => onEditItem(editing ? null : item.id)}>{editing ? "Close" : "Edit"}</Button>
                   <DeleteIconButton label={t("deleteItem")} onClick={() => onDeleteItem(item.id)} />
                 </div>
               </div>
@@ -464,6 +569,14 @@ function QuestionsTab({
                       question_bg: item.question_bg ?? "",
                       answer_en: item.answer_en,
                       answer_bg: item.answer_bg ?? "",
+                    }}
+                    fieldIds={{
+                      question_bg: faqItemFieldId(section.slug, item.id, "question-bg"),
+                      answer_bg: faqItemFieldId(section.slug, item.id, "answer-bg"),
+                    }}
+                    missing={{
+                      question_bg: isMissingTranslation(item.question_en, item.question_bg),
+                      answer_bg: isMissingTranslation(item.answer_en, item.answer_bg),
                     }}
                     onChange={(field, value) => onChangeItem(item.id, field, value)}
                   />
@@ -505,7 +618,7 @@ function SettingsTab({ section, onSectionChange, onSaveSection }: {
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-[1fr_1fr_8rem]">
         <TextInput label={t("titleEn")} value={section.title_en} onChange={(value) => onSectionChange(section.slug, "title_en", value)} />
-        <TextInput label={t("titleBg")} value={section.title_bg ?? ""} onChange={(value) => onSectionChange(section.slug, "title_bg", value)} />
+        <TextInput id={faqSectionFieldId(section.slug, "title-bg")} label={<>{t("titleBg")}<MissingBgLabel show={isMissingTranslation(section.title_en, section.title_bg)} /></>} value={section.title_bg ?? ""} onChange={(value) => onSectionChange(section.slug, "title_bg", value)} />
         <TextInput label={t("icon")} value={section.icon ?? ""} onChange={(value) => onSectionChange(section.slug, "icon", value)} />
       </div>
       <div className="sticky bottom-3 z-10 flex flex-wrap items-center gap-3 rounded-brand border border-admin-border/50 bg-admin-surface/95 p-3 shadow-lg backdrop-blur sm:static sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
@@ -515,12 +628,21 @@ function SettingsTab({ section, onSectionChange, onSaveSection }: {
   );
 }
 
-function SectionNavCard({ section, selected, onSelect }: { section: FaqSectionAdminResponse; selected: boolean; onSelect: () => void }) {
+function SectionNavCard({ section, index, totalSections, selected, activeTab, translationGaps, onSelect, onSelectPart, onMove }: {
+  section: FaqSectionAdminResponse;
+  index: number;
+  totalSections: number;
+  selected: boolean;
+  activeTab: FaqTab;
+  translationGaps: AdminTranslationGap[];
+  onSelect: () => void;
+  onSelectPart: (tab: FaqTab) => void;
+  onMove: (delta: -1 | 1) => void;
+}) {
   const published = section.items.filter((item) => item.is_published).length;
-  const gaps = sectionTranslationGapCount(section);
   return (
     <article className={cn("rounded-brand border bg-admin-surface p-3 transition-colors", selected ? "border-admin-primary shadow-md" : "border-admin-border/45 hover:border-admin-accent")}>
-      <button type="button" onClick={onSelect} className="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-focus focus-visible:ring-offset-2 focus-visible:ring-offset-admin-surface" aria-current={selected ? "true" : undefined}>
+      <button type="button" onClick={onSelect} className="block w-full min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-focus focus-visible:ring-offset-2 focus-visible:ring-offset-admin-surface" aria-current={selected ? "true" : undefined}>
         <div className="flex items-start gap-3">
           <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-admin-surface-muted text-sm font-semibold text-charcoal">{section.icon || "?"}</span>
           <div className="min-w-0 flex-1">
@@ -532,19 +654,48 @@ function SectionNavCard({ section, selected, onSelect }: { section: FaqSectionAd
           <span className="rounded-pill border border-champagne-beige bg-warm-ivory px-2 py-1 text-xs font-semibold text-soft-brown">
             {section.items.length} question{section.items.length === 1 ? "" : "s"}
           </span>
-          {gaps > 0 ? <GapBadge count={gaps} /> : <span className="rounded-pill border border-green-200 bg-green-50 px-2 py-1 text-xs font-semibold text-green-700">EN/BG ready</span>}
+          <AdminTranslationGapButton gaps={translationGaps} label={`${section.title_en} translation gaps`} />
         </div>
       </button>
+      <div className="mt-3 border-t border-admin-border/35 pt-3">
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-gold">FAQ parts</p>
+        <div className="grid grid-cols-2 gap-2">
+          <NavPartButton active={selected && activeTab === "questions"} onClick={() => onSelectPart("questions")}>Questions</NavPartButton>
+          <NavPartButton active={selected && activeTab === "settings"} onClick={() => onSelectPart("settings")}>Settings</NavPartButton>
+        </div>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <Button type="button" size="sm" variant="secondary" disabled={index === 0} onClick={() => onMove(-1)}>Move up</Button>
+        <Button type="button" size="sm" variant="secondary" disabled={index >= totalSections - 1} onClick={() => onMove(1)}>Move down</Button>
+      </div>
     </article>
   );
 }
 
-function OverviewTile({ label, value, detail, warning = false }: { label: string; value: string; detail: string; warning?: boolean }) {
+function NavPartButton({ active, children, onClick }: { active: boolean; children: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={cn(
+        "min-h-9 rounded-brand border px-2 py-1.5 text-xs font-semibold transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-focus focus-visible:ring-offset-2 focus-visible:ring-offset-admin-surface",
+        active
+          ? "border-admin-primary bg-warm-ivory text-charcoal shadow-sm"
+          : "border-champagne-beige bg-admin-surface-muted/55 text-soft-brown hover:border-admin-accent hover:bg-warm-ivory hover:text-charcoal",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function OverviewTile({ label, value, detail, warning = false }: { label: string; value: React.ReactNode; detail: string; warning?: boolean }) {
   return (
     <div className="rounded-brand border border-champagne-beige bg-warm-ivory px-4 py-3">
       <p className="text-xs font-semibold uppercase tracking-wide text-soft-brown">{label}</p>
       <div className="mt-1 flex items-end gap-2">
-        <span className={cn("font-heading text-2xl font-semibold", warning ? "text-amber-700" : "text-charcoal")}>{value}</span>
+        <div className={cn("font-heading text-2xl font-semibold", warning ? "text-amber-700" : "text-charcoal")}>{value}</div>
         <span className="pb-1 text-xs text-soft-brown">{detail}</span>
       </div>
     </div>
@@ -567,11 +718,12 @@ function StatusBadge({ active, activeLabel, inactiveLabel }: { active: boolean; 
   );
 }
 
-function GapBadge({ count }: { count: number }) {
-  return <span className="rounded-pill border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">{count} BG gap{count === 1 ? "" : "s"}</span>;
-}
-
-function EditorFields({ values, onChange }: { values: Draft; onChange: (field: keyof Draft, value: string) => void }) {
+function EditorFields({ values, fieldIds = {}, missing = {}, onChange }: {
+  values: Draft;
+  fieldIds?: Partial<Record<keyof Draft, string>>;
+  missing?: Partial<Record<keyof Draft, boolean>>;
+  onChange: (field: keyof Draft, value: string) => void;
+}) {
   const t = useTranslations("admin.faq");
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -582,27 +734,27 @@ function EditorFields({ values, onChange }: { values: Draft; onChange: (field: k
       </div>
       <div className="space-y-3 rounded-brand border border-champagne-beige bg-admin-surface p-4">
         <h4 className="text-sm font-semibold uppercase tracking-wide text-muted-gold">Bulgarian</h4>
-        <TextInput label={t("questionBg")} value={values.question_bg} onChange={(value) => onChange("question_bg", value)} />
-        <TextArea label={t("answerBg")} value={values.answer_bg} rows={5} onChange={(value) => onChange("answer_bg", value)} />
+        <TextInput id={fieldIds.question_bg} label={<>{t("questionBg")}<MissingBgLabel show={Boolean(missing.question_bg)} /></>} value={values.question_bg} onChange={(value) => onChange("question_bg", value)} />
+        <TextArea id={fieldIds.answer_bg} label={<>{t("answerBg")}<MissingBgLabel show={Boolean(missing.answer_bg)} /></>} value={values.answer_bg} rows={5} onChange={(value) => onChange("answer_bg", value)} />
       </div>
     </div>
   );
 }
 
-function TextInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function TextInput({ id, label, value, onChange }: { id?: string; label: React.ReactNode; value: string; onChange: (value: string) => void }) {
   return (
     <label className="block text-sm font-medium text-charcoal">
       {label}
-      <input value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 h-10 w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 text-sm text-charcoal focus:border-muted-gold focus:outline-none focus:ring-2 focus:ring-muted-gold/20" />
+      <input id={id} value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 h-10 w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 text-sm text-charcoal focus:border-muted-gold focus:outline-none focus:ring-2 focus:ring-muted-gold/20" />
     </label>
   );
 }
 
-function TextArea({ label, value, rows, onChange }: { label: string; value: string; rows: number; onChange: (value: string) => void }) {
+function TextArea({ id, label, value, rows, onChange }: { id?: string; label: React.ReactNode; value: string; rows: number; onChange: (value: string) => void }) {
   return (
     <label className="block text-sm font-medium text-charcoal">
       {label}
-      <textarea value={value} rows={rows} onChange={(event) => onChange(event.target.value)} className="mt-1 w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm leading-6 text-charcoal focus:border-muted-gold focus:outline-none focus:ring-2 focus:ring-muted-gold/20" />
+      <textarea id={id} value={value} rows={rows} onChange={(event) => onChange(event.target.value)} className="mt-1 w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm leading-6 text-charcoal focus:border-muted-gold focus:outline-none focus:ring-2 focus:ring-muted-gold/20" />
     </label>
   );
 }
@@ -619,20 +771,42 @@ function summarizeFaq(faq: FaqAdminResponse | null) {
 }
 
 function sectionTranslationGapCount(section: FaqSectionAdminResponse) {
-  let gaps = isBlank(section.title_bg) ? 1 : 0;
-  section.items.forEach((item) => {
-    gaps += itemTranslationGapCount(item);
+  return faqSectionTranslationGaps(section).length;
+}
+
+function faqSectionTranslationGaps(section: FaqSectionAdminResponse, actions?: {
+  onSectionField?: () => void;
+  onItemField?: (itemId: number) => void;
+}): AdminTranslationGap[] {
+  const gaps: AdminTranslationGap[] = [];
+  if (isMissingTranslation(section.title_en, section.title_bg)) {
+    gaps.push({ id: `${section.slug}-title-bg`, label: `${section.title_en} > Title BG`, fieldId: faqSectionFieldId(section.slug, "title-bg"), onFix: actions?.onSectionField });
+  }
+  section.items.forEach((item, index) => {
+    gaps.push(...faqItemTranslationGaps(section.slug, item, {
+      onItemField: () => actions?.onItemField?.(item.id),
+      prefix: `${section.title_en} > ${item.question_en || `Question ${index + 1}`}`,
+    }));
   });
   return gaps;
 }
 
-function itemTranslationGapCount(item: FaqItemAdminResponse) {
-  let gaps = 0;
-  if (isBlank(item.question_bg)) gaps += 1;
-  if (isBlank(item.answer_bg)) gaps += 1;
+function faqItemTranslationGaps(sectionSlug: string, item: FaqItemAdminResponse, options?: { onItemField?: () => void; prefix?: string }): AdminTranslationGap[] {
+  const label = options?.prefix ?? item.question_en;
+  const gaps: AdminTranslationGap[] = [];
+  if (isMissingTranslation(item.question_en, item.question_bg)) {
+    gaps.push({ id: `${sectionSlug}-item-${item.id}-question-bg`, label: `${label} > Question BG`, fieldId: faqItemFieldId(sectionSlug, item.id, "question-bg"), onFix: options?.onItemField });
+  }
+  if (isMissingTranslation(item.answer_en, item.answer_bg)) {
+    gaps.push({ id: `${sectionSlug}-item-${item.id}-answer-bg`, label: `${label} > Answer BG`, fieldId: faqItemFieldId(sectionSlug, item.id, "answer-bg"), onFix: options?.onItemField });
+  }
   return gaps;
 }
 
-function isBlank(value: string | null | undefined) {
-  return !value || value.trim().length === 0;
+function faqSectionFieldId(slug: string, field: string) {
+  return `faq-${slug}-${field}`;
+}
+
+function faqItemFieldId(slug: string, itemId: number, field: string) {
+  return `faq-${slug}-item-${itemId}-${field}`;
 }

@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { AdminMobileTargetSelect } from "@/components/admin/AdminMobileTargetSelect";
+import { AdminTranslationGapButton, MissingBgLabel, isMissingTranslation, type AdminTranslationGap } from "@/components/admin/AdminTranslationGaps";
 import { SaveConfirmation } from "@/components/admin/SaveConfirmation";
 import { Button } from "@/components/ui/Button";
 import { DeleteIconButton } from "@/components/ui/DeleteIconButton";
@@ -45,7 +48,22 @@ const SECTION_TYPE_LABELS: Record<AboutSectionAdmin["type"], string> = {
   cta_band: "CTA band",
 };
 
+const ITEM_LABELS: Partial<Record<AboutSectionAdmin["type"], { plural: string; singular: string }>> = {
+  cards: { plural: "Cards", singular: "card" },
+  timeline: { plural: "Timeline steps", singular: "step" },
+  collections: { plural: "Collection links", singular: "link" },
+};
+
+function supportsSectionItems(section: AboutSectionAdmin) {
+  return section.items.length > 0 || ITEM_SECTION_TYPES.has(section.type);
+}
+
+function isEditorTab(value: string | null): value is EditorTab {
+  return value === "content" || value === "items" || value === "settings";
+}
+
 export function AtelierAdminManager() {
+  const searchParams = useSearchParams();
   const [sections, setSections] = useState<AboutSectionAdmin[]>([]);
   const [drafts, setDrafts] = useState<AboutSectionAdmin[]>([]);
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
@@ -70,10 +88,22 @@ export function AtelierAdminManager() {
 
   useEffect(() => {
     if (sections.length === 0) return;
+    const requestedSlug = searchParams?.get("section") ?? null;
+    const requestedPart = searchParams?.get("part") ?? null;
+    const requestedSection = requestedSlug ? sections.find((section) => section.slug === requestedSlug) : null;
+
+    if (requestedSection) {
+      setSelectedSlug(requestedSection.slug);
+      if (isEditorTab(requestedPart)) {
+        setActiveTab(requestedPart === "items" && !supportsSectionItems(requestedSection) ? "content" : requestedPart);
+      }
+      return;
+    }
+
     if (!selectedSlug || !sections.some((section) => section.slug === selectedSlug)) {
       setSelectedSlug(sections[0]!.slug);
     }
-  }, [sections, selectedSlug]);
+  }, [sections, selectedSlug, searchParams]);
 
   useEffect(() => {
     return () => {
@@ -85,6 +115,41 @@ export function AtelierAdminManager() {
   const selectedDraft = selectedSection ? draftFor(selectedSection.slug) ?? selectedSection : null;
   const selectedIndex = selectedSection ? sections.findIndex((section) => section.slug === selectedSection.slug) : -1;
   const overview = useMemo(() => summarizeSections(drafts.length > 0 ? drafts : sections), [drafts, sections]);
+  const allTranslationGaps = (drafts.length > 0 ? drafts : sections).flatMap((section) => translationGapsForSection(section, {
+    onSectionField: () => selectPagePart(section.slug, "content"),
+    onItemField: (itemId) => {
+      setSelectedSlug(section.slug);
+      setActiveTab("items");
+      setEditingItemId(itemId);
+      setAddingItemForSlug(null);
+    },
+  }));
+  const mobileTargetValue = selectedSlug ? `${activeTab}:${selectedSlug}` : "";
+  const mobileTargetOptions = (drafts.length > 0 ? drafts : sections).flatMap((section, index) => {
+    const group = `${String(index + 1).padStart(2, "0")} · ${section.heading_en || section.slug}`;
+    const visibility = section.is_published ? "Published" : "Hidden";
+    const labels = ITEM_LABELS[section.type] ?? { plural: "Items", singular: "item" };
+    return [
+      {
+        value: `content:${section.slug}`,
+        label: "Content",
+        group,
+        description: `${SECTION_TYPE_LABELS[section.type]} · ${visibility}`,
+      },
+      ...(supportsSectionItems(section) ? [{
+        value: `items:${section.slug}`,
+        label: labels.plural,
+        group,
+        description: `${section.items.length} ${section.items.length === 1 ? labels.singular : labels.plural.toLowerCase()}`,
+      }] : []),
+      {
+        value: `settings:${section.slug}`,
+        label: "Visibility & order",
+        group,
+        description: `Sort ${section.sort_order} · ${visibility}`,
+      },
+    ];
+  });
 
   function showSaved(message = "Saved.") {
     if (saveNoticeTimerRef.current) clearTimeout(saveNoticeTimerRef.current);
@@ -99,6 +164,23 @@ export function AtelierAdminManager() {
   function selectSection(slug: string) {
     setSelectedSlug(slug);
     setActiveTab("content");
+    setEditingItemId(null);
+    setAddingItemForSlug(null);
+  }
+
+  function selectPagePart(slug: string, tab: EditorTab) {
+    setSelectedSlug(slug);
+    setActiveTab(tab);
+    setEditingItemId(null);
+    setAddingItemForSlug(null);
+  }
+
+  function changeTab(tab: EditorTab) {
+    if (tab === "items" && selectedDraft && !supportsSectionItems(selectedDraft)) {
+      const itemSection = sections.find(supportsSectionItems);
+      if (itemSection) setSelectedSlug(itemSection.slug);
+    }
+    setActiveTab(tab);
     setEditingItemId(null);
     setAddingItemForSlug(null);
   }
@@ -158,7 +240,7 @@ export function AtelierAdminManager() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-5">
       <header className="rounded-brand border border-admin-border/50 bg-admin-surface p-4 shadow-sm sm:p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl">
@@ -180,7 +262,7 @@ export function AtelierAdminManager() {
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <OverviewTile label="Sections" value={`${overview.publishedSections}/${overview.totalSections}`} detail="published" />
-          <OverviewTile label="Translation gaps" value={String(overview.translationGaps)} detail="need review" warning={overview.translationGaps > 0} />
+          <OverviewTile label="Translation gaps" value={<AdminTranslationGapButton gaps={allTranslationGaps} label="Atelier translation gaps" />} detail="need review" warning={overview.translationGaps > 0} />
           <OverviewTile label="Story items" value={String(overview.totalItems)} detail="cards and steps" />
           <OverviewTile label="Images" value={String(overview.imageCount)} detail="section or item photos" />
         </div>
@@ -189,8 +271,19 @@ export function AtelierAdminManager() {
       {error && <div className="rounded-brand border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
       {saveNotice && <SaveConfirmation key={saveNotice.id} message={saveNotice.message} />}
 
-      <div className="grid gap-5 xl:grid-cols-[21rem_minmax(0,1fr)]">
-        <aside className="space-y-3 xl:sticky xl:top-24 xl:self-start">
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[21rem_minmax(0,1fr)]">
+        <AdminMobileTargetSelect
+          label="Page part"
+          value={mobileTargetValue}
+          onChange={(value) => {
+            const [tab, slug] = value.split(":") as [EditorTab | undefined, string | undefined];
+            if (!slug) return;
+            selectPagePart(slug, tab ?? "content");
+          }}
+          options={mobileTargetOptions}
+        />
+
+        <aside className="hidden min-w-0 space-y-3 xl:sticky xl:top-24 xl:block xl:self-start">
           <div className="flex items-center justify-between gap-3">
             <h2 className="font-heading text-xl font-semibold text-charcoal">Page sections</h2>
             <span className="rounded-brand bg-admin-surface px-2 py-1 text-xs font-medium text-soft-brown">{sections.length} total</span>
@@ -198,13 +291,25 @@ export function AtelierAdminManager() {
           <div className="space-y-2">
             {sections.map((section, index) => {
               const draft = draftFor(section.slug) ?? section;
+              const gaps = translationGapsForSection(draft, {
+                onSectionField: () => selectPagePart(section.slug, "content"),
+                onItemField: (itemId) => {
+                  setSelectedSlug(section.slug);
+                  setActiveTab("items");
+                  setEditingItemId(itemId);
+                  setAddingItemForSlug(null);
+                },
+              });
               return (
                 <SectionNavCard
                   key={section.slug}
                   section={draft}
                   index={index}
                   selected={selectedSection?.slug === section.slug}
+                  activeTab={activeTab}
+                  translationGaps={gaps}
                   onSelect={() => selectSection(section.slug)}
+                  onSelectPart={(tab) => selectPagePart(section.slug, tab)}
                 />
               );
             })}
@@ -212,8 +317,21 @@ export function AtelierAdminManager() {
         </aside>
 
         {selectedSection && selectedDraft ? (
-          <section className="rounded-brand border border-admin-border/50 bg-admin-surface shadow-sm">
-            <EditorHeader section={selectedDraft} activeTab={activeTab} onTabChange={setActiveTab} />
+          <section className="min-w-0 overflow-hidden rounded-brand border border-admin-border/50 bg-admin-surface shadow-sm">
+            <EditorHeader
+              section={selectedDraft}
+              activeTab={activeTab}
+              index={selectedIndex}
+              totalSections={sections.length}
+              busyKey={busyKey}
+              onAddItem={supportsSectionItems(selectedDraft) ? () => {
+                setActiveTab("items");
+                setAddingItemForSlug(selectedSection.slug);
+              } : undefined}
+              onMoveSection={(direction) => moveSection(selectedSection.slug, direction)}
+              onToggleSection={() => run(`section-publish-${selectedSection.slug}`, () => setAboutSectionPublished(selectedSection.slug, !selectedSection.is_published))}
+              onTabChange={changeTab}
+            />
 
             <div className="p-4 sm:p-5">
               {activeTab === "content" ? (
@@ -290,20 +408,28 @@ export function AtelierAdminManager() {
   );
 }
 
-function OverviewTile({ label, value, detail, warning = false }: { label: string; value: string; detail: string; warning?: boolean }) {
+function OverviewTile({ label, value, detail, warning = false }: { label: string; value: React.ReactNode; detail: string; warning?: boolean }) {
   return (
     <div className="rounded-brand border border-champagne-beige bg-warm-ivory px-4 py-3">
       <p className="text-xs font-semibold uppercase tracking-wide text-soft-brown">{label}</p>
       <div className="mt-1 flex items-end gap-2">
-        <span className={cn("font-heading text-2xl font-semibold", warning ? "text-amber-700" : "text-charcoal")}>{value}</span>
+        <div className={cn("font-heading text-2xl font-semibold", warning ? "text-amber-700" : "text-charcoal")}>{value}</div>
         <span className="pb-1 text-xs text-soft-brown">{detail}</span>
       </div>
     </div>
   );
 }
 
-function SectionNavCard({ section, index, selected, onSelect }: { section: AboutSectionAdmin; index: number; selected: boolean; onSelect: () => void }) {
-  const translationGaps = translationGapCount(section);
+function SectionNavCard({ section, index, selected, activeTab, translationGaps, onSelect, onSelectPart }: {
+  section: AboutSectionAdmin;
+  index: number;
+  selected: boolean;
+  activeTab: EditorTab;
+  translationGaps: AdminTranslationGap[];
+  onSelect: () => void;
+  onSelectPart: (tab: EditorTab) => void;
+}) {
+  const itemLabels = ITEM_LABELS[section.type] ?? { plural: "Items", singular: "item" };
   return (
     <article className={cn("rounded-brand border bg-admin-surface p-3 transition-colors", selected ? "border-admin-primary shadow-md" : "border-admin-border/45 hover:border-admin-accent")}>
       <button type="button" onClick={onSelect} className="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-focus focus-visible:ring-offset-2 focus-visible:ring-offset-admin-surface" aria-current={selected ? "true" : undefined}>
@@ -316,34 +442,82 @@ function SectionNavCard({ section, index, selected, onSelect }: { section: About
             <p className="mt-0.5 text-xs text-soft-brown">{SECTION_TYPE_LABELS[section.type]}</p>
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <StatusBadge active={section.is_published} activeLabel="Published" inactiveLabel="Hidden" />
-          <span className={cn("rounded-pill border px-2 py-1 text-xs font-semibold", translationGaps > 0 ? "border-amber-200 bg-amber-50 text-amber-700" : "border-green-200 bg-green-50 text-green-700")}>
-            {translationGaps > 0 ? `${translationGaps} BG gap${translationGaps === 1 ? "" : "s"}` : "EN/BG ready"}
-          </span>
-          {section.items.length > 0 ? (
-            <span className="rounded-pill border border-champagne-beige bg-warm-ivory px-2 py-1 text-xs font-semibold text-soft-brown">
-              {section.items.length} item{section.items.length === 1 ? "" : "s"}
-            </span>
-          ) : null}
-        </div>
       </button>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <StatusBadge active={section.is_published} activeLabel="Published" inactiveLabel="Hidden" />
+        <AdminTranslationGapButton gaps={translationGaps} label={`${section.heading_en || section.slug} translation gaps`} />
+        {section.items.length > 0 ? (
+          <span className="rounded-pill border border-champagne-beige bg-warm-ivory px-2 py-1 text-xs font-semibold text-soft-brown">
+            {section.items.length} item{section.items.length === 1 ? "" : "s"}
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-3 border-t border-admin-border/35 pt-3">
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-gold">Page parts</p>
+        <div className="grid grid-cols-2 gap-2">
+          <NavPartButton active={selected && activeTab === "content"} onClick={() => onSelectPart("content")}>Content</NavPartButton>
+          {supportsSectionItems(section) ? (
+            <NavPartButton active={selected && activeTab === "items"} onClick={() => onSelectPart("items")}>{itemLabels.plural}</NavPartButton>
+          ) : null}
+          <NavPartButton active={selected && activeTab === "settings"} onClick={() => onSelectPart("settings")}>Order</NavPartButton>
+        </div>
+      </div>
     </article>
   );
 }
 
-function EditorHeader({ section, activeTab, onTabChange }: { section: AboutSectionAdmin; activeTab: EditorTab; onTabChange: (tab: EditorTab) => void }) {
+function NavPartButton({ active, children, onClick }: { active: boolean; children: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={cn(
+        "min-h-9 rounded-brand border px-2 py-1.5 text-xs font-semibold transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-focus focus-visible:ring-offset-2 focus-visible:ring-offset-admin-surface",
+        active
+          ? "border-admin-primary bg-warm-ivory text-charcoal shadow-sm"
+          : "border-champagne-beige bg-admin-surface-muted/55 text-soft-brown hover:border-admin-accent hover:bg-warm-ivory hover:text-charcoal",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function EditorHeader({ section, activeTab, index, totalSections, busyKey, onAddItem, onMoveSection, onToggleSection, onTabChange }: {
+  section: AboutSectionAdmin;
+  activeTab: EditorTab;
+  index: number;
+  totalSections: number;
+  busyKey: string | null;
+  onAddItem?: () => void;
+  onMoveSection: (direction: -1 | 1) => void;
+  onToggleSection: () => void;
+  onTabChange: (tab: EditorTab) => void;
+}) {
+  const itemLabel = ITEM_LABELS[section.type]?.singular ?? "item";
   return (
     <div className="border-b border-admin-border/40 p-4 sm:p-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div>
+        <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="font-heading text-2xl font-semibold text-charcoal">{section.heading_en || section.slug}</h2>
+            <h2 className="min-w-0 break-words font-heading text-2xl font-semibold text-charcoal">{section.heading_en || section.slug}</h2>
             <StatusBadge active={section.is_published} activeLabel="Published" inactiveLabel="Hidden" />
           </div>
           <p className="mt-1 text-sm text-soft-brown">{SECTION_TYPE_LABELS[section.type]} section</p>
         </div>
-        <div className="rounded-brand bg-admin-surface-muted px-3 py-2 text-xs text-soft-brown">{section.slug}</div>
+        <div className="min-w-0 rounded-brand bg-admin-surface-muted px-3 py-2 text-xs text-soft-brown">
+          <span className="break-words">{section.slug}</span>
+        </div>
+      </div>
+      <div className="mt-4 flex flex-col gap-2 rounded-brand border border-admin-border/45 bg-admin-surface-muted/40 p-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <p className="min-w-0 text-sm text-soft-brown">Order and visibility for this public section.</p>
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+          {onAddItem ? <Button type="button" size="sm" onClick={onAddItem}>Add {itemLabel}</Button> : null}
+          <Button type="button" size="sm" variant="secondary" disabled={index <= 0} isLoading={busyKey === `section-order-${section.slug}`} onClick={() => onMoveSection(-1)}>Move up</Button>
+          <Button type="button" size="sm" variant="secondary" disabled={index < 0 || index >= totalSections - 1} isLoading={busyKey === `section-order-${section.slug}`} onClick={() => onMoveSection(1)}>Move down</Button>
+          <Button type="button" size="sm" variant="secondary" className="col-span-2" isLoading={busyKey === `section-publish-${section.slug}`} onClick={onToggleSection}>{section.is_published ? "Hide section" : "Publish section"}</Button>
+        </div>
       </div>
       <div className="mt-4 flex gap-2 overflow-x-auto" role="tablist" aria-label="Atelier editor sections">
         <TabButton active={activeTab === "content"} onClick={() => onTabChange("content")}>Content</TabButton>
@@ -381,9 +555,9 @@ function ContentTab({ section, draft, busyKey, onSectionChange, onSave, onUpload
         </LanguagePanel>
 
         <LanguagePanel title="Bulgarian" detail="Keep close to the English meaning">
-          <Field label="Heading" value={draft.heading_bg ?? ""} onChange={(value) => onSectionChange(section.slug, "heading_bg", value || null)} />
-          <Field label="Subheading" value={draft.subheading_bg ?? ""} onChange={(value) => onSectionChange(section.slug, "subheading_bg", value || null)} />
-          <Area label="Body" value={draft.body_bg ?? ""} onChange={(value) => onSectionChange(section.slug, "body_bg", value || null)} />
+          <Field id={aboutSectionFieldId(section.slug, "heading-bg")} label={<>Heading<MissingBgLabel show={isMissingTranslation(draft.heading_en, draft.heading_bg)} /></>} value={draft.heading_bg ?? ""} onChange={(value) => onSectionChange(section.slug, "heading_bg", value || null)} />
+          <Field id={aboutSectionFieldId(section.slug, "subheading-bg")} label={<>Subheading<MissingBgLabel show={isMissingTranslation(draft.subheading_en, draft.subheading_bg)} /></>} value={draft.subheading_bg ?? ""} onChange={(value) => onSectionChange(section.slug, "subheading_bg", value || null)} />
+          <Area id={aboutSectionFieldId(section.slug, "body-bg")} label={<>Body<MissingBgLabel show={isMissingTranslation(draft.body_en, draft.body_bg)} /></>} value={draft.body_bg ?? ""} onChange={(value) => onSectionChange(section.slug, "body_bg", value || null)} />
         </LanguagePanel>
       </div>
 
@@ -391,7 +565,7 @@ function ContentTab({ section, draft, busyKey, onSectionChange, onSave, onUpload
         <h3 className="font-heading text-lg font-semibold text-charcoal">Call to action</h3>
         <div className="mt-3 grid gap-3 lg:grid-cols-3">
           <Field label="CTA label EN" value={draft.cta_label_en ?? ""} onChange={(value) => onSectionChange(section.slug, "cta_label_en", value || null)} />
-          <Field label="CTA label BG" value={draft.cta_label_bg ?? ""} onChange={(value) => onSectionChange(section.slug, "cta_label_bg", value || null)} />
+          <Field id={aboutSectionFieldId(section.slug, "cta-label-bg")} label={<>CTA label BG<MissingBgLabel show={isMissingTranslation(draft.cta_label_en, draft.cta_label_bg)} /></>} value={draft.cta_label_bg ?? ""} onChange={(value) => onSectionChange(section.slug, "cta_label_bg", value || null)} />
           <Field label="CTA href" value={draft.cta_href ?? ""} onChange={(value) => onSectionChange(section.slug, "cta_href", value || null)} />
         </div>
       </div>
@@ -437,7 +611,8 @@ function ItemsTab({ section, draft, editingItemId, addingItemForSlug, newItem, b
   onClearItemImage: (item: AboutItemAdmin) => void;
   onCreateItem: () => void;
 }) {
-  const supportsItems = draft.items.length > 0 || ITEM_SECTION_TYPES.has(draft.type);
+  const supportsItems = supportsSectionItems(draft);
+  const labels = ITEM_LABELS[draft.type] ?? { plural: "Items", singular: "item" };
 
   if (!supportsItems) {
     return <div className="rounded-brand border border-dashed border-champagne-beige bg-warm-ivory p-5 text-sm leading-6 text-soft-brown">This section type does not use cards, collection links, or timeline steps.</div>;
@@ -447,13 +622,13 @@ function ItemsTab({ section, draft, editingItemId, addingItemForSlug, newItem, b
     <div className="space-y-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="font-heading text-xl font-semibold text-charcoal">Items</h3>
-          <p className="text-sm text-soft-brown">Edit cards, timeline steps, or collection links one at a time.</p>
+          <h3 className="font-heading text-xl font-semibold text-charcoal">{labels.plural}</h3>
+          <p className="text-sm text-soft-brown">Edit {labels.plural.toLowerCase()} one at a time.</p>
         </div>
-        {addingItemForSlug !== section.slug ? <Button type="button" variant="secondary" onClick={onAddItem}>Add item</Button> : null}
+        {addingItemForSlug !== section.slug ? <Button type="button" variant="secondary" onClick={onAddItem}>Add {labels.singular}</Button> : null}
       </div>
 
-      {draft.items.length === 0 ? <div className="rounded-brand border border-dashed border-champagne-beige bg-warm-ivory p-5 text-sm text-soft-brown">No items yet.</div> : null}
+      {draft.items.length === 0 ? <div className="rounded-brand border border-dashed border-champagne-beige bg-warm-ivory p-5 text-sm text-soft-brown">No {labels.plural.toLowerCase()} yet.</div> : null}
 
       <div className="space-y-3">
         {draft.items.map((item, itemIndex) => {
@@ -461,26 +636,26 @@ function ItemsTab({ section, draft, editingItemId, addingItemForSlug, newItem, b
           return (
             <article key={item.id} className="rounded-brand border border-champagne-beige bg-warm-ivory p-4">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-full bg-admin-surface px-2 py-1 text-xs font-semibold text-soft-brown">{String(itemIndex + 1).padStart(2, "0")}</span>
                     <StatusBadge active={item.is_published} activeLabel="Published" inactiveLabel="Hidden" />
                   </div>
-                  <h4 className="mt-2 font-heading text-xl text-charcoal">{item.title_en || `Item #${item.id}`}</h4>
+                  <h4 className="mt-2 break-words font-heading text-xl text-charcoal">{item.title_en || `Item #${item.id}`}</h4>
                   {item.text_en ? <p className="mt-1 line-clamp-2 text-sm leading-6 text-soft-brown">{item.text_en}</p> : null}
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="ghost" disabled={itemIndex === 0} onClick={() => onMoveItem(item.id, -1)}>Up</Button>
-                  <Button type="button" variant="ghost" disabled={itemIndex === draft.items.length - 1} onClick={() => onMoveItem(item.id, 1)}>Down</Button>
-                  <Button type="button" variant="secondary" onClick={() => onToggleItem(item)}>{item.is_published ? "Hide" : "Publish"}</Button>
-                  <Button type="button" variant={editing ? "secondary" : "primary"} onClick={() => onEditItem(editing ? null : item.id)}>{editing ? "Close" : "Edit"}</Button>
+                <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap">
+                  <Button type="button" size="sm" variant="ghost" disabled={itemIndex === 0} onClick={() => onMoveItem(item.id, -1)}>Up</Button>
+                  <Button type="button" size="sm" variant="ghost" disabled={itemIndex === draft.items.length - 1} onClick={() => onMoveItem(item.id, 1)}>Down</Button>
+                  <Button type="button" size="sm" variant="secondary" onClick={() => onToggleItem(item)}>{item.is_published ? "Hide" : "Publish"}</Button>
+                  <Button type="button" size="sm" variant={editing ? "secondary" : "primary"} onClick={() => onEditItem(editing ? null : item.id)}>{editing ? "Close" : "Edit"}</Button>
                   <DeleteIconButton label={`Delete item #${item.id}`} onClick={() => onDeleteItem(item)} />
                 </div>
               </div>
 
               {editing ? (
                 <div className="mt-4 space-y-4 border-t border-champagne-beige pt-4">
-                  <ItemFields item={item} onChange={(field, value) => onItemChange(section.slug, item.id, field, value)} />
+                  <ItemFields sectionSlug={section.slug} item={item} onChange={(field, value) => onItemChange(section.slug, item.id, field, value)} />
                   <div className="flex flex-wrap items-center gap-3">
                     <Button type="button" isLoading={busyKey === `item-save-${item.id}`} onClick={() => onSaveItem(item)}>Save item</Button>
                     <ImageControl image={item.image} onUpload={(file) => onUploadItemImage(item, file)} onClear={() => onClearItemImage(item)} />
@@ -495,7 +670,7 @@ function ItemsTab({ section, draft, editingItemId, addingItemForSlug, newItem, b
       {addingItemForSlug === section.slug ? (
         <div className="rounded-brand border border-dashed border-muted-gold bg-admin-surface p-4">
           <div className="flex items-center justify-between gap-3">
-            <h3 className="font-heading text-lg font-semibold text-charcoal">New item</h3>
+            <h3 className="font-heading text-lg font-semibold text-charcoal">New {labels.singular}</h3>
             <Button type="button" variant="ghost" onClick={onCancelAdd}>Cancel</Button>
           </div>
           <div className="mt-4 grid gap-3 lg:grid-cols-2">
@@ -505,7 +680,7 @@ function ItemsTab({ section, draft, editingItemId, addingItemForSlug, newItem, b
             <Area label="Text BG" value={newItem.text_bg ?? ""} onChange={(value) => onNewItemChange({ text_bg: value })} />
             <Field label="Link href" value={newItem.link_href ?? ""} onChange={(value) => onNewItemChange({ link_href: value })} />
           </div>
-          <Button type="button" className="mt-3" disabled={!newItem.title_en.trim()} onClick={onCreateItem}>Create item</Button>
+          <Button type="button" className="mt-3" disabled={!newItem.title_en.trim()} onClick={onCreateItem}>Create {labels.singular}</Button>
         </div>
       ) : null}
     </div>
@@ -564,7 +739,7 @@ function LanguagePanel({ title, detail, children }: { title: string; detail: str
   );
 }
 
-function ItemFields({ item, onChange }: { item: AboutItemAdmin; onChange: (field: keyof AboutItemAdmin, value: string | boolean | null) => void }) {
+function ItemFields({ sectionSlug, item, onChange }: { sectionSlug: string; item: AboutItemAdmin; onChange: (field: keyof AboutItemAdmin, value: string | boolean | null) => void }) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <LanguagePanel title="English" detail="Item text shown to customers">
@@ -572,8 +747,8 @@ function ItemFields({ item, onChange }: { item: AboutItemAdmin; onChange: (field
         <Area label="Text" value={item.text_en ?? ""} onChange={(value) => onChange("text_en", value || null)} />
       </LanguagePanel>
       <LanguagePanel title="Bulgarian" detail="Matching translation">
-        <Field label="Title" value={item.title_bg ?? ""} onChange={(value) => onChange("title_bg", value || null)} />
-        <Area label="Text" value={item.text_bg ?? ""} onChange={(value) => onChange("text_bg", value || null)} />
+        <Field id={aboutItemFieldId(sectionSlug, item.id, "title-bg")} label={<>Title<MissingBgLabel show={isMissingTranslation(item.title_en, item.title_bg)} /></>} value={item.title_bg ?? ""} onChange={(value) => onChange("title_bg", value || null)} />
+        <Area id={aboutItemFieldId(sectionSlug, item.id, "text-bg")} label={<>Text<MissingBgLabel show={isMissingTranslation(item.text_en, item.text_bg)} /></>} value={item.text_bg ?? ""} onChange={(value) => onChange("text_bg", value || null)} />
       </LanguagePanel>
       <div className="lg:col-span-2">
         <Field label="Link href" value={item.link_href ?? ""} onChange={(value) => onChange("link_href", value || null)} />
@@ -599,20 +774,20 @@ function StatusBadge({ active, activeLabel, inactiveLabel }: { active: boolean; 
   );
 }
 
-function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function Field({ id, label, value, onChange }: { id?: string; label: React.ReactNode; value: string; onChange: (value: string) => void }) {
   return (
     <label className="block text-sm font-medium text-charcoal">
       {label}
-      <input className="mt-1 w-full rounded-brand border border-champagne-beige bg-admin-surface px-3 py-2 text-sm text-charcoal focus:border-muted-gold focus:outline-none focus:ring-2 focus:ring-muted-gold/20" value={value} onChange={(event) => onChange(event.target.value)} />
+      <input id={id} className="mt-1 w-full rounded-brand border border-champagne-beige bg-admin-surface px-3 py-2 text-sm text-charcoal focus:border-muted-gold focus:outline-none focus:ring-2 focus:ring-muted-gold/20" value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }
 
-function Area({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function Area({ id, label, value, onChange }: { id?: string; label: React.ReactNode; value: string; onChange: (value: string) => void }) {
   return (
     <label className="block text-sm font-medium text-charcoal">
       {label}
-      <textarea className="mt-1 min-h-32 w-full rounded-brand border border-champagne-beige bg-admin-surface px-3 py-2 text-sm leading-6 text-charcoal focus:border-muted-gold focus:outline-none focus:ring-2 focus:ring-muted-gold/20" value={value} onChange={(event) => onChange(event.target.value)} />
+      <textarea id={id} className="mt-1 min-h-32 w-full rounded-brand border border-champagne-beige bg-admin-surface px-3 py-2 text-sm leading-6 text-charcoal focus:border-muted-gold focus:outline-none focus:ring-2 focus:ring-muted-gold/20" value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }
@@ -650,16 +825,45 @@ function summarizeSections(sections: AboutSectionAdmin[]) {
 }
 
 function translationGapCount(section: AboutSectionAdmin) {
-  let gaps = 0;
-  if (isBlank(section.heading_bg)) gaps += 1;
-  if (!isBlank(section.subheading_en) && isBlank(section.subheading_bg)) gaps += 1;
-  if (!isBlank(section.body_en) && isBlank(section.body_bg)) gaps += 1;
-  if (!isBlank(section.cta_label_en) && isBlank(section.cta_label_bg)) gaps += 1;
-  section.items.forEach((item) => {
-    if (isBlank(item.title_bg)) gaps += 1;
-    if (!isBlank(item.text_en) && isBlank(item.text_bg)) gaps += 1;
+  return translationGapsForSection(section).length;
+}
+
+function translationGapsForSection(section: AboutSectionAdmin, actions?: {
+  onSectionField?: () => void;
+  onItemField?: (itemId: number) => void;
+}): AdminTranslationGap[] {
+  const title = section.heading_en || section.slug;
+  const gaps: AdminTranslationGap[] = [];
+  if (isMissingTranslation(section.heading_en, section.heading_bg)) {
+    gaps.push({ id: `${section.slug}-heading-bg`, label: `${title} > Heading BG`, fieldId: aboutSectionFieldId(section.slug, "heading-bg"), onFix: actions?.onSectionField });
+  }
+  if (isMissingTranslation(section.subheading_en, section.subheading_bg)) {
+    gaps.push({ id: `${section.slug}-subheading-bg`, label: `${title} > Subheading BG`, fieldId: aboutSectionFieldId(section.slug, "subheading-bg"), onFix: actions?.onSectionField });
+  }
+  if (isMissingTranslation(section.body_en, section.body_bg)) {
+    gaps.push({ id: `${section.slug}-body-bg`, label: `${title} > Body BG`, fieldId: aboutSectionFieldId(section.slug, "body-bg"), onFix: actions?.onSectionField });
+  }
+  if (isMissingTranslation(section.cta_label_en, section.cta_label_bg)) {
+    gaps.push({ id: `${section.slug}-cta-label-bg`, label: `${title} > CTA label BG`, fieldId: aboutSectionFieldId(section.slug, "cta-label-bg"), onFix: actions?.onSectionField });
+  }
+  section.items.forEach((item, index) => {
+    const itemLabel = item.title_en || `Item ${index + 1}`;
+    if (isMissingTranslation(item.title_en, item.title_bg)) {
+      gaps.push({ id: `${section.slug}-item-${item.id}-title-bg`, label: `${title} > ${itemLabel} > Title BG`, fieldId: aboutItemFieldId(section.slug, item.id, "title-bg"), onFix: () => actions?.onItemField?.(item.id) });
+    }
+    if (isMissingTranslation(item.text_en, item.text_bg)) {
+      gaps.push({ id: `${section.slug}-item-${item.id}-text-bg`, label: `${title} > ${itemLabel} > Text BG`, fieldId: aboutItemFieldId(section.slug, item.id, "text-bg"), onFix: () => actions?.onItemField?.(item.id) });
+    }
   });
   return gaps;
+}
+
+function aboutSectionFieldId(slug: string, field: string) {
+  return `about-${slug}-${field}`;
+}
+
+function aboutItemFieldId(slug: string, itemId: number, field: string) {
+  return `about-${slug}-item-${itemId}-${field}`;
 }
 
 function isBlank(value: string | null | undefined) {

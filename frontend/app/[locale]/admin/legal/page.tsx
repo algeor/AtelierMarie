@@ -77,6 +77,11 @@ function formatAddress(form: LegalForm): string {
     .join(", ");
 }
 
+function filledValue(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
 export default function AdminLegalPage() {
   const t = useTranslations("admin.legal");
   const common = useTranslations("common");
@@ -121,18 +126,15 @@ export default function AdminLegalPage() {
     };
   }, [t]);
 
-  const preview = useMemo(() => {
-    const address = formatAddress(form) || "TODO: geographic business address";
-    return {
-      tradingName: form.company_display_name.trim() || "Atelier Marie",
-      legalName: form.legal_name.trim() || "TODO: legal entity name",
-      address,
-      country: form.registered_address_country.trim() || "Bulgaria",
-      contactEmail: form.contact_email.trim() || "contacts@theateliermarie.com",
-      registrationNumber: form.uic_eik.trim() || "TODO: registration number",
-      vatNumber: form.vat_identification_number.trim() || "TODO: VAT number or not VAT registered",
-    };
-  }, [form]);
+  const previewRows = useMemo(() => [
+    { label: t("companyDisplayName"), value: filledValue(form.company_display_name) },
+    { label: t("legalName"), value: filledValue(form.legal_name) },
+    { label: t("address"), value: filledValue(formatAddress(form)) },
+    { label: t("country"), value: filledValue(form.registered_address_country) },
+    { label: t("contactEmail"), value: filledValue(form.contact_email) },
+    { label: t("uicEik"), value: filledValue(form.uic_eik) },
+    { label: t("vatIdentificationNumber"), value: filledValue(form.vat_identification_number) },
+  ].filter((row): row is { label: string; value: string } => row.value !== null), [form, t]);
 
   function updateField(field: keyof LegalForm, value: string | boolean) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -212,13 +214,9 @@ export default function AdminLegalPage() {
         <section className="rounded-brand border border-champagne-beige bg-cream p-5 xl:sticky xl:top-24 xl:self-start">
           <h2 className="font-heading text-xl text-charcoal">{t("previewTitle")}</h2>
           <dl className="mt-4 space-y-3 text-sm">
-            <PreviewRow label={t("companyDisplayName")} value={preview.tradingName} />
-            <PreviewRow label={t("legalName")} value={preview.legalName} />
-            <PreviewRow label={t("address")} value={preview.address} />
-            <PreviewRow label={t("country")} value={preview.country} />
-            <PreviewRow label={t("contactEmail")} value={preview.contactEmail} />
-            <PreviewRow label={t("uicEik")} value={preview.registrationNumber} />
-            <PreviewRow label={t("vatIdentificationNumber")} value={preview.vatNumber} />
+            {previewRows.map((row) => (
+              <PreviewRow key={row.label} label={row.label} value={row.value} />
+            ))}
           </dl>
         </section>
       </div>

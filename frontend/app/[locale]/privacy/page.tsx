@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import type { Locale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
 import { getPrivacy } from "@/lib/api";
-import { loadLegalIdentity, policyPath } from "@/lib/legal";
+import { hasLegalIdentityValue, loadLegalIdentity, policyPath } from "@/lib/legal";
 import { getLocalizedAlternates } from "@/lib/seo";
 import type { PrivacyResponse } from "@/lib/types";
 import enMessages from "@/messages/en.json";
@@ -77,6 +77,15 @@ export default async function PrivacyPage({ params }: PrivacyPageProps) {
   const privacy = await getEditablePrivacyMessages(locale);
   const legal = locale === "bg" ? bgMessages.legal : enMessages.legal;
   const legalIdentity = await loadLegalIdentity();
+  const controllerRows = [
+    { label: legal.tradingName, value: legalIdentity.tradingName },
+    { label: legal.legalName, value: legalIdentity.legalName },
+    { label: legal.geographicAddress, value: legalIdentity.geographicAddress },
+    { label: legal.country, value: legalIdentity.country },
+    { label: legal.contactEmail, value: legalIdentity.contactEmail },
+    { label: legal.registrationNumber, value: legalIdentity.registrationNumber },
+    { label: legal.vatNumber, value: legalIdentity.vatNumber },
+  ].filter((row) => hasLegalIdentityValue(row.value));
 
   return (
     <main className="overflow-x-hidden bg-page text-text">
@@ -125,34 +134,12 @@ export default async function PrivacyPage({ params }: PrivacyPageProps) {
               {privacy.controllerTitle}
             </h2>
             <dl className="mt-4 grid gap-3 text-sm text-muted sm:grid-cols-2">
-              <div>
-                <dt className="font-medium text-text">{legal.tradingName}</dt>
-                <dd>{legalIdentity.tradingName}</dd>
-              </div>
-              <div>
-                <dt className="font-medium text-text">{legal.legalName}</dt>
-                <dd>{legalIdentity.legalName}</dd>
-              </div>
-              <div>
-                <dt className="font-medium text-text">
-                  {legal.geographicAddress}
-                </dt>
-                <dd>{legalIdentity.geographicAddress}</dd>
-              </div>
-              <div>
-                <dt className="font-medium text-text">{legal.country}</dt>
-                <dd>{legalIdentity.country}</dd>
-              </div>
-              <div>
-                <dt className="font-medium text-text">{legal.contactEmail}</dt>
-                <dd>{legalIdentity.contactEmail}</dd>
-              </div>
-              <div>
-                <dt className="font-medium text-text">
-                  {legal.registrationNumber}
-                </dt>
-                <dd>{legalIdentity.registrationNumber}</dd>
-              </div>
+              {controllerRows.map((row) => (
+                <div key={row.label}>
+                  <dt className="font-medium text-text">{row.label}</dt>
+                  <dd>{row.value}</dd>
+                </div>
+              ))}
             </dl>
             <p className="mt-4 text-sm leading-6 text-muted/80">
               {legal.ownerReviewNotice}

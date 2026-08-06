@@ -2,6 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
+import { useSearchParams } from "next/navigation";
+import { AdminMobileTargetSelect } from "@/components/admin/AdminMobileTargetSelect";
+import { AdminTranslationGapButton, MissingBgLabel, isMissingTranslation, type AdminTranslationGap } from "@/components/admin/AdminTranslationGaps";
 import { getAdminPrivacy, updatePrivacyPage, updatePrivacySection } from "@/lib/api";
 import { SaveConfirmation } from "@/components/admin/SaveConfirmation";
 import { Button } from "@/components/ui/Button";
@@ -37,6 +40,7 @@ function sectionDraft(section: PrivacySectionAdminResponse): SectionDraft {
 export function PrivacyManager() {
   const t = useTranslations("admin.privacy");
   const tCommon = useTranslations("common");
+  const searchParams = useSearchParams();
   const [privacy, setPrivacy] = useState<PrivacyAdminResponse | null>(null);
   const [selectedTarget, setSelectedTarget] = useState<Target>("page");
   const [drafts, setDrafts] = useState<Record<string, SectionDraft>>({});
@@ -67,14 +71,41 @@ export function PrivacyManager() {
   }, []);
 
   useEffect(() => {
-    if (!privacy || selectedTarget === "page") return;
-    if (!privacy.sections.some((section) => section.slug === selectedTarget)) {
+    if (!privacy) return;
+    const requestedTarget = searchParams?.get("target") ?? null;
+    if (requestedTarget && (requestedTarget === "page" || privacy.sections.some((section) => section.slug === requestedTarget))) {
+      setSelectedTarget(requestedTarget);
+      return;
+    }
+    if (selectedTarget !== "page" && !privacy.sections.some((section) => section.slug === selectedTarget)) {
       setSelectedTarget("page");
     }
-  }, [privacy, selectedTarget]);
+  }, [privacy, selectedTarget, searchParams]);
 
   const selectedSection = selectedTarget === "page" ? null : privacy?.sections.find((section) => section.slug === selectedTarget) ?? null;
   const overview = useMemo(() => summarizePrivacy(privacy, drafts), [privacy, drafts]);
+  const allTranslationGaps = privacy ? [
+    ...privacyPageTranslationGaps(privacy.page, () => setSelectedTarget("page")),
+    ...privacy.sections.flatMap((section) => privacySectionTranslationGaps(section, drafts[section.slug] ?? sectionDraft(section), () => setSelectedTarget(section.slug))),
+  ] : [];
+  const mobileTargetOptions = privacy ? [
+    {
+      value: "page",
+      label: t("pageSection"),
+      group: "Page",
+      description: "SEO, hero, date, and controller labels",
+    },
+    ...privacy.sections.map((section) => {
+      const draft = drafts[section.slug] ?? sectionDraft(section);
+      const paragraphs = splitParagraphs(draft.body_en).length;
+      return {
+        value: section.slug,
+        label: section.title_en,
+        group: "Privacy sections",
+        description: `${paragraphs} paragraph${paragraphs === 1 ? "" : "s"}`,
+      };
+    }),
+  ] : [];
 
   function showSaved(message = tCommon("saved")) {
     if (saveNoticeTimerRef.current) clearTimeout(saveNoticeTimerRef.current);
@@ -161,7 +192,7 @@ export function PrivacyManager() {
   if (!privacy && !error) return <p className="text-sm text-soft-brown">{t("loading")}</p>;
 
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-5">
       <header className="rounded-brand border border-admin-border/50 bg-admin-surface p-4 shadow-sm sm:p-5">
         <div className="max-w-2xl">
           <p className="text-xs font-semibold uppercase tracking-wide text-admin-muted">Legal copy workspace</p>
@@ -172,7 +203,7 @@ export function PrivacyManager() {
           <OverviewTile label="Sections" value={String(overview.sections)} detail="privacy blocks" />
           <OverviewTile label="Paragraphs" value={String(overview.paragraphs)} detail="public copy" />
           <OverviewTile label="Controller" value={overview.hasControllerTitle ? "Set" : "Missing"} detail="page detail" warning={!overview.hasControllerTitle} />
-          <OverviewTile label="Translation gaps" value={String(overview.translationGaps)} detail="need review" warning={overview.translationGaps > 0} />
+          <OverviewTile label="Translation gaps" value={<AdminTranslationGapButton gaps={allTranslationGaps} label="Privacy translation gaps" />} detail="need review" warning={overview.translationGaps > 0} />
         </div>
       </header>
 
@@ -180,36 +211,54 @@ export function PrivacyManager() {
       {saveNotice && <SaveConfirmation key={saveNotice.id} message={saveNotice.message} />}
 
       {privacy ? (
-        <div className="grid gap-5 xl:grid-cols-[21rem_minmax(0,1fr)]">
-          <aside className="space-y-3 xl:sticky xl:top-24 xl:self-start">
+        <div className="grid min-w-0 gap-5 xl:grid-cols-[21rem_minmax(0,1fr)]">
+          <AdminMobileTargetSelect
+            label="Edit target"
+            value={selectedTarget}
+            onChange={(value) => setSelectedTarget(value)}
+            options={mobileTargetOptions}
+          />
+
+          <aside className="hidden min-w-0 space-y-3 xl:sticky xl:top-24 xl:block xl:self-start">
             <div className="flex items-center justify-between gap-3">
               <h2 className="font-heading text-xl font-semibold text-charcoal">Edit target</h2>
               <span className="rounded-brand bg-admin-surface px-2 py-1 text-xs font-medium text-soft-brown">{privacy.sections.length + 1} total</span>
             </div>
-            <div className="space-y-2">
-              <TargetCard
-                title={t("pageSection")}
-                detail={privacy.page.title_en}
-                selected={selectedTarget === "page"}
-                countLabel="Page fields"
-                gaps={pageTranslationGapCount(privacy.page)}
-                onSelect={() => setSelectedTarget("page")}
-              />
-              {privacy.sections.map((section) => (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <MenuGroupLabel>Page</MenuGroupLabel>
                 <TargetCard
-                  key={section.slug}
-                  title={section.title_en}
-                  detail={section.slug}
-                  selected={selectedTarget === section.slug}
-                  countLabel={`${section.body_en.length} paragraph${section.body_en.length === 1 ? "" : "s"}`}
-                  gaps={sectionTranslationGapCount(section, drafts[section.slug] ?? sectionDraft(section))}
-                  onSelect={() => setSelectedTarget(section.slug)}
+                  title={t("pageSection")}
+                  detail={privacy.page.title_en}
+                  selected={selectedTarget === "page"}
+                  countLabel="SEO, hero, controller"
+                  gaps={privacyPageTranslationGaps(privacy.page, () => setSelectedTarget("page"))}
+                  onSelect={() => setSelectedTarget("page")}
                 />
-              ))}
+              </div>
+
+              <div className="space-y-2">
+                <MenuGroupLabel>Privacy sections</MenuGroupLabel>
+                {privacy.sections.map((section) => {
+                  const draft = drafts[section.slug] ?? sectionDraft(section);
+                  const paragraphs = splitParagraphs(draft.body_en).length;
+                  return (
+                    <TargetCard
+                      key={section.slug}
+                      title={section.title_en}
+                      detail={section.slug}
+                      selected={selectedTarget === section.slug}
+                      countLabel={`${paragraphs} paragraph${paragraphs === 1 ? "" : "s"}`}
+                      gaps={privacySectionTranslationGaps(section, draft, () => setSelectedTarget(section.slug))}
+                      onSelect={() => setSelectedTarget(section.slug)}
+                    />
+                  );
+                })}
+              </div>
             </div>
           </aside>
 
-          <section className="rounded-brand border border-admin-border/50 bg-admin-surface shadow-sm">
+          <section className="min-w-0 overflow-hidden rounded-brand border border-admin-border/50 bg-admin-surface shadow-sm">
             {selectedTarget === "page" ? (
               <PageEditor page={privacy.page} onChange={updatePageField} onSave={savePage} />
             ) : selectedSection ? (
@@ -234,7 +283,7 @@ function PageEditor({ page, onChange, onSave }: { page: PrivacyPageAdminResponse
     <div>
       <EditorHeader title={t("pageSection")} detail="SEO, hero, date, and controller labels for the public privacy page." />
       <div className="space-y-5 p-4 sm:p-5">
-        <div className="grid gap-5 lg:grid-cols-2">
+        <div className="grid min-w-0 gap-5 lg:grid-cols-2">
           <LanguagePanel title={t("english")}>
             <PageFields page={page} suffix="en" onChange={onChange} />
           </LanguagePanel>
@@ -262,7 +311,7 @@ function SectionEditor({ section, draft, onSectionChange, onDraftChange, onSave 
     <div>
       <EditorHeader title={section.title_en} detail={`${section.slug} · ${section.body_en.length} paragraph${section.body_en.length === 1 ? "" : "s"}`} />
       <div className="space-y-5 p-4 sm:p-5">
-        <div className="grid gap-5 lg:grid-cols-2">
+        <div className="grid min-w-0 gap-5 lg:grid-cols-2">
           <LanguagePanel title={t("english")}>
             <SectionFields section={section} draft={draft} suffix="en" onSectionChange={onSectionChange} onDraftChange={onDraftChange} />
           </LanguagePanel>
@@ -281,41 +330,52 @@ function SectionEditor({ section, draft, onSectionChange, onDraftChange, onSave 
 function EditorHeader({ title, detail }: { title: string; detail: string }) {
   return (
     <div className="border-b border-admin-border/40 p-4 sm:p-5">
-      <h2 className="font-heading text-2xl font-semibold text-charcoal">{title}</h2>
+      <h2 className="break-words font-heading text-2xl font-semibold text-charcoal">{title}</h2>
       <p className="mt-1 text-sm leading-6 text-soft-brown">{detail}</p>
     </div>
   );
 }
 
-function TargetCard({ title, detail, selected, countLabel, gaps, onSelect }: { title: string; detail: string; selected: boolean; countLabel: string; gaps: number; onSelect: () => void }) {
+function TargetCard({ title, detail, selected, countLabel, gaps, onSelect }: {
+  title: string;
+  detail: string;
+  selected: boolean;
+  countLabel: string;
+  gaps: AdminTranslationGap[];
+  onSelect: () => void;
+}) {
   return (
     <article className={cn("rounded-brand border bg-admin-surface p-3 transition-colors", selected ? "border-admin-primary shadow-md" : "border-admin-border/45 hover:border-admin-accent")}>
-      <button type="button" onClick={onSelect} className="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-focus focus-visible:ring-offset-2 focus-visible:ring-offset-admin-surface" aria-current={selected ? "true" : undefined}>
+      <button type="button" onClick={onSelect} className="block w-full min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-focus focus-visible:ring-offset-2 focus-visible:ring-offset-admin-surface" aria-current={selected ? "true" : undefined}>
         <h3 className="truncate font-heading text-lg text-charcoal">{title}</h3>
         <p className="mt-0.5 truncate text-xs text-soft-brown">{detail}</p>
         <div className="mt-3 flex flex-wrap gap-2">
           <span className="rounded-pill border border-champagne-beige bg-warm-ivory px-2 py-1 text-xs font-semibold text-soft-brown">{countLabel}</span>
-          {gaps > 0 ? <GapBadge count={gaps} /> : <span className="rounded-pill border border-green-200 bg-green-50 px-2 py-1 text-xs font-semibold text-green-700">EN/BG ready</span>}
+          <AdminTranslationGapButton gaps={gaps} label={`${title} translation gaps`} />
         </div>
       </button>
     </article>
   );
 }
 
-function OverviewTile({ label, value, detail, warning = false }: { label: string; value: string; detail: string; warning?: boolean }) {
+function MenuGroupLabel({ children }: { children: string }) {
+  return (
+    <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-gold">
+      {children}
+    </p>
+  );
+}
+
+function OverviewTile({ label, value, detail, warning = false }: { label: string; value: ReactNode; detail: string; warning?: boolean }) {
   return (
     <div className="rounded-brand border border-champagne-beige bg-warm-ivory px-4 py-3">
       <p className="text-xs font-semibold uppercase tracking-wide text-soft-brown">{label}</p>
       <div className="mt-1 flex items-end gap-2">
-        <span className={cn("font-heading text-2xl font-semibold", warning ? "text-amber-700" : "text-charcoal")}>{value}</span>
+        <div className={cn("font-heading text-2xl font-semibold", warning ? "text-amber-700" : "text-charcoal")}>{value}</div>
         <span className="pb-1 text-xs text-soft-brown">{detail}</span>
       </div>
     </div>
   );
-}
-
-function GapBadge({ count }: { count: number }) {
-  return <span className="rounded-pill border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">{count} BG gap{count === 1 ? "" : "s"}</span>;
 }
 
 function StickyActions({ children }: { children: ReactNode }) {
@@ -324,7 +384,7 @@ function StickyActions({ children }: { children: ReactNode }) {
 
 function LanguagePanel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="space-y-4 rounded-brand border border-champagne-beige bg-warm-ivory p-4">
+    <div className="min-w-0 space-y-4 rounded-brand border border-champagne-beige bg-warm-ivory p-4">
       <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-gold">{title}</h3>
       {children}
     </div>
@@ -334,15 +394,18 @@ function LanguagePanel({ title, children }: { title: string; children: ReactNode
 function PageFields({ page, suffix, onChange }: { page: PrivacyPageAdminResponse; suffix: "en" | "bg"; onChange: (field: PageField, value: string) => void }) {
   const t = useTranslations("admin.privacy");
   const field = (name: string) => `${name}_${suffix}` as PageField;
+  const gapProps = (name: string, label: string, en: string | null | undefined, bg: string | null | undefined) => suffix === "bg"
+    ? { id: privacyPageFieldId(name), label: <>{label}<MissingBgLabel show={isMissingTranslation(en, bg)} /></> }
+    : { label };
   return (
     <div className="space-y-3">
-      <TextInput label={t("metaTitle")} value={String(page[field("meta_title")] ?? "")} onChange={(value) => onChange(field("meta_title"), value)} />
-      <TextArea label={t("metaDescription")} rows={3} value={String(page[field("meta_description")] ?? "")} onChange={(value) => onChange(field("meta_description"), value)} />
-      <TextInput label={t("eyebrow")} value={String(page[field("eyebrow")] ?? "")} onChange={(value) => onChange(field("eyebrow"), value)} />
-      <TextInput label={t("pageTitle")} value={String(page[field("title")] ?? "")} onChange={(value) => onChange(field("title"), value)} />
-      <TextArea label={t("subtitleField")} rows={3} value={String(page[field("subtitle")] ?? "")} onChange={(value) => onChange(field("subtitle"), value)} />
-      <TextInput label={t("lastUpdated")} value={String(page[field("last_updated")] ?? "")} onChange={(value) => onChange(field("last_updated"), value)} />
-      <TextInput label={t("controllerTitle")} value={String(page[field("controller_title")] ?? "")} onChange={(value) => onChange(field("controller_title"), value)} />
+      <TextInput {...gapProps("meta-title", t("metaTitle"), page.meta_title_en, page.meta_title_bg)} value={String(page[field("meta_title")] ?? "")} onChange={(value) => onChange(field("meta_title"), value)} />
+      <TextArea {...gapProps("meta-description", t("metaDescription"), page.meta_description_en, page.meta_description_bg)} rows={3} value={String(page[field("meta_description")] ?? "")} onChange={(value) => onChange(field("meta_description"), value)} />
+      <TextInput {...gapProps("eyebrow", t("eyebrow"), page.eyebrow_en, page.eyebrow_bg)} value={String(page[field("eyebrow")] ?? "")} onChange={(value) => onChange(field("eyebrow"), value)} />
+      <TextInput {...gapProps("title", t("pageTitle"), page.title_en, page.title_bg)} value={String(page[field("title")] ?? "")} onChange={(value) => onChange(field("title"), value)} />
+      <TextArea {...gapProps("subtitle", t("subtitleField"), page.subtitle_en, page.subtitle_bg)} rows={3} value={String(page[field("subtitle")] ?? "")} onChange={(value) => onChange(field("subtitle"), value)} />
+      <TextInput {...gapProps("last-updated", t("lastUpdated"), page.last_updated_en, page.last_updated_bg)} value={String(page[field("last_updated")] ?? "")} onChange={(value) => onChange(field("last_updated"), value)} />
+      <TextInput {...gapProps("controller-title", t("controllerTitle"), page.controller_title_en, page.controller_title_bg)} value={String(page[field("controller_title")] ?? "")} onChange={(value) => onChange(field("controller_title"), value)} />
     </div>
   );
 }
@@ -358,29 +421,32 @@ function SectionFields({ section, draft, suffix, onSectionChange, onDraftChange 
   const titleField = `title_${suffix}` as SectionTextField;
   const navField = `nav_${suffix}` as SectionTextField;
   const bodyField = `body_${suffix}` as keyof SectionDraft;
+  const gapProps = (name: string, label: string, en: string | null | undefined, bg: string | null | undefined) => suffix === "bg"
+    ? { id: privacySectionFieldId(section.slug, name), label: <>{label}<MissingBgLabel show={isMissingTranslation(en, bg)} /></> }
+    : { label };
   return (
     <div className="space-y-3">
-      <TextInput label={t("sectionTitle")} value={String(section[titleField] ?? "")} onChange={(value) => onSectionChange(titleField, value)} />
-      <TextInput label={t("sectionNav")} value={String(section[navField] ?? "")} onChange={(value) => onSectionChange(navField, value)} />
-      <TextArea label={t("body")} rows={8} value={draft[bodyField]} onChange={(value) => onDraftChange(bodyField, value)} />
+      <TextInput {...gapProps("title", t("sectionTitle"), section.title_en, section.title_bg)} value={String(section[titleField] ?? "")} onChange={(value) => onSectionChange(titleField, value)} />
+      <TextInput {...gapProps("nav", t("sectionNav"), section.nav_en, section.nav_bg)} value={String(section[navField] ?? "")} onChange={(value) => onSectionChange(navField, value)} />
+      <TextArea {...gapProps("body", t("body"), draft.body_en, draft.body_bg)} rows={8} value={draft[bodyField]} onChange={(value) => onDraftChange(bodyField, value)} />
     </div>
   );
 }
 
-function TextInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function TextInput({ id, label, value, onChange }: { id?: string; label: ReactNode; value: string; onChange: (value: string) => void }) {
   return (
     <label className="block text-sm font-medium text-charcoal">
       {label}
-      <input value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 h-10 w-full rounded-brand border border-champagne-beige bg-admin-surface px-3 text-sm text-charcoal focus:border-muted-gold focus:outline-none focus:ring-2 focus:ring-muted-gold/20" />
+      <input id={id} value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 h-10 w-full rounded-brand border border-champagne-beige bg-admin-surface px-3 text-sm text-charcoal focus:border-muted-gold focus:outline-none focus:ring-2 focus:ring-muted-gold/20" />
     </label>
   );
 }
 
-function TextArea({ label, value, rows, onChange }: { label: string; value: string; rows: number; onChange: (value: string) => void }) {
+function TextArea({ id, label, value, rows, onChange }: { id?: string; label: ReactNode; value: string; rows: number; onChange: (value: string) => void }) {
   return (
     <label className="block text-sm font-medium text-charcoal">
       {label}
-      <textarea value={value} rows={rows} onChange={(event) => onChange(event.target.value)} className="mt-1 w-full rounded-brand border border-champagne-beige bg-admin-surface px-3 py-2 text-sm leading-6 text-charcoal focus:border-muted-gold focus:outline-none focus:ring-2 focus:ring-muted-gold/20" />
+      <textarea id={id} value={value} rows={rows} onChange={(event) => onChange(event.target.value)} className="mt-1 w-full rounded-brand border border-champagne-beige bg-admin-surface px-3 py-2 text-sm leading-6 text-charcoal focus:border-muted-gold focus:outline-none focus:ring-2 focus:ring-muted-gold/20" />
     </label>
   );
 }
@@ -396,27 +462,44 @@ function summarizePrivacy(privacy: PrivacyAdminResponse | null, drafts: Record<s
 }
 
 function pageTranslationGapCount(page: PrivacyPageAdminResponse) {
-  const pairs: Array<[string | null | undefined, string | null | undefined]> = [
-    [page.meta_title_en, page.meta_title_bg],
-    [page.meta_description_en, page.meta_description_bg],
-    [page.eyebrow_en, page.eyebrow_bg],
-    [page.title_en, page.title_bg],
-    [page.subtitle_en, page.subtitle_bg],
-    [page.last_updated_en, page.last_updated_bg],
-    [page.controller_title_en, page.controller_title_bg],
-  ];
-  return pairs.filter(([en, bg]) => !isBlank(en) && isBlank(bg)).length;
+  return privacyPageTranslationGaps(page).length;
 }
 
 function sectionTranslationGapCount(section: PrivacySectionAdminResponse, draft: SectionDraft) {
-  const pairs: Array<[string | null | undefined, string | null | undefined]> = [
-    [section.title_en, section.title_bg],
-    [section.nav_en, section.nav_bg],
-    [draft.body_en, draft.body_bg],
-  ];
-  return pairs.filter(([en, bg]) => !isBlank(en) && isBlank(bg)).length;
+  return privacySectionTranslationGaps(section, draft).length;
 }
 
-function isBlank(value: string | null | undefined) {
-  return !value || value.trim().length === 0;
+function privacyPageTranslationGaps(page: PrivacyPageAdminResponse, onFix?: () => void): AdminTranslationGap[] {
+  const fields: Array<[string, string, string | null | undefined, string | null | undefined]> = [
+    ["meta-title", "Page > Meta title BG", page.meta_title_en, page.meta_title_bg],
+    ["meta-description", "Page > Meta description BG", page.meta_description_en, page.meta_description_bg],
+    ["eyebrow", "Page > Eyebrow BG", page.eyebrow_en, page.eyebrow_bg],
+    ["title", "Page > Title BG", page.title_en, page.title_bg],
+    ["subtitle", "Page > Subtitle BG", page.subtitle_en, page.subtitle_bg],
+    ["last-updated", "Page > Last updated BG", page.last_updated_en, page.last_updated_bg],
+    ["controller-title", "Page > Controller title BG", page.controller_title_en, page.controller_title_bg],
+  ];
+  return fields
+    .filter(([, , en, bg]) => isMissingTranslation(en, bg))
+    .map(([name, label]) => ({ id: `privacy-page-${name}`, label, fieldId: privacyPageFieldId(name), onFix }));
+}
+
+function privacySectionTranslationGaps(section: PrivacySectionAdminResponse, draft: SectionDraft, onFix?: () => void): AdminTranslationGap[] {
+  const title = section.title_en || section.slug;
+  const fields: Array<[string, string, string | null | undefined, string | null | undefined]> = [
+    ["title", `${title} > Title BG`, section.title_en, section.title_bg],
+    ["nav", `${title} > Nav BG`, section.nav_en, section.nav_bg],
+    ["body", `${title} > Body BG`, draft.body_en, draft.body_bg],
+  ];
+  return fields
+    .filter(([, , en, bg]) => isMissingTranslation(en, bg))
+    .map(([name, label]) => ({ id: `privacy-${section.slug}-${name}`, label, fieldId: privacySectionFieldId(section.slug, name), onFix }));
+}
+
+function privacyPageFieldId(name: string) {
+  return `privacy-page-${name}-bg`;
+}
+
+function privacySectionFieldId(slug: string, name: string) {
+  return `privacy-${slug}-${name}-bg`;
 }

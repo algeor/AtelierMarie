@@ -9,6 +9,7 @@ import { DeleteIconButton } from "@/components/ui/DeleteIconButton";
 import { Input } from "@/components/ui/Input";
 import { AdminFieldLabel } from "@/components/admin/AdminFieldLabel";
 import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
+import { AdminTranslationGapButton, MissingBgLabel, isMissingTranslation, type AdminTranslationGap } from "@/components/admin/AdminTranslationGaps";
 import { ApiError } from "@/lib/api-client";
 import { resolveMediaUrl } from "@/lib/media";
 import { getAdminTaxonomy } from "@/lib/api";
@@ -216,6 +217,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
 
   const translationStaleBg = product?.translation_stale_bg;
   const translationStaleEn = product?.translation_stale_en;
+  const translationGaps = productTranslationGaps(formData);
   const ledgerManaged = product?.ledger_managed || product?.inventory_mode === "ledger_managed";
 
   useEffect(() => {
@@ -509,6 +511,14 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
         </div>
       )}
 
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-brand border border-champagne-beige bg-warm-ivory px-4 py-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-gold">Translation gaps</p>
+          <p className="mt-0.5 text-sm text-soft-brown">Bulgarian product fields missing while English is filled.</p>
+        </div>
+        <AdminTranslationGapButton gaps={translationGaps} label="Product translation gaps" />
+      </div>
+
       {/* Product ID (only on create) */}
       {!product && (
         <Input
@@ -540,8 +550,9 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
         </div>
         <div className="relative">
           <Input
+            id="name_bg"
             label={t("nameBg")}
-            labelExtra={fieldInfo(t("fieldHelp.nameBg"))}
+            labelExtra={<>{fieldInfo(t("fieldHelp.nameBg"))}<MissingBgLabel show={isMissingTranslation(formData.name_en, formData.name_bg)} /></>}
             placeholder={t("nameBgPlaceholder")}
             value={formData.name_bg}
             onChange={(e) => updateField("name_bg", e.target.value)}
@@ -576,7 +587,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
         </div>
         <div className="relative">
           <AdminFieldLabel htmlFor="description_bg" info={t("fieldHelp.descriptionBg")}>
-            {t("descriptionBg")}
+            {t("descriptionBg")}<MissingBgLabel show={isMissingTranslation(formData.description_en, formData.description_bg)} />
           </AdminFieldLabel>
           <textarea
             id="description_bg"
@@ -617,7 +628,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
           </div>
           <div>
             <AdminFieldLabel htmlFor="safety_warnings_bg" info={t("fieldHelp.safetyWarnings")}>
-              {t("safetyWarningsBg")}
+              {t("safetyWarningsBg")}<MissingBgLabel show={isMissingTranslation(formData.safety_warnings_en, formData.safety_warnings_bg)} />
             </AdminFieldLabel>
             <textarea
               id="safety_warnings_bg"
@@ -647,7 +658,7 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
           </div>
           <div>
             <AdminFieldLabel htmlFor="care_instructions_bg" info={t("fieldHelp.careInstructions")}>
-              {t("careInstructionsBg")}
+              {t("careInstructionsBg")}<MissingBgLabel show={isMissingTranslation(formData.care_instructions_en, formData.care_instructions_bg)} />
             </AdminFieldLabel>
             <textarea
               id="care_instructions_bg"
@@ -1104,4 +1115,16 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
       </div>
     </form>
   );
+}
+
+function productTranslationGaps(formData: ProductFormData): AdminTranslationGap[] {
+  const fields: Array<[string, string, string, string]> = [
+    ["name_bg", "Product > Name BG", formData.name_en, formData.name_bg],
+    ["description_bg", "Product > Description BG", formData.description_en, formData.description_bg],
+    ["safety_warnings_bg", "Product > Safety warnings BG", formData.safety_warnings_en, formData.safety_warnings_bg],
+    ["care_instructions_bg", "Product > Care instructions BG", formData.care_instructions_en, formData.care_instructions_bg],
+  ];
+  return fields
+    .filter(([, , en, bg]) => isMissingTranslation(en, bg))
+    .map(([fieldId, label]) => ({ id: `product-${fieldId}`, label, fieldId }));
 }

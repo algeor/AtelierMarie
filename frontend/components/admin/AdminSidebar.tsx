@@ -1,13 +1,15 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import { Link, usePathname } from "@/i18n/navigation";
 import { useAdmin } from "@/contexts/AdminContext";
+import { getAdminAbout, getAdminCookies, getAdminFaq, getAdminPrivacy, getAdminTerms } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 interface NavChild {
-  labelKey: string;
+  label?: string;
+  labelKey?: string;
   href: string;
   activeHrefs?: string[];
 }
@@ -207,7 +209,7 @@ const DEFAULT_EXPANDED_GROUPS = {
   catalog: true,
   inventoryProduction: false,
   finance: false,
-  pages: false,
+  pages: true,
 };
 
 interface AdminSidebarProps {
@@ -222,8 +224,74 @@ export function AdminSidebar({ open, onOpenChange }: AdminSidebarProps = {}) {
   const [internalOpen, setInternalOpen] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(DEFAULT_EXPANDED_GROUPS);
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
+  const [dynamicChildren, setDynamicChildren] = useState<Record<string, NavChild[]>>({});
   const sidebarOpen = open ?? internalOpen;
   const setSidebarOpen = onOpenChange ?? setInternalOpen;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPageParts() {
+      const [about, faq, terms, privacy, cookies] = await Promise.allSettled([
+        getAdminAbout(),
+        getAdminFaq(),
+        getAdminTerms(),
+        getAdminPrivacy(),
+        getAdminCookies(),
+      ]);
+
+      if (cancelled) return;
+
+      setDynamicChildren({
+        "/admin/atelier": about.status === "fulfilled"
+          ? about.value.sections.map((section, index) => ({
+              label: `${String(index + 1).padStart(2, "0")} · ${section.heading_en || section.slug}`,
+              href: `/admin/atelier?section=${encodeURIComponent(section.slug)}&part=content`,
+            }))
+          : [],
+        "/admin/faq": faq.status === "fulfilled"
+          ? faq.value.sections.map((section) => ({
+              label: section.title_en,
+              href: `/admin/faq?section=${encodeURIComponent(section.slug)}&part=questions`,
+            }))
+          : [],
+        "/admin/terms": terms.status === "fulfilled"
+          ? [
+              { label: "Page fields", href: "/admin/terms?target=page" },
+              ...terms.value.sections.map((section) => ({
+                label: `${section.title_en} (${section.body_en.length} paragraph${section.body_en.length === 1 ? "" : "s"})`,
+                href: `/admin/terms?target=${encodeURIComponent(section.slug)}`,
+              })),
+            ]
+          : [],
+        "/admin/privacy": privacy.status === "fulfilled"
+          ? [
+              { label: "Page fields", href: "/admin/privacy?target=page" },
+              ...privacy.value.sections.map((section) => ({
+                label: `${section.title_en} (${section.body_en.length} paragraph${section.body_en.length === 1 ? "" : "s"})`,
+                href: `/admin/privacy?target=${encodeURIComponent(section.slug)}`,
+              })),
+            ]
+          : [],
+        "/admin/cookies": cookies.status === "fulfilled"
+          ? [
+              { label: "Page fields", href: "/admin/cookies?target=page" },
+              { label: `Inventory (${cookies.value.cookies.length} row${cookies.value.cookies.length === 1 ? "" : "s"})`, href: "/admin/cookies?target=inventory" },
+              ...cookies.value.sections.map((section) => ({
+                label: `${section.title_en} (${section.body_en.length} paragraph${section.body_en.length === 1 ? "" : "s"})`,
+                href: `/admin/cookies?target=section:${encodeURIComponent(section.slug)}`,
+              })),
+            ]
+          : [],
+      });
+    }
+
+    void loadPageParts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function closeOnMobile() {
     if (typeof window === "undefined" || window.innerWidth < 1024) {
@@ -243,8 +311,16 @@ export function AdminSidebar({ open, onOpenChange }: AdminSidebarProps = {}) {
     return pathname === href || activeHrefs.includes(pathname);
   }
 
+  function getItemChildren(item: NavItem): NavChild[] {
+    return dynamicChildren[item.href] ?? item.children ?? [];
+  }
+
+  function getChildLabel(child: NavChild): string {
+    return child.label ?? (child.labelKey ? t(child.labelKey) : child.href);
+  }
+
   function isItemActive(item: NavItem): boolean {
-    return isActive(item.href, item.activeHrefs) || (item.children?.some((child) => isActive(child.href, child.activeHrefs)) ?? false);
+    return isActive(item.href, item.activeHrefs) || getItemChildren(item).some((child) => isActive(child.href, child.activeHrefs));
   }
 
   function isGroupActive(group: NavGroup): boolean {
@@ -261,13 +337,14 @@ export function AdminSidebar({ open, onOpenChange }: AdminSidebarProps = {}) {
 
   function renderItem(item: NavItem) {
     const itemActive = isItemActive(item);
+    const itemChildren = getItemChildren(item);
     const itemExpanded = Boolean(expandedItems[item.href] || itemActive);
     const linkClassName = cn(
-      "flex min-h-10 w-full items-center rounded-brand px-3 py-2.5 text-left text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-focus focus-visible:ring-offset-2 focus-visible:ring-offset-admin-surface motion-reduce:transition-none",
+      "flex min-h-10 w-full min-w-0 items-center gap-2 rounded-brand px-3 py-2.5 text-left text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-focus focus-visible:ring-offset-2 focus-visible:ring-offset-admin-surface motion-reduce:transition-none",
       itemActive ? "bg-admin-accent/15 text-admin-text" : "text-admin-muted hover:bg-admin-surface-muted/50 hover:text-admin-text"
     );
 
-    if (!item.children) {
+    if (itemChildren.length === 0) {
       return (
         <Link
           key={item.href}
@@ -276,7 +353,7 @@ export function AdminSidebar({ open, onOpenChange }: AdminSidebarProps = {}) {
           className={linkClassName}
           aria-current={isCurrentLink(item.href, item.activeHrefs) ? "page" : undefined}
         >
-          <span>{t(item.labelKey)}</span>
+          <span className="min-w-0 truncate">{t(item.labelKey)}</span>
         </Link>
       );
     }
@@ -285,32 +362,42 @@ export function AdminSidebar({ open, onOpenChange }: AdminSidebarProps = {}) {
 
     return (
       <div key={item.href}>
-        <button
-          type="button"
-          onClick={() => toggleItem(item.href)}
-          className={linkClassName}
-          aria-label={t(itemExpanded ? "collapseNavGroup" : "expandNavGroup", { group: itemLabel })}
-          aria-expanded={itemExpanded}
-        >
-          <span className="flex-1">{itemLabel}</span>
-          <ChevronIcon expanded={itemExpanded} />
-        </button>
+        <div className={cn(linkClassName, "pr-1")}>
+          <Link
+            href={item.href}
+            onClick={closeOnMobile}
+            className="min-w-0 flex-1 truncate focus-visible:outline-none"
+            aria-current={isCurrentLink(item.href, item.activeHrefs) ? "page" : undefined}
+          >
+            {itemLabel}
+          </Link>
+          <button
+            type="button"
+            onClick={() => toggleItem(item.href)}
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-brand text-admin-muted transition-colors hover:bg-admin-surface hover:text-admin-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-focus focus-visible:ring-offset-2 focus-visible:ring-offset-admin-surface motion-reduce:transition-none"
+            aria-label={t(itemExpanded ? "collapseNavGroup" : "expandNavGroup", { group: itemLabel })}
+            aria-expanded={itemExpanded}
+          >
+            <ChevronIcon expanded={itemExpanded} />
+          </button>
+        </div>
         {itemExpanded && (
           <div className="ml-4 mt-1 space-y-1 border-l border-admin-border/50 pl-3">
-            {item.children.map((child) => {
+            {itemChildren.map((child) => {
               const childActive = isActive(child.href, child.activeHrefs);
+              const childLabel = getChildLabel(child);
               return (
                 <Link
                   key={child.href}
                   href={child.href}
                   onClick={closeOnMobile}
                   className={cn(
-                    "flex min-h-9 items-center rounded-brand px-3 py-2 text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-focus focus-visible:ring-offset-2 focus-visible:ring-offset-admin-surface motion-reduce:transition-none",
+                    "flex min-h-9 min-w-0 items-center rounded-brand px-3 py-2 text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-focus focus-visible:ring-offset-2 focus-visible:ring-offset-admin-surface motion-reduce:transition-none",
                     childActive ? "bg-admin-accent/15 text-admin-text" : "text-admin-muted hover:bg-admin-surface-muted/50 hover:text-admin-text"
                   )}
                   aria-current={childActive ? "page" : undefined}
                 >
-                  {t(child.labelKey)}
+                  <span className="min-w-0 truncate">{childLabel}</span>
                 </Link>
               );
             })}
@@ -346,7 +433,7 @@ export function AdminSidebar({ open, onOpenChange }: AdminSidebarProps = {}) {
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-[min(20rem,calc(100vw-1rem))] flex-col border-r border-admin-border/60 bg-admin-surface shadow-xl transition-transform duration-200 motion-reduce:transition-none lg:w-72 lg:shadow-none",
+          "fixed inset-y-0 left-0 z-50 flex w-[min(18.5rem,calc(100vw-0.75rem))] max-w-full flex-col border-r border-admin-border/60 bg-admin-surface shadow-xl transition-transform duration-200 motion-reduce:transition-none lg:w-72 lg:shadow-none",
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
@@ -377,14 +464,14 @@ export function AdminSidebar({ open, onOpenChange }: AdminSidebarProps = {}) {
                   type="button"
                   onClick={() => toggleGroup(group.key)}
                   className={cn(
-                    "flex w-full items-center gap-3 rounded-brand px-3 py-2 text-xs font-semibold uppercase tracking-wide transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-focus focus-visible:ring-offset-2 focus-visible:ring-offset-admin-surface motion-reduce:transition-none",
+                    "flex w-full min-w-0 items-center gap-3 rounded-brand px-3 py-2 text-xs font-semibold uppercase tracking-wide transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-focus focus-visible:ring-offset-2 focus-visible:ring-offset-admin-surface motion-reduce:transition-none",
                     groupActive ? "bg-admin-accent/20 text-admin-text" : "text-admin-muted hover:bg-admin-surface-muted/50 hover:text-admin-text"
                   )}
                   aria-expanded={groupExpanded}
                   aria-label={t(groupExpanded ? "collapseNavGroup" : "expandNavGroup", { group: groupLabel })}
                 >
-                  {group.icon}
-                  <span className="flex-1 text-left">{groupLabel}</span>
+                  <span className="shrink-0">{group.icon}</span>
+                  <span className="min-w-0 flex-1 truncate text-left">{groupLabel}</span>
                   <ChevronIcon expanded={groupExpanded} />
                 </button>
                 {groupExpanded && (

@@ -4155,16 +4155,14 @@ export async function getLegalIdentity(): Promise<LegalIdentityResponse> {
   const address = formatMockAddress(seller?.registered_address ?? null);
   const identity: LegalIdentityResponse = {
     trading_name: seller?.company_display_name || "Atelier Marie",
-    legal_name: seller?.legal_name || "TODO: legal entity name",
+    legal_name: seller?.legal_name ?? null,
     country: stringField(seller?.registered_address?.country) ?? "Bulgaria",
-    geographic_address: address || "TODO: geographic business address",
+    geographic_address: address || null,
     contact_email: seller?.contact_email || "contacts@theateliermarie.com",
-    registration_number: seller?.uic_eik || "TODO: registration number",
-    vat_number:
-      seller?.vat_identification_number ||
-      "TODO: VAT number or not VAT registered",
+    registration_number: seller?.uic_eik ?? null,
+    vat_number: seller?.vat_identification_number ?? null,
     responsible_party_name: seller?.company_display_name || "Atelier Marie",
-    responsible_party_address: address || "TODO: geographic business address",
+    responsible_party_address: address || null,
     responsible_party_email:
       seller?.contact_email || "contacts@theateliermarie.com",
   };

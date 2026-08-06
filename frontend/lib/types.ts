@@ -1511,14 +1511,14 @@ export interface InventoryClosePreviewResponse {
 
 export interface LegalIdentityResponse {
   trading_name: string;
-  legal_name: string;
+  legal_name: string | null;
   country: string;
-  geographic_address: string;
+  geographic_address: string | null;
   contact_email: string;
-  registration_number: string;
-  vat_number: string;
+  registration_number: string | null;
+  vat_number: string | null;
   responsible_party_name: string;
-  responsible_party_address: string;
+  responsible_party_address: string | null;
   responsible_party_email: string;
 }
 

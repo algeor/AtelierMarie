@@ -11,7 +11,7 @@ import { AddToCartSection } from "@/components/products/AddToCartSection";
 import { ProductSocialSection } from "@/components/products/ProductSocialSection";
 import { ProductViewTracker } from "@/components/products/ProductViewTracker";
 import type { Locale } from "@/i18n/routing";
-import { loadLegalIdentity } from "@/lib/legal";
+import { hasLegalIdentityValue, loadLegalIdentity } from "@/lib/legal";
 import {
   buildProductJsonLd,
   getLocalizedAlternates,
@@ -57,6 +57,18 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
   const productJsonLd = buildProductJsonLd(product, locale);
 
   const legalIdentity = await loadLegalIdentity();
+  const safetyRows = [
+    { label: t("productIdentifier"), value: product.id },
+    { label: t("responsibleParty"), value: legalIdentity.responsiblePartyName },
+    {
+      label: t("responsiblePartyAddress"),
+      value: legalIdentity.responsiblePartyAddress,
+    },
+    {
+      label: t("responsiblePartyEmail"),
+      value: legalIdentity.responsiblePartyEmail,
+    },
+  ].filter((row) => hasLegalIdentityValue(row.value));
 
   return (
     <main className="editorial-band px-4 py-10 text-text sm:px-6 lg:px-8 lg:py-16">
@@ -155,34 +167,12 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
               {t("safetyTitle")}
             </h2>
             <dl className="mt-3 grid gap-3 text-sm text-muted sm:grid-cols-2">
-              <div>
-                <dt className="font-medium text-text">
-                  {t("productIdentifier")}
-                </dt>
-                <dd className="break-words">{product.id}</dd>
-              </div>
-              <div>
-                <dt className="font-medium text-text">
-                  {t("responsibleParty")}
-                </dt>
-                <dd>{legalIdentity.responsiblePartyName}</dd>
-              </div>
-              <div>
-                <dt className="font-medium text-text">
-                  {t("responsiblePartyAddress")}
-                </dt>
-                <dd className="break-words">
-                  {legalIdentity.responsiblePartyAddress}
-                </dd>
-              </div>
-              <div>
-                <dt className="font-medium text-text">
-                  {t("responsiblePartyEmail")}
-                </dt>
-                <dd className="break-words">
-                  {legalIdentity.responsiblePartyEmail}
-                </dd>
-              </div>
+              {safetyRows.map((row) => (
+                <div key={row.label}>
+                  <dt className="font-medium text-text">{row.label}</dt>
+                  <dd className="break-words">{row.value}</dd>
+                </div>
+              ))}
             </dl>
             {(product.safety_warnings || product.care_instructions) && (
               <div className="mt-4 space-y-4 text-sm leading-6 text-muted">

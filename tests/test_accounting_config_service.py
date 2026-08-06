@@ -122,6 +122,35 @@ async def test_public_legal_identity_uses_latest_seller_profile(admin_client, cl
 
 
 @pytest.mark.asyncio
+async def test_public_legal_identity_returns_null_for_unfilled_optional_fields(admin_client, client):
+    seller_resp = await admin_client.post(
+        "/v1/admin/accounting/config/seller-profile",
+        json={
+            "effective_date": "2026-08-01",
+            "reviewed": True,
+            "company_display_name": "Atelier Marie",
+            "registered_address": {
+                "city": "Sofia",
+                "postal_code": "1000",
+                "country": "Bulgaria",
+            },
+            "default_currency": "EUR",
+        },
+    )
+    assert seller_resp.status_code == 200
+
+    resp = await client.get("/v1/legal/identity")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["trading_name"] == "Atelier Marie"
+    assert body["legal_name"] is None
+    assert body["registration_number"] is None
+    assert body["vat_number"] is None
+    assert "TODO" not in resp.text
+
+
+@pytest.mark.asyncio
 async def test_mapping_and_singleton_settings_update_with_audit(admin_client, db):
     mapping_resp = await admin_client.put(
         "/v1/admin/accounting/config/category-mappings/material_purchases",
