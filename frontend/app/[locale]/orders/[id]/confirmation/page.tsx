@@ -83,8 +83,8 @@ export default function OrderConfirmationPage() {
   // Loading state
   if (isLoading) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-12 sm:px-6">
-        <div className="rounded-brand border border-champagne-beige bg-warm-ivory p-8">
+      <main className="bg-page px-4 py-12 text-text sm:px-6">
+        <div className="editorial-soft-panel mx-auto max-w-2xl rounded-brand p-8">
           <Skeleton className="mb-4 h-10 w-64" />
           <Skeleton className="mb-8 h-6 w-40" />
           <div className="space-y-4">
@@ -94,28 +94,26 @@ export default function OrderConfirmationPage() {
           </div>
           <Skeleton className="mt-6 h-8 w-32" />
         </div>
-      </div>
+      </main>
     );
   }
 
   // Error state
   if (error || !order) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-12 sm:px-6">
-        <div className="rounded-brand border border-champagne-beige bg-warm-ivory p-8 text-center">
-          <h1 className="mb-4 font-heading text-2xl text-charcoal">
+      <main className="bg-page px-4 py-12 text-text sm:px-6">
+        <div className="editorial-soft-panel mx-auto max-w-2xl rounded-brand p-8 text-center">
+          <h1 className="mb-4 font-heading text-2xl text-text">
             {t("notFound")}
           </h1>
-          <p className="mb-6 text-soft-brown">
-            {error ?? t("notFoundDescription")}
-          </p>
+          <p className="mb-6 text-muted">{error ?? t("notFoundDescription")}</p>
           <Link href="/products">
             <Button variant="primary" size="lg">
               {tCart("continueShopping")}
             </Button>
           </Link>
         </div>
-      </div>
+      </main>
     );
   }
 
@@ -128,15 +126,16 @@ export default function OrderConfirmationPage() {
           : tPayment("returnPending")
       : order.payment_method === "cod"
         ? tPayment("codConfirmation")
-        : order.payment_method === "bank_transfer" && order.payment_status === "pending"
+        : order.payment_method === "bank_transfer" &&
+            order.payment_status === "pending"
           ? tPayment("bankInstructions")
           : null;
   const paymentMessageClass =
     order.payment_status === "paid"
-      ? "border-green-200 bg-green-50 text-green-800"
+      ? "border-success/25 bg-success/10 text-success"
       : order.payment_status === "failed"
-        ? "border-red-200 bg-red-50 text-red-700"
-        : "border-amber-200 bg-amber-50 text-amber-800";
+        ? "border-error/20 bg-error/10 text-error"
+        : "border-warning/25 bg-warning/10 text-warning";
   const bankDetails = getBankDetails();
   const showBankInstructions =
     order.payment_method === "bank_transfer" &&
@@ -145,12 +144,12 @@ export default function OrderConfirmationPage() {
 
   // Success state
   return (
-    <div className="mx-auto max-w-2xl px-4 py-12 sm:px-6">
-      <div className="rounded-brand border border-champagne-beige bg-warm-ivory p-8">
-        <h1 className="mb-2 font-heading text-3xl text-charcoal">
+    <main className="bg-page px-4 py-12 text-text sm:px-6">
+      <div className="editorial-soft-panel mx-auto max-w-2xl rounded-brand p-8">
+        <h1 className="mb-2 font-heading text-3xl text-text">
           {t("orderConfirmationMessage")}
         </h1>
-        <p className="mb-8 text-soft-brown">{t("orderNumber", { id: order.id })}</p>
+        <p className="mb-8 text-muted">{t("orderNumber", { id: order.id })}</p>
 
         {paymentMessage && (
           <div
@@ -163,25 +162,23 @@ export default function OrderConfirmationPage() {
 
         {/* Order items */}
         <div className="mb-6">
-          <h2 className="mb-3 font-heading text-lg text-charcoal">
+          <h2 className="mb-3 font-heading text-lg text-text">
             {t("itemsOrdered")}
           </h2>
-          <ul className="divide-y divide-champagne-beige rounded-brand border border-champagne-beige">
+          <ul className="divide-y divide-border/30 rounded-brand border border-border/30 bg-page/35">
             {order.items.map((item) => (
               <li
                 key={item.product_id}
                 className="flex items-center justify-between px-4 py-3"
               >
                 <div>
-                  <p className="font-medium text-charcoal">
-                    {item.product_name}
-                  </p>
-                  <p className="text-sm text-soft-brown">
+                  <p className="font-medium text-text">{item.product_name}</p>
+                  <p className="text-sm text-muted">
                     {t("quantityShort", { quantity: item.quantity })} &times;{" "}
                     {formatPrice(item.price_cents)}
                   </p>
                 </div>
-                <p className="font-medium text-charcoal">
+                <p className="font-medium text-text">
                   {formatPrice(item.price_cents * item.quantity)}
                 </p>
               </li>
@@ -190,77 +187,96 @@ export default function OrderConfirmationPage() {
         </div>
 
         {/* Order total */}
-        <div className="mb-6 space-y-2 border-t border-champagne-beige pt-4">
+        <div className="mb-6 space-y-2 border-t editorial-divider pt-4">
           <div className="flex items-center justify-between text-sm">
-            <span className="text-soft-brown">{tCart("subtotal")}</span>
-            <span className="text-charcoal">
+            <span className="text-muted">{tCart("subtotal")}</span>
+            <span className="text-text">
               {formatPrice(order.items_total_cents)}
             </span>
           </div>
           <div className="flex items-center justify-between text-sm">
-            <span className="text-soft-brown">{tDelivery("shippingLabel")}</span>
-            <span className="text-charcoal">
+            <span className="text-muted">{tDelivery("shippingLabel")}</span>
+            <span className="text-text">
               {order.shipping_cents === 0
                 ? tDelivery("freeShipping")
                 : formatPrice(order.shipping_cents)}
             </span>
           </div>
-          <div className="flex items-center justify-between border-t border-champagne-beige pt-2">
-            <span className="font-heading text-xl text-charcoal">{t("total")}</span>
-            <span className="font-heading text-xl text-charcoal">
+          <div className="flex items-center justify-between border-t editorial-divider pt-2">
+            <span className="font-heading text-xl text-text">{t("total")}</span>
+            <span className="font-heading text-xl text-text">
               {formatPrice(order.total_cents)}
             </span>
           </div>
         </div>
 
         {showBankInstructions && (
-          <section className="mb-6 rounded-brand border border-champagne-beige bg-cream p-4 text-sm" aria-labelledby="bank-transfer-heading">
-            <h2 id="bank-transfer-heading" className="font-medium text-charcoal">
+          <section
+            className="editorial-note-panel mb-6 rounded-brand p-4 text-sm"
+            aria-labelledby="bank-transfer-heading"
+          >
+            <h2 id="bank-transfer-heading" className="font-medium text-text">
               {tPayment("bankInstructions")}
             </h2>
             <dl className="mt-3 space-y-1.5">
               {bankDetails.name && (
                 <div className="flex flex-wrap gap-2">
-                  <dt className="font-medium text-charcoal">{tPayment("bankName")}:</dt>
-                  <dd className="text-soft-brown">{bankDetails.name}</dd>
+                  <dt className="font-medium text-text">
+                    {tPayment("bankName")}:
+                  </dt>
+                  <dd className="text-muted">{bankDetails.name}</dd>
                 </div>
               )}
               <div className="flex flex-wrap gap-2">
-                <dt className="font-medium text-charcoal">{tPayment("bankIban")}:</dt>
-                <dd className="font-mono text-soft-brown">{bankDetails.iban}</dd>
+                <dt className="font-medium text-text">
+                  {tPayment("bankIban")}:
+                </dt>
+                <dd className="font-mono text-muted">{bankDetails.iban}</dd>
               </div>
               {bankDetails.bic && (
                 <div className="flex flex-wrap gap-2">
-                  <dt className="font-medium text-charcoal">{tPayment("bankBic")}:</dt>
-                  <dd className="text-soft-brown">{bankDetails.bic}</dd>
+                  <dt className="font-medium text-text">
+                    {tPayment("bankBic")}:
+                  </dt>
+                  <dd className="text-muted">{bankDetails.bic}</dd>
                 </div>
               )}
               <div className="flex flex-wrap gap-2">
-                <dt className="font-medium text-charcoal">{tPayment("bankAmount")}:</dt>
-                <dd className="text-soft-brown">{formatPrice(order.total_cents)}</dd>
+                <dt className="font-medium text-text">
+                  {tPayment("bankAmount")}:
+                </dt>
+                <dd className="text-muted">{formatPrice(order.total_cents)}</dd>
               </div>
               <div className="flex flex-wrap gap-2">
-                <dt className="font-medium text-charcoal">{tPayment("bankReference")}:</dt>
-                <dd className="font-mono text-soft-brown">{order.id.slice(0, 8)}</dd>
+                <dt className="font-medium text-text">
+                  {tPayment("bankReference")}:
+                </dt>
+                <dd className="font-mono text-muted">{order.id.slice(0, 8)}</dd>
               </div>
             </dl>
-            <p className="mt-3 text-xs text-soft-brown/70">{tPayment("bankNote")}</p>
+            <p className="mt-3 text-xs text-muted/70">{tPayment("bankNote")}</p>
           </section>
         )}
 
-        <p className="mb-6 text-sm leading-6 text-soft-brown">
-          {t("policyNote")} {" "}
-          <Link href={policyPath("terms")} className="font-medium underline underline-offset-4 hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-muted-gold">
+        <p className="mb-6 text-sm leading-6 text-muted">
+          {t("policyNote")}{" "}
+          <Link
+            href={policyPath("terms")}
+            className="rounded-brand font-medium underline underline-offset-4 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+          >
             {tLegal("termsConditions")}
           </Link>{" "}
           <span aria-hidden="true">/</span>{" "}
-          <Link href={policyPath("privacy")} className="font-medium underline underline-offset-4 hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-muted-gold">
+          <Link
+            href={policyPath("privacy")}
+            className="rounded-brand font-medium underline underline-offset-4 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+          >
             {tLegal("privacyPolicy")}
           </Link>
         </p>
 
         {/* Contact note */}
-        <p className="mb-8 text-sm text-soft-brown">
+        <p className="mb-8 text-sm text-muted">
           {t("confirmationFor", { email: order.customer_email })}
         </p>
 
@@ -275,6 +291,6 @@ export default function OrderConfirmationPage() {
           </Button>
         </Link>
       </div>
-    </div>
+    </main>
   );
 }

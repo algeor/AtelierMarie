@@ -3,9 +3,8 @@
 import json
 from typing import Any
 
-import psycopg
-
 from app.config import Settings
+from app.database import DbConnection
 
 DEFAULT_PAY_ON_DELIVERY_MAX_CENTS = 5000
 
@@ -79,7 +78,7 @@ def _decode(raw: str, fallback: Any) -> Any:
         return fallback
 
 
-def ensure_payment_settings(conn: psycopg.Connection) -> None:
+def ensure_payment_settings(conn: DbConnection) -> None:
     """Insert default payment settings if missing."""
     for key, value in _DEFAULT_SETTINGS.items():
         conn.execute(
@@ -92,7 +91,7 @@ def ensure_payment_settings(conn: psycopg.Connection) -> None:
         )
 
 
-def get_payment_settings(conn: psycopg.Connection) -> dict[str, Any]:
+def get_payment_settings(conn: DbConnection) -> dict[str, Any]:
     """Return payment settings, applying DB defaults lazily."""
     ensure_payment_settings(conn)
     rows = conn.execute(
@@ -121,7 +120,7 @@ def validate_payment_settings_update(data: dict[str, Any], settings: Settings) -
 
 
 def update_payment_settings(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     data: dict[str, Any],
     settings: Settings,
     *,
@@ -159,7 +158,7 @@ def update_payment_settings(
 
 
 def public_payment_settings(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     settings: Settings,
 ) -> dict[str, Any]:
     """Return safe checkout-facing payment method availability."""
@@ -186,7 +185,7 @@ def public_payment_settings(
 
 
 def payment_method_available(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     settings: Settings,
     payment_method: str,
 ) -> bool:

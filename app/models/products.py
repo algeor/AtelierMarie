@@ -138,6 +138,19 @@ class ProductListResponse(BaseModel):
     limit: int
 
 
+class SavedProductStatusResponse(BaseModel):
+    """Saved-product status for one product."""
+
+    product_id: str
+    saved: bool
+
+
+class SavedProductListResponse(ProductListResponse):
+    """Saved product list plus IDs for fast client-side bookmark state."""
+
+    product_ids: list[str]
+
+
 class ProductAdminListResponse(BaseModel):
     """Paginated list of products for admin (includes both language fields)."""
 
@@ -145,6 +158,7 @@ class ProductAdminListResponse(BaseModel):
     total: int
     page: int
     limit: int
+    applied_filters: dict[str, str | int | bool | list[str] | None] = Field(default_factory=dict)
 
 
 class ProductImage(BaseModel):

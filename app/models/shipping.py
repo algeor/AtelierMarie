@@ -11,7 +11,7 @@ import math
 from pydantic import BaseModel, Field, model_validator
 
 from app.constants import ShippingPriceSource
-from app.models.delivery import Courier, DeliveryMethod
+from app.models.delivery import Courier, CourierDeliveryMethod
 
 
 def parse_price_cents(total: object) -> int | None:
@@ -24,7 +24,7 @@ def parse_price_cents(total: object) -> int | None:
     """
     if isinstance(total, bool):  # bool is an int subclass — reject explicitly.
         return None
-    if not isinstance(total, (int, float, str)):
+    if not isinstance(total, int | float | str):
         return None
     try:
         value = float(total)
@@ -39,7 +39,7 @@ class ShippingQuote(BaseModel):
     """Normalized shipping price for one courier, with provenance.
 
     `is_fallback` is true whenever `price_source != "live"`. `quoted_at` is a
-    SQLite-format UTC timestamp stamped by the orchestrator when the quote is
+    Canonical UTC timestamp stamped by the orchestrator when the quote is
     produced — echoed back at checkout and persisted for later reconciliation.
     """
 
@@ -78,7 +78,7 @@ class CalculateShippingRequest(BaseModel):
     approximate comparison).
     """
 
-    method: DeliveryMethod
+    method: CourierDeliveryMethod
     city: str = Field(..., min_length=1, max_length=100)
     office_id: str | None = Field(default=None, min_length=1, max_length=64)
     address: ShippingAddress | None = None

@@ -9,6 +9,12 @@ import { getCroppedImg } from "@/lib/cropImage";
 interface ImageCropEditorProps {
   /** The originally selected file to frame. */
   file: File;
+  /** Crop frame aspect ratio. Defaults to the product card shape. */
+  aspect?: number;
+  /** Optional dialog title for non-product upload flows. */
+  title?: string;
+  /** Optional dialog hint for non-product upload flows. */
+  hint?: string;
   /** Called with the framed JPEG File when the admin confirms. */
   onConfirm: (file: File) => void;
   /** Called when the admin discards this file. */
@@ -17,15 +23,24 @@ interface ImageCropEditorProps {
 
 // Storefront cards render images at a 4/5 aspect (ProductImage.tsx). Locking the
 // crop frame to the same ratio makes the editor a true WYSIWYG preview.
-const ASPECT = 4 / 5;
+const PRODUCT_CARD_ASPECT = 4 / 5;
 
 /**
  * Crop / rotate / zoom editor shown before a product image is uploaded. The
  * framed result is exported to a JPEG blob that enters the existing upload
  * flow, so what the admin frames here is exactly what the storefront shows.
  */
-export function ImageCropEditor({ file, onConfirm, onCancel }: ImageCropEditorProps) {
+export function ImageCropEditor({
+  file,
+  aspect = PRODUCT_CARD_ASPECT,
+  title,
+  hint,
+  onConfirm,
+  onCancel,
+}: ImageCropEditorProps) {
   const t = useTranslations("admin");
+  const dialogTitle = title ?? t("cropTitle");
+  const dialogHint = hint ?? t("cropHint");
   const [imageSrc, setImageSrc] = useState<string>("");
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
@@ -119,7 +134,7 @@ export function ImageCropEditor({ file, onConfirm, onCancel }: ImageCropEditorPr
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={t("cropTitle")}
+      aria-label={dialogTitle}
       className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/80 p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onCancel();
@@ -130,8 +145,8 @@ export function ImageCropEditor({ file, onConfirm, onCancel }: ImageCropEditorPr
         className="flex max-h-[90vh] w-full max-w-2xl flex-col gap-4 rounded-brand bg-warm-ivory p-5 shadow-soft"
       >
         <div>
-          <h2 className="font-heading text-lg text-charcoal">{t("cropTitle")}</h2>
-          <p className="mt-0.5 text-sm text-soft-brown">{t("cropHint")}</p>
+          <h2 className="font-heading text-lg text-charcoal">{dialogTitle}</h2>
+          <p className="mt-0.5 text-sm text-soft-brown">{dialogHint}</p>
         </div>
 
         <div className="relative h-[55vh] w-full overflow-hidden rounded-brand bg-charcoal">
@@ -141,7 +156,7 @@ export function ImageCropEditor({ file, onConfirm, onCancel }: ImageCropEditorPr
               crop={crop}
               zoom={zoom}
               rotation={rotation}
-              aspect={ASPECT}
+              aspect={aspect}
               minZoom={1}
               maxZoom={4}
               restrictPosition

@@ -30,4 +30,3 @@ Background jobs that claim queued or due work SHALL use Postgres row-locking pat
 #### Scenario: Courier polling leases are exclusive
 - **WHEN** two courier polling loops attempt to lease due shipments concurrently
 - **THEN** each due shipment is leased by at most one loop for the lease interval
-

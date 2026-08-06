@@ -572,6 +572,42 @@ class TestListOrders:
         assert result["items"][0]["id"] == order2_id
         assert result["items"][1]["id"] == order1_id
 
+    def test_list_orders_filters_by_product_search(self, conn, session_a, products):
+        lavender_id = _create_order_with_status(
+            conn,
+            session_a,
+            products_in_order=[("lavender-dream", "Lavender Dream", 2500, 1)],
+        )
+        _create_order_with_status(
+            conn,
+            session_a,
+            products_in_order=[("midnight-amber", "Midnight Amber", 3500, 1)],
+        )
+
+        result = list_orders(conn=conn, session_id=session_a, q="Lavender")
+
+        assert result["total"] == 1
+        assert result["items"][0]["id"] == lavender_id
+
+    def test_list_orders_needs_action_view(self, conn, session_a, products):
+        failed_payment_id = _create_order_with_status(conn, session_a, "confirmed")
+        return_id = _create_order_with_status(conn, session_a, "return_in_transit")
+        delivered_id = _create_order_with_status(conn, session_a, "delivered")
+        conn.execute(
+            "UPDATE orders SET payment_method = 'card', payment_status = 'failed' WHERE id = %s",
+            (failed_payment_id,),
+        )
+        conn.execute(
+            "UPDATE orders SET payment_status = 'paid' WHERE id IN (%s, %s)",
+            (return_id, delivered_id),
+        )
+        conn.commit()
+
+        result = list_orders(conn=conn, session_id=session_a, view="needs_action")
+
+        ids = {order["id"] for order in result["items"]}
+        assert ids == {failed_payment_id, return_id}
+
 
 class TestGetOrder:
     """5.2: get_order returns order for owner, raises for non-owner."""

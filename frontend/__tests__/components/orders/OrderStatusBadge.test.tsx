@@ -6,11 +6,11 @@ import { renderWithIntl } from "../../test-utils";
 
 describe("OrderStatusBadge", () => {
   const statusCases: { status: OrderStatus; label: string; colorClass: string }[] = [
-    { status: "pending", label: "Pending", colorClass: "bg-amber-100" },
-    { status: "confirmed", label: "Confirmed", colorClass: "bg-blue-100" },
-    { status: "shipped", label: "Shipped", colorClass: "bg-indigo-100" },
-    { status: "delivered", label: "Delivered", colorClass: "bg-green-100" },
-    { status: "cancelled", label: "Cancelled", colorClass: "bg-red-100" },
+    { status: "pending", label: "Pending", colorClass: "bg-warning/10" },
+    { status: "confirmed", label: "Confirmed", colorClass: "bg-accent-soft/40" },
+    { status: "shipped", label: "Shipped", colorClass: "bg-primary/15" },
+    { status: "delivered", label: "Delivered", colorClass: "bg-success/10" },
+    { status: "cancelled", label: "Cancelled", colorClass: "bg-error/10" },
   ];
 
   statusCases.forEach(({ status, label, colorClass }) => {

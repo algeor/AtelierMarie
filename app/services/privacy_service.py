@@ -1,9 +1,8 @@
 """Service layer for admin-managed Privacy Policy content."""
 
 import json
-import sqlite3
 
-from app.database import get_db
+from app.database import DbConnection, get_db
 from app.models.privacy import MAX_PRIVACY_TEXT_LENGTH
 
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
@@ -68,7 +67,7 @@ def _json_lines(value: str | None) -> list[str] | None:
     return lines or None
 
 
-def _localized_text(row: sqlite3.Row, field: str, locale: str) -> str:
+def _localized_text(row: dict, field: str, locale: str) -> str:
     en = row[f"{field}_en"]
     bg = row[f"{field}_bg"]
     if locale == "bg" and bg:
@@ -76,7 +75,7 @@ def _localized_text(row: sqlite3.Row, field: str, locale: str) -> str:
     return en
 
 
-def _localized_lines(row: sqlite3.Row, field: str, locale: str) -> list[str]:
+def _localized_lines(row: dict, field: str, locale: str) -> list[str]:
     en = _json_lines(row[f"{field}_en"]) or []
     bg = _json_lines(row[f"{field}_bg"])
     if locale == "bg" and bg:
@@ -84,7 +83,7 @@ def _localized_lines(row: sqlite3.Row, field: str, locale: str) -> list[str]:
     return en
 
 
-def _page_to_admin_dict(row: sqlite3.Row) -> dict:
+def _page_to_admin_dict(row: dict) -> dict:
     return {
         "id": row["id"],
         "meta_title_en": row["meta_title_en"],
@@ -106,7 +105,7 @@ def _page_to_admin_dict(row: sqlite3.Row) -> dict:
     }
 
 
-def _section_to_admin_dict(row: sqlite3.Row) -> dict:
+def _section_to_admin_dict(row: dict) -> dict:
     return {
         "slug": row["slug"],
         "title_en": row["title_en"],
@@ -121,14 +120,14 @@ def _section_to_admin_dict(row: sqlite3.Row) -> dict:
     }
 
 
-def _get_page(conn: sqlite3.Connection) -> sqlite3.Row:
+def _get_page(conn: DbConnection) -> dict:
     row = conn.execute("SELECT * FROM privacy_page WHERE id = 'privacy'").fetchone()
     if row is None:
         raise PrivacyNotFoundError("Privacy Policy page not found")
     return row
 
 
-def _get_section(conn: sqlite3.Connection, slug: str) -> sqlite3.Row:
+def _get_section(conn: DbConnection, slug: str) -> dict:
     row = conn.execute("SELECT * FROM privacy_sections WHERE slug = %s", (slug,)).fetchone()
     if row is None:
         raise PrivacyNotFoundError(f"Privacy Policy section not found: {slug}")

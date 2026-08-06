@@ -64,9 +64,8 @@ def _seed_econt_settings(conn) -> None:
 
     ``econt_settings`` is a migration-seed table (never truncated by the root
     ``_clean_tables``), but these tests mutate the singleton, so this file owns an
-    explicit per-test re-seed (Decision 15). Replaces the removed SQLite
-    ``app.database._seed_econt_settings`` helper — non-id columns take their DB
-    defaults, exactly as the old ``INSERT OR IGNORE`` did.
+    explicit per-test re-seed (Decision 15). Non-id columns take their DB
+    defaults via ``ON CONFLICT DO NOTHING``.
     """
     conn.execute("INSERT INTO econt_settings (id) VALUES ('default') ON CONFLICT (id) DO NOTHING")
 

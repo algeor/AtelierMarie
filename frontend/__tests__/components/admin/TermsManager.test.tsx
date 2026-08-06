@@ -78,6 +78,8 @@ describe("TermsManager", () => {
     renderWithIntl(<TermsManager />);
     await screen.findByDisplayValue("Terms & Conditions");
 
+    fireEvent.click(screen.getByRole("button", { name: /Returns/ }));
+
     fireEvent.change(screen.getAllByLabelText("Body")[0]!, {
       target: { value: "First paragraph\n\nSecond paragraph" },
     });

@@ -14,3 +14,7 @@ export const FREE_SHIPPING_THRESHOLD_CENTS = 5000; // €50
 // Flat last-resort shipping price when a courier calculate API is unavailable.
 // Mirrors app/constants.py FALLBACK_SHIPPING_CENTS.
 export const FALLBACK_SHIPPING_CENTS = 500; // €5
+
+// Fixed in-house delivery price when no courier delivery methods are available.
+// Mirrors app/constants.py INTERNAL_DELIVERY_CENTS.
+export const INTERNAL_DELIVERY_CENTS = 350; // €3.50

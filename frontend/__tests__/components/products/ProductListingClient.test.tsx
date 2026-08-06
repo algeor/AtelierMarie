@@ -19,6 +19,17 @@ vi.mock("@/contexts/CartContext", () => ({
   }),
 }));
 
+vi.mock("@/contexts/SavedProductsContext", () => ({
+  useOptionalSavedProducts: () => ({
+    isSaved: () => false,
+    toggleSaved: vi.fn(),
+  }),
+  useSavedProducts: () => ({
+    isSaved: () => false,
+    toggleSaved: vi.fn(),
+  }),
+}));
+
 const taxonomy: TaxonomyResponse = {
   product_types: [
     { slug: "candles", name: "Candles", sort_order: 0 },
@@ -29,7 +40,10 @@ const taxonomy: TaxonomyResponse = {
     { slug: "medium", name: "Medium", sort_order: 1 },
     { slug: "premium", name: "Premium", sort_order: 2 },
   ],
-  labels: [],
+  labels: [
+    { slug: "floral", name: "Floral", sort_order: 0 },
+    { slug: "sculptural", name: "Sculptural", sort_order: 1 },
+  ],
 };
 
 function product(overrides: Partial<ProductResponse>): ProductResponse {
@@ -142,6 +156,62 @@ describe("ProductListingClient taxonomy menu", () => {
     await waitFor(() => {
       const names = screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent);
       expect(names).toEqual(["Sale Candle", "Plain Candle"]);
+    });
+  });
+
+  it("hydrates supported product type and category filters from the URL", async () => {
+    window.history.replaceState(null, "", "/en/products?type=boxes&category=premium");
+
+    renderWithIntl(<ProductListingClient products={products} taxonomy={taxonomy} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Premium Gift Box" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Small Candle" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Medium Candle" })).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("button", { name: /Boxes/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Premium/ })).toBeInTheDocument();
+  });
+
+  it("hydrates supported label filters from the URL", async () => {
+    window.history.replaceState(null, "", "/en/products?labels=floral");
+
+    renderWithIntl(
+      <ProductListingClient
+        products={[
+          product({
+            id: "floral-candle",
+            name: "Floral Candle",
+            labels: [{ slug: "floral", name: "Floral" }],
+          }),
+          product({
+            id: "plain-candle",
+            name: "Plain Candle",
+            labels: [{ slug: "sculptural", name: "Sculptural" }],
+          }),
+        ]}
+        taxonomy={taxonomy}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Floral Candle" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Plain Candle" })).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("button", { name: /Floral/ })).toBeInTheDocument();
+  });
+
+  it("falls back to all products for unsupported URL filters", async () => {
+    window.history.replaceState(null, "", "/en/products?type=missing&category=ghost");
+
+    renderWithIntl(<ProductListingClient products={products} taxonomy={taxonomy} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Small Candle" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Medium Candle" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Premium Gift Box" })).toBeInTheDocument();
     });
   });
 });

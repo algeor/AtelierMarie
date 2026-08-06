@@ -32,10 +32,10 @@ export function CourierComparison({
   if (isLoading) {
     return (
       <fieldset className="mb-6">
-        <legend className="mb-2 block text-sm font-medium text-soft-brown">
+        <legend className="mb-2 block text-sm font-medium text-muted">
           {t("priceEstimate")}
         </legend>
-        <p className="text-sm italic text-soft-brown">{t("calculating")}</p>
+        <p className="text-sm italic text-muted">{t("calculating")}</p>
       </fieldset>
     );
   }
@@ -46,7 +46,7 @@ export function CourierComparison({
 
   return (
     <fieldset className="mb-6">
-      <legend className="mb-2 block text-sm font-medium text-soft-brown">
+      <legend className="mb-2 block text-sm font-medium text-muted">
         {quotes.length > 1 ? t("priceEstimate") : t("priceExact")}
       </legend>
       <div
@@ -63,8 +63,8 @@ export function CourierComparison({
               className={cn(
                 "flex cursor-pointer flex-col gap-1 rounded-brand border px-4 py-3 transition-colors",
                 selected
-                  ? "border-muted-gold bg-muted-gold/10"
-                  : "border-champagne-beige bg-warm-ivory hover:border-soft-brown/40"
+                  ? "border-primary/60 bg-primary/10"
+                  : "border-border/35 bg-surface/60 hover:border-muted/40",
               )}
             >
               <div className="flex items-center justify-between gap-3">
@@ -75,19 +75,21 @@ export function CourierComparison({
                     value={quote.courier}
                     checked={selected}
                     onChange={() => onSelect(quote)}
-                    className="h-4 w-4 accent-muted-gold"
+                    className="h-4 w-4 accent-primary"
                   />
-                  <span className="font-medium text-charcoal">
+                  <span className="font-medium text-text">
                     {tCourier(quote.courier)}
                   </span>
                 </div>
-                <span className="font-heading text-charcoal">
+                <span className="font-heading text-text">
                   {isFree ? t("freeShipping") : formatPrice(quote.cents)}
                 </span>
               </div>
               {quote.estimated_delivery_days !== null && (
-                <p className="ml-7 text-xs text-soft-brown">
-                  {t("deliveryEstimate", { days: quote.estimated_delivery_days })}
+                <p className="ml-7 text-xs text-muted">
+                  {t("deliveryEstimate", {
+                    days: quote.estimated_delivery_days,
+                  })}
                 </p>
               )}
             </label>
@@ -96,7 +98,7 @@ export function CourierComparison({
       </div>
 
       {anyFallback && (
-        <p className="mt-2 text-xs italic text-soft-brown" role="note">
+        <p className="mt-2 text-xs italic text-muted" role="note">
           {t("fallbackDisclaimer")}
         </p>
       )}

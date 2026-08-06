@@ -27,42 +27,46 @@ export function ShippingPriceSummary({
   const tCart = useTranslations("cart");
 
   const qualifiesForFree = itemsTotalCents >= FREE_SHIPPING_THRESHOLD_CENTS;
-  const amountToFree = Math.max(0, FREE_SHIPPING_THRESHOLD_CENTS - itemsTotalCents);
+  const amountToFree = Math.max(
+    0,
+    FREE_SHIPPING_THRESHOLD_CENTS - itemsTotalCents,
+  );
   // Shipping is still pending until we have a concrete quote (or free-shipping
   // qualification). Only then does it contribute to the grand total — showing
   // "pending" while silently adding 0 would understate the total (review S5).
   const isPending = shippingCents === null && !qualifiesForFree;
   // A 0¢ result is "free" whether it came from the threshold or a live 0 quote.
   const isFreeShipping = qualifiesForFree || shippingCents === 0;
-  const totalCents = itemsTotalCents + (isFreeShipping ? 0 : shippingCents ?? 0);
+  const totalCents =
+    itemsTotalCents + (isFreeShipping ? 0 : (shippingCents ?? 0));
 
   return (
     <div className={cn("space-y-2 text-sm", className)}>
       {!qualifiesForFree && amountToFree > 0 && (
-        <p className="rounded-brand bg-muted-gold/10 px-3 py-2 text-xs text-soft-brown">
+        <p className="editorial-note-panel rounded-brand px-3 py-2 text-xs text-muted">
           {t("amountToFreeShipping", { amount: formatPrice(amountToFree) })}
         </p>
       )}
 
       <div className="flex items-center justify-between">
-        <span className="text-soft-brown">{tCart("subtotal")}</span>
-        <span className="text-charcoal">{formatPrice(itemsTotalCents)}</span>
+        <span className="text-muted">{tCart("subtotal")}</span>
+        <span className="text-text">{formatPrice(itemsTotalCents)}</span>
       </div>
 
       <div className="flex items-center justify-between">
-        <span className="text-soft-brown">{t("shippingLabel")}</span>
+        <span className="text-muted">{t("shippingLabel")}</span>
         {isPending ? (
-          <span className="text-soft-brown">{t("shippingPending")}</span>
+          <span className="text-muted">{t("shippingPending")}</span>
         ) : isFreeShipping ? (
-          <span className="font-medium text-muted-gold">{t("freeShipping")}</span>
+          <span className="font-medium text-accent">{t("freeShipping")}</span>
         ) : (
-          <span className="text-charcoal">{formatPrice(shippingCents ?? 0)}</span>
+          <span className="text-text">{formatPrice(shippingCents ?? 0)}</span>
         )}
       </div>
 
-      <div className="flex items-center justify-between border-t border-champagne-beige pt-2">
-        <span className="font-heading text-lg text-charcoal">{t("total")}</span>
-        <span className="font-heading text-lg text-charcoal">
+      <div className="flex items-center justify-between border-t editorial-divider pt-2">
+        <span className="font-heading text-lg text-text">{t("total")}</span>
+        <span className="font-heading text-lg text-text">
           {isPending ? "—" : formatPrice(totalCents)}
         </span>
       </div>

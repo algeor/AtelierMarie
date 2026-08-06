@@ -317,6 +317,59 @@ class TestAdminListProducts:
         assert body["total"] == 2
         assert len(body["products"]) == 1
 
+    @pytest.mark.asyncio
+    async def test_filters_by_search_status_and_low_stock(self, admin_client, _products):
+        response = await admin_client.get("/v1/admin/products?q=inactive&status=inactive&stock=low")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 1
+        assert [p["id"] for p in body["products"]] == ["inactive-candle"]
+        assert body["applied_filters"] == {
+            "q": "inactive",
+            "status": "inactive",
+            "stock": "low",
+            "low_stock_threshold": 5,
+        }
+
+    @pytest.mark.asyncio
+    async def test_filters_by_media_readiness(self, admin_client, _products):
+        from app.database import get_db
+
+        with get_db() as conn:
+            conn.execute(
+                """
+                INSERT INTO product_images (id, product_id, image_url, thumbnail_url, is_primary)
+                VALUES ('img-lavender', 'lavender-dream-300ml', '/img.jpg', '/thumb.jpg', 1)
+                """
+            )
+
+        ready = await admin_client.get("/v1/admin/products?media=ready")
+        missing = await admin_client.get("/v1/admin/products?media=missing_image")
+
+        assert ready.status_code == 200
+        assert [p["id"] for p in ready.json()["products"]] == ["lavender-dream-300ml"]
+        assert missing.status_code == 200
+        assert [p["id"] for p in missing.json()["products"]] == ["inactive-candle"]
+
+    @pytest.mark.asyncio
+    async def test_filters_by_category_and_sorts(self, admin_client, _products):
+        response = await admin_client.get("/v1/admin/products?category=small&sort=stock_asc")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 1
+        assert [p["id"] for p in body["products"]] == ["inactive-candle"]
+        assert body["applied_filters"]["category"] == "small"
+        assert body["applied_filters"]["sort"] == "stock_asc"
+
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_product_filter(self, admin_client, _products):
+        response = await admin_client.get("/v1/admin/products?media=bad")
+
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "INVALID_PRODUCT_FILTER"
+
 
 class TestAdminGetProduct:
     """Tests for GET /v1/admin/products/{product_id}."""

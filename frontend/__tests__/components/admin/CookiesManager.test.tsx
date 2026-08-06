@@ -92,10 +92,14 @@ describe("CookiesManager", () => {
     renderWithIntl(<CookiesManager />);
     await screen.findAllByDisplayValue("Cookie Policy");
 
-    expect(screen.getByText("Rows are populated automatically by the deploy cookie audit.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Cookie inventory/ }));
+
+    expect(screen.getAllByText("Rows are populated automatically by the deploy cookie audit.").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("atelier_cookie_consent")).toBeInTheDocument();
     expect(screen.getByText("Auto-detected")).toBeInTheDocument();
     expect(screen.getByText(/Source: browser_cookie_audit/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Cookie controls/ }));
 
     fireEvent.change(screen.getAllByLabelText("Body")[0]!, {
       target: { value: "First paragraph\n\nSecond paragraph" },

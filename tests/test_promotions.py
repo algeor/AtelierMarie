@@ -14,8 +14,8 @@ def _reset_banner_singleton(app):
     ``site_banners`` is a migration-seed table, so the root ``_clean_tables``
     autouse fixture deliberately never truncates it (its seeded row must persist
     across the template clone). Banner tests mutate that singleton, though, so
-    without an explicit reset the mutations would leak between tests. This mirrors
-    the per-file fresh-DB isolation the SQLite suite relied on.
+    without an explicit reset the mutations would leak between tests. This keeps
+    the per-test isolation those assertions rely on.
     """
     from app.database import get_db
 
@@ -794,7 +794,7 @@ class TestApplyRemoveEdges:
 
 class TestPromotionSchemaMigration:
     def test_existing_campaign_table_gets_last_result_column(self, db):
-        # The legacy SQLite ``init_db`` add-column migration path is gone under
+        # The legacy ``init_db`` add-column migration path is gone under
         # Postgres: ``last_result`` ships in the initial migration. Assert the
         # real schema exposes the column and it defaults to NULL for a row that
         # does not set it (preserving the original intent).

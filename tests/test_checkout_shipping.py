@@ -12,8 +12,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.constants import SHIPPING_CENTS_MAX
-from app.models.delivery import DeliveryInfo, DeliveryOffice
+from app.constants import INTERNAL_DELIVERY_CENTS, SHIPPING_CENTS_MAX
+from app.models.delivery import DeliveryInfo, DeliveryInternal, DeliveryOffice
 from app.services.order_service import (
     InvalidShippingPriceError,
     checkout,
@@ -81,6 +81,26 @@ def _cart_above_threshold(conn, session_id):
     conn.commit()
 
 
+def _disable_courier_delivery(conn) -> None:
+    conn.execute(
+        """
+        INSERT INTO delivery_settings (
+            id, speedy_office_enabled, speedy_door_enabled,
+            econt_office_enabled, econt_door_enabled,
+            cod_enabled, card_enabled, bank_transfer_enabled, updated_at
+        ) VALUES ('default', 0, 0, 0, 0, 1, 1, 1, %s)
+        ON CONFLICT (id) DO UPDATE SET
+            speedy_office_enabled = 0,
+            speedy_door_enabled = 0,
+            econt_office_enabled = 0,
+            econt_door_enabled = 0,
+            updated_at = EXCLUDED.updated_at
+        """,
+        (datetime.now(UTC).strftime(_DT_FMT),),
+    )
+    conn.commit()
+
+
 class TestValidShipping:
     def test_shipping_persisted_and_in_total(self, conn, session_id, delivery):
         _cart_below_threshold(conn, session_id)
@@ -144,6 +164,63 @@ class TestFreeShippingEnforcement:
         assert order["shipping_price_source"] == "live"
         assert order["shipping_is_fallback"] is False
         assert order["shipping_quoted_at"] is None
+
+
+class TestInternalDelivery:
+    def test_internal_delivery_adds_fixed_charge_when_couriers_disabled(self, conn, session_id):
+        _disable_courier_delivery(conn)
+        _cart_below_threshold(conn, session_id)
+        delivery = DeliveryInfo(
+            method="internal",
+            internal=DeliveryInternal(
+                city="София",
+                postal_code="1000",
+                street="бул. Витоша 1",
+                phone="+359888123456",
+            ),
+        )
+
+        order = checkout(
+            conn=conn,
+            session_id=session_id,
+            customer_email="t@example.com",
+            delivery=delivery,
+            shipping_cents=0,
+        )
+
+        assert order["shipping_cents"] == INTERNAL_DELIVERY_CENTS
+        assert order["total_cents"] == 1800 + INTERNAL_DELIVERY_CENTS
+        assert order["shipping_price_source"] == "live"
+        assert order["shipping_is_fallback"] is False
+        assert order["delivery_method"] == "internal"
+        assert order["delivery_courier"] is None
+        assert order["delivery_details"]["handled_by"] == "atelier"
+
+    def test_internal_delivery_is_free_above_threshold(self, conn, session_id):
+        _disable_courier_delivery(conn)
+        _cart_above_threshold(conn, session_id)
+        delivery = DeliveryInfo(
+            method="internal",
+            internal=DeliveryInternal(
+                city="София",
+                postal_code="1000",
+                street="бул. Витоша 1",
+                phone="+359888123456",
+            ),
+        )
+
+        order = checkout(
+            conn=conn,
+            session_id=session_id,
+            customer_email="t@example.com",
+            delivery=delivery,
+            shipping_cents=INTERNAL_DELIVERY_CENTS,
+        )
+
+        assert order["shipping_cents"] == 0
+        assert order["total_cents"] == 6000
+        assert order["shipping_price_source"] == "live"
+        assert order["shipping_is_fallback"] is False
 
 
 class TestRangeValidation:

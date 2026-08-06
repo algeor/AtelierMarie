@@ -1,19 +1,10 @@
-"""Tests for defensive sqlite row access helpers."""
-
-import sqlite3
+"""Tests for defensive database row access helpers."""
 
 from app.utils.row_access import row_to_dict_safe, safe_row_get
 
 
-def _row() -> sqlite3.Row:
-    conn = sqlite3.connect(":memory:")
-    conn.row_factory = sqlite3.Row
-    try:
-        return conn.execute(
-            "SELECT 'vanilla' AS scent, NULL AS label, 3200 AS price_cents"
-        ).fetchone()
-    finally:
-        conn.close()
+def _row() -> dict[str, object]:
+    return {"scent": "vanilla", "label": None, "price_cents": 3200}
 
 
 def test_safe_row_get_returns_value_for_existing_column():

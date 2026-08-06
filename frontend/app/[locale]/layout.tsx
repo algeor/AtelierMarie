@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { routing } from "@/i18n/routing";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { CookieConsentProvider } from "@/contexts/CookieConsentContext";
+import { SavedProductsProvider } from "@/contexts/SavedProductsContext";
 import { LocaleChrome } from "@/components/layout/LocaleChrome";
 
 type Props = {
@@ -25,9 +26,11 @@ export default async function LocaleLayout({ children, params }: Props) {
   return (
     <NextIntlClientProvider messages={messages}>
       <AuthProvider>
-        <CookieConsentProvider>
-          <LocaleChrome>{children}</LocaleChrome>
-        </CookieConsentProvider>
+        <SavedProductsProvider>
+          <CookieConsentProvider>
+            <LocaleChrome>{children}</LocaleChrome>
+          </CookieConsentProvider>
+        </SavedProductsProvider>
       </AuthProvider>
     </NextIntlClientProvider>
   );

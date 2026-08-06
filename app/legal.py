@@ -7,14 +7,14 @@ from typing import Any, Literal
 Locale = Literal["en", "bg"]
 PolicyKey = Literal["terms", "privacy", "cookies", "contact"]
 
-LEGAL_IDENTITY = {
+LEGAL_IDENTITY: dict[str, str | None] = {
     "trading_name": "Atelier Marie",
-    "legal_name": "TODO: legal entity name",
+    "legal_name": None,
     "country": "Bulgaria",
-    "geographic_address": "TODO: geographic business address",
+    "geographic_address": None,
     "contact_email": "contacts@theateliermarie.com",
-    "registration_number": "TODO: registration number",
-    "vat_number": "TODO: VAT number or not VAT registered",
+    "registration_number": None,
+    "vat_number": None,
 }
 
 
@@ -61,7 +61,7 @@ def _profile_value(profile: Any, key: str) -> object:
     return getattr(profile, key, None)
 
 
-def legal_identity_from_seller_profile(profile: Any) -> dict[str, str]:
+def legal_identity_from_seller_profile(profile: Any) -> dict[str, str | None]:
     """Return public legal identity values from the latest seller profile."""
     registered_address = _profile_value(profile, "registered_address")
     address = format_registered_address(
@@ -74,16 +74,13 @@ def legal_identity_from_seller_profile(profile: Any) -> dict[str, str]:
     identity = {
         "trading_name": _string_or_none(_profile_value(profile, "company_display_name"))
         or LEGAL_IDENTITY["trading_name"],
-        "legal_name": _string_or_none(_profile_value(profile, "legal_name"))
-        or LEGAL_IDENTITY["legal_name"],
+        "legal_name": _string_or_none(_profile_value(profile, "legal_name")),
         "country": country or LEGAL_IDENTITY["country"],
-        "geographic_address": address or LEGAL_IDENTITY["geographic_address"],
+        "geographic_address": address,
         "contact_email": _string_or_none(_profile_value(profile, "contact_email"))
         or LEGAL_IDENTITY["contact_email"],
-        "registration_number": _string_or_none(_profile_value(profile, "uic_eik"))
-        or LEGAL_IDENTITY["registration_number"],
-        "vat_number": _string_or_none(_profile_value(profile, "vat_identification_number"))
-        or LEGAL_IDENTITY["vat_number"],
+        "registration_number": _string_or_none(_profile_value(profile, "uic_eik")),
+        "vat_number": _string_or_none(_profile_value(profile, "vat_identification_number")),
     }
     identity["responsible_party_name"] = identity["trading_name"]
     identity["responsible_party_address"] = identity["geographic_address"]
@@ -91,7 +88,7 @@ def legal_identity_from_seller_profile(profile: Any) -> dict[str, str]:
     return identity
 
 
-def get_public_legal_identity() -> dict[str, str]:
+def get_public_legal_identity() -> dict[str, str | None]:
     """Load the latest admin-managed public legal identity with static fallback."""
     from app.services import accounting_config_service
 

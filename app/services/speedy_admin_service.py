@@ -12,10 +12,9 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-import psycopg
-
 from app.config import get_settings
 from app.constants import tracking_url_for
+from app.database import DbConnection
 from app.services import pricing, speedy_client
 from app.services.econt_redaction import redact_mapping
 from app.services.order_service import (
@@ -66,7 +65,7 @@ def _loads_json(value: str | None) -> Any:
         return None
 
 
-def _set_site_json(conn: psycopg.Connection, key: str, value: dict[str, Any]) -> None:
+def _set_site_json(conn: DbConnection, key: str, value: dict[str, Any]) -> None:
     conn.execute(
         """
         INSERT INTO site_settings (key, value, value_type, is_public, updated_at)
@@ -85,14 +84,14 @@ def _set_site_json(conn: psycopg.Connection, key: str, value: dict[str, Any]) ->
     )
 
 
-def _get_site_json(conn: psycopg.Connection, key: str) -> dict[str, Any] | None:
+def _get_site_json(conn: DbConnection, key: str) -> dict[str, Any] | None:
     row = conn.execute("SELECT value FROM site_settings WHERE key = %s", (key,)).fetchone()
     value = _loads_json(row["value"] if row else None)
     return value if isinstance(value, dict) else None
 
 
 def _record_event(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     order_id: str,
     action: str,
     status: str,
@@ -121,7 +120,7 @@ def _record_event(
 
 
 def _persist_failure(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     order_id: str,
     action: str,
     request_payload: Any,
@@ -144,7 +143,7 @@ def _persist_failure(
 
 
 def _record_failure_event(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     order_id: str,
     action: str,
     request_payload: Any,
@@ -163,7 +162,7 @@ def _record_failure_event(
     )
 
 
-def _safe_order(conn: psycopg.Connection, order_id: str) -> dict[str, Any]:
+def _safe_order(conn: DbConnection, order_id: str) -> dict[str, Any]:
     try:
         return dict(get_order_admin(conn, order_id))
     except OrderNotFoundError:
@@ -221,7 +220,7 @@ def _row_to_summary(row: dict) -> dict[str, Any]:
     }
 
 
-async def get_health(conn: psycopg.Connection) -> dict[str, Any]:
+async def get_health(conn: DbConnection) -> dict[str, Any]:
     """Return safe Speedy health state without creating shipments."""
     username, password, configured_client_id = _settings_credentials()
     checked_at = pricing.now_utc()
@@ -303,7 +302,7 @@ async def get_health(conn: psycopg.Connection) -> dict[str, Any]:
     return health
 
 
-def get_queues(conn: psycopg.Connection, *, order_id: str | None = None) -> dict[str, Any]:
+def get_queues(conn: DbConnection, *, order_id: str | None = None) -> dict[str, Any]:
     params: list[Any] = []
     focus_sql = ""
     if order_id:
@@ -342,7 +341,7 @@ def get_queues(conn: psycopg.Connection, *, order_id: str | None = None) -> dict
 
 
 async def create_or_reuse_waybill(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     order_id: str,
     *,
     actor_user_id: str | None = None,
@@ -407,7 +406,7 @@ async def create_or_reuse_waybill(
 
 
 async def print_order_label(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     order_id: str,
     *,
     actor_user_id: str | None = None,
@@ -445,7 +444,7 @@ async def print_order_label(
 
 
 async def refresh_tracking(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     order_id: str,
     *,
     actor_user_id: str | None = None,
@@ -503,7 +502,7 @@ async def refresh_tracking(
 
 
 async def search_shipments(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     reference: str,
     *,
     include_returns: bool = False,
@@ -534,7 +533,7 @@ async def search_shipments(
 
 
 async def shipment_info(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     shipment_ids: list[str],
     *,
     actor_user_id: str | None = None,
@@ -568,7 +567,7 @@ async def shipment_info(
 
 
 async def cancel_order_shipment(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     order_id: str,
     *,
     comment: str | None = None,
@@ -638,7 +637,7 @@ async def cancel_order_shipment(
 
 
 async def pickup_terms_for_shipments(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     shipment_ids: list[str],
     *,
     starting_date_utc_ms: int | None = None,
@@ -673,7 +672,7 @@ async def pickup_terms_for_shipments(
 
 
 async def request_pickup(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     shipment_ids: list[str],
     pickup_datetime: str,
@@ -719,7 +718,7 @@ async def request_pickup(
     return {"orders": orders}
 
 
-def list_events(conn: psycopg.Connection, *, limit: int = 25) -> list[dict[str, Any]]:
+def list_events(conn: DbConnection, *, limit: int = 25) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT id, order_id, action, status, request_json, response_json, error_json,
@@ -747,7 +746,7 @@ def list_events(conn: psycopg.Connection, *, limit: int = 25) -> list[dict[str, 
     ]
 
 
-def get_metrics(conn: psycopg.Connection) -> dict[str, Any]:
+def get_metrics(conn: DbConnection) -> dict[str, Any]:
     rows = conn.execute(
         """
         SELECT action, status, error_json
@@ -783,7 +782,7 @@ def get_metrics(conn: psycopg.Connection) -> dict[str, Any]:
     }
 
 
-def get_office_refresh_status(conn: psycopg.Connection) -> dict[str, Any]:
+def get_office_refresh_status(conn: DbConnection) -> dict[str, Any]:
     stored = _get_site_json(conn, _SITE_REFRESH_KEY)
     if stored is not None:
         return stored
@@ -810,7 +809,7 @@ def get_office_refresh_status(conn: psycopg.Connection) -> dict[str, Any]:
 
 
 def record_office_refresh_status(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     status: str,
     records: int | None = None,
@@ -823,7 +822,7 @@ def record_office_refresh_status(
     )
 
 
-async def get_overview(conn: psycopg.Connection, *, order_id: str | None = None) -> dict[str, Any]:
+async def get_overview(conn: DbConnection, *, order_id: str | None = None) -> dict[str, Any]:
     return {
         "health": await get_health(conn),
         "queues": get_queues(conn, order_id=order_id),
@@ -833,7 +832,7 @@ async def get_overview(conn: psycopg.Connection, *, order_id: str | None = None)
     }
 
 
-def _order_id_for_shipment(conn: psycopg.Connection, shipment_id: str) -> str | None:
+def _order_id_for_shipment(conn: DbConnection, shipment_id: str) -> str | None:
     if not shipment_id:
         return None
     row = conn.execute(
@@ -849,7 +848,7 @@ def _order_id_for_shipment(conn: psycopg.Connection, shipment_id: str) -> str | 
 
 
 def _record_search_success_if_local(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     reference: str,
     request_payload: Any,
     response_payload: Any,
@@ -872,7 +871,7 @@ def _record_search_success_if_local(
 
 
 def _record_search_failure_if_local(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     reference: str,
     request_payload: Any,
     exc: speedy_client.SpeedyError,
@@ -885,7 +884,7 @@ def _record_search_failure_if_local(
         _persist_failure(conn, row["id"], "shipment_search", request_payload, exc, actor_user_id)
 
 
-def _eligible_pickup_order_ids(conn: psycopg.Connection, shipment_ids: list[str]) -> list[str]:
+def _eligible_pickup_order_ids(conn: DbConnection, shipment_ids: list[str]) -> list[str]:
     normalized_ids = [str(item).strip() for item in shipment_ids if str(item).strip()]
     if not normalized_ids:
         raise SpeedyAdminValidationError(
@@ -916,9 +915,7 @@ def _eligible_pickup_order_ids(conn: psycopg.Connection, shipment_ids: list[str]
     return order_ids
 
 
-def _record_return_review_signal(
-    conn: psycopg.Connection, order_id: str, courier_status: str
-) -> None:
+def _record_return_review_signal(conn: DbConnection, order_id: str, courier_status: str) -> None:
     """Hook Speedy return/failed tracking into the active returns workflow.
 
     The parallel returns/refunds change owns the actual return workflow. This

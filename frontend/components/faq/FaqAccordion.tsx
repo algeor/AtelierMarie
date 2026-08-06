@@ -6,11 +6,11 @@ import type { FaqItemResponse } from "@/lib/types";
 
 interface FaqAccordionProps {
   items: FaqItemResponse[];
+  staggered?: boolean;
 }
 
 type AnswerBlock =
-  | { type: "paragraph"; text: string }
-  | { type: "list"; items: string[] };
+  { type: "paragraph"; text: string } | { type: "list"; items: string[] };
 
 const MARKDOWN_LINK_RE = /\[([^\]]+)\]\((\/[^)\s]+)\)/g;
 
@@ -68,10 +68,10 @@ function renderTextWithLinks(text: string) {
       <a
         key={`${href}-${start}`}
         href={href}
-        className="font-medium text-charcoal underline underline-offset-4 hover:text-soft-brown focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-muted-gold"
+        className="font-medium text-text underline underline-offset-4 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
       >
         {label}
-      </a>
+      </a>,
     );
     lastIndex = start + fullMatch.length;
   }
@@ -87,7 +87,7 @@ function Answer({ answer }: { answer: string }) {
   const blocks = parseFaqAnswer(answer);
 
   return (
-    <div className="space-y-3 text-sm leading-7 text-soft-brown sm:text-base">
+    <div className="space-y-3 text-sm leading-7 text-muted sm:text-base">
       {blocks.map((block, index) =>
         block.type === "list" ? (
           <ul key={index} className="list-disc space-y-2 pl-5">
@@ -97,27 +97,33 @@ function Answer({ answer }: { answer: string }) {
           </ul>
         ) : (
           <p key={index}>{renderTextWithLinks(block.text)}</p>
-        )
+        ),
       )}
     </div>
   );
 }
 
-export function FaqAccordion({ items }: FaqAccordionProps) {
-  const [openId, setOpenId] = useState<number | null>(items[0]?.id ?? null);
+export function FaqAccordion({ items, staggered = false }: FaqAccordionProps) {
+  const [openId, setOpenId] = useState<number | null>(null);
 
   if (items.length === 0) return null;
 
   return (
     <div className="space-y-3">
-      {items.map((item) => {
+      {items.map((item, index) => {
         const isOpen = openId === item.id;
         const panelId = `faq-panel-${item.id}`;
         const buttonId = `faq-trigger-${item.id}`;
         return (
           <div
             key={item.id}
-            className="overflow-hidden rounded-2xl border border-champagne-beige bg-white shadow-sm"
+            className={cn(
+              "editorial-paper-panel overflow-hidden rounded-brand",
+              staggered && "rebrand-soft-panel-expand",
+            )}
+            style={
+              staggered ? { animationDelay: `${index * 75}ms` } : undefined
+            }
           >
             <button
               id={buttonId}
@@ -125,14 +131,16 @@ export function FaqAccordion({ items }: FaqAccordionProps) {
               aria-expanded={isOpen}
               aria-controls={panelId}
               onClick={() => setOpenId(isOpen ? null : item.id)}
-              className="flex min-h-[56px] w-full items-center justify-between gap-4 px-5 py-4 text-left text-charcoal transition-colors duration-normal hover:bg-warm-ivory focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-muted-gold focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+              className="flex min-h-[56px] w-full items-center justify-between gap-4 px-5 py-4 text-left text-text transition-colors duration-normal hover:bg-page/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-surface-elevated"
             >
-              <span className="text-base font-medium leading-6">{item.question}</span>
+              <span className="text-base font-medium leading-6">
+                {item.question}
+              </span>
               <span
                 aria-hidden="true"
                 className={cn(
-                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-champagne-beige text-lg text-soft-brown transition-transform duration-normal",
-                  isOpen && "rotate-45"
+                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/40 bg-page/45 text-lg text-muted transition-transform duration-normal",
+                  isOpen && "rotate-45",
                 )}
               >
                 +
@@ -144,11 +152,13 @@ export function FaqAccordion({ items }: FaqAccordionProps) {
               aria-labelledby={buttonId}
               className={cn(
                 "grid transition-[grid-template-rows,opacity] duration-normal ease-out",
-                isOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+                isOpen
+                  ? "grid-rows-[1fr] opacity-100"
+                  : "grid-rows-[0fr] opacity-0",
               )}
             >
               <div className="overflow-hidden">
-                <div className="border-t border-champagne-beige px-5 py-5">
+                <div className="border-t editorial-divider bg-page/35 px-5 py-5">
                   <Answer answer={item.answer} />
                 </div>
               </div>

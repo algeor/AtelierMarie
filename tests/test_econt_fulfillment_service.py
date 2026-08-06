@@ -75,9 +75,8 @@ def _reset_econt_settings(db):
 
     ``econt_settings`` is a seed table (never TRUNCATEd between tests under the
     template-clone model), so mutations by ``_configure_econt`` and other tests
-    would otherwise leak across tests. The old per-``tmp_path`` SQLite fixture
-    gave every test a pristine default row; this reproduces that by rewriting the
-    row to the migration-seeded defaults (notably ``enabled = 0``).
+    would otherwise leak across tests. This rewrites the row to the
+    migration-seeded defaults (notably ``enabled = 0``).
     """
     db.execute(
         """

@@ -25,5 +25,9 @@ export default async function ProductsPage({ params }: { params: Promise<{ local
     })),
   ]);
 
-  return <ProductListingClient products={products} taxonomy={taxonomy} />;
+  return (
+    <main>
+      <ProductListingClient products={products} taxonomy={taxonomy} />
+    </main>
+  );
 }

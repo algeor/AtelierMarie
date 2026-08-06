@@ -4,27 +4,27 @@ import type { LegalIdentityResponse } from "@/lib/types";
 
 export interface LegalIdentity {
   tradingName: string;
-  legalName: string;
+  legalName: string | null;
   country: string;
-  geographicAddress: string;
+  geographicAddress: string | null;
   contactEmail: string;
-  registrationNumber: string;
-  vatNumber: string;
+  registrationNumber: string | null;
+  vatNumber: string | null;
   responsiblePartyName: string;
-  responsiblePartyAddress: string;
+  responsiblePartyAddress: string | null;
   responsiblePartyEmail: string;
 }
 
 export const LEGAL_IDENTITY: LegalIdentity = {
   tradingName: "Atelier Marie",
-  legalName: "TODO: legal entity name",
+  legalName: null,
   country: "Bulgaria",
-  geographicAddress: "TODO: geographic business address",
+  geographicAddress: null,
   contactEmail: "contacts@theateliermarie.com",
-  registrationNumber: "TODO: registration number",
-  vatNumber: "TODO: VAT number or not VAT registered",
+  registrationNumber: null,
+  vatNumber: null,
   responsiblePartyName: "Atelier Marie",
-  responsiblePartyAddress: "TODO: geographic business address",
+  responsiblePartyAddress: null,
   responsiblePartyEmail: "contacts@theateliermarie.com",
 };
 
@@ -44,6 +44,12 @@ export function policyPath(policy: PolicyKey) {
 
 export function localizedPolicyPath(locale: Locale, policy: PolicyKey) {
   return `/${locale}${policyPath(policy)}`;
+}
+
+export function hasLegalIdentityValue(
+  value: string | null | undefined,
+): value is string {
+  return Boolean(value?.trim());
 }
 
 function mapLegalIdentity(identity: LegalIdentityResponse): LegalIdentity {

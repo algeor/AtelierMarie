@@ -18,11 +18,11 @@ describe("StatusTimeline", () => {
     const confirmed = screen.getByText("Confirmed");
     const shipped = screen.getByText("Shipped");
 
-    // Pending and Confirmed should have darker text (completed)
-    expect(pending.className).toContain("text-charcoal");
-    expect(confirmed.className).toContain("text-charcoal");
-    // Shipped should be gray (future)
-    expect(shipped.className).toContain("text-gray-400");
+    // Pending and Confirmed should use primary text (completed)
+    expect(pending.className).toContain("text-text");
+    expect(confirmed.className).toContain("text-text");
+    // Shipped should be muted (future)
+    expect(shipped.className).toContain("text-muted/55");
   });
 
   it("shows 3 filled steps for shipped", () => {
@@ -30,14 +30,14 @@ describe("StatusTimeline", () => {
     const shipped = screen.getByText("Shipped");
     const delivered = screen.getByText("Delivered");
 
-    expect(shipped.className).toContain("text-charcoal");
-    expect(delivered.className).toContain("text-gray-400");
+    expect(shipped.className).toContain("text-text");
+    expect(delivered.className).toContain("text-muted/55");
   });
 
   it("shows all 4 steps filled for delivered", () => {
     renderWithIntl(<StatusTimeline currentStatus="delivered" />);
     const delivered = screen.getByText("Delivered");
-    expect(delivered.className).toContain("text-charcoal");
+    expect(delivered.className).toContain("text-text");
   });
 
   it("shows 'Pending → Cancelled' for cancelled status", () => {

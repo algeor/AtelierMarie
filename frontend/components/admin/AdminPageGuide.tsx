@@ -33,6 +33,7 @@ const GUIDE_PAGES: GuidePage[] = [
   { key: "accounting", match: (path) => path === "/admin/accounting" },
   { key: "analytics", match: (path) => path === "/admin/analytics" },
   { key: "taxonomy", match: (path) => path === "/admin/taxonomy" },
+  { key: "siteMedia", match: (path) => path === "/admin/site-media" },
   { key: "atelier", match: (path) => path === "/admin/atelier" },
   { key: "terms", match: (path) => path === "/admin/terms" },
   { key: "cookies", match: (path) => path === "/admin/cookies" },
@@ -55,33 +56,33 @@ export function AdminPageGuide() {
   const glossary = t.raw(`pages.${guideKey}.glossary`) as GuideEntry[];
 
   return (
-    <section className="mb-6 rounded-brand border border-champagne-beige bg-cream p-4 text-sm text-soft-brown">
+    <section className="mb-6 rounded-brand border border-admin-border/60 bg-admin-surface p-4 text-sm text-admin-muted">
       <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase text-muted-gold">{t("eyebrow")}</p>
+          <p className="text-xs font-semibold uppercase text-admin-primary">{t("eyebrow")}</p>
         </div>
-        <p className="max-w-3xl leading-6 text-charcoal">{t(`pages.${guideKey}.purpose`)}</p>
+        <p className="max-w-3xl leading-6 text-admin-text">{t(`pages.${guideKey}.purpose`)}</p>
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
         <div>
-          <h3 className="font-semibold text-charcoal">{t("howTitle")}</h3>
+          <h3 className="font-semibold text-admin-text">{t("howTitle")}</h3>
           <ol className="mt-2 list-decimal space-y-1 pl-5 leading-6">
             {steps.map((step) => <li key={step}>{step}</li>)}
           </ol>
         </div>
         <div>
-          <h3 className="font-semibold text-charcoal">{t("watchTitle")}</h3>
+          <h3 className="font-semibold text-admin-text">{t("watchTitle")}</h3>
           <ul className="mt-2 list-disc space-y-1 pl-5 leading-6">
             {watch.map((item) => <li key={item}>{item}</li>)}
           </ul>
         </div>
         <div>
-          <h3 className="font-semibold text-charcoal">{t("glossaryTitle")}</h3>
+          <h3 className="font-semibold text-admin-text">{t("glossaryTitle")}</h3>
           <dl className="mt-2 space-y-2 leading-6">
             {glossary.map((entry) => (
               <div key={entry.term}>
-                <dt className="font-semibold text-charcoal">{entry.term}</dt>
+                <dt className="font-semibold text-admin-text">{entry.term}</dt>
                 <dd>{entry.meaning}</dd>
               </div>
             ))}

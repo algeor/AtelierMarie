@@ -44,21 +44,21 @@ export function CourierTrackingSummary({ order }: CourierTrackingSummaryProps) {
     : "labelCreated";
 
   return (
-    <section className="mt-8 border-t border-champagne-beige pt-6">
-      <h2 className="mb-3 text-sm font-medium text-charcoal">{t("sectionTitle")}</h2>
+    <section className="mt-8 border-t border-border/60 pt-6">
+      <h2 className="mb-3 text-sm font-medium text-text">{t("sectionTitle")}</h2>
       <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2 text-sm">
-        <dt className="text-soft-brown">{t("shipmentNumber")}</dt>
-        <dd className="font-mono text-charcoal">{shipmentNumber}</dd>
+        <dt className="text-muted">{t("shipmentNumber")}</dt>
+        <dd className="font-mono text-text">{shipmentNumber}</dd>
 
-        <dt className="text-soft-brown">{t("statusLabel")}</dt>
-        <dd className="text-charcoal">{t(`status.${statusKey}`)}</dd>
+        <dt className="text-muted">{t("statusLabel")}</dt>
+        <dd className="text-text">{t(`status.${statusKey}`)}</dd>
       </dl>
       {trackingUrl && (
         <a
           href={trackingUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-3 inline-flex text-sm font-medium text-muted-gold underline underline-offset-2 transition-colors duration-fast hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown"
+          className="mt-3 inline-flex text-sm font-medium text-accent underline underline-offset-2 transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
         >
           {t("trackLink")}
         </a>

@@ -63,10 +63,8 @@ def test_inventory_settings_bootstrap_is_disabled_by_default(db: psycopg.Connect
         "missing_cost_behavior": "block_official",
         "accountant_reviewed": 0,
     }
-    # The SQLite-era ``schema_migrations`` bootstrap marker is replaced under
-    # Postgres by Alembic's ``alembic_version``; the default settings row above
-    # is seeded by the initial migration, so a populated version stamp proves the
-    # same bootstrap ran.
+    # Alembic's ``alembic_version`` proves the initial migration ran and seeded
+    # the default settings row above.
     marker = db.execute("SELECT 1 FROM alembic_version WHERE version_num IS NOT NULL").fetchone()
     assert marker is not None
 

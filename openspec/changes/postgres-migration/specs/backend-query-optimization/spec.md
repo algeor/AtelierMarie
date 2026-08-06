@@ -26,4 +26,3 @@ The product search endpoint SHALL use Postgres full-text search and SHALL push c
 - **WHEN** a client searches with locale `bg`
 - **THEN** search uses Bulgarian product name and description fields for matching
 - **AND** English fields remain available for English locale searches
-

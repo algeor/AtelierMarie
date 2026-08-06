@@ -17,8 +17,10 @@ export default async function AuthCallbackPage() {
   const t = await getTranslations("auth");
 
   return (
-    <Suspense fallback={<LoadingSpinner label={t("signingIn")} />}>
-      <CallbackHandler />
-    </Suspense>
+    <main>
+      <Suspense fallback={<LoadingSpinner label={t("signingIn")} />}>
+        <CallbackHandler />
+      </Suspense>
+    </main>
   );
 }

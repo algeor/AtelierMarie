@@ -3,6 +3,15 @@ import { Link } from "@/i18n/navigation";
 import { INSTAGRAM_URL, TIKTOK_URL } from "@/lib/social";
 import { policyPath } from "@/lib/legal";
 import { CookieSettingsButton } from "@/components/layout/CookieSettingsButton";
+import { LoginButton } from "@/components/auth/LoginButton";
+import { BrandMark } from "@/components/rebrand";
+import { cn } from "@/lib/utils";
+
+const footerLinkClass =
+  "inline-flex min-h-[36px] items-center py-1 text-left text-sm font-semibold leading-snug text-muted transition-colors duration-fast hover:text-accent active:text-accent focus-visible:outline-none focus-visible:text-accent focus-visible:underline focus-visible:underline-offset-4";
+
+const socialLinkClass =
+  "inline-flex min-h-[44px] min-w-[44px] items-center justify-center text-muted transition-colors duration-fast hover:text-accent active:text-accent focus-visible:outline-none focus-visible:text-accent";
 
 function InstagramIcon({ className }: { className?: string }) {
   return (
@@ -35,114 +44,122 @@ function TikTokIcon({ className }: { className?: string }) {
   );
 }
 
-export function Footer() {
+export function Footer({ isAtelierPage = false }: { isAtelierPage?: boolean }) {
   const t = useTranslations();
   const currentYear = new Date().getFullYear();
 
-  return (
-    <footer className="border-t border-champagne-beige mt-16" role="contentinfo">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="flex flex-col gap-8 md:flex-row md:items-center md:justify-between">
-          {/* Navigation links */}
-          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-8">
-            <nav aria-label={t("nav.footerNavigation")}>
-              <ul className="flex flex-wrap gap-6 text-sm">
-              <li>
-                <Link
-                  href="/"
-                  className="text-soft-brown hover:text-charcoal transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand px-1 py-0.5"
-                >
-                  {t("nav.home")}
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/products"
-                  className="text-soft-brown hover:text-charcoal transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand px-1 py-0.5"
-                >
-                  {t("nav.shop")}
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/atelier"
-                  className="text-soft-brown hover:text-charcoal transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand px-1 py-0.5"
-                >
-                  {t("nav.atelier")}
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/contact"
-                  className="text-soft-brown hover:text-charcoal transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand px-1 py-0.5"
-                >
-                  {t("nav.contact")}
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/faq"
-                  className="text-soft-brown hover:text-charcoal transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand px-1 py-0.5"
-                >
-                  {t("faq.footerLink")}
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href={policyPath("terms")}
-                  className="text-soft-brown hover:text-charcoal transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand px-1 py-0.5"
-                >
-                  {t("terms.footerLink")}
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href={policyPath("privacy")}
-                  className="text-soft-brown hover:text-charcoal transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand px-1 py-0.5"
-                >
-                  {t("legal.privacyPolicy")}
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href={policyPath("cookies")}
-                  className="text-soft-brown hover:text-charcoal transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand px-1 py-0.5"
-                >
-                  {t("legal.cookiePolicy")}
-                </Link>
-              </li>
-              <li>
-                <CookieSettingsButton />
-              </li>
-              </ul>
-            </nav>
+  const linkGroups = [
+    {
+      title: t("footer.groups.explore"),
+      links: [
+        { href: "/" as const, label: t("nav.home") },
+        { href: "/products" as const, label: t("nav.shop") },
+        { href: "/atelier" as const, label: t("nav.atelier") },
+      ],
+    },
+    {
+      title: t("footer.groups.help"),
+      links: [
+        { href: "/contact" as const, label: t("nav.contact") },
+        { href: "/faq" as const, label: t("faq.footerLink") },
+      ],
+    },
+    {
+      title: t("footer.groups.account"),
+      links: [
+        { href: "/account" as const, label: t("auth.myAccount") },
+        { href: "/orders" as const, label: t("auth.myOrders") },
+      ],
+    },
+    {
+      title: t("footer.groups.legal"),
+      links: [
+        { href: policyPath("terms"), label: t("terms.footerLink") },
+        { href: policyPath("privacy"), label: t("legal.privacyPolicy") },
+        { href: policyPath("cookies"), label: t("legal.cookiePolicy") },
+      ],
+    },
+  ];
 
-            <div className="flex items-center gap-2" aria-label={t("footer.socialLinks")}>
-              <a
-                href={INSTAGRAM_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={t("footer.instagram")}
-                className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-brand text-soft-brown transition-colors duration-fast hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"
-              >
-                <InstagramIcon className="h-5 w-5" />
-              </a>
-              <a
-                href={TIKTOK_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={t("footer.tiktok")}
-                className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-brand text-soft-brown transition-colors duration-fast hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"
-              >
-                <TikTokIcon className="h-5 w-5" />
-              </a>
+  return (
+    <footer
+      className={cn(
+        "relative overflow-hidden py-12 text-text lg:py-16",
+        isAtelierPage ? "bg-text" : "bg-accent"
+      )}
+      role="contentinfo"
+    >
+      <div className="pointer-events-none absolute -bottom-5 left-1/2 z-0 -translate-x-1/2 whitespace-nowrap font-heading text-[17vw] leading-none text-accent-foreground/10 rebrand-footer-wordmark-reveal">
+        ATELIER MARIE
+      </div>
+
+      <div className="relative z-10 mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="landing-footer-panel rounded-brand border border-border/30 bg-[rgb(248_241_241)] p-5 shadow-2xl shadow-text/15 md:p-8 lg:p-10">
+          <div className="grid items-start gap-10 lg:grid-cols-[minmax(17rem,0.95fr)_minmax(0,1.85fr)] lg:gap-14">
+            <div className="max-w-md">
+              <BrandMark className="h-14 w-24 text-accent" title={t("footer.brandMarkTitle")} />
+              <p className="mt-4 font-heading text-4xl font-semibold text-text">Atelier Marie</p>
+              <p className="mt-4 max-w-sm text-base font-medium leading-7 text-muted">{t("footer.editorialText")}</p>
+              <div className="mt-6">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-accent">
+                  {t("footer.groups.social")}
+                </p>
+                <div className="mt-3 flex items-center gap-4" aria-label={t("footer.socialLinks")}>
+                  <a
+                    href={INSTAGRAM_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={t("footer.instagram")}
+                    className={socialLinkClass}
+                  >
+                    <InstagramIcon className="h-7 w-7" />
+                  </a>
+                  <a
+                    href={TIKTOK_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={t("footer.tiktok")}
+                    className={socialLinkClass}
+                  >
+                    <TikTokIcon className="h-7 w-7" />
+                  </a>
+                </div>
+              </div>
             </div>
+
+            <nav aria-label={t("nav.footerNavigation")} className="lg:pt-3">
+              <div className="grid grid-cols-2 items-start gap-x-6 gap-y-8 md:grid-cols-4 lg:gap-x-8">
+                {linkGroups.map((group) => (
+                  <div key={group.title}>
+                    <h2 className="text-xs font-bold uppercase tracking-[0.18em] text-accent">{group.title}</h2>
+                    <ul className="mt-3 space-y-1.5">
+                      {group.links.map((link) => (
+                        <li key={`${group.title}-${link.href}`}>
+                          <Link href={link.href} className={footerLinkClass}>
+                            {link.label}
+                          </Link>
+                        </li>
+                      ))}
+                      {group.title === t("footer.groups.account") ? (
+                        <li>
+                          <LoginButton className={footerLinkClass} />
+                        </li>
+                      ) : null}
+                      {group.title === t("footer.groups.legal") ? (
+                        <li>
+                          <CookieSettingsButton className={footerLinkClass} />
+                        </li>
+                      ) : null}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </nav>
           </div>
 
-          {/* Branding */}
-          <div className="text-sm text-soft-brown/70 md:text-right">
+          <div className="mt-10 flex flex-col gap-2 border-t border-border/30 pt-5 text-sm font-semibold text-muted md:flex-row md:items-center md:justify-between">
             <p>{t("footer.handcrafted")}</p>
-            <p className="mt-1">{t("footer.copyright", { year: currentYear })}</p>
+            <p>{t("footer.copyright", { year: currentYear })}</p>
           </div>
         </div>
       </div>

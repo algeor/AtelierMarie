@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef, type CSSProperties } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import {
@@ -12,11 +12,11 @@ import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
 import { cn, formatPrice } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { Portal } from "@/components/ui/Portal";
 import {
   ShipOrderModal,
   type ShipTrackingInput,
 } from "@/components/admin/ShipOrderModal";
-import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
 import type {
   AdminOrderAccountingFilter,
   OrderResponse,
@@ -42,7 +42,13 @@ const PAYMENT_STATUS_FILTERS: (PaymentStatus | "")[] = [
   "paid",
   "cod_pending",
   "failed",
+  "review_required",
+  "refund_pending",
+  "partially_refunded",
   "refunded",
+  "dispute_open",
+  "dispute_won",
+  "dispute_lost",
 ];
 
 const PAYMENT_METHOD_FILTERS: (PaymentMethod | "")[] = [
@@ -66,6 +72,20 @@ const ACCOUNTING_FILTERS: (AdminOrderAccountingFilter | "")[] = [
   "valuation_exception",
   "return_inventory_review_pending",
 ];
+
+type OrderView = "all" | "needs_attention" | "awaiting_payment" | "returns" | "accounting" | "custom";
+
+type DateRangeFilter = "" | "today" | "last_7_days" | "last_30_days";
+
+const ORDER_VIEWS: Exclude<OrderView, "custom">[] = [
+  "all",
+  "needs_attention",
+  "awaiting_payment",
+  "returns",
+  "accounting",
+];
+
+const DATE_RANGE_FILTERS: DateRangeFilter[] = ["", "today", "last_7_days", "last_30_days"];
 
 const STATUS_COLORS: Record<OrderStatus, string> = {
   pending: "bg-amber-100 text-amber-800",
@@ -101,6 +121,245 @@ const PAYMENT_STATUS_COLORS: Record<PaymentStatus, string> = {
   dispute_lost: "bg-red-100 text-red-800",
 };
 
+type DropdownOption<Value extends string> = {
+  value: Value;
+  label: string;
+};
+
+interface DropdownMenuProps<Value extends string> {
+  ariaLabel: string;
+  buttonClassName?: string;
+  containerClassName?: string;
+  disabled?: boolean;
+  label: string;
+  menuItemClassName?: string;
+  onSelect: (value: Value) => void;
+  openButtonClassName?: string;
+  options: DropdownOption<Value>[];
+  selectedValue?: Value;
+}
+
+function DropdownMenu<Value extends string>({
+  ariaLabel,
+  buttonClassName,
+  containerClassName,
+  disabled,
+  label,
+  menuItemClassName,
+  options,
+  openButtonClassName,
+  onSelect,
+  selectedValue,
+}: DropdownMenuProps<Value>) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (disabled) setIsOpen(false);
+  }, [disabled]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function updateMenuPosition() {
+      const trigger = triggerRef.current;
+      if (!trigger) return;
+
+      const rect = trigger.getBoundingClientRect();
+      const menuWidth = rect.width;
+      const menuHeight = Math.min(options.length * 40 + 12, 260);
+      const viewportWidth = window.innerWidth || menuWidth;
+      const viewportHeight = window.innerHeight || 720;
+      const left = Math.min(
+        Math.max(8, rect.left),
+        Math.max(8, viewportWidth - menuWidth - 8)
+      );
+      const shouldOpenUp = rect.bottom + menuHeight > viewportHeight && rect.top > menuHeight;
+      const top = shouldOpenUp ? rect.top - menuHeight + 1 : rect.bottom - 1;
+
+      setMenuStyle({
+        left,
+        position: "fixed",
+        top: Math.max(8, top),
+        width: menuWidth,
+      });
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target as Node;
+      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) {
+        return;
+      }
+      setIsOpen(false);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+        triggerRef.current?.focus();
+      }
+    }
+
+    updateMenuPosition();
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [isOpen, options.length]);
+
+  return (
+    <div className={cn("inline-flex", containerClassName)}>
+      <button
+        ref={triggerRef}
+        type="button"
+        disabled={disabled}
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        aria-label={ariaLabel}
+        onClick={() => setIsOpen((open) => !open)}
+        className={cn(
+          buttonClassName,
+          disabled && "cursor-not-allowed opacity-50",
+          isOpen && openButtonClassName
+        )}
+      >
+        <span className="truncate">{label}</span>
+        <span
+          aria-hidden="true"
+          className={cn(
+            "text-[10px] text-soft-brown/70 transition-transform duration-fast",
+            isOpen && "rotate-180"
+          )}
+        >
+          ▾
+        </span>
+      </button>
+
+      {isOpen && (
+        <Portal>
+          <div
+            ref={menuRef}
+            role="menu"
+            aria-label={ariaLabel}
+            style={menuStyle}
+            className="z-50 overflow-hidden rounded-b-brand border border-soft-brown/35 bg-warm-ivory py-1 shadow-xl ring-1 ring-charcoal/5"
+          >
+            {options.map((option) => (
+              <button
+                key={option.value || "all"}
+                type="button"
+                role={selectedValue === undefined ? "menuitem" : "menuitemradio"}
+                aria-checked={selectedValue === undefined ? undefined : selectedValue === option.value}
+                data-value={option.value}
+                onClick={() => {
+                  setIsOpen(false);
+                  onSelect(option.value);
+                }}
+                className={cn(
+                  "flex h-9 w-full items-center gap-2 px-3 text-left text-xs font-medium text-soft-brown transition-colors duration-fast hover:bg-cream/55 hover:text-charcoal focus-visible:bg-cream/55 focus-visible:text-charcoal focus-visible:outline-none",
+                  selectedValue === option.value && "bg-cream/55 text-charcoal",
+                  menuItemClassName
+                )}
+              >
+                {selectedValue !== undefined && (
+                  <span aria-hidden="true" className="w-4 shrink-0 text-center">
+                    {selectedValue === option.value ? "✓" : ""}
+                  </span>
+                )}
+                <span className="truncate">{option.label}</span>
+              </button>
+            ))}
+          </div>
+        </Portal>
+      )}
+    </div>
+  );
+}
+
+type TransitionOption = {
+  status: OrderStatus;
+  label: string;
+};
+
+interface StatusTransitionMenuProps {
+  ariaLabel: string;
+  disabled: boolean;
+  label: string;
+  options: TransitionOption[];
+  onSelect: (status: OrderStatus) => void;
+}
+
+function StatusTransitionMenu({
+  ariaLabel,
+  disabled,
+  label,
+  options,
+  onSelect,
+}: StatusTransitionMenuProps) {
+  return (
+    <DropdownMenu
+      ariaLabel={ariaLabel}
+      disabled={disabled}
+      label={label}
+      options={options.map((option) => ({ value: option.status, label: option.label }))}
+      onSelect={onSelect}
+      buttonClassName={cn(
+        "inline-flex h-9 min-w-[11.5rem] items-center justify-between gap-2 rounded-brand border border-champagne-beige/80 bg-warm-ivory px-3 text-xs font-medium text-soft-brown shadow-sm",
+        "transition-colors duration-fast hover:border-soft-brown/30 hover:bg-cream hover:text-charcoal",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory",
+        "disabled:cursor-not-allowed disabled:opacity-50"
+      )}
+      openButtonClassName="rounded-b-none border-soft-brown/35 bg-warm-ivory shadow-none"
+    />
+  );
+}
+
+interface FilterDropdownProps<Value extends string> {
+  label: string;
+  onSelect: (value: Value) => void;
+  options: DropdownOption<Value>[];
+  value: Value;
+}
+
+function FilterDropdown<Value extends string>({
+  label,
+  onSelect,
+  options,
+  value,
+}: FilterDropdownProps<Value>) {
+  const selectedLabel = options.find((option) => option.value === value)?.label ?? label;
+
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-semibold uppercase text-soft-brown">{label}</p>
+      <DropdownMenu
+        ariaLabel={label}
+        containerClassName="w-full"
+        label={selectedLabel}
+        options={options}
+        selectedValue={value}
+        onSelect={onSelect}
+        buttonClassName={cn(
+          "inline-flex h-10 w-full items-center justify-between gap-2 rounded-brand border border-champagne-beige bg-warm-ivory px-3 text-sm font-normal text-charcoal shadow-sm",
+          "transition-colors duration-fast hover:border-soft-brown/30 hover:bg-cream",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"
+        )}
+        openButtonClassName="rounded-b-none border-soft-brown/35 bg-warm-ivory shadow-none"
+        menuItemClassName="text-sm"
+      />
+    </div>
+  );
+}
+
 function formatDate(iso: string, locale: string): string {
   return new Date(iso).toLocaleDateString(locale === "bg" ? "bg-BG" : "en-US", {
     month: "short",
@@ -116,6 +375,56 @@ function maskEmail(email: string): string {
   return `${visible}***@${domain}`;
 }
 
+function orderMatchesSearch(order: OrderResponse, query: string): boolean {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return true;
+
+  const deliveryDetails = order.delivery_details;
+  const deliveryText = deliveryDetails
+    ? Object.values(deliveryDetails)
+        .filter((value): value is string | number =>
+          typeof value === "string" || typeof value === "number"
+        )
+        .join(" ")
+    : "";
+
+  return [
+    order.id,
+    order.order_number,
+    order.customer_email,
+    order.customer_name,
+    order.status,
+    order.payment_status,
+    order.payment_method,
+    deliveryText,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+    .includes(normalizedQuery);
+}
+
+function orderMatchesDateRange(order: OrderResponse, range: DateRangeFilter): boolean {
+  if (!range) return true;
+
+  const createdAt = new Date(order.created_at);
+  if (Number.isNaN(createdAt.getTime())) return true;
+
+  const now = new Date();
+  if (range === "today") {
+    return (
+      createdAt.getFullYear() === now.getFullYear() &&
+      createdAt.getMonth() === now.getMonth() &&
+      createdAt.getDate() === now.getDate()
+    );
+  }
+
+  const days = range === "last_7_days" ? 7 : 30;
+  const cutoff = new Date(now);
+  cutoff.setDate(now.getDate() - days);
+  return createdAt >= cutoff;
+}
+
 export default function AdminOrdersPage() {
   const t = useTranslations("admin");
   const tStatus = useTranslations("orders.status");
@@ -129,14 +438,100 @@ export default function AdminOrdersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState("");
+  const [orderView, setOrderView] = useState<OrderView>("all");
+  const [orderSearch, setOrderSearch] = useState("");
+  const [dateRangeFilter, setDateRangeFilter] = useState<DateRangeFilter>("");
+  const [statusFilter, setStatusFilter] = useState<OrderStatus | "">("");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<PaymentStatus | "">("");
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<PaymentMethod | "">("");
   const [accountingFilter, setAccountingFilter] = useState<AdminOrderAccountingFilter | "">("");
+  const [isAdvancedFiltersOpen, setIsAdvancedFiltersOpen] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   // Order awaiting the shipping form (tracking is required before we ship).
   const [shippingOrder, setShippingOrder] = useState<OrderResponse | null>(null);
   const isInitialLoad = useRef(true);
+
+  const displayedOrders = useMemo(
+    () =>
+      orders.filter(
+        (order) =>
+          orderMatchesSearch(order, orderSearch) &&
+          orderMatchesDateRange(order, dateRangeFilter)
+      ),
+    [orders, orderSearch, dateRangeFilter]
+  );
+
+  const isPresetView = orderView !== "all" && orderView !== "custom";
+  const activeFilterLabels = [
+    isPresetView
+      ? t(`orderViews.${orderView}` as Parameters<typeof t>[0])
+      : null,
+    !isPresetView && statusFilter ? tStatus(statusFilter) : null,
+    !isPresetView && paymentStatusFilter
+      ? tPayment(`status.${paymentStatusFilter}` as Parameters<typeof tPayment>[0])
+      : null,
+    !isPresetView && paymentMethodFilter
+      ? tPayment(`method.${paymentMethodFilter}` as Parameters<typeof tPayment>[0])
+      : null,
+    !isPresetView && accountingFilter
+      ? t(`accountingFilters.${accountingFilter}` as Parameters<typeof t>[0])
+      : null,
+    dateRangeFilter ? t(`dateRanges.${dateRangeFilter}` as Parameters<typeof t>[0]) : null,
+    orderSearch.trim() ? `${t("search")}: ${orderSearch.trim()}` : null,
+  ].filter((label): label is string => Boolean(label));
+
+  const dateRangeOptions: DropdownOption<DateRangeFilter>[] = DATE_RANGE_FILTERS.map((filter) => ({
+    value: filter,
+    label: filter ? t(`dateRanges.${filter}` as Parameters<typeof t>[0]) : t("dateRanges.all"),
+  }));
+
+  const statusOptions: DropdownOption<OrderStatus | "">[] = STATUS_FILTERS.map((filter) => ({
+    value: filter,
+    label: filter ? tStatus(filter) : t("all"),
+  }));
+
+  const paymentStatusOptions: DropdownOption<PaymentStatus | "">[] = PAYMENT_STATUS_FILTERS.map((filter) => ({
+    value: filter,
+    label: filter ? tPayment(`status.${filter}` as Parameters<typeof tPayment>[0]) : t("all"),
+  }));
+
+  const paymentMethodOptions: DropdownOption<PaymentMethod | "">[] = PAYMENT_METHOD_FILTERS.map((filter) => ({
+    value: filter,
+    label: filter ? tPayment(`method.${filter}` as Parameters<typeof tPayment>[0]) : t("all"),
+  }));
+
+  const accountingOptions: DropdownOption<AdminOrderAccountingFilter | "">[] = ACCOUNTING_FILTERS.map((filter) => ({
+    value: filter,
+    label: filter ? t(`accountingFilters.${filter}` as Parameters<typeof t>[0]) : t("all"),
+  }));
+
+  function handleViewChange(view: Exclude<OrderView, "custom">) {
+    setOrderView(view);
+    setStatusFilter("");
+    setPaymentStatusFilter("");
+    setPaymentMethodFilter("");
+    setAccountingFilter("");
+
+    if (view === "needs_attention") {
+      setPaymentStatusFilter("review_required");
+    } else if (view === "awaiting_payment") {
+      setPaymentStatusFilter("pending");
+    } else if (view === "returns") {
+      setStatusFilter("return_in_transit");
+    } else if (view === "accounting") {
+      setAccountingFilter("unresolved_exception");
+    }
+  }
+
+  function clearFilters() {
+    setOrderView("all");
+    setOrderSearch("");
+    setDateRangeFilter("");
+    setStatusFilter("");
+    setPaymentStatusFilter("");
+    setPaymentMethodFilter("");
+    setAccountingFilter("");
+  }
 
   useEffect(() => {
     async function loadOrders() {
@@ -278,110 +673,127 @@ export default function AdminOrdersPage() {
         </div>
       </div>
 
-      {/* Filter Pills */}
       <div className="mb-6 space-y-3">
-        <div>
-          <div className="mb-2 flex items-center gap-2">
-            <p className="text-xs font-semibold uppercase text-soft-brown">
-              {t("fulfillmentFilter")}
-            </p>
-            <AdminInfoPopover content={t("ordersHelp.fulfillment")} />
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {STATUS_FILTERS.map((filter) => (
-              <button
-                key={filter}
-                onClick={() => setStatusFilter(filter)}
-                className={cn(
-                  "rounded-pill px-4 py-1.5 text-sm font-medium transition-colors duration-fast",
-                  statusFilter === filter
-                    ? "bg-muted-gold text-charcoal"
-                    : "bg-champagne-beige/50 text-soft-brown hover:bg-champagne-beige"
-                )}
-                aria-pressed={statusFilter === filter}
-              >
-                {filter ? tStatus(filter) : t("all")}
-              </button>
-            ))}
-          </div>
+        <div className="flex flex-wrap gap-2" aria-label={t("orderViewsLabel")}>
+          {ORDER_VIEWS.map((view) => (
+            <button
+              key={view}
+              type="button"
+              onClick={() => handleViewChange(view)}
+              className={cn(
+                "rounded-pill px-4 py-1.5 text-sm font-medium transition-colors duration-fast",
+                orderView === view
+                  ? "bg-muted-gold text-charcoal"
+                  : "bg-champagne-beige/50 text-soft-brown hover:bg-champagne-beige"
+              )}
+              aria-pressed={orderView === view}
+            >
+              {t(`orderViews.${view}` as Parameters<typeof t>[0])}
+            </button>
+          ))}
         </div>
 
-        <div>
-          <div className="mb-2 flex items-center gap-2">
-            <p className="text-xs font-semibold uppercase text-soft-brown">
-              {t("paymentStatusFilter")}
-            </p>
-            <AdminInfoPopover content={t("ordersHelp.paymentStatus")} />
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {PAYMENT_STATUS_FILTERS.map((filter) => (
-              <button
-                key={filter || "all-payment-statuses"}
-                onClick={() => setPaymentStatusFilter(filter)}
-                className={cn(
-                  "rounded-pill px-4 py-1.5 text-sm font-medium transition-colors duration-fast",
-                  paymentStatusFilter === filter
-                    ? "bg-muted-gold text-charcoal"
-                    : "bg-champagne-beige/50 text-soft-brown hover:bg-champagne-beige"
-                )}
-                aria-pressed={paymentStatusFilter === filter}
-              >
-                {filter ? tPayment(`status.${filter}` as Parameters<typeof tPayment>[0]) : t("all")}
-              </button>
-            ))}
-          </div>
-        </div>
+        <div className="rounded-brand border border-champagne-beige bg-cream p-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(16rem,1fr)_minmax(9rem,11rem)_minmax(10rem,12rem)_minmax(11rem,13rem)_auto] xl:items-end">
+            <label className="text-xs font-semibold uppercase text-soft-brown">
+              {t("search")}
+              <input
+                type="search"
+                value={orderSearch}
+                onChange={(event) => setOrderSearch(event.target.value)}
+                placeholder={t("searchOrdersPlaceholder")}
+                className="mt-1 h-10 w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 text-sm font-normal normal-case text-charcoal placeholder:text-soft-brown/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown"
+              />
+            </label>
 
-        <div>
-          <div className="mb-2 flex items-center gap-2">
-            <p className="text-xs font-semibold uppercase text-soft-brown">
-              {t("paymentMethodFilter")}
-            </p>
-            <AdminInfoPopover content={t("ordersHelp.paymentMethod")} />
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {PAYMENT_METHOD_FILTERS.map((filter) => (
-              <button
-                key={filter || "all-payment-methods"}
-                onClick={() => setPaymentMethodFilter(filter)}
-                className={cn(
-                  "rounded-pill px-4 py-1.5 text-sm font-medium transition-colors duration-fast",
-                  paymentMethodFilter === filter
-                    ? "bg-muted-gold text-charcoal"
-                    : "bg-champagne-beige/50 text-soft-brown hover:bg-champagne-beige"
-                )}
-                aria-pressed={paymentMethodFilter === filter}
-              >
-                {filter ? tPayment(`method.${filter}` as Parameters<typeof tPayment>[0]) : t("all")}
-              </button>
-            ))}
-          </div>
-        </div>
+            <FilterDropdown
+              label={t("dateRange")}
+              value={dateRangeFilter}
+              options={dateRangeOptions}
+              onSelect={setDateRangeFilter}
+            />
 
-        <div>
-          <div className="mb-2 flex items-center gap-2">
-            <p className="text-xs font-semibold uppercase text-soft-brown">
-              {t("accountingFilter")}
-            </p>
-            <AdminInfoPopover content={t("ordersHelp.accounting")} />
+            <FilterDropdown
+              label={t("status")}
+              value={statusFilter}
+              options={statusOptions}
+              onSelect={(value) => {
+                setOrderView("custom");
+                setStatusFilter(value);
+              }}
+            />
+
+            <FilterDropdown
+              label={t("paymentStatus")}
+              value={paymentStatusFilter}
+              options={paymentStatusOptions}
+              onSelect={(value) => {
+                setOrderView("custom");
+                setPaymentStatusFilter(value);
+              }}
+            />
+
+            <button
+              type="button"
+              onClick={() => setIsAdvancedFiltersOpen((open) => !open)}
+              aria-expanded={isAdvancedFiltersOpen}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-brand border border-champagne-beige bg-warm-ivory px-4 text-sm font-medium text-charcoal transition-colors duration-fast hover:bg-champagne-beige/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown"
+            >
+              {t("filters")}
+              {activeFilterLabels.length > 0 && (
+                <span className="rounded-pill bg-muted-gold px-2 py-0.5 text-xs text-charcoal">
+                  {activeFilterLabels.length}
+                </span>
+              )}
+            </button>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {ACCOUNTING_FILTERS.map((filter) => (
+
+          {isAdvancedFiltersOpen && (
+            <div className="mt-4 grid gap-3 border-t border-champagne-beige pt-4 md:grid-cols-2">
+              <FilterDropdown
+                label={t("paymentMethod")}
+                value={paymentMethodFilter}
+                options={paymentMethodOptions}
+                onSelect={(value) => {
+                  setOrderView("custom");
+                  setPaymentMethodFilter(value);
+                }}
+              />
+
+              <FilterDropdown
+                label={t("accountingFilter")}
+                value={accountingFilter}
+                options={accountingOptions}
+                onSelect={(value) => {
+                  setOrderView("custom");
+                  setAccountingFilter(value);
+                }}
+              />
+            </div>
+          )}
+
+          {activeFilterLabels.length > 0 && (
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold uppercase text-soft-brown">
+                {t("activeFilters")}
+              </span>
+              {activeFilterLabels.map((label) => (
+                <span
+                  key={label}
+                  className="rounded-pill bg-champagne-beige/60 px-3 py-1 text-xs font-medium text-soft-brown"
+                >
+                  {label}
+                </span>
+              ))}
               <button
-                key={filter || "all-accounting"}
-                onClick={() => setAccountingFilter(filter)}
-                className={cn(
-                  "rounded-pill px-4 py-1.5 text-sm font-medium transition-colors duration-fast",
-                  accountingFilter === filter
-                    ? "bg-muted-gold text-charcoal"
-                    : "bg-champagne-beige/50 text-soft-brown hover:bg-champagne-beige"
-                )}
-                aria-pressed={accountingFilter === filter}
+                type="button"
+                onClick={clearFilters}
+                className="rounded-pill px-3 py-1 text-xs font-medium text-charcoal underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown"
               >
-                {filter ? t(`accountingFilters.${filter}` as Parameters<typeof t>[0]) : t("all")}
+                {t("clearFilters")}
               </button>
-            ))}
-          </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -427,14 +839,14 @@ export default function AdminOrdersPage() {
                   <td className="px-4 py-3"><Skeleton className="h-8 w-28" /></td>
                 </tr>
               ))
-            ) : orders.length === 0 ? (
+            ) : displayedOrders.length === 0 ? (
               <tr>
                 <td colSpan={9} className="px-4 py-8 text-center text-soft-brown">
                   {t("noOrders")}
                 </td>
               </tr>
             ) : (
-              orders.map((order) => (
+              displayedOrders.map((order) => (
                 <tr
                   key={order.id}
                   className="border-b border-champagne-beige/50 last:border-0"
@@ -541,27 +953,16 @@ export default function AdminOrdersPage() {
                   </td>
                   <td className="px-4 py-3">
                     {VALID_TRANSITIONS[order.status].length > 0 ? (
-                      <select
-                        value=""
+                      <StatusTransitionMenu
+                        ariaLabel={t("updateStatusForOrder", { id: order.id.slice(0, 8) })}
                         disabled={updatingId === order.id}
-                        aria-label={t("updateStatusForOrder", { id: order.id.slice(0, 8) })}
-                        onChange={(e) => {
-                          if (e.target.value) {
-                            handleTransitionSelected(
-                              order,
-                              e.target.value as OrderStatus
-                            );
-                          }
-                        }}
-                        className="h-8 rounded-brand border border-champagne-beige bg-cream px-2 text-xs text-soft-brown focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown disabled:opacity-50"
-                      >
-                        <option value="">{t("updateStatus")}</option>
-                        {VALID_TRANSITIONS[order.status].map((s) => (
-                          <option key={s} value={s}>
-                            {tStatus(s)}
-                          </option>
-                        ))}
-                      </select>
+                        label={t("updateStatus")}
+                        options={VALID_TRANSITIONS[order.status].map((status) => ({
+                          status,
+                          label: tStatus(status),
+                        }))}
+                        onSelect={(status) => handleTransitionSelected(order, status)}
+                      />
                     ) : (
                       <span className="text-xs text-soft-brown/50">
                         {t("noActions")}

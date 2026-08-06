@@ -14,6 +14,12 @@ import { Portal } from "@/components/ui/Portal";
 import { useFocusTrap } from "@/lib/useFocusTrap";
 import { cn } from "@/lib/utils";
 
+const headerLinkClass =
+  "text-sm font-semibold text-muted transition-colors duration-fast hover:text-accent active:text-accent focus-visible:outline-none focus-visible:text-accent focus-visible:underline focus-visible:underline-offset-4";
+
+const headerIconButtonClass =
+  "inline-flex min-h-[44px] min-w-[44px] items-center justify-center text-muted transition-colors duration-fast hover:text-accent active:text-accent focus-visible:outline-none focus-visible:text-accent";
+
 const NAV_LINKS = [
   { href: "/", labelKey: "nav.home" },
   { href: "/products", labelKey: "nav.shop" },
@@ -39,6 +45,7 @@ export function Header() {
     item_count > 0
       ? t("header.cartLabelWithItems", { count: item_count })
       : t("header.cartLabel");
+  const isAtelierPage = pathname === "/atelier" || pathname.startsWith("/atelier/");
 
   const isLinkActive = useCallback(
     (href: string) =>
@@ -51,20 +58,25 @@ export function Header() {
   function renderAuthControl() {
     if (authLoading) return <Skeleton className="w-8 h-8 rounded-full" />;
     if (isAuthenticated) return <UserMenu />;
-    return <LoginButton />;
+    return <LoginButton className={headerLinkClass} />;
   }
 
   return (
     <>
-      <header className="sticky top-0 z-50 bg-warm-ivory/95 backdrop-blur-sm border-b border-champagne-beige">
+      <header
+        className={cn(
+          "sticky top-0 z-50 px-3 py-3 sm:px-4",
+          isAtelierPage ? "bg-text" : "bg-accent"
+        )}
+      >
         <nav
-          className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between"
+          className="mx-auto flex h-14 max-w-7xl items-center justify-between rounded-brand border border-border/30 bg-[rgb(248_241_241)] px-4 shadow-lg shadow-border/15 backdrop-blur-xl sm:px-6 lg:px-8"
           aria-label={t("nav.mainNavigation")}
         >
           {/* Logo */}
           <Link
             href="/"
-            className="font-heading text-xl md:text-2xl text-charcoal hover:text-soft-brown transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand"
+            className="font-heading text-xl text-text transition-colors duration-fast hover:text-accent active:text-accent focus-visible:outline-none focus-visible:text-accent focus-visible:underline focus-visible:underline-offset-4 md:text-2xl"
           >
             Atelier Marie
           </Link>
@@ -76,7 +88,10 @@ export function Header() {
                 <Link
                   href={link.href}
                   aria-current={isLinkActive(link.href) ? "page" : undefined}
-                  className="text-soft-brown hover:text-charcoal transition-colors duration-fast font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand px-1 py-0.5"
+                  className={cn(
+                    headerLinkClass,
+                    isLinkActive(link.href) && "text-text underline underline-offset-4"
+                  )}
                 >
                   {t(link.labelKey)}
                 </Link>
@@ -98,7 +113,7 @@ export function Header() {
               aria-label={t("header.openMenu")}
               aria-expanded={mobileMenuOpen}
               aria-controls="mobile-navigation-menu"
-              className="md:hidden min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-brand transition-colors duration-fast hover:bg-cream focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"
+              className={cn(headerIconButtonClass, "md:hidden")}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -106,7 +121,7 @@ export function Header() {
                 viewBox="0 0 24 24"
                 strokeWidth={1.5}
                 stroke="currentColor"
-                className="h-6 w-6 text-soft-brown"
+                className="h-6 w-6"
                 aria-hidden="true"
               >
                 <path
@@ -120,7 +135,7 @@ export function Header() {
             <button
               onClick={openDrawer}
               aria-label={cartAriaLabel}
-              className="relative min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-brand transition-colors duration-fast hover:bg-cream focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"
+              className={cn(headerIconButtonClass, "relative")}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -128,7 +143,7 @@ export function Header() {
                 viewBox="0 0 24 24"
                 strokeWidth={1.5}
                 stroke="currentColor"
-                className="w-6 h-6 text-soft-brown"
+                className="h-6 w-6"
                 aria-hidden="true"
               >
                 <path
@@ -153,7 +168,7 @@ export function Header() {
         >
           <div
             className={cn(
-              "fixed inset-0 bg-charcoal/45 backdrop-blur-[2px] transition-opacity duration-normal",
+              "fixed inset-0 bg-text/35 backdrop-blur-[2px] transition-opacity duration-normal",
               mobileMenuOpen ? "opacity-100" : "opacity-0"
             )}
             aria-hidden="true"
@@ -167,21 +182,21 @@ export function Header() {
             aria-label={t("header.mobileMenuTitle")}
             tabIndex={-1}
             className={cn(
-              "fixed inset-y-0 left-0 flex w-[min(22rem,calc(100vw-2rem))] flex-col bg-warm-ivory shadow-xl transition-transform duration-normal",
+              "fixed inset-y-0 left-0 flex w-[min(22rem,calc(100vw-2rem))] flex-col border-r border-border/30 bg-[rgb(248_241_241)] shadow-2xl shadow-border/20 transition-transform duration-normal",
               mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
             )}
           >
             {mobileMenuOpen && (
               <>
-                <div className="flex items-center justify-between border-b border-champagne-beige px-5 py-4">
-                  <h2 className="font-heading text-xl text-charcoal">
+                <div className="flex items-center justify-between border-b border-border/30 px-5 py-4">
+                  <h2 className="font-heading text-xl text-text">
                     {t("header.mobileMenuTitle")}
                   </h2>
                   <button
                     type="button"
                     onClick={closeMobileMenu}
                     aria-label={t("header.closeMenu")}
-                    className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-brand text-soft-brown transition-colors duration-fast hover:bg-cream hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"
+                    className={headerIconButtonClass}
                   >
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
@@ -212,10 +227,10 @@ export function Header() {
                             onClick={closeMobileMenu}
                             aria-current={isActive ? "page" : undefined}
                             className={cn(
-                              "block rounded-brand px-3 py-3 text-base font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory",
+                              "block px-1 py-3 text-base font-semibold transition-colors duration-fast focus-visible:outline-none focus-visible:text-accent focus-visible:underline focus-visible:underline-offset-4",
                               isActive
-                                ? "bg-muted-gold/15 text-charcoal"
-                                : "text-soft-brown hover:bg-cream hover:text-charcoal"
+                                ? "text-text underline underline-offset-4"
+                                : "text-muted hover:text-accent active:text-accent"
                             )}
                           >
                             {t(link.labelKey)}
@@ -225,9 +240,9 @@ export function Header() {
                     })}
                   </ul>
 
-                  <div className="mt-6 border-t border-champagne-beige pt-5">
+                  <div className="mt-6 border-t border-border/30 pt-5">
                     <div className="flex items-center justify-between gap-4">
-                      <span className="text-sm font-medium text-soft-brown">
+                      <span className="text-sm font-semibold text-muted">
                         {t("header.language")}
                       </span>
                       <LanguageToggle />

@@ -7,9 +7,13 @@ import { renderWithIntl } from "../test-utils";
 const mockLogin = vi.fn();
 
 vi.mock("next/link", () => ({
-  default: ({ children, href }: { children: React.ReactNode; href: string }) => (
-    <a href={href}>{children}</a>
-  ),
+  default: ({
+    children,
+    href,
+  }: {
+    children: React.ReactNode;
+    href: string;
+  }) => <a href={href}>{children}</a>,
 }));
 
 vi.mock("@/i18n/navigation", () => ({
@@ -24,14 +28,30 @@ vi.mock("@/contexts/AuthContext", () => ({
   useAuth: vi.fn(),
 }));
 
+vi.mock("@/contexts/SavedProductsContext", () => ({
+  useSavedProducts: vi.fn(),
+  useOptionalSavedProducts: vi.fn(),
+}));
+
 import { useAuth } from "@/contexts/AuthContext";
+import { useSavedProducts } from "@/contexts/SavedProductsContext";
 import AccountPage from "@/app/[locale]/account/page";
 
 const mockedUseAuth = vi.mocked(useAuth);
+const mockedUseSavedProducts = vi.mocked(useSavedProducts);
 
 describe("AccountPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockedUseSavedProducts.mockReturnValue({
+      savedProducts: [],
+      savedProductIds: new Set(),
+      savedCount: 0,
+      isLoading: false,
+      isSaved: vi.fn(),
+      toggleSaved: vi.fn(),
+      refreshSavedProducts: vi.fn(),
+    });
   });
 
   describe("authenticated view", () => {
@@ -63,12 +83,20 @@ describe("AccountPage", () => {
       renderWithIntl(<AccountPage />);
       const img = screen.getByRole("img");
       // next/image proxies external URLs through /_next/image?url=<encoded>&...
-      expect(img.getAttribute("src")).toContain(encodeURIComponent("https://example.com/avatar.jpg"));
+      expect(img.getAttribute("src")).toContain(
+        encodeURIComponent("https://example.com/avatar.jpg"),
+      );
     });
 
     it("shows My Orders link", () => {
       renderWithIntl(<AccountPage />);
       expect(screen.getByText("My Orders")).toHaveAttribute("href", "/orders");
+    });
+
+    it("shows saved products section", () => {
+      renderWithIntl(<AccountPage />);
+      expect(screen.getByText("Saved Products")).toBeInTheDocument();
+      expect(screen.getByText("No saved products yet")).toBeInTheDocument();
     });
   });
 
@@ -88,7 +116,7 @@ describe("AccountPage", () => {
     it("shows sign in prompt", () => {
       renderWithIntl(<AccountPage />);
       expect(
-        screen.getByText("Sign in to view your account and order history")
+        screen.getByText("Sign in to view your account and order history"),
       ).toBeInTheDocument();
     });
 
@@ -117,7 +145,9 @@ describe("AccountPage", () => {
       renderWithIntl(<AccountPage />);
       // Should not show the sign-in prompt or user info
       expect(screen.queryByText("Sign In with Google")).not.toBeInTheDocument();
-      expect(screen.queryByText("marie@ateliermarie.com")).not.toBeInTheDocument();
+      expect(
+        screen.queryByText("marie@ateliermarie.com"),
+      ).not.toBeInTheDocument();
     });
   });
 });

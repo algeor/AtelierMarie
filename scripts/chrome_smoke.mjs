@@ -7,7 +7,7 @@
  *   CHROME_SMOKE_START_SERVERS=1 node scripts/chrome_smoke.mjs
  *
  * By default, the script expects the frontend server to already be running.
- * With CHROME_SMOKE_START_SERVERS=1 it seeds a temporary DB, starts a fake
+ * With CHROME_SMOKE_START_SERVERS=1 it seeds a temporary Postgres DB, starts a fake
  * Speedy boundary plus local backend/frontend servers, and runs customer/admin
  * Speedy + Econt shipping flows in Chrome. It fails on browser/page errors, 5xx responses,
  * unexpected 4xx responses, or blank render output.
@@ -15,9 +15,7 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
 import http from "node:http";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,6 +28,9 @@ const JWT_SECRET = process.env.JWT_SECRET || "chrome-smoke-jwt-secret-with-enoug
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
 const FRONTEND_DIR = path.join(REPO_ROOT, "frontend");
+const DEFAULT_POSTGRES_URL = "postgresql://atelier:atelier@localhost:5432/atelier_marie"; // pragma: allowlist secret
+const BASE_DATABASE_URL =
+  process.env.CHROME_SMOKE_DATABASE_URL || process.env.DATABASE_URL || DEFAULT_POSTGRES_URL;
 const ROUTES = (process.env.CHROME_SMOKE_ROUTES || "/en,/en/products,/en/checkout,/en/orders,/en/admin/orders")
   .split(",")
   .map((route) => route.trim())
@@ -95,81 +96,146 @@ function runChecked(command, args, options = {}) {
   return result.stdout;
 }
 
-function seedSmokeDatabase(databasePath) {
+function assertLocalDatabaseUrl(databaseUrl) {
+  const parsed = new URL(databaseUrl);
+  const localHosts = new Set(["localhost", "127.0.0.1", "[::1]", "postgres"]);
+  if (!localHosts.has(parsed.hostname) && process.env.CHROME_SMOKE_ALLOW_REMOTE_DB !== "1") {
+    throw new Error(
+      "Refusing to create a smoke database on a non-local Postgres host. " +
+        "Set CHROME_SMOKE_ALLOW_REMOTE_DB=1 only for an isolated test server."
+    );
+  }
+}
+
+function createAndSeedSmokeDatabase(baseDatabaseUrl) {
+  assertLocalDatabaseUrl(baseDatabaseUrl);
   const script = String.raw`
 import json
-import sqlite3
+import os
 import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
-from app.database import init_db
+import psycopg
+from alembic import command
+from alembic.config import Config
+from psycopg import sql
+
+from app.database import close_db, get_db, init_db
 from app.models.users import UserResponse
 from app.services.auth_service import create_jwt
 
-db_path = ${JSON.stringify(databasePath)}
-init_db(db_path)
+base_url = ${JSON.stringify(baseDatabaseUrl)}
+parts = urlsplit(base_url)
+if parts.scheme not in {"postgresql", "postgres"}:
+    raise RuntimeError("CHROME_SMOKE_DATABASE_URL/DATABASE_URL must be a Postgres URL")
 
-now = datetime.now(UTC)
-created = now.strftime("%Y-%m-%d %H:%M:%S")
-expires = (now + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
-admin_session_id = str(uuid.uuid4())
-admin_user_id = "chrome-smoke-admin"
+database_name = f"atelier_chrome_smoke_{uuid.uuid4().hex[:12]}"
+maintenance_db = os.getenv("CHROME_SMOKE_MAINTENANCE_DB", "postgres")
+maintenance_url = urlunsplit(parts._replace(path=f"/{maintenance_db}", fragment=""))
+database_url = urlunsplit(parts._replace(path=f"/{database_name}", fragment=""))
 
-conn = sqlite3.connect(db_path)
-conn.execute("PRAGMA foreign_keys=ON")
+
+def drop_smoke_database() -> None:
+    with psycopg.connect(maintenance_url, autocommit=True) as maintenance_conn:
+        with maintenance_conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT pg_terminate_backend(pid)
+                FROM pg_stat_activity
+                WHERE datname = %s AND pid <> pg_backend_pid()
+                """,
+                (database_name,),
+            )
+            cur.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(database_name)))
+
+
+with psycopg.connect(maintenance_url, autocommit=True) as maintenance_conn:
+    with maintenance_conn.cursor() as cur:
+        cur.execute(sql.SQL("CREATE DATABASE {} TEMPLATE template0 ENCODING 'UTF8'").format(sql.Identifier(database_name)))
+
 try:
-    products = [
-        ("lavender-dream", "Lavender Dream", "Лавандулова мечта", 2500, 20, "A calm lavender candle for checkout smoke testing."),
-        ("midnight-amber", "Midnight Amber", "Полунощен амбър", 3500, 10, "Warm amber candle used by browser tests."),
-    ]
-    for product in products:
-        conn.execute(
-            """
-            INSERT INTO products (
-                id, name_en, name_bg, price_cents, stock, is_active, description_en,
-                weight_grams, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, 1, ?, 300, datetime('now'), datetime('now'))
-            ON CONFLICT(id) DO UPDATE SET
-                stock=excluded.stock,
-                is_active=excluded.is_active,
-                updated_at=datetime('now')
-            """,
-            product,
-        )
+    os.environ["DATABASE_URL"] = database_url
+    alembic_ini = Path("alembic.ini").resolve()
+    config = Config(str(alembic_ini))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "head")
 
-    conn.execute(
-        """
-        INSERT INTO users (id, google_id, email, name, is_admin, created_at, last_login_at)
-        VALUES (?, ?, ?, ?, 1, datetime('now'), datetime('now'))
-        ON CONFLICT(id) DO UPDATE SET is_admin=1, last_login_at=datetime('now')
-        """,
-        (admin_user_id, "chrome-smoke-google", "admin@atelier-smoke.test", "Chrome Smoke Admin"),
-    )
-    conn.execute(
-        """
-        INSERT OR REPLACE INTO sessions (id, user_id, created_at, expires_at, preferred_locale)
-        VALUES (?, ?, ?, ?, 'en')
-        """,
-        (admin_session_id, admin_user_id, created, expires),
-    )
-    conn.commit()
-finally:
-    conn.close()
+    init_db(database_url, min_size=1, max_size=4)
 
-admin = UserResponse(
-    id=admin_user_id,
-    email="admin@atelier-smoke.test",
-    name="Chrome Smoke Admin",
-    avatar_url=None,
-    is_admin=True,
-)
-print(json.dumps({"admin_session_id": admin_session_id, "admin_jwt": create_jwt(admin, admin_session_id)}))
+    now = datetime.now(UTC)
+    expires = now + timedelta(days=30)
+    admin_session_id = str(uuid.uuid4())
+    admin_user_id = "chrome-smoke-admin"
+
+    try:
+        with get_db() as conn:
+            products = [
+                ("lavender-dream", "Lavender Dream", "Лавандулова мечта", 2500, 20, "A calm lavender candle for checkout smoke testing."),
+                ("midnight-amber", "Midnight Amber", "Полунощен амбър", 3500, 10, "Warm amber candle used by browser tests."),
+            ]
+            for product in products:
+                conn.execute(
+                    """
+                    INSERT INTO products (
+                        id, name_en, name_bg, price_cents, stock, is_active, description_en,
+                        weight_grams, created_at, updated_at
+                    ) VALUES (%s, %s, %s, %s, %s, 1, %s, 300, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ON CONFLICT(id) DO UPDATE SET
+                        stock = EXCLUDED.stock,
+                        is_active = EXCLUDED.is_active,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    product,
+                )
+
+            conn.execute(
+                """
+                INSERT INTO users (id, google_id, email, name, is_admin, created_at, last_login_at)
+                VALUES (%s, %s, %s, %s, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT(id) DO UPDATE SET is_admin = 1, last_login_at = CURRENT_TIMESTAMP
+                """,
+                (admin_user_id, "chrome-smoke-google", "admin@atelier-smoke.test", "Chrome Smoke Admin"),
+            )
+            conn.execute(
+                """
+                INSERT INTO sessions (id, user_id, created_at, expires_at, preferred_locale)
+                VALUES (%s, %s, %s, %s, 'en')
+                ON CONFLICT(id) DO UPDATE SET
+                    user_id = EXCLUDED.user_id,
+                    expires_at = EXCLUDED.expires_at,
+                    preferred_locale = EXCLUDED.preferred_locale
+                """,
+                (admin_session_id, admin_user_id, now, expires),
+            )
+    finally:
+        close_db()
+
+    admin = UserResponse(
+        id=admin_user_id,
+        email="admin@atelier-smoke.test",
+        name="Chrome Smoke Admin",
+        avatar_url=None,
+        is_admin=True,
+    )
+    print(json.dumps({
+        "admin_session_id": admin_session_id,
+        "admin_jwt": create_jwt(admin, admin_session_id),
+        "database_name": database_name,
+        "database_url": database_url,
+        "maintenance_url": maintenance_url,
+    }))
+except Exception:
+    close_db()
+    drop_smoke_database()
+    raise
 `;
 
   const output = runChecked(".venv/bin/python", ["-c", script], {
     env: {
       ...process.env,
-      DATABASE_PATH: databasePath,
+      DATABASE_URL: baseDatabaseUrl,
       ENVIRONMENT: "test",
       JWT_SECRET,
       ADMIN_API_KEY,
@@ -177,6 +243,37 @@ print(json.dumps({"admin_session_id": admin_session_id, "admin_jwt": create_jwt(
     },
   });
   return JSON.parse(output.trim().split("\n").at(-1));
+}
+
+function dropSmokeDatabase(smokeDatabase) {
+  if (!smokeDatabase?.database_name || !smokeDatabase?.maintenance_url) return;
+
+  const script = String.raw`
+import psycopg
+from psycopg import sql
+
+database_name = ${JSON.stringify(smokeDatabase.database_name)}
+maintenance_url = ${JSON.stringify(smokeDatabase.maintenance_url)}
+
+with psycopg.connect(maintenance_url, autocommit=True) as conn:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT pg_terminate_backend(pid)
+            FROM pg_stat_activity
+            WHERE datname = %s AND pid <> pg_backend_pid()
+            """,
+            (database_name,),
+        )
+        cur.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(database_name)))
+`;
+
+  runChecked(".venv/bin/python", ["-c", script], {
+    env: {
+      ...process.env,
+      ENVIRONMENT: "test",
+    },
+  });
 }
 
 async function waitForProcessHttp(child, url, label) {
@@ -253,8 +350,7 @@ async function startFakeEcontServer() {
 }
 
 async function startManagedServers() {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), "atelier-smoke-stack-"));
-  const databasePath = process.env.DATABASE_PATH || path.join(tempDir, "atelier_chrome_smoke.db");
+  let smokeDatabase;
   let fakeSpeedy;
   let fakeEcont;
   let backend;
@@ -263,7 +359,7 @@ async function startManagedServers() {
   try {
     fakeSpeedy = await startFakeSpeedyServer();
     fakeEcont = await startFakeEcontServer();
-    const adminAuth = seedSmokeDatabase(databasePath);
+    smokeDatabase = createAndSeedSmokeDatabase(BASE_DATABASE_URL);
 
     backend = spawn(
       ".venv/bin/uvicorn",
@@ -273,7 +369,7 @@ async function startManagedServers() {
         stdio: ["ignore", "pipe", "pipe"],
         env: {
           ...process.env,
-          DATABASE_PATH: databasePath,
+          DATABASE_URL: smokeDatabase.database_url,
           ENVIRONMENT: "test",
           ADMIN_API_KEY,
           JWT_SECRET,
@@ -282,11 +378,11 @@ async function startManagedServers() {
           CORS_ORIGINS: JSON.stringify([FRONTEND_URL]),
           SPEEDY_BASE_URL: fakeSpeedy.url,
           SPEEDY_API_USERNAME: "chrome-smoke",
-          SPEEDY_API_PASSWORD: "chrome-smoke",
+          SPEEDY_API_PASSWORD: "chrome-smoke", // pragma: allowlist secret
           SPEEDY_CLIENT_ID: "123456",
           ECONT_CALCULATE_URL: `${fakeEcont.url}/calculate`,
           ECONT_API_USERNAME: "chrome-smoke",
-          ECONT_API_PASSWORD: "chrome-smoke",
+          ECONT_API_PASSWORD: "chrome-smoke", // pragma: allowlist secret
           EMAIL_PROVIDER: "console",
           EMAIL_API_KEY: "",
           ADMIN_NOTIFICATION_EMAIL: "",
@@ -316,15 +412,15 @@ async function startManagedServers() {
     await waitForProcessHttp(frontend, `${FRONTEND_URL}/en/products/lavender-dream`, "Frontend");
 
     return {
-      adminAuth,
-      databasePath,
+      adminAuth: smokeDatabase,
+      databaseUrl: smokeDatabase.database_url,
       async cleanup() {
         frontend?.kill("SIGTERM");
         backend?.kill("SIGTERM");
         await fakeSpeedy?.close();
         await fakeEcont?.close();
         if (process.env.CHROME_SMOKE_KEEP_DB !== "1") {
-          await rm(tempDir, { recursive: true, force: true });
+          dropSmokeDatabase(smokeDatabase);
         }
       },
     };
@@ -333,8 +429,8 @@ async function startManagedServers() {
     backend?.kill("SIGTERM");
     await fakeSpeedy?.close();
     await fakeEcont?.close();
-    if (process.env.CHROME_SMOKE_KEEP_DB !== "1") {
-      await rm(tempDir, { recursive: true, force: true });
+    if (smokeDatabase && process.env.CHROME_SMOKE_KEEP_DB !== "1") {
+      dropSmokeDatabase(smokeDatabase);
     }
     throw error;
   }

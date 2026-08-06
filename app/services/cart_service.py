@@ -1,6 +1,6 @@
 """Cart service — business logic for cart operations.
 
-Pure functions taking explicit psycopg.Connection parameter.
+Pure functions taking explicit DbConnection parameter.
 No HTTP concerns — testable without FastAPI/Starlette.
 """
 
@@ -12,6 +12,7 @@ import psycopg
 import structlog
 
 from app.config import get_settings
+from app.database import DbConnection, require_row
 from app.services import pricing, taxonomy_service
 from app.services.product_image_service import images_for_products, with_image_fields
 
@@ -166,7 +167,7 @@ class AddItemResult:
 # --- Service Functions ---
 
 
-def get_cart(conn: psycopg.Connection, session_id: str, locale: Locale = "en") -> CartData:
+def get_cart(conn: DbConnection, session_id: str, locale: Locale = "en") -> CartData:
     """Retrieve the cart for a session, separating active and unavailable items.
 
     Line and total pricing use each product's effective (discounted) price. A
@@ -268,7 +269,7 @@ def get_cart(conn: psycopg.Connection, session_id: str, locale: Locale = "en") -
                 product_id=row["product_id"],
                 product=product,
                 quantity=row["quantity"],
-                added_at=_fmt_ts(row["added_at"]),
+                added_at=_fmt_ts(row["added_at"]) or "",
             )
         )
         total_cents += effective_price * row["quantity"]
@@ -283,7 +284,7 @@ def get_cart(conn: psycopg.Connection, session_id: str, locale: Locale = "en") -
 
 
 def add_item(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     session_id: str,
     product_id: str,
     quantity: int,
@@ -334,10 +335,12 @@ def add_item(
 
             # Cart full check (only for new items)
             if not existing:
-                distinct_count = conn.execute(
-                    "SELECT COUNT(*) AS count FROM cart_items WHERE session_id = %s",
-                    (session_id,),
-                ).fetchone()["count"]
+                distinct_count = require_row(
+                    conn.execute(
+                        "SELECT COUNT(*) AS count FROM cart_items WHERE session_id = %s",
+                        (session_id,),
+                    ).fetchone()
+                )["count"]
 
                 if distinct_count >= settings.cart_max_distinct_items:
                     raise CartFullError(max_items=settings.cart_max_distinct_items)
@@ -371,7 +374,7 @@ def add_item(
 
 
 def update_quantity(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     session_id: str,
     product_id: str,
     quantity: int,
@@ -439,7 +442,7 @@ def update_quantity(
 
 
 def remove_item(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     session_id: str,
     product_id: str,
     locale: Locale = "en",

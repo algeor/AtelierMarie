@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import uuid
 
-from app.database import get_db
+from app.database import DbConnection, get_db
 from app.models.accounting import (
     AccountingDocumentListResponse,
     AccountingDocumentRequest,
@@ -33,7 +32,7 @@ def _json_loads(value: str | None) -> dict[str, object] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
-def _document_from_row(row: sqlite3.Row) -> AccountingDocumentResponse:
+def _document_from_row(row: dict) -> AccountingDocumentResponse:
     return AccountingDocumentResponse(
         id=row["id"],
         document_type=row["document_type"],
@@ -59,7 +58,7 @@ def _document_from_row(row: sqlite3.Row) -> AccountingDocumentResponse:
     )
 
 
-def _get_document_row(conn: sqlite3.Connection, document_id: str) -> sqlite3.Row:
+def _get_document_row(conn: DbConnection, document_id: str) -> dict:
     row = conn.execute(
         "SELECT * FROM accounting_documents WHERE id = %s", (document_id,)
     ).fetchone()
@@ -70,7 +69,7 @@ def _get_document_row(conn: sqlite3.Connection, document_id: str) -> sqlite3.Row
     return row
 
 
-def _validate_document(conn: sqlite3.Connection, body: AccountingDocumentRequest) -> None:
+def _validate_document(conn: DbConnection, body: AccountingDocumentRequest) -> None:
     if body.document_type == "credit_note" and not body.original_document_id:
         raise FinancePeriodError(
             422,

@@ -30,9 +30,13 @@ vi.mock("@/contexts/AuthContext", () => ({
 }));
 
 vi.mock("next/link", () => ({
-  default: ({ children, href }: { children: React.ReactNode; href: string }) => (
-    <a href={href}>{children}</a>
-  ),
+  default: ({
+    children,
+    href,
+  }: {
+    children: React.ReactNode;
+    href: string;
+  }) => <a href={href}>{children}</a>,
 }));
 
 import { getOrders } from "@/lib/api";
@@ -60,8 +64,18 @@ const ordersResponse: OrderListResponse = {
       delivery_details: null,
       notes: null,
       items: [
-        { product_id: "p1", product_name: "Lavender Dreams", price_cents: 3200, quantity: 1 },
-        { product_id: "p2", product_name: "Midnight Amber", price_cents: 4500, quantity: 1 },
+        {
+          product_id: "p1",
+          product_name: "Lavender Dreams",
+          price_cents: 3200,
+          quantity: 1,
+        },
+        {
+          product_id: "p2",
+          product_name: "Midnight Amber",
+          price_cents: 4500,
+          quantity: 1,
+        },
       ],
       tracking_number: null,
       tracking_carrier: null,
@@ -109,7 +123,9 @@ describe("OrdersPage", () => {
     });
 
     expect(screen.getAllByText("Pending").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("Cash on delivery · Pay on delivery")).toBeInTheDocument();
+    expect(
+      screen.getByText("Cash on delivery · Pay on delivery"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Card · Awaiting payment")).toBeInTheDocument();
     expect(screen.getByText("Card · Payment failed")).toBeInTheDocument();
     expect(screen.getAllByText("€77.00").length).toBeGreaterThanOrEqual(1);
@@ -128,7 +144,10 @@ describe("OrdersPage", () => {
     await waitFor(() => {
       expect(screen.getByText("No orders yet")).toBeInTheDocument();
     });
-    expect(screen.getByText("Start Shopping")).toHaveAttribute("href", "/products");
+    expect(screen.getByText("Start Shopping")).toHaveAttribute(
+      "href",
+      "/products",
+    );
   });
 
   it("shows anonymous CTA in empty state", async () => {
@@ -141,7 +160,9 @@ describe("OrdersPage", () => {
     renderWithIntl(<OrdersPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("Sign in to see all your orders")).toBeInTheDocument();
+      expect(
+        screen.getByText("Sign in to see all your orders"),
+      ).toBeInTheDocument();
     });
   });
 
@@ -150,7 +171,9 @@ describe("OrdersPage", () => {
     renderWithIntl(<OrdersPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("Something went wrong loading your orders")).toBeInTheDocument();
+      expect(
+        screen.getByText("Something went wrong loading your orders"),
+      ).toBeInTheDocument();
     });
     expect(screen.getByText("Try again")).toBeInTheDocument();
   });
@@ -177,6 +200,36 @@ describe("OrdersPage", () => {
     renderWithIntl(<OrdersPage />);
     // Skeleton elements are present (aria-hidden divs with animate-pulse)
     expect(screen.getByText("My Orders")).toBeInTheDocument();
+  });
+
+  it("loads orders with search and view filters", async () => {
+    const user = userEvent.setup();
+    mockedGetOrders.mockResolvedValue(ordersResponse);
+    renderWithIntl(<OrdersPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("#a1b2c3d4")).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByLabelText("Search orders"), "Lavender");
+
+    await waitFor(() => {
+      expect(mockedGetOrders).toHaveBeenLastCalledWith(
+        1,
+        20,
+        expect.objectContaining({ q: "Lavender" }),
+      );
+    });
+
+    await user.click(screen.getByRole("button", { name: "Needs action" }));
+
+    await waitFor(() => {
+      expect(mockedGetOrders).toHaveBeenLastCalledWith(
+        1,
+        20,
+        expect.objectContaining({ q: "Lavender", view: "needs_action" }),
+      );
+    });
   });
 
   it("pagination: Previous disabled on page 1, Next disabled on last page", async () => {

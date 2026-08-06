@@ -1,11 +1,10 @@
 """Service layer for admin-managed Cookie Policy content."""
 
 import json
-import sqlite3
 from datetime import UTC, datetime
 
 from app.config import get_settings
-from app.database import get_db
+from app.database import DbConnection, get_db, require_row
 from app.models.cookies import MAX_COOKIE_TEXT_LENGTH
 
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
@@ -86,7 +85,7 @@ def _json_lines(value: str | None) -> list[str] | None:
     return lines or None
 
 
-def _localized_text(row: sqlite3.Row, field: str, locale: str) -> str:
+def _localized_text(row: dict, field: str, locale: str) -> str:
     en = row[f"{field}_en"]
     bg = row[f"{field}_bg"]
     if locale == "bg" and bg:
@@ -94,7 +93,7 @@ def _localized_text(row: sqlite3.Row, field: str, locale: str) -> str:
     return en
 
 
-def _localized_lines(row: sqlite3.Row, field: str, locale: str) -> list[str]:
+def _localized_lines(row: dict, field: str, locale: str) -> list[str]:
     en = _json_lines(row[f"{field}_en"]) or []
     bg = _json_lines(row[f"{field}_bg"])
     if locale == "bg" and bg:
@@ -102,7 +101,7 @@ def _localized_lines(row: sqlite3.Row, field: str, locale: str) -> list[str]:
     return en
 
 
-def _page_to_admin_dict(row: sqlite3.Row) -> dict:
+def _page_to_admin_dict(row: dict) -> dict:
     return {
         "id": row["id"],
         "meta_title_en": row["meta_title_en"],
@@ -132,7 +131,7 @@ def _page_to_admin_dict(row: sqlite3.Row) -> dict:
     }
 
 
-def _inventory_to_admin_dict(row: sqlite3.Row) -> dict:
+def _inventory_to_admin_dict(row: dict) -> dict:
     return {
         "name": row["name"],
         "purpose_en": row["purpose_en"],
@@ -154,7 +153,7 @@ def _inventory_to_admin_dict(row: sqlite3.Row) -> dict:
     }
 
 
-def _section_to_admin_dict(row: sqlite3.Row) -> dict:
+def _section_to_admin_dict(row: dict) -> dict:
     return {
         "slug": row["slug"],
         "title_en": row["title_en"],
@@ -167,21 +166,21 @@ def _section_to_admin_dict(row: sqlite3.Row) -> dict:
     }
 
 
-def _get_page(conn: sqlite3.Connection) -> sqlite3.Row:
+def _get_page(conn: DbConnection) -> dict:
     row = conn.execute("SELECT * FROM cookies_page WHERE id = 'cookies'").fetchone()
     if row is None:
         raise CookiesNotFoundError("Cookie Policy page not found")
     return row
 
 
-def _get_inventory_item(conn: sqlite3.Connection, name: str) -> sqlite3.Row:
+def _get_inventory_item(conn: DbConnection, name: str) -> dict:
     row = conn.execute("SELECT * FROM cookies_inventory WHERE name = %s", (name,)).fetchone()
     if row is None:
         raise CookiesNotFoundError(f"Cookie inventory row not found: {name}")
     return row
 
 
-def _get_section(conn: sqlite3.Connection, slug: str) -> sqlite3.Row:
+def _get_section(conn: DbConnection, slug: str) -> dict:
     row = conn.execute("SELECT * FROM cookies_sections WHERE slug = %s", (slug,)).fetchone()
     if row is None:
         raise CookiesNotFoundError(f"Cookie Policy section not found: {slug}")
@@ -312,9 +311,11 @@ def sync_detected_inventory(
         }
 
     with get_db() as conn:
-        max_order = conn.execute(
-            "SELECT COALESCE(MAX(sort_order), -1) AS max_order FROM cookies_inventory"
-        ).fetchone()["max_order"]
+        max_order = require_row(
+            conn.execute(
+                "SELECT COALESCE(MAX(sort_order), -1) AS max_order FROM cookies_inventory"
+            ).fetchone()
+        )["max_order"]
         next_order = int(max_order) + 1
         for row in cleaned.values():
             existing = conn.execute(
