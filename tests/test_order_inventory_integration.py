@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import sqlite3
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import psycopg
 import pytest
 
-from app.database import init_db
 from app.models.delivery import DeliveryInfo, DeliveryOffice
 from app.models.inventory import InventoryValuationSettingsRequest, OpeningBalanceRequest
 from app.services import inventory_service, product_service
@@ -20,22 +19,15 @@ _DT_FMT = "%Y-%m-%d %H:%M:%S"
 
 
 @pytest.fixture()
-def ledger_conn(tmp_path, monkeypatch) -> sqlite3.Connection:
-    path = str(tmp_path / "order_inventory.db")
-    monkeypatch.setenv("DATABASE_PATH", path)
-    init_db(path)
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys=ON")
-    yield conn
-    conn.close()
+def ledger_conn(db):
+    return db
 
 
-def _session(conn: sqlite3.Connection) -> str:
+def _session(conn: psycopg.Connection) -> str:
     session_id = str(uuid.uuid4())
     now = datetime.now(UTC)
     conn.execute(
-        "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
+        "INSERT INTO sessions (id, created_at, expires_at) VALUES (%s, %s, %s)",
         (session_id, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
     )
     conn.commit()
@@ -57,7 +49,7 @@ def _delivery() -> DeliveryInfo:
 
 
 def _seed_product(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     product_id: str,
     *,
     stock: int = 10,
@@ -66,7 +58,7 @@ def _seed_product(
     conn.execute(
         """
         INSERT INTO products (id, name_en, price_cents, stock, is_active)
-        VALUES (?, ?, 2500, ?, 1)
+        VALUES (%s, %s, 2500, %s, 1)
         """,
         (product_id, product_id.replace("-", " ").title(), stock),
     )
@@ -76,7 +68,7 @@ def _seed_product(
             INSERT INTO product_inventory_profiles (
                 product_id, inventory_mode, stock_source,
                 opening_balance_state, valuation_readiness
-            ) VALUES (?, 'ledger_managed', 'inventory_ledger', 'reviewed', 'ready')
+            ) VALUES (%s, 'ledger_managed', 'inventory_ledger', 'reviewed', 'ready')
             """,
             (product_id,),
         )
@@ -84,21 +76,21 @@ def _seed_product(
 
 
 def _add_cart_item(
-    conn: sqlite3.Connection, session_id: str, product_id: str, quantity: int
+    conn: psycopg.Connection, session_id: str, product_id: str, quantity: int
 ) -> None:
     conn.execute(
-        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, ?, ?)",
+        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (%s, %s, %s)",
         (session_id, product_id, quantity),
     )
     conn.commit()
 
 
-def _movement_rows(conn: sqlite3.Connection, product_id: str) -> list[sqlite3.Row]:
+def _movement_rows(conn: psycopg.Connection, product_id: str) -> list[dict]:
     return conn.execute(
         """
         SELECT *
         FROM inventory_movements
-        WHERE product_id = ?
+        WHERE product_id = %s
         ORDER BY created_at, id
         """,
         (product_id,),
@@ -121,11 +113,15 @@ def test_checkout_records_sale_issue_only_for_ledger_managed_products(ledger_con
     )
 
     assert (
-        ledger_conn.execute("SELECT stock FROM products WHERE id = 'ledger-candle'").fetchone()[0]
+        ledger_conn.execute("SELECT stock FROM products WHERE id = 'ledger-candle'").fetchone()[
+            "stock"
+        ]
         == 8
     )
     assert (
-        ledger_conn.execute("SELECT stock FROM products WHERE id = 'legacy-candle'").fetchone()[0]
+        ledger_conn.execute("SELECT stock FROM products WHERE id = 'legacy-candle'").fetchone()[
+            "stock"
+        ]
         == 9
     )
 
@@ -163,7 +159,9 @@ def test_cancellation_reverses_ledger_sale_issue_movement(ledger_conn):
     assert reversal["quantity_delta"] == 2.0
     assert reversal["reversal_of_movement_id"] == sale["id"]
     assert (
-        ledger_conn.execute("SELECT stock FROM products WHERE id = 'ledger-candle'").fetchone()[0]
+        ledger_conn.execute("SELECT stock FROM products WHERE id = 'ledger-candle'").fetchone()[
+            "stock"
+        ]
         == 10
     )
 
@@ -192,7 +190,9 @@ def test_return_inspection_creates_ledger_restock_and_write_off_movements(ledger
     )
 
     assert (
-        ledger_conn.execute("SELECT stock FROM products WHERE id = 'ledger-candle'").fetchone()[0]
+        ledger_conn.execute("SELECT stock FROM products WHERE id = 'ledger-candle'").fetchone()[
+            "stock"
+        ]
         == 9
     )
     movements = _movement_rows(ledger_conn, "ledger-candle")
@@ -213,9 +213,9 @@ def test_return_inspection_creates_ledger_restock_and_write_off_movements(ledger
     assert received_for_write_off["quantity_delta"] == 1.0
     assert (
         ledger_conn.execute(
-            "SELECT exception_type FROM inventory_exceptions WHERE source_id = ?",
+            "SELECT exception_type FROM inventory_exceptions WHERE source_id = %s",
             (case["id"],),
-        ).fetchone()[0]
+        ).fetchone()["exception_type"]
         == "returned_item_write_off_review"
     )
 
@@ -252,7 +252,7 @@ def test_cogs_rows_use_payment_date_source_movement_and_return_reversal(ledger_c
         delivery=_delivery(),
     )
     ledger_conn.execute(
-        "UPDATE orders SET payment_status = 'paid', paid_at = '2026-09-15 10:00:00' WHERE id = ?",
+        "UPDATE orders SET payment_status = 'paid', paid_at = '2026-09-15 10:00:00' WHERE id = %s",
         (order["id"],),
     )
     ledger_conn.commit()
@@ -261,7 +261,7 @@ def test_cogs_rows_use_payment_date_source_movement_and_return_reversal(ledger_c
     cogs = inventory_service.generate_cogs_rows()
 
     sale_movement = ledger_conn.execute(
-        "SELECT id FROM inventory_movements WHERE movement_type = 'sale_issue' AND order_id = ?",
+        "SELECT id FROM inventory_movements WHERE movement_type = 'sale_issue' AND order_id = %s",
         (order["id"],),
     ).fetchone()
     assert cogs.total == 1
@@ -333,7 +333,7 @@ def test_cogs_uses_sale_layer_when_order_depletes_stock_and_cancellation_reverse
 
     cancellation = ledger_conn.execute(
         "SELECT id FROM inventory_movements "
-        "WHERE movement_type = 'cancellation_reversal' AND order_id = ?",
+        "WHERE movement_type = 'cancellation_reversal' AND order_id = %s",
         (order["id"],),
     ).fetchone()
     assert reversal.total == 1

@@ -173,7 +173,7 @@ SEED_PRODUCTS = [
 def main() -> None:
     """Seed the database with sample products."""
     settings = get_settings()
-    init_db(settings.database_path)
+    init_db(settings.database_url)
 
     print(f"Seeding {len(SEED_PRODUCTS)} products...")
 

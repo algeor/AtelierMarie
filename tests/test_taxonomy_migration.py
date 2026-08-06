@@ -1,117 +1,34 @@
-"""Migration tests for managed product taxonomy (dynamic-categories).
+"""Taxonomy seed invariants under the Postgres migration (Decision 1).
 
-Simulates a legacy pre-taxonomy SQLite file (a products table WITHOUT the
-product_type_slug / category_slug columns and free-text `category` values) and
-verifies that init_db seeds taxonomy, backfills labels from distinct legacy
-category values, records the mapping, defaults product types, leaves category
-tiers unset, and is idempotent on re-run.
-"""
+Historically this file simulated a legacy pre-taxonomy *SQLite* database and
+asserted that ``init_db`` seeded taxonomy, backfilled ``product_labels`` from
+distinct free-text ``category`` values, recorded a mapping, defaulted product
+types, and was idempotent on re-run.
 
-import sqlite3
-from pathlib import Path
+Under the Postgres migration the SQLite dialect is gone and ``init_db`` only
+opens the psycopg pool: it no longer creates schema, seeds, or backfills. The
+schema + structural seed rows are baked into the alembic migration
+``20260802_0001`` and carried into every worker DB by the template clone. The
+legacy free-text ``category`` backfill code path was deliberately removed, so
+the tests that exercised it (``TestLegacyBackfill``, ``TestLegacyValueHygiene``,
+``TestExistingLabelAssignmentMigration``, the marker-gated re-run idempotency,
+and the ``schema_migrations`` marker) test guarantees that no longer exist and
+were retired.
 
-import pytest
-
-from app.database import init_db
-
-# A bilingual-but-pre-taxonomy products table: has name_en/category but lacks the
-# product_type_slug/category_slug columns, so init_db must rebuild + backfill it.
-_LEGACY_PRODUCTS_DDL = """
-CREATE TABLE products (
-    id          TEXT PRIMARY KEY,
-    name_en     TEXT NOT NULL,
-    name_bg     TEXT,
-    description_en TEXT,
-    description_bg TEXT,
-    materials   TEXT,
-    days_to_craft INTEGER,
-    price_cents INTEGER NOT NULL CHECK (price_cents > 0),
-    category    TEXT,
-    stock       INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
-    is_active   INTEGER NOT NULL DEFAULT 1,
-    is_featured INTEGER NOT NULL DEFAULT 0,
-    translation_stale_bg INTEGER NOT NULL DEFAULT 0,
-    translation_stale_en INTEGER NOT NULL DEFAULT 0,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
-);
+What remains here are the still-valid *seed* invariants against the migrated
+Postgres schema. The "deleted seed row is not resurrected on re-init" guarantee
+is owned by ``test_taxonomy_review_gaps.TestSeedGatingIsOneShot`` and is not
+duplicated here; the orphan-label foreign-key rejection is owned by
+``test_taxonomy_review_gaps.TestLabelForeignKey``.
 """
 
 
-def _build_legacy_db(path: str, rows: list[tuple[str, str, str | None]]) -> None:
-    """Create a legacy products table and insert (id, name_en, category) rows."""
-    Path(path).unlink(missing_ok=True)
-    conn = sqlite3.connect(path)
-    conn.executescript(_LEGACY_PRODUCTS_DDL)
-    conn.executemany(
-        "INSERT INTO products (id, name_en, price_cents, category, stock) "
-        "VALUES (?, ?, 1000, ?, 5)",
-        [(pid, name, cat) for pid, name, cat in rows],
-    )
-    conn.commit()
-    conn.close()
+class TestSeedTermsPresent:
+    def test_seed_terms_are_present_and_well_formed(self, db):
+        types = {r["slug"]: r for r in db.execute("SELECT * FROM product_types").fetchall()}
+        cats = {r["slug"]: r for r in db.execute("SELECT * FROM product_categories").fetchall()}
+        labels = {r["slug"]: r for r in db.execute("SELECT * FROM product_labels").fetchall()}
 
-
-def _build_db_with_old_label_assignment_table(path: str) -> None:
-    """Create the pre-FK label assignment shape with one orphan label link."""
-    Path(path).unlink(missing_ok=True)
-    conn = sqlite3.connect(path)
-    conn.executescript(_LEGACY_PRODUCTS_DDL)
-    conn.execute(
-        "INSERT INTO products (id, name_en, price_cents, category, stock) "
-        "VALUES ('p1', 'One', 1000, NULL, 5)"
-    )
-    conn.execute(
-        """
-        CREATE TABLE product_labels (
-            slug        TEXT PRIMARY KEY,
-            name_en     TEXT NOT NULL,
-            name_bg     TEXT,
-            sort_order  INTEGER NOT NULL DEFAULT 0,
-            is_active   INTEGER NOT NULL DEFAULT 1,
-            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
-        )
-        """
-    )
-    conn.execute("INSERT INTO product_labels (slug, name_en) VALUES ('floral', 'Floral')")
-    conn.execute(
-        """
-        CREATE TABLE product_label_assignments (
-            product_id  TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-            label_slug  TEXT NOT NULL,
-            PRIMARY KEY (product_id, label_slug)
-        )
-        """
-    )
-    conn.executemany(
-        "INSERT INTO product_label_assignments (product_id, label_slug) VALUES (?, ?)",
-        [("p1", "floral"), ("p1", "ghost")],
-    )
-    conn.commit()
-    conn.close()
-
-
-@pytest.fixture()
-def legacy_db_path(tmp_path) -> str:
-    return str(tmp_path / "legacy.db")
-
-
-def _connect(path: str) -> sqlite3.Connection:
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-class TestSeedsEnsured:
-    def test_fresh_db_has_seed_terms(self, tmp_path):
-        path = str(tmp_path / "fresh.db")
-        init_db(path)
-        conn = _connect(path)
-        types = {r["slug"] for r in conn.execute("SELECT slug FROM product_types")}
-        cats = {r["slug"] for r in conn.execute("SELECT slug FROM product_categories")}
-        labels = {r["slug"] for r in conn.execute("SELECT slug FROM product_labels")}
-        conn.close()
         assert {"candles", "boxes"}.issubset(types)
         assert {"small", "medium", "premium"}.issubset(cats)
         assert {
@@ -128,250 +45,44 @@ class TestSeedsEnsured:
             "bespoke",
         }.issubset(labels)
 
-    def test_migration_marker_recorded(self, tmp_path):
-        path = str(tmp_path / "fresh.db")
-        init_db(path)
-        conn = _connect(path)
-        marker = conn.execute(
-            "SELECT 1 FROM schema_migrations WHERE name = 'product_taxonomy_v1'"
+        # Seed rows carry both locales and are active — the shape downstream
+        # taxonomy resolution relies on.
+        for row in (*types.values(), *cats.values(), *labels.values()):
+            assert row["name_en"]
+            assert row["name_bg"]
+            assert row["is_active"] == 1
+
+    def test_label_sort_order_is_stable(self, db):
+        # Label ordering drives rendered label order (see resolve_products_taxonomy);
+        # floral must sort before winter.
+        order = {
+            r["slug"]: r["sort_order"]
+            for r in db.execute("SELECT slug, sort_order FROM product_labels").fetchall()
+        }
+        assert order["floral"] < order["winter"]
+        assert order["floral"] == 0
+
+
+class TestProductTypeDefault:
+    def test_products_default_to_candles_type_and_null_category(self, db):
+        # The products table defaults product_type_slug to 'candles' and leaves
+        # category_slug unset — the invariant the legacy backfill used to enforce
+        # is now a column default in the migration.
+        db.execute(
+            "INSERT INTO products (id, name_en, price_cents, stock) VALUES (%s, %s, %s, %s)",
+            ("p-default", "Plain Candle", 1000, 5),
+        )
+        row = db.execute(
+            "SELECT product_type_slug, category_slug FROM products WHERE id = %s",
+            ("p-default",),
         ).fetchone()
-        conn.close()
-        assert marker is not None
+        assert row["product_type_slug"] == "candles"
+        assert row["category_slug"] is None
 
 
-class TestLegacyBackfill:
-    def test_legacy_categories_become_labels_and_assignments(self, legacy_db_path):
-        _build_legacy_db(
-            legacy_db_path,
-            [
-                ("p-floral", "Floral Candle", "Floral"),
-                ("p-woody", "Woody Candle", "Woody"),
-                ("p-null", "Plain Candle", None),
-            ],
-        )
-        init_db(legacy_db_path)
-        conn = _connect(legacy_db_path)
-
-        # Legacy fragrance families reuse the matching seed labels.
-        labels = {r["slug"] for r in conn.execute("SELECT slug FROM product_labels")}
-        assert {"floral", "woody"}.issubset(labels)
-
-        assignments = {
-            (r["product_id"], r["label_slug"])
-            for r in conn.execute("SELECT product_id, label_slug FROM product_label_assignments")
-        }
-        assert ("p-floral", "floral") in assignments
-        assert ("p-woody", "woody") in assignments
-        # Null-category product gets no label assignment.
-        assert not any(pid == "p-null" for pid, _ in assignments)
-        conn.close()
-
-    def test_mapping_recorded(self, legacy_db_path):
-        _build_legacy_db(legacy_db_path, [("p1", "One", "Floral"), ("p2", "Two", "Woody")])
-        init_db(legacy_db_path)
-        conn = _connect(legacy_db_path)
-        mapping = {
-            r["original_value"]: r["label_slug"]
-            for r in conn.execute(
-                "SELECT original_value, label_slug FROM taxonomy_category_migration"
-            )
-        }
-        conn.close()
-        assert mapping == {"Floral": "floral", "Woody": "woody"}
-
-    def test_products_default_to_candles_and_null_category(self, legacy_db_path):
-        _build_legacy_db(legacy_db_path, [("p1", "One", "Floral"), ("p2", "Two", None)])
-        init_db(legacy_db_path)
-        conn = _connect(legacy_db_path)
-        rows = conn.execute(
-            "SELECT id, product_type_slug, category_slug FROM products ORDER BY id"
-        ).fetchall()
-        conn.close()
-        for r in rows:
-            assert r["product_type_slug"] == "candles"
-            assert r["category_slug"] is None
-
-    def test_distinct_values_colliding_slug_get_suffixed(self, legacy_db_path):
-        # Two DISTINCT legacy values that slugify to the same base ("sea-breeze").
-        _build_legacy_db(
-            legacy_db_path,
-            [
-                ("p-a", "Product A", "Sea Breeze"),
-                ("p-b", "Product B", "Sea-Breeze"),
-            ],
-        )
-        init_db(legacy_db_path)
-        conn = _connect(legacy_db_path)
-
-        mapping = {
-            r["original_value"]: r["label_slug"]
-            for r in conn.execute(
-                "SELECT original_value, label_slug FROM taxonomy_category_migration"
-            )
-        }
-        # Both originals present, mapped to two DISTINCT slugs, one suffixed -2.
-        assert set(mapping.keys()) == {"Sea Breeze", "Sea-Breeze"}
-        slugs = set(mapping.values())
-        assert slugs == {"sea-breeze", "sea-breeze-2"}
-
-        # Each product is assigned the slug recorded for its exact original value.
-        assignments = {
-            r["product_id"]: r["label_slug"]
-            for r in conn.execute("SELECT product_id, label_slug FROM product_label_assignments")
-        }
-        assert assignments["p-a"] == mapping["Sea Breeze"]
-        assert assignments["p-b"] == mapping["Sea-Breeze"]
-        conn.close()
-
-
-class TestIdempotentReRun:
-    def test_rerun_does_not_duplicate_terms_or_assignments(self, legacy_db_path):
-        _build_legacy_db(
-            legacy_db_path,
-            [
-                ("p-floral", "Floral Candle", "Floral"),
-                ("p-new", "New Scent", "Sea Breeze"),
-            ],
-        )
-        init_db(legacy_db_path)
-
-        conn = _connect(legacy_db_path)
-        labels_before = conn.execute("SELECT COUNT(*) AS c FROM product_labels").fetchone()["c"]
-        assign_before = conn.execute(
-            "SELECT COUNT(*) AS c FROM product_label_assignments"
-        ).fetchone()["c"]
-        mapping_before = conn.execute(
-            "SELECT COUNT(*) AS c FROM taxonomy_category_migration"
-        ).fetchone()["c"]
-        conn.close()
-
-        # Re-run migration (idempotent, marker-guarded).
-        init_db(legacy_db_path)
-
-        conn = _connect(legacy_db_path)
-        labels_after = conn.execute("SELECT COUNT(*) AS c FROM product_labels").fetchone()["c"]
-        assign_after = conn.execute(
-            "SELECT COUNT(*) AS c FROM product_label_assignments"
-        ).fetchone()["c"]
-        mapping_after = conn.execute(
-            "SELECT COUNT(*) AS c FROM taxonomy_category_migration"
-        ).fetchone()["c"]
-        conn.close()
-
-        assert labels_after == labels_before
-        assert assign_after == assign_before
-        assert mapping_after == mapping_before
-
-    def test_rerun_does_not_restore_deleted_seed_terms(self, tmp_path):
-        path = str(tmp_path / "taxonomy.db")
-        init_db(path)
-
-        conn = _connect(path)
-        conn.execute("DELETE FROM product_types WHERE slug = 'boxes'")
-        conn.execute("DELETE FROM product_labels WHERE slug = 'winter'")
-        conn.commit()
-        conn.close()
-
-        init_db(path)
-
-        conn = _connect(path)
-        boxes = conn.execute("SELECT 1 FROM product_types WHERE slug = 'boxes'").fetchone()
-        winter = conn.execute("SELECT 1 FROM product_labels WHERE slug = 'winter'").fetchone()
-        conn.close()
-
-        assert boxes is None
-        assert winter is None
-
-
-class TestExistingLabelAssignmentMigration:
-    def test_existing_assignment_table_gets_label_foreign_key(self, tmp_path):
-        path = str(tmp_path / "old-assignments.db")
-        _build_db_with_old_label_assignment_table(path)
-
-        init_db(path)
-
-        conn = _connect(path)
-        fks = conn.execute("PRAGMA foreign_key_list(product_label_assignments)").fetchall()
-        assignments = {
-            (r["product_id"], r["label_slug"])
-            for r in conn.execute("SELECT product_id, label_slug FROM product_label_assignments")
-        }
-
-        assert any(row["table"] == "product_labels" and row["from"] == "label_slug" for row in fks)
-        assert ("p1", "floral") in assignments
-        assert ("p1", "ghost") not in assignments
-
-        conn.execute("PRAGMA foreign_keys=ON")
-        with pytest.raises(sqlite3.IntegrityError):
-            conn.execute(
-                "INSERT INTO product_label_assignments (product_id, label_slug) VALUES (?, ?)",
-                ("p1", "ghost"),
-            )
-        conn.close()
-
-
-class TestLegacyValueHygiene:
-    """Whitespace/empty legacy categories and the one-shot marker gate."""
-
-    def test_empty_and_whitespace_categories_produce_no_label(self, legacy_db_path):
-        _build_legacy_db(
-            legacy_db_path,
-            [
-                ("p-empty", "Empty", ""),
-                ("p-ws", "Whitespace", "   "),
-                ("p-real", "Real", "Floral "),  # trailing space, real value
-            ],
-        )
-        init_db(legacy_db_path)
-
-        conn = _connect(legacy_db_path)
-        # Only the real (trailing-space) value maps to a label; its name is trimmed.
-        mappings = {
-            r["original_value"]: r["label_slug"]
-            for r in conn.execute(
-                "SELECT original_value, label_slug FROM taxonomy_category_migration"
-            )
-        }
-        assert mappings == {"Floral ": "floral"}
-
-        # No label named "item" (the slugify fallback) was created for blanks.
-        label_slugs = {r["slug"] for r in conn.execute("SELECT slug FROM product_labels")}
-        assert "item" not in label_slugs
-
-        assignments = {
-            (r["product_id"], r["label_slug"])
-            for r in conn.execute("SELECT product_id, label_slug FROM product_label_assignments")
-        }
-        assert assignments == {("p-real", "floral")}
-        conn.close()
-
-    def test_marker_gates_new_legacy_value_added_after_first_run(self, legacy_db_path):
-        _build_legacy_db(legacy_db_path, [("p1", "One", "Woody")])
-        init_db(legacy_db_path)
-
-        # Insert a brand-new legacy category value AFTER the migration has run.
-        conn = _connect(legacy_db_path)
-        conn.execute(
-            "INSERT INTO products (id, name_en, price_cents, category, stock) "
-            "VALUES ('p2', 'Two', 1000, 'BrandNewValue', 5)"
-        )
-        conn.commit()
-        conn.close()
-
-        # Re-run: the marker gate means the new value is deliberately NOT backfilled.
-        init_db(legacy_db_path)
-
-        conn = _connect(legacy_db_path)
-        mapped = {
-            r["original_value"]
-            for r in conn.execute("SELECT original_value FROM taxonomy_category_migration")
-        }
-        assert "BrandNewValue" not in mapped
-        p2_labels = [
-            r["label_slug"]
-            for r in conn.execute(
-                "SELECT label_slug FROM product_label_assignments WHERE product_id = 'p2'"
-            )
-        ]
-        assert p2_labels == []
-        conn.close()
+class TestNoLegacyBackfill:
+    def test_category_migration_table_is_empty(self, db):
+        # No legacy free-text backfill runs under Postgres, so the mapping table
+        # ships empty. (The table itself still exists for schema compatibility.)
+        count = db.execute("SELECT COUNT(*) AS c FROM taxonomy_category_migration").fetchone()["c"]
+        assert count == 0

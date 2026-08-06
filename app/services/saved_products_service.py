@@ -1,6 +1,6 @@
 """Saved product service for account shortlists."""
 
-import sqlite3
+import psycopg
 
 from app.services import pricing, product_image_service, product_video_service, taxonomy_service
 from app.services.product_service import (
@@ -12,43 +12,44 @@ from app.services.product_service import (
 )
 
 
-def _ensure_public_product_exists(conn: sqlite3.Connection, product_id: str) -> None:
+def _ensure_public_product_exists(conn: psycopg.Connection, product_id: str) -> None:
     row = conn.execute(
-        "SELECT 1 FROM products WHERE id = ? AND is_active = 1",
+        "SELECT 1 FROM products WHERE id = %s AND is_active = 1",
         (product_id,),
     ).fetchone()
     if row is None:
         raise NotFoundError(f"Product not found: {product_id}")
 
 
-def save_product(conn: sqlite3.Connection, *, user_id: str, product_id: str) -> None:
+def save_product(conn: psycopg.Connection, *, user_id: str, product_id: str) -> None:
     """Save an active product for a user."""
     _ensure_public_product_exists(conn, product_id)
     conn.execute(
         """
-        INSERT OR IGNORE INTO user_saved_products (user_id, product_id)
-        VALUES (?, ?)
+        INSERT INTO user_saved_products (user_id, product_id)
+        VALUES (%s, %s)
+        ON CONFLICT (user_id, product_id) DO NOTHING
         """,
         (user_id, product_id),
     )
 
 
-def unsave_product(conn: sqlite3.Connection, *, user_id: str, product_id: str) -> None:
+def unsave_product(conn: psycopg.Connection, *, user_id: str, product_id: str) -> None:
     """Remove a product from a user's saved products."""
     conn.execute(
-        "DELETE FROM user_saved_products WHERE user_id = ? AND product_id = ?",
+        "DELETE FROM user_saved_products WHERE user_id = %s AND product_id = %s",
         (user_id, product_id),
     )
 
 
-def get_saved_product_ids(conn: sqlite3.Connection, *, user_id: str) -> list[str]:
+def get_saved_product_ids(conn: psycopg.Connection, *, user_id: str) -> list[str]:
     """Return saved active product IDs, newest save first."""
     rows = conn.execute(
         """
         SELECT sp.product_id
         FROM user_saved_products sp
         JOIN products p ON p.id = sp.product_id
-        WHERE sp.user_id = ? AND p.is_active = 1
+        WHERE sp.user_id = %s AND p.is_active = 1
         ORDER BY sp.saved_at DESC, sp.product_id ASC
         """,
         (user_id,),
@@ -56,17 +57,17 @@ def get_saved_product_ids(conn: sqlite3.Connection, *, user_id: str) -> list[str
     return [row["product_id"] for row in rows]
 
 
-def is_product_saved(conn: sqlite3.Connection, *, user_id: str, product_id: str) -> bool:
+def is_product_saved(conn: psycopg.Connection, *, user_id: str, product_id: str) -> bool:
     """Return whether a user has saved a product."""
     row = conn.execute(
-        "SELECT 1 FROM user_saved_products WHERE user_id = ? AND product_id = ?",
+        "SELECT 1 FROM user_saved_products WHERE user_id = %s AND product_id = %s",
         (user_id, product_id),
     ).fetchone()
     return row is not None
 
 
 def list_saved_products(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     *,
     user_id: str,
     page: int = 1,
@@ -79,22 +80,22 @@ def list_saved_products(
 
     total = conn.execute(
         """
-        SELECT COUNT(*)
+        SELECT COUNT(*) AS count
         FROM user_saved_products sp
         JOIN products p ON p.id = sp.product_id
-        WHERE sp.user_id = ? AND p.is_active = 1
+        WHERE sp.user_id = %s AND p.is_active = 1
         """,
         (user_id,),
-    ).fetchone()[0]
+    ).fetchone()["count"]
 
     rows = conn.execute(
         """
         SELECT p.*
         FROM user_saved_products sp
         JOIN products p ON p.id = sp.product_id
-        WHERE sp.user_id = ? AND p.is_active = 1
+        WHERE sp.user_id = %s AND p.is_active = 1
         ORDER BY sp.saved_at DESC, sp.product_id ASC
-        LIMIT ? OFFSET ?
+        LIMIT %s OFFSET %s
         """,
         (user_id, limit, offset),
     ).fetchall()

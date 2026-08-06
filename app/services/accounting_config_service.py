@@ -3,6 +3,7 @@
 import json
 import sqlite3
 import uuid
+from datetime import date, datetime
 from typing import Any
 
 from app.database import get_db
@@ -26,6 +27,23 @@ from app.services import pricing
 
 _SETTINGS_ID = "default"
 _REDACTED = "<redacted>"
+
+
+def _fmt_ts(value: object) -> str | None:
+    """Render a DATE/TIMESTAMPTZ column (psycopg returns date/datetime) as a string.
+
+    Response models declare these fields as ``str``; ``None`` passes through and an
+    existing string is returned unchanged.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value)
+
+
 _SENSITIVE_BANK_KEYS = {
     "account_number",
     "iban",
@@ -36,10 +54,16 @@ _SENSITIVE_BANK_KEYS = {
 }
 
 
+def _json_default(value: object) -> str:
+    if isinstance(value, (datetime, date)):
+        return _fmt_ts(value) or ""
+    return str(value)
+
+
 def _json_dumps(value: object | None) -> str | None:
     if value is None:
         return None
-    return json.dumps(value, separators=(",", ":"), sort_keys=True)
+    return json.dumps(value, separators=(",", ":"), sort_keys=True, default=_json_default)
 
 
 def _json_loads(value: str | None, default: Any = None) -> Any:
@@ -93,7 +117,7 @@ def write_finance_audit_event(
         INSERT INTO finance_audit_events (
             id, actor_user_id, actor_email, action, target_type, target_id,
             request_id, before_json, after_json, reason, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             event_id,
@@ -124,7 +148,7 @@ def _seller_profile_from_row(
         bank_details = _redact_bank_details(bank_details)
     return SellerLegalProfileResponse(
         id=row["id"],
-        effective_date=row["effective_date"],
+        effective_date=_fmt_ts(row["effective_date"]),
         reviewed=bool(row["reviewed"]),
         company_display_name=row["company_display_name"],
         legal_name=row["legal_name"],
@@ -136,7 +160,7 @@ def _seller_profile_from_row(
         bank_details_configured=bool(row["bank_details_json"]),
         default_currency=row["default_currency"],
         created_by_admin_id=row["created_by_admin_id"],
-        created_at=row["created_at"],
+        created_at=_fmt_ts(row["created_at"]),
     )
 
 
@@ -145,7 +169,7 @@ def _vat_settings_from_row(row: sqlite3.Row | None) -> VatFiscalSettingsResponse
         return None
     return VatFiscalSettingsResponse(
         id=row["id"],
-        effective_date=row["effective_date"],
+        effective_date=_fmt_ts(row["effective_date"]),
         reviewed=bool(row["reviewed"]),
         vat_mode=row["vat_mode"],
         oss_mode=row["oss_mode"],
@@ -156,7 +180,7 @@ def _vat_settings_from_row(row: sqlite3.Row | None) -> VatFiscalSettingsResponse
         tolerance_cents=row["tolerance_cents"],
         warning_text=row["warning_text"],
         created_by_admin_id=row["created_by_admin_id"],
-        created_at=row["created_at"],
+        created_at=_fmt_ts(row["created_at"]),
     )
 
 
@@ -168,8 +192,8 @@ def _category_mapping_from_row(row: sqlite3.Row) -> CategoryMappingResponse:
         category_label=row["category_label"],
         is_required=bool(row["is_required"]),
         reviewed=bool(row["reviewed"]),
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
+        created_at=_fmt_ts(row["created_at"]),
+        updated_at=_fmt_ts(row["updated_at"]),
     )
 
 
@@ -183,7 +207,7 @@ def _export_schema_from_row(row: sqlite3.Row) -> ExportSchemaSettingsResponse:
         included_tabs=_json_loads(row["included_tabs_json"], []),
         custom_columns=_json_loads(row["custom_columns_json"], None),
         reviewed=bool(row["reviewed"]),
-        updated_at=row["updated_at"],
+        updated_at=_fmt_ts(row["updated_at"]),
     )
 
 
@@ -195,7 +219,7 @@ def _expense_settings_from_row(row: sqlite3.Row) -> ExpenseEvidenceSettingsRespo
         default_category_mappings=_json_loads(row["default_category_mappings_json"], {}),
         close_behavior=row["close_behavior"],
         reviewed=bool(row["reviewed"]),
-        updated_at=row["updated_at"],
+        updated_at=_fmt_ts(row["updated_at"]),
     )
 
 
@@ -209,7 +233,7 @@ def _product_cost_settings_from_row(row: sqlite3.Row) -> ProductCostSettingsResp
         missing_cost_policy=row["missing_cost_policy"],
         reviewed=bool(row["reviewed"]),
         estimate_label=row["estimate_label"],
-        updated_at=row["updated_at"],
+        updated_at=_fmt_ts(row["updated_at"]),
     )
 
 
@@ -221,11 +245,12 @@ def _latest_row(conn: sqlite3.Connection, table: str) -> sqlite3.Row | None:
 
 def _ensure_export_schema_row(conn: sqlite3.Connection) -> sqlite3.Row:
     conn.execute(
-        "INSERT OR IGNORE INTO accounting_export_schema_settings (id) VALUES (?)",
+        "INSERT INTO accounting_export_schema_settings (id) VALUES (%s) "
+        "ON CONFLICT (id) DO NOTHING",
         (_SETTINGS_ID,),
     )
     return conn.execute(
-        "SELECT * FROM accounting_export_schema_settings WHERE id = ?",
+        "SELECT * FROM accounting_export_schema_settings WHERE id = %s",
         (_SETTINGS_ID,),
     ).fetchone()
 
@@ -233,10 +258,11 @@ def _ensure_export_schema_row(conn: sqlite3.Connection) -> sqlite3.Row:
 def _ensure_expense_settings_row(conn: sqlite3.Connection) -> sqlite3.Row:
     conn.execute(
         """
-        INSERT OR IGNORE INTO expense_evidence_settings (
+        INSERT INTO expense_evidence_settings (
             id, required_document_categories_json, allowed_payment_statuses_json,
             default_category_mappings_json
-        ) VALUES (?, ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s)
+        ON CONFLICT (id) DO NOTHING
         """,
         (
             _SETTINGS_ID,
@@ -246,15 +272,18 @@ def _ensure_expense_settings_row(conn: sqlite3.Connection) -> sqlite3.Row:
         ),
     )
     return conn.execute(
-        "SELECT * FROM expense_evidence_settings WHERE id = ?",
+        "SELECT * FROM expense_evidence_settings WHERE id = %s",
         (_SETTINGS_ID,),
     ).fetchone()
 
 
 def _ensure_product_cost_settings_row(conn: sqlite3.Connection) -> sqlite3.Row:
-    conn.execute("INSERT OR IGNORE INTO product_cost_settings (id) VALUES (?)", (_SETTINGS_ID,))
+    conn.execute(
+        "INSERT INTO product_cost_settings (id) VALUES (%s) ON CONFLICT (id) DO NOTHING",
+        (_SETTINGS_ID,),
+    )
     return conn.execute(
-        "SELECT * FROM product_cost_settings WHERE id = ?",
+        "SELECT * FROM product_cost_settings WHERE id = %s",
         (_SETTINGS_ID,),
     ).fetchone()
 
@@ -344,13 +373,14 @@ def create_seller_legal_profile(
     """Insert a new seller legal profile version and audit it."""
     payload = body.model_dump(mode="json")
     with get_db() as conn:
-        conn.execute(
+        inserted = conn.execute(
             """
             INSERT INTO seller_legal_profile_versions (
                 effective_date, reviewed, company_display_name, legal_name, uic_eik,
                 vat_identification_number, registered_address_json, contact_email,
                 bank_details_json, default_currency, created_by_admin_id, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
             """,
             (
                 body.effective_date,
@@ -366,10 +396,10 @@ def create_seller_legal_profile(
                 actor_user_id,
                 pricing.now_utc(),
             ),
-        )
-        profile_id = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+        ).fetchone()["id"]
+        profile_id = int(inserted)
         row = conn.execute(
-            "SELECT * FROM seller_legal_profile_versions WHERE id = ?",
+            "SELECT * FROM seller_legal_profile_versions WHERE id = %s",
             (profile_id,),
         ).fetchone()
         write_finance_audit_event(
@@ -397,14 +427,15 @@ def create_vat_fiscal_settings(
     """Insert a new VAT/fiscal settings version and audit it."""
     payload = body.model_dump(mode="json")
     with get_db() as conn:
-        conn.execute(
+        inserted = conn.execute(
             """
             INSERT INTO vat_fiscal_settings_versions (
                 effective_date, reviewed, vat_mode, oss_mode,
                 default_domestic_vat_treatment, fiscal_document_mode,
                 document_rules_json, threshold_warnings_json, tolerance_cents,
                 warning_text, created_by_admin_id, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
             """,
             (
                 body.effective_date,
@@ -420,10 +451,10 @@ def create_vat_fiscal_settings(
                 actor_user_id,
                 pricing.now_utc(),
             ),
-        )
-        settings_id = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+        ).fetchone()["id"]
+        settings_id = int(inserted)
         row = conn.execute(
-            "SELECT * FROM vat_fiscal_settings_versions WHERE id = ?",
+            "SELECT * FROM vat_fiscal_settings_versions WHERE id = %s",
             (settings_id,),
         ).fetchone()
         write_finance_audit_event(
@@ -455,7 +486,7 @@ def upsert_category_mapping(
 
     with get_db() as conn:
         before_row = conn.execute(
-            "SELECT * FROM accounting_category_mappings WHERE mapping_key = ?",
+            "SELECT * FROM accounting_category_mappings WHERE mapping_key = %s",
             (key,),
         ).fetchone()
         before = dict(before_row) if before_row is not None else None
@@ -463,13 +494,13 @@ def upsert_category_mapping(
             """
             INSERT INTO accounting_category_mappings (
                 mapping_key, category_code, category_label, is_required, reviewed
-            ) VALUES (?, ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT(mapping_key) DO UPDATE SET
                 category_code = excluded.category_code,
                 category_label = excluded.category_label,
                 is_required = excluded.is_required,
                 reviewed = excluded.reviewed,
-                updated_at = datetime('now')
+                updated_at = CURRENT_TIMESTAMP
             """,
             (
                 key,
@@ -480,7 +511,7 @@ def upsert_category_mapping(
             ),
         )
         row = conn.execute(
-            "SELECT * FROM accounting_category_mappings WHERE mapping_key = ?",
+            "SELECT * FROM accounting_category_mappings WHERE mapping_key = %s",
             (key,),
         ).fetchone()
         write_finance_audit_event(
@@ -511,10 +542,10 @@ def update_export_schema_settings(
         conn.execute(
             """
             UPDATE accounting_export_schema_settings
-            SET workbook_language = ?, date_format = ?, decimal_separator = ?,
-                default_period_range = ?, included_tabs_json = ?, custom_columns_json = ?,
-                reviewed = ?, updated_at = ?
-            WHERE id = ?
+            SET workbook_language = %s, date_format = %s, decimal_separator = %s,
+                default_period_range = %s, included_tabs_json = %s, custom_columns_json = %s,
+                reviewed = %s, updated_at = %s
+            WHERE id = %s
             """,
             (
                 body.workbook_language,
@@ -557,10 +588,10 @@ def update_expense_evidence_settings(
         conn.execute(
             """
             UPDATE expense_evidence_settings
-            SET required_document_categories_json = ?, allowed_payment_statuses_json = ?,
-                default_category_mappings_json = ?, close_behavior = ?, reviewed = ?,
-                updated_at = ?
-            WHERE id = ?
+            SET required_document_categories_json = %s, allowed_payment_statuses_json = %s,
+                default_category_mappings_json = %s, close_behavior = %s, reviewed = %s,
+                updated_at = %s
+            WHERE id = %s
             """,
             (
                 _json_dumps(body.required_document_categories),
@@ -601,9 +632,9 @@ def update_product_cost_settings(
         conn.execute(
             """
             UPDATE product_cost_settings
-            SET enabled = ?, costing_basis = ?, include_labor = ?, include_overhead = ?,
-                missing_cost_policy = ?, reviewed = ?, estimate_label = ?, updated_at = ?
-            WHERE id = ?
+            SET enabled = %s, costing_basis = %s, include_labor = %s, include_overhead = %s,
+                missing_cost_policy = %s, reviewed = %s, estimate_label = %s, updated_at = %s
+            WHERE id = %s
             """,
             (
                 1 if body.enabled else 0,

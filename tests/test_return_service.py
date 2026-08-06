@@ -1,12 +1,10 @@
 """Tests for admin-controlled return case service behavior."""
 
-import sqlite3
 import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.database import init_db
 from app.services.return_service import (
     InvalidRestockQuantityError,
     InvalidReturnTransitionError,
@@ -23,28 +21,20 @@ from app.services.return_service import (
     update_return_accounting,
 )
 
-_DT_FMT = "%Y-%m-%d %H:%M:%S"
+
+@pytest.fixture()
+def conn(db):
+    return db
 
 
 @pytest.fixture()
-def conn(tmp_path):
-    path = str(tmp_path / "returns.db")
-    init_db(path)
-    connection = sqlite3.connect(path)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys=ON")
-    yield connection
-    connection.close()
-
-
-@pytest.fixture()
-def order_id(conn: sqlite3.Connection) -> str:
+def order_id(conn) -> str:
     now = datetime.now(UTC)
     session_id = str(uuid.uuid4())
     order_id = str(uuid.uuid4())
     conn.execute(
-        "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
-        (session_id, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
+        "INSERT INTO sessions (id, created_at, expires_at) VALUES (%s, %s, %s)",
+        (session_id, now, now + timedelta(days=30)),
     )
     conn.execute(
         "INSERT INTO products (id, name_en, price_cents, stock, is_active) "
@@ -59,30 +49,31 @@ def order_id(conn: sqlite3.Connection) -> str:
         INSERT INTO orders (
             id, session_id, status, total_cents, customer_email,
             payment_method, payment_status
-        ) VALUES (?, ?, 'return_in_transit', 5500, 'return@example.com', 'card', 'paid')
+        ) VALUES (%s, %s, 'return_in_transit', 5500, 'return@example.com', 'card', 'paid')
         """,
         (order_id, session_id),
     )
     conn.execute(
         """
         INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity)
-        VALUES (?, 'candle-a', 'Candle A', 2000, 2)
+        VALUES (%s, 'candle-a', 'Candle A', 2000, 2)
         """,
         (order_id,),
     )
     conn.execute(
         """
         INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity)
-        VALUES (?, 'candle-b', 'Candle B', 1500, 1)
+        VALUES (%s, 'candle-b', 'Candle B', 1500, 1)
         """,
         (order_id,),
     )
-    conn.commit()
     return order_id
 
 
-def _stock(conn: sqlite3.Connection, product_id: str) -> int:
-    return conn.execute("SELECT stock FROM products WHERE id = ?", (product_id,)).fetchone()[0]
+def _stock(conn, product_id: str) -> int:
+    return conn.execute(
+        "SELECT stock AS stock FROM products WHERE id = %s", (product_id,)
+    ).fetchone()["stock"]
 
 
 def test_create_return_case_records_case_and_event(conn, order_id):
@@ -105,7 +96,7 @@ def test_create_return_case_records_case_and_event(conn, order_id):
     assert case["courier_return_fee_cents"] == 500
     event = conn.execute(
         "SELECT event_type, source, admin_user_id, admin_email, payload_json "
-        "FROM order_return_events WHERE order_return_id = ?",
+        "FROM order_return_events WHERE order_return_id = %s",
         (case["id"],),
     ).fetchone()
     assert event["event_type"] == "return_created"
@@ -119,8 +110,8 @@ def test_create_return_case_rejects_invalid_reason_without_event(conn, order_id)
     with pytest.raises(InvalidReturnValueError):
         create_return_case(conn, order_id=order_id, reason="exchange")
 
-    case_count = conn.execute("SELECT COUNT(*) FROM order_returns").fetchone()[0]
-    event_count = conn.execute("SELECT COUNT(*) FROM order_return_events").fetchone()[0]
+    case_count = conn.execute("SELECT COUNT(*) AS n FROM order_returns").fetchone()["n"]
+    event_count = conn.execute("SELECT COUNT(*) AS n FROM order_return_events").fetchone()["n"]
     assert case_count == 0
     assert event_count == 0
 
@@ -140,10 +131,10 @@ def test_receive_return_case_does_not_restock(conn, order_id):
     assert _stock(conn, "candle-a") == 8
     assert _stock(conn, "candle-b") == 4
     event_types = [
-        row[0]
+        row["event_type"]
         for row in conn.execute(
             "SELECT event_type FROM order_return_events "
-            "WHERE order_return_id = ? ORDER BY created_at",
+            "WHERE order_return_id = %s ORDER BY created_at",
             (case["id"],),
         ).fetchall()
     ]
@@ -168,10 +159,10 @@ def test_inspect_return_case_restock_adds_stock_and_adjustment_rows(conn, order_
     assert _stock(conn, "candle-b") == 5
     adjustments = conn.execute(
         "SELECT product_id, quantity, reason FROM inventory_adjustments "
-        "WHERE order_return_id = ? ORDER BY product_id",
+        "WHERE order_return_id = %s ORDER BY product_id",
         (case["id"],),
     ).fetchall()
-    assert [(row[0], row[1], row[2]) for row in adjustments] == [
+    assert [(row["product_id"], row["quantity"], row["reason"]) for row in adjustments] == [
         ("candle-a", 2, "return_restock"),
         ("candle-b", 1, "return_restock"),
     ]
@@ -192,7 +183,9 @@ def test_inspect_return_case_partial_restock_is_bounded(conn, order_id):
     current = get_return_case(conn, case["id"])
     assert current["status"] == "received"
     assert _stock(conn, "candle-b") == 4
-    adjustment_count = conn.execute("SELECT COUNT(*) FROM inventory_adjustments").fetchone()[0]
+    adjustment_count = conn.execute("SELECT COUNT(*) AS n FROM inventory_adjustments").fetchone()[
+        "n"
+    ]
     assert adjustment_count == 0
 
 
@@ -210,7 +203,7 @@ def test_inspect_return_case_do_not_restock_records_decision_without_stock_chang
     assert inspected["status"] == "inspected"
     assert inspected["restock_decision"] == "do_not_restock"
     assert _stock(conn, "candle-a") == 8
-    assert conn.execute("SELECT COUNT(*) FROM inventory_adjustments").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) AS n FROM inventory_adjustments").fetchone()["n"] == 0
 
 
 def test_invalid_return_transitions_are_rejected(conn, order_id):
@@ -238,10 +231,9 @@ def test_close_return_case_after_inspection(conn, order_id):
 
 def test_delivered_cod_order_requires_settlement_until_recorded(conn, order_id):
     conn.execute(
-        "UPDATE orders SET status = 'delivered', payment_method = 'cod' WHERE id = ?",
+        "UPDATE orders SET status = 'delivered', payment_method = 'cod' WHERE id = %s",
         (order_id,),
     )
-    conn.commit()
 
     assert cod_settlement_required_for_order(conn, order_id) is True
 
@@ -264,10 +256,9 @@ def test_delivered_cod_order_requires_settlement_until_recorded(conn, order_id):
 
 def test_cod_settlement_amount_mismatch_is_flagged(conn, order_id):
     conn.execute(
-        "UPDATE orders SET status = 'delivered', payment_method = 'cod' WHERE id = ?",
+        "UPDATE orders SET status = 'delivered', payment_method = 'cod' WHERE id = %s",
         (order_id,),
     )
-    conn.commit()
 
     settlement = record_cod_settlement(
         conn,
@@ -280,8 +271,7 @@ def test_cod_settlement_amount_mismatch_is_flagged(conn, order_id):
 
 
 def test_cod_settlement_rejects_non_cod_order(conn, order_id):
-    conn.execute("UPDATE orders SET status = 'delivered' WHERE id = ?", (order_id,))
-    conn.commit()
+    conn.execute("UPDATE orders SET status = 'delivered' WHERE id = %s", (order_id,))
 
     with pytest.raises(InvalidReturnValueError):
         record_cod_settlement(
@@ -313,7 +303,7 @@ def test_update_return_accounting_records_fee_claim_and_event(conn, order_id):
     assert updated["courier_claim_amount_cents"] == 2500
     event = conn.execute(
         "SELECT event_type, admin_email, payload_json FROM order_return_events "
-        "WHERE order_return_id = ? ORDER BY created_at DESC LIMIT 1",
+        "WHERE order_return_id = %s ORDER BY created_at DESC LIMIT 1",
         (case["id"],),
     ).fetchone()
     assert event["event_type"] == "return_accounting_updated"

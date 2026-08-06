@@ -10,7 +10,7 @@ The archive has several hardening changes because the project grew fast. The cur
 
 - Product listing should stay fast.
 - Avoid N+1 queries. Batch load related rows like images, videos, order items, labels.
-- Use FTS5 search and sanitize search input.
+- Use Postgres full-text search (GIN + `to_tsvector`/`plainto_tsquery`) and sanitize input.
 - Clamp pagination.
 - Memoize high-churn frontend context values.
 - Use `next/image` and existing media helpers for product/user images.

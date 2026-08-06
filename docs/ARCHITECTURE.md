@@ -55,11 +55,11 @@ The system is split into two strict layers:
 │  │                                                                 │   │
 │  └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘   │
 │         │                                                                │
-│         │  SQLite only                                                   │
+│         │  Postgres only                                                 │
 │         ▼                                                                │
 │  ┌─────────────────────┐                                                 │
-│  │   SQLite (WAL)       │  ← System of Record                            │
-│  │   atelier.db         │                                                 │
+│  │   Postgres           │  ← System of Record                            │
+│  │   atelier_marie      │                                                 │
 │  │                      │                                                 │
 │  │   products           │                                                 │
 │  │   users              │                                                 │
@@ -107,7 +107,7 @@ The system is split into two strict layers:
 | Zero dependency on Layer 2 | Must work if DuckDB is deleted |
 | Zero dependency on external services | Except Google OAuth (optional) |
 
-### SQLite Schema (System of Record)
+### Postgres Schema (System of Record)
 
 ```sql
 -- Products: The core business entity
@@ -333,7 +333,7 @@ Product pages read from this cache **synchronously**:
 ### Identity Resolution (Analytics-Only)
 
 When a user logs in via Google OAuth:
-1. SQLite `sessions.user_id` is updated (Layer 1 — for cart/order association)
+1. Postgres `sessions.user_id` is updated (Layer 1 — for cart/order association)
 2. DuckDB `session_identity` gets a row (Layer 2 — for analytics attribution)
 
 Old events are NEVER mutated. Analytics queries JOIN through `session_identity` to attribute anonymous behavior to users at read time.
@@ -344,7 +344,7 @@ Old events are NEVER mutated. Analytics queries JOIN through `session_identity` 
 
 ### ✅ ALLOWED in Production Path (Layer 1)
 
-- SQLite reads/writes
+- Postgres reads/writes
 - Session cookie operations
 - Google OAuth external call (login only)
 - Any operation completing in <200ms
@@ -368,7 +368,7 @@ Old events are NEVER mutated. Analytics queries JOIN through `session_identity` 
 
 ## Concurrency Model
 
-**Layer 1:** SQLite WAL mode handles concurrency natively. Multiple readers, single writer. 2 uvicorn workers can serve requests concurrently — reads are parallel, writes serialize naturally (and are fast, <5ms).
+**Layer 1:** Postgres MVCC plus a psycopg connection pool handle concurrency. Multiple readers and writers run concurrently — readers never block writers. 2 uvicorn workers can serve requests concurrently, and writes are fast (<5ms).
 
 **Layer 2:** JSONL writes are append-only (`O_APPEND` — atomic for small writes, multi-worker safe). A single background thread reads JSONL files and loads into DuckDB. Only one writer to DuckDB at a time — no locks needed, it's just one thread.
 
@@ -382,7 +382,7 @@ Old events are NEVER mutated. Analytics queries JOIN through `session_identity` 
 Oracle Cloud Free Tier VPS (4 vCPU / 24GB RAM)
 ├── Nginx (reverse proxy + SSL + static files)
 ├── FastAPI (Uvicorn, 2 workers + background loader thread)
-├── SQLite (atelier.db) — OLTP
+├── Postgres (atelier_marie) — OLTP
 ├── DuckDB (analytics.db) — OLAP (optional, rebuildable from JSONL)
 ├── JSONL event files (data/events/) — crash-safe buffer
 ├── Next.js frontend (Node.js process, port 3000)
@@ -390,7 +390,7 @@ Oracle Cloud Free Tier VPS (4 vCPU / 24GB RAM)
 ```
 
 ### Backup Strategy
-- SQLite: daily `.backup` command → stored 7 days
+- Postgres: daily `pg_dump` → stored 7 days
 - DuckDB: rebuildable from JSONL archives (no backup needed)
 - JSONL archives: retained 30 days (gzipped)
 
@@ -402,7 +402,7 @@ Oracle Cloud Free Tier VPS (4 vCPU / 24GB RAM)
 |-------|-----------|-----|
 | Backend | FastAPI + Uvicorn (Python 3.11) | Async-native, auto-docs, fast enough |
 | Validation | Pydantic 2 | Type safety, serialization |
-| OLTP DB | SQLite (WAL mode) | Embedded, zero-config, reliable, fast |
+| OLTP DB | Postgres | Reliable, concurrent, MVCC, strong SQL |
 | Auth | Google OAuth 2.0 + JWT (PyJWT) | No password management needed |
 | Frontend | Next.js 14 (separate app) | Rich UI, SEO, luxury aesthetic |
 | OLAP DB | DuckDB (Layer 2 only) | Columnar analytics, embedded |
@@ -423,5 +423,5 @@ Oracle Cloud Free Tier VPS (4 vCPU / 24GB RAM)
 | 4 | **Simple over clever** | No JSONL buffers, no file locks, no tiered refresh — not needed at this scale |
 | 5 | **Async analytics** | Events are fire-and-forget; ML is pre-computed; never on the critical path |
 | 6 | **Graceful degradation** | Recommendations: ML → popularity → random. Never an error. |
-| 7 | **Zero-budget** | No paid services. SQLite + DuckDB + Oracle Free Tier |
+| 7 | **Zero-budget** | No paid services. Postgres + DuckDB + Oracle Free Tier |
 | 8 | **Single developer** | Architecture sized for one person to build and maintain |

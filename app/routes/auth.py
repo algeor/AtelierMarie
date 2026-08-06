@@ -97,7 +97,7 @@ async def callback(
             new_session_id = rotate_session_in_transaction(conn, session_id, user.id)
             # Backfill anonymous orders to this user
             conn.execute(
-                "UPDATE orders SET user_id = ? WHERE session_id = ? AND user_id IS NULL",
+                "UPDATE orders SET user_id = %s WHERE session_id = %s AND user_id IS NULL",
                 (user.id, session_id),
             )
         request.state.session_id = new_session_id
@@ -199,7 +199,7 @@ async def logout(
     with get_db() as conn:
         if not session_is_new:
             row = conn.execute(
-                "SELECT user_id, preferred_locale FROM sessions WHERE id = ?", (session_id,)
+                "SELECT user_id, preferred_locale FROM sessions WHERE id = %s", (session_id,)
             ).fetchone()
             has_existing_session = row is not None
             if row and row["preferred_locale"]:
@@ -207,14 +207,14 @@ async def logout(
 
         if has_existing_session and not session_is_new:
             # Unlink user from the old session and create a fresh session.
-            conn.execute("UPDATE sessions SET user_id = NULL WHERE id = ?", (session_id,))
+            conn.execute("UPDATE sessions SET user_id = NULL WHERE id = %s", (session_id,))
 
             new_session_id = str(uuid.uuid4())
             now = datetime.now(UTC)
             expires_at = now + timedelta(seconds=settings.session_max_age)
             conn.execute(
                 "INSERT INTO sessions (id, created_at, expires_at, preferred_locale) "
-                "VALUES (?, ?, ?, ?)",
+                "VALUES (%s, %s, %s, %s)",
                 (
                     new_session_id,
                     now.strftime(_SQLITE_DT_FMT),

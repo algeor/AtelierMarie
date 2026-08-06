@@ -1,22 +1,13 @@
 """Service and seed tests for admin-managed Privacy Policy content."""
 
-import sqlite3
-
 import pytest
 
-from app.database import get_db, init_db
+from app.database import get_db
 from app.services import privacy_service
 from app.services.privacy_service import PrivacyNotFoundError, PrivacyValidationError
 
 
-@pytest.fixture()
-def privacy_db(tmp_path) -> str:
-    path = str(tmp_path / "privacy.db")
-    init_db(path)
-    return path
-
-
-def test_seed_matches_existing_privacy_copy_and_public_locale(privacy_db):
+def test_seed_matches_existing_privacy_copy_and_public_locale(db):
     en = privacy_service.get_public_privacy("en")
     assert en["title"] == "Privacy Policy"
     assert en["controller_title"] == "Controller details"
@@ -30,7 +21,7 @@ def test_seed_matches_existing_privacy_copy_and_public_locale(privacy_db):
     assert rights_bg["nav"] == "Права"
 
 
-def test_admin_update_page_and_section(privacy_db):
+def test_admin_update_page_and_section(db):
     page = privacy_service.update_page(
         {"title_en": "Privacy details", "title_bg": "Данни за поверителност"}
     )
@@ -59,25 +50,25 @@ def test_admin_update_page_and_section(privacy_db):
     assert rights["body"] == ["Първи параграф"]
 
 
-def test_seed_runs_once_and_does_not_clobber_edits_or_deletions(tmp_path):
-    path = str(tmp_path / "seed.db")
-    init_db(path)
-
+def test_seed_runs_once_and_does_not_clobber_edits_or_deletions(db):
     with get_db() as conn:
         conn.execute("UPDATE privacy_page SET title_en = 'Edited privacy' WHERE id = 'privacy'")
         conn.execute("DELETE FROM privacy_sections WHERE slug = 'contact'")
 
-    init_db(path)
+    with get_db() as conn:
+        title = conn.execute("SELECT title_en FROM privacy_page WHERE id = 'privacy'").fetchone()[
+            "title_en"
+        ]
+        assert title == "Edited privacy"
+        assert (
+            conn.execute(
+                "SELECT 1 AS present FROM privacy_sections WHERE slug = 'contact'"
+            ).fetchone()
+            is None
+        )
 
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    title = conn.execute("SELECT title_en FROM privacy_page WHERE id = 'privacy'").fetchone()[0]
-    assert title == "Edited privacy"
-    assert conn.execute("SELECT 1 FROM privacy_sections WHERE slug = 'contact'").fetchone() is None
-    conn.close()
 
-
-def test_invalid_privacy_updates_are_rejected(privacy_db):
+def test_invalid_privacy_updates_are_rejected(db):
     with pytest.raises(PrivacyValidationError):
         privacy_service.update_page({"title_en": ""})
     with pytest.raises(PrivacyValidationError):

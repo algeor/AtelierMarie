@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
+from datetime import date, datetime
 
 from app.database import get_db
 from app.models.accounting import (
@@ -21,6 +22,19 @@ from app.models.accounting import (
 )
 from app.services import accounting_config_service, pricing
 from app.services.finance_period_service import FinancePeriodError
+
+# TIMESTAMPTZ/DATE read policy (Decision 15): psycopg returns datetime/date
+# objects, but the accounting response models declare these fields as str.
+_DT_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _s(value: object) -> object:
+    """Render a DATE/TIMESTAMPTZ column value as its canonical string form."""
+    if isinstance(value, datetime):
+        return value.strftime(_DT_FMT)
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
 
 
 def _json_dumps(value: object | None) -> str | None:
@@ -44,9 +58,9 @@ def _expense_from_row(row: sqlite3.Row) -> ExpenseEvidenceResponse:
         supplier_name=row["supplier_name"],
         supplier_identifier=row["supplier_identifier"],
         document_number=row["document_number"],
-        document_date=row["document_date"],
-        purchase_date=row["purchase_date"],
-        payment_date=row["payment_date"],
+        document_date=_s(row["document_date"]),
+        purchase_date=_s(row["purchase_date"]),
+        payment_date=_s(row["payment_date"]),
         payment_status=row["payment_status"],
         category_key=row["category_key"],
         net_amount_cents=row["net_amount_cents"],
@@ -62,13 +76,13 @@ def _expense_from_row(row: sqlite3.Row) -> ExpenseEvidenceResponse:
         notes=row["notes"],
         created_by_admin_id=row["created_by_admin_id"],
         updated_by_admin_id=row["updated_by_admin_id"],
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
+        created_at=_s(row["created_at"]),
+        updated_at=_s(row["updated_at"]),
     )
 
 
 def _get_expense_row(conn: sqlite3.Connection, expense_id: str) -> sqlite3.Row:
-    row = conn.execute("SELECT * FROM expense_evidence WHERE id = ?", (expense_id,)).fetchone()
+    row = conn.execute("SELECT * FROM expense_evidence WHERE id = %s", (expense_id,)).fetchone()
     if row is None:
         raise FinancePeriodError(404, "EXPENSE_EVIDENCE_NOT_FOUND", "Expense evidence not found.")
     return row
@@ -78,14 +92,14 @@ def _validate_expense_links(conn: sqlite3.Connection, body: ExpenseEvidenceReque
     if (
         body.linked_product_id
         and conn.execute(
-            "SELECT 1 FROM products WHERE id = ?", (body.linked_product_id,)
+            "SELECT 1 FROM products WHERE id = %s", (body.linked_product_id,)
         ).fetchone()
         is None
     ):
         raise FinancePeriodError(404, "PRODUCT_NOT_FOUND", "Linked product not found.")
     if (
         body.linked_order_id
-        and conn.execute("SELECT 1 FROM orders WHERE id = ?", (body.linked_order_id,)).fetchone()
+        and conn.execute("SELECT 1 FROM orders WHERE id = %s", (body.linked_order_id,)).fetchone()
         is None
     ):
         raise FinancePeriodError(404, "ORDER_NOT_FOUND", "Linked order not found.")
@@ -97,10 +111,10 @@ def list_expenses(
     clauses: list[str] = []
     params: list[str] = []
     if category_key:
-        clauses.append("category_key = ?")
+        clauses.append("category_key = %s")
         params.append(category_key)
     if review_status:
-        clauses.append("review_status = ?")
+        clauses.append("review_status = %s")
         params.append(review_status)
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     with get_db() as conn:
@@ -133,7 +147,8 @@ def create_expense(
                 attachment_reference, linked_product_id, linked_material_name,
                 linked_courier, linked_order_id, review_status, notes,
                 created_by_admin_id, updated_by_admin_id, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                      %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 expense_id,
@@ -191,14 +206,14 @@ def update_expense(
         conn.execute(
             """
             UPDATE expense_evidence
-            SET supplier_name = ?, supplier_identifier = ?, document_number = ?,
-                document_date = ?, purchase_date = ?, payment_date = ?, payment_status = ?,
-                category_key = ?, net_amount_cents = ?, tax_amount_cents = ?,
-                gross_amount_cents = ?, currency = ?, attachment_reference = ?,
-                linked_product_id = ?, linked_material_name = ?, linked_courier = ?,
-                linked_order_id = ?, review_status = ?, notes = ?, updated_by_admin_id = ?,
-                updated_at = ?
-            WHERE id = ?
+            SET supplier_name = %s, supplier_identifier = %s, document_number = %s,
+                document_date = %s, purchase_date = %s, payment_date = %s, payment_status = %s,
+                category_key = %s, net_amount_cents = %s, tax_amount_cents = %s,
+                gross_amount_cents = %s, currency = %s, attachment_reference = %s,
+                linked_product_id = %s, linked_material_name = %s, linked_courier = %s,
+                linked_order_id = %s, review_status = %s, notes = %s, updated_by_admin_id = %s,
+                updated_at = %s
+            WHERE id = %s
             """,
             (
                 body.supplier_name,
@@ -254,8 +269,8 @@ def update_expense_payment_status(
         conn.execute(
             """
             UPDATE expense_evidence
-            SET payment_status = ?, payment_date = ?, updated_by_admin_id = ?, updated_at = ?
-            WHERE id = ?
+            SET payment_status = %s, payment_date = %s, updated_by_admin_id = %s, updated_at = %s
+            WHERE id = %s
             """,
             (body.payment_status, body.payment_date, actor_user_id, now, expense_id),
         )
@@ -286,13 +301,13 @@ def _component_from_row(row: sqlite3.Row) -> ProductCostComponentResponse:
         unit_cost_cents=row["unit_cost_cents"],
         total_cost_cents=row["total_cost_cents"],
         source_expense_id=row["source_expense_id"],
-        created_at=row["created_at"],
+        created_at=_s(row["created_at"]),
     )
 
 
 def _cost_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> ProductCostVersionResponse:
     components = conn.execute(
-        "SELECT * FROM product_cost_components WHERE cost_version_id = ? ORDER BY created_at, id",
+        "SELECT * FROM product_cost_components WHERE cost_version_id = %s ORDER BY created_at, id",
         (row["id"],),
     ).fetchall()
     source_ids = _json_loads(row["source_expense_ids_json"], [])
@@ -303,7 +318,7 @@ def _cost_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> ProductCostVer
         product_id=row["product_id"],
         sku=row["sku"],
         product_name=row["product_name"],
-        effective_date=row["effective_date"],
+        effective_date=_s(row["effective_date"]),
         costing_basis=row["costing_basis"],
         material_cost_cents=row["material_cost_cents"],
         packaging_cost_cents=row["packaging_cost_cents"],
@@ -319,14 +334,14 @@ def _cost_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> ProductCostVer
         components=[_component_from_row(component) for component in components],
         created_by_admin_id=row["created_by_admin_id"],
         updated_by_admin_id=row["updated_by_admin_id"],
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
+        created_at=_s(row["created_at"]),
+        updated_at=_s(row["updated_at"]),
     )
 
 
 def _get_cost_row(conn: sqlite3.Connection, cost_version_id: str) -> sqlite3.Row:
     row = conn.execute(
-        "SELECT * FROM product_cost_versions WHERE id = ?", (cost_version_id,)
+        "SELECT * FROM product_cost_versions WHERE id = %s", (cost_version_id,)
     ).fetchone()
     if row is None:
         raise FinancePeriodError(
@@ -359,7 +374,7 @@ def _insert_components(
             INSERT INTO product_cost_components (
                 id, cost_version_id, component_type, description, quantity, unit,
                 unit_cost_cents, total_cost_cents, source_expense_id, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 str(uuid.uuid4()),
@@ -380,7 +395,7 @@ def list_product_costs(product_id: str | None = None) -> ProductCostVersionListR
     with get_db() as conn:
         if product_id:
             rows = conn.execute(
-                "SELECT * FROM product_cost_versions WHERE product_id = ? "
+                "SELECT * FROM product_cost_versions WHERE product_id = %s "
                 "ORDER BY effective_date DESC",
                 (product_id,),
             ).fetchall()
@@ -413,7 +428,8 @@ def create_product_cost(
                 overhead_cost_cents, estimated_unit_cost_cents, currency, reviewed,
                 accountant_reviewed, review_status, source_expense_ids_json, notes,
                 created_by_admin_id, updated_by_admin_id, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                      %s, %s, %s, %s, %s, %s)
             """,
             (
                 cost_id,
@@ -470,12 +486,12 @@ def update_product_cost(
         conn.execute(
             """
             UPDATE product_cost_versions
-            SET product_id = ?, sku = ?, product_name = ?, effective_date = ?,
-                costing_basis = ?, material_cost_cents = ?, packaging_cost_cents = ?,
-                labor_cost_cents = ?, overhead_cost_cents = ?, estimated_unit_cost_cents = ?,
-                currency = ?, reviewed = ?, accountant_reviewed = ?, review_status = ?,
-                source_expense_ids_json = ?, notes = ?, updated_by_admin_id = ?, updated_at = ?
-            WHERE id = ?
+            SET product_id = %s, sku = %s, product_name = %s, effective_date = %s,
+                costing_basis = %s, material_cost_cents = %s, packaging_cost_cents = %s,
+                labor_cost_cents = %s, overhead_cost_cents = %s, estimated_unit_cost_cents = %s,
+                currency = %s, reviewed = %s, accountant_reviewed = %s, review_status = %s,
+                source_expense_ids_json = %s, notes = %s, updated_by_admin_id = %s, updated_at = %s
+            WHERE id = %s
             """,
             (
                 body.product_id,
@@ -500,7 +516,7 @@ def update_product_cost(
             ),
         )
         conn.execute(
-            "DELETE FROM product_cost_components WHERE cost_version_id = ?", (cost_version_id,)
+            "DELETE FROM product_cost_components WHERE cost_version_id = %s", (cost_version_id,)
         )
         _insert_components(conn, cost_version_id, body)
         after = _cost_from_row(conn, _get_cost_row(conn, cost_version_id))
@@ -525,7 +541,7 @@ def effective_product_cost(
         row = conn.execute(
             """
             SELECT * FROM product_cost_versions
-            WHERE product_id = ? AND effective_date <= ? AND review_status != 'archived'
+            WHERE product_id = %s AND effective_date <= %s AND review_status != 'archived'
             ORDER BY effective_date DESC, created_at DESC
             LIMIT 1
             """,
@@ -536,24 +552,25 @@ def effective_product_cost(
 
 def missing_product_costs(period_id: str) -> MissingProductCostDiagnosticsResponse:
     with get_db() as conn:
-        period = conn.execute("SELECT * FROM finance_periods WHERE id = ?", (period_id,)).fetchone()
+        period = conn.execute(
+            "SELECT * FROM finance_periods WHERE id = %s", (period_id,)
+        ).fetchone()
         if period is None:
             raise FinancePeriodError(404, "FINANCE_PERIOD_NOT_FOUND", "Finance period not found.")
         rows = conn.execute(
             """
-            SELECT DISTINCT o.id AS order_id, o.order_number,
-                   substr(o.created_at, 1, 10) AS order_date,
+            SELECT DISTINCT o.id AS order_id, o.order_number, o.created_at::date AS order_date,
                    oi.product_id, oi.product_name
             FROM orders o
             JOIN order_items oi ON oi.order_id = o.id
-            WHERE substr(o.created_at, 1, 10) BETWEEN ? AND ?
+            WHERE o.created_at::date BETWEEN %s AND %s
               AND NOT EXISTS (
                   SELECT 1 FROM product_cost_versions pc
                   WHERE pc.product_id = oi.product_id
-                    AND pc.effective_date <= substr(o.created_at, 1, 10)
+                    AND pc.effective_date <= o.created_at::date
                     AND pc.review_status != 'archived'
               )
-            ORDER BY o.created_at, o.id, oi.product_id
+            ORDER BY order_date, order_id, oi.product_id
             """,
             (period["period_start"], period["period_end"]),
         ).fetchall()
@@ -561,7 +578,7 @@ def missing_product_costs(period_id: str) -> MissingProductCostDiagnosticsRespon
         MissingProductCostDiagnostic(
             order_id=row["order_id"],
             order_number=row["order_number"],
-            order_date=row["order_date"],
+            order_date=_s(row["order_date"]),
             product_id=row["product_id"],
             product_name=row["product_name"],
         )

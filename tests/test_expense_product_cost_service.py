@@ -1,13 +1,15 @@
 """Expense evidence and product-cost service tests."""
 
-import sqlite3
-
+import psycopg
 import pytest
 
+from conftest import FAKE_SESSION_ID
 
-def _seed_product_and_order(db: sqlite3.Connection, app, *, product_id: str, order_id: str) -> None:
+
+def _seed_product_and_order(db: psycopg.Connection, app, *, product_id: str, order_id: str) -> None:
     db.execute(
-        "INSERT OR IGNORE INTO products (id, name_en, price_cents, stock) VALUES (?, ?, 1000, 10)",
+        "INSERT INTO products (id, name_en, price_cents, stock) "
+        "VALUES (%s, %s, 1000, 10) ON CONFLICT (id) DO NOTHING",
         (product_id, product_id.replace("-", " ").title()),
     )
     db.execute(
@@ -16,16 +18,16 @@ def _seed_product_and_order(db: sqlite3.Connection, app, *, product_id: str, ord
             id, session_id, status, total_cents, customer_email, customer_name,
             payment_method, payment_status, accounting_classification_state,
             accounting_readiness_status, created_at, updated_at
-        ) VALUES (?, ?, 'confirmed', 1000, ?, 'Cost Buyer', 'card', 'paid',
+        ) VALUES (%s, %s, 'confirmed', 1000, %s, 'Cost Buyer', 'card', 'paid',
                   'domestic_default', 'ready', '2026-08-10 10:00:00',
                   '2026-08-10 10:00:00')
         """,
-        (order_id, app._test_session_id, f"{order_id}@example.com"),
+        (order_id, FAKE_SESSION_ID, f"{order_id}@example.com"),
     )
     db.execute(
         """
         INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity)
-        VALUES (?, ?, ?, 1000, 1)
+        VALUES (%s, %s, %s, 1000, 1)
         """,
         (order_id, product_id, product_id.replace("-", " ").title()),
     )

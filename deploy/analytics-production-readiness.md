@@ -38,8 +38,6 @@ for the `first-party-funnel-analytics` change.
 
 ## Commit hygiene before hooks
 
-- Do not commit SQLite sidecars such as `atelier_marie.db-shm` or
-  `atelier_marie.db-wal`.
 - Do not commit local analytics files such as `analytics-data/`, `*.duckdb`, or
   `*.jsonl`.
 - Keep `.env` files out of git; use `.env.example` only for documented defaults.

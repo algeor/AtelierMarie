@@ -1,5 +1,4 @@
 import json
-import sqlite3
 import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -7,10 +6,18 @@ from pathlib import Path
 import pytest
 
 from app.config import get_settings
+from app.database import get_db
 from app.services import analytics_service
 from app.services.gdpr_service import anonymize_analytics_subject
 
-pytestmark = pytest.mark.anyio
+pytestmark = pytest.mark.asyncio
+
+
+@pytest.fixture(scope="module")
+def monkeypatch_module():
+    mp = pytest.MonkeyPatch()
+    yield mp
+    mp.undo()
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -232,23 +239,22 @@ async def test_health_reports_accepted_duplicate_and_validation_failure(client, 
     assert body["validation_failure"] >= 1
 
 
-async def test_order_coverage_warns_for_missing_consented_purchase(db_path, admin_client, app):
-    session_id = app._test_session_id
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        """
-        INSERT INTO orders (
-          id, session_id, status, total_cents, customer_email, locale,
-          payment_method, payment_status, analytics_consent, created_at, updated_at
-        ) VALUES (
-          ?, ?, 'pending', 3200, 'buyer@example.com', 'en', 'cod', 'cod_pending', 1,
-          datetime('now'), datetime('now')
+async def test_order_coverage_warns_for_missing_consented_purchase(
+    db_path, admin_client, session_id
+):
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO orders (
+              id, session_id, status, total_cents, customer_email, locale,
+              payment_method, payment_status, analytics_consent, created_at, updated_at
+            ) VALUES (
+              %s, %s, 'pending', 3200, 'buyer@example.com', 'en', 'cod', 'cod_pending', 1,
+              CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            """,
+            ("order-analytics-missing", session_id),
         )
-        """,
-        ("order-analytics-missing", session_id),
-    )
-    conn.commit()
-    conn.close()
 
     response = await admin_client.get("/v1/admin/analytics/summary")
 

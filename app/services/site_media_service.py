@@ -1,10 +1,11 @@
 """Admin-managed reusable site media slots."""
 
-import sqlite3
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
+import psycopg
 import structlog
 
 from app.config import get_settings
@@ -12,6 +13,7 @@ from app.database import get_db
 from app.services.image_service import process_image, validate_image_file
 
 logger = structlog.get_logger(__name__)
+_DT_FMT = "%Y-%m-%d %H:%M:%S"
 
 
 class SiteMediaNotFoundError(Exception):
@@ -125,15 +127,21 @@ def _slot_for(key: str) -> SiteMediaSlot:
         raise SiteMediaNotFoundError(key) from exc
 
 
-def _ensure_rows(conn: sqlite3.Connection) -> None:
+def _ensure_rows(conn: psycopg.Connection) -> None:
     for slot in SLOTS:
         conn.execute(
-            "INSERT OR IGNORE INTO site_media_assets (key, updated_at) VALUES (?, datetime('now'))",
+            "INSERT INTO site_media_assets (key) VALUES (%s) ON CONFLICT (key) DO NOTHING",
             (slot.key,),
         )
 
 
-def _row_to_admin(row: sqlite3.Row, slot: SiteMediaSlot) -> dict:
+def _format_timestamp(value: object) -> str:
+    if isinstance(value, datetime):
+        return value.strftime(_DT_FMT)
+    return str(value)
+
+
+def _row_to_admin(row: dict, slot: SiteMediaSlot) -> dict:
     return {
         "key": slot.key,
         "label": slot.label,
@@ -144,7 +152,7 @@ def _row_to_admin(row: sqlite3.Row, slot: SiteMediaSlot) -> dict:
         "thumbnail_url": row["thumbnail_url"],
         "zoom_url": row["zoom_url"],
         "effective_url": row["image_url"] or slot.default_url,
-        "updated_at": row["updated_at"],
+        "updated_at": _format_timestamp(row["updated_at"]),
     }
 
 
@@ -177,13 +185,13 @@ def set_asset_image(key: str, file_bytes: bytes) -> dict:
 
     with get_db() as conn:
         _ensure_rows(conn)
-        old = conn.execute("SELECT * FROM site_media_assets WHERE key = ?", (key,)).fetchone()
+        old = conn.execute("SELECT * FROM site_media_assets WHERE key = %s", (key,)).fetchone()
         conn.execute(
             """
             UPDATE site_media_assets
-            SET image_id = ?, image_url = ?, thumbnail_url = ?, zoom_url = ?,
-                updated_at = datetime('now')
-            WHERE key = ?
+            SET image_id = %s, image_url = %s, thumbnail_url = %s, zoom_url = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE key = %s
             """,
             (
                 image_id,
@@ -193,7 +201,7 @@ def set_asset_image(key: str, file_bytes: bytes) -> dict:
                 key,
             ),
         )
-        row = conn.execute("SELECT * FROM site_media_assets WHERE key = ?", (key,)).fetchone()
+        row = conn.execute("SELECT * FROM site_media_assets WHERE key = %s", (key,)).fetchone()
 
     if old:
         _unlink_image_files(old["image_url"], old["thumbnail_url"], old["zoom_url"])
@@ -206,17 +214,17 @@ def clear_asset_image(key: str) -> dict:
     slot = _slot_for(key)
     with get_db() as conn:
         _ensure_rows(conn)
-        old = conn.execute("SELECT * FROM site_media_assets WHERE key = ?", (key,)).fetchone()
+        old = conn.execute("SELECT * FROM site_media_assets WHERE key = %s", (key,)).fetchone()
         conn.execute(
             """
             UPDATE site_media_assets
             SET image_id = NULL, image_url = NULL, thumbnail_url = NULL, zoom_url = NULL,
-                updated_at = datetime('now')
-            WHERE key = ?
+                updated_at = CURRENT_TIMESTAMP
+            WHERE key = %s
             """,
             (key,),
         )
-        row = conn.execute("SELECT * FROM site_media_assets WHERE key = ?", (key,)).fetchone()
+        row = conn.execute("SELECT * FROM site_media_assets WHERE key = %s", (key,)).fetchone()
 
     if old:
         _unlink_image_files(old["image_url"], old["thumbnail_url"], old["zoom_url"])

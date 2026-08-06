@@ -1,10 +1,7 @@
 """Material inventory service tests."""
 
-import sqlite3
-
 import pytest
 
-from app.database import init_db
 from app.models.inventory import (
     MaterialAdjustmentRequest,
     MaterialCreateRequest,
@@ -16,14 +13,8 @@ from app.services.inventory_service import InventoryValidationError
 
 
 @pytest.fixture()
-def inventory_db(tmp_path) -> sqlite3.Connection:
-    path = str(tmp_path / "inventory.db")
-    init_db(path)
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys=ON")
-    yield conn
-    conn.close()
+def inventory_db(db):
+    return db
 
 
 def test_material_catalog_crud_validation_and_reorder(inventory_db):

@@ -47,7 +47,7 @@ Why this exists:
 Concurrency note:
 
 - Multiple workers can run this loop.
-- Claim rows and SQLite single-writer behavior prevent duplicate active sends.
+- Claim rows and Postgres row locking (`FOR UPDATE SKIP LOCKED`) / claim leases prevent duplicate active sends.
 
 ## Video Transcode Worker
 

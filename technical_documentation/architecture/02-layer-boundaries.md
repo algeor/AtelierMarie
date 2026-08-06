@@ -27,7 +27,7 @@ It includes:
 
 Layer 1 rules:
 
-- It uses SQLite as system of record.
+- It uses Postgres as system of record.
 - It must work without analytics.
 - It must work without ML.
 - It should degrade around external services when possible.

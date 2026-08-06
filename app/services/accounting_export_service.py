@@ -6,12 +6,12 @@ import csv
 import json
 import sqlite3
 import uuid
+from datetime import date, datetime
 from hashlib import sha256
 from pathlib import Path
 
 from openpyxl import Workbook
 
-from app.config import get_settings
 from app.database import get_db
 from app.models.accounting import (
     AccountantAcceptanceRequest,
@@ -19,6 +19,7 @@ from app.models.accounting import (
     FinanceExportPackageResponse,
 )
 from app.services import accounting_config_service, accounting_ledger_service, pricing
+from app.services.accounting_config_service import _fmt_ts
 from app.services.finance_period_service import FinancePeriodError, calculate_summary_totals
 
 _SCHEMA_VERSION = "accounting-finance-hub.v1"
@@ -49,7 +50,7 @@ def _json_loads(value: str | None) -> dict[str, object] | None:
 
 
 def _json_dumps(value: object) -> str:
-    return json.dumps(value, indent=2, sort_keys=True)
+    return json.dumps(value, indent=2, sort_keys=True, default=_fmt_ts)
 
 
 def _package_from_row(row: sqlite3.Row) -> FinanceExportPackageResponse:
@@ -63,9 +64,9 @@ def _package_from_row(row: sqlite3.Row) -> FinanceExportPackageResponse:
         manifest_path=row["manifest_path"],
         manifest=_json_loads(row["manifest_json"]),
         generated_by_admin_id=row["generated_by_admin_id"],
-        generated_at=row["generated_at"],
+        generated_at=_fmt_ts(row["generated_at"]),
         accepted_by_admin_id=row["accepted_by_admin_id"],
-        accepted_at=row["accepted_at"],
+        accepted_at=_fmt_ts(row["accepted_at"]),
         accountant_name=row["accountant_name"],
         accountant_reference=row["accountant_reference"],
         acceptance_note=row["acceptance_note"],
@@ -75,7 +76,7 @@ def _package_from_row(row: sqlite3.Row) -> FinanceExportPackageResponse:
 
 def _get_package_row(conn: sqlite3.Connection, export_id: str) -> sqlite3.Row:
     row = conn.execute(
-        "SELECT * FROM finance_export_packages WHERE id = ?", (export_id,)
+        "SELECT * FROM finance_export_packages WHERE id = %s", (export_id,)
     ).fetchone()
     if row is None:
         raise FinancePeriodError(404, "EXPORT_PACKAGE_NOT_FOUND", "Export package not found.")
@@ -83,7 +84,8 @@ def _get_package_row(conn: sqlite3.Connection, export_id: str) -> sqlite3.Row:
 
 
 def _private_export_root() -> Path:
-    db_parent = Path(get_settings().database_path).resolve().parent
+    db_parent = Path("./data/exports").resolve()
+    db_parent.mkdir(parents=True, exist_ok=True)
     return db_parent / "private-exports" / "accounting"
 
 
@@ -100,7 +102,9 @@ def _cell(value: object) -> object:
         return ""
     if isinstance(value, (str, int, float, bool)):
         return value
-    return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    if isinstance(value, (datetime, date)):
+        return _fmt_ts(value)
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, default=_fmt_ts)
 
 
 def _headers(rows: list[dict[str, object]]) -> list[str]:
@@ -151,7 +155,7 @@ def _settings_rows() -> list[dict[str, object]]:
 
 def _exception_rows(conn: sqlite3.Connection, period_id: str) -> list[dict[str, object]]:
     rows = conn.execute(
-        "SELECT * FROM finance_exceptions WHERE period_id = ? "
+        "SELECT * FROM finance_exceptions WHERE period_id = %s "
         "ORDER BY status, severity, created_at",
         (period_id,),
     ).fetchall()
@@ -204,7 +208,7 @@ def _material_on_hand_rows(
                    FROM inventory_movements im
                    WHERE im.item_type = 'material'
                      AND im.item_id = m.id
-                     AND substr(im.occurred_at, 1, 10) <= ?
+                     AND (im.occurred_at)::date <= %s
                ), 0) AS on_hand_quantity,
                COALESCE((
                    SELECT SUM(CASE WHEN vl.quantity >= 0
@@ -212,7 +216,7 @@ def _material_on_hand_rows(
                    FROM inventory_valuation_layers vl
                    WHERE vl.item_type = 'material'
                      AND vl.item_id = m.id
-                     AND substr(vl.valuation_date, 1, 10) <= ?
+                     AND (vl.valuation_date)::date <= %s
                      AND vl.review_state != 'reversed'
                ), 0) AS on_hand_value_cents,
                (SELECT COUNT(*) FROM inventory_exceptions ie
@@ -250,7 +254,7 @@ def _finished_goods_on_hand_rows(
                    FROM inventory_movements im
                    WHERE im.item_type = 'finished_good'
                      AND im.item_id = p.id
-                     AND substr(im.occurred_at, 1, 10) <= ?
+                     AND (im.occurred_at)::date <= %s
                ), 0) AS ledger_on_hand_quantity,
                COALESCE((
                    SELECT SUM(CASE WHEN vl.quantity >= 0
@@ -258,7 +262,7 @@ def _finished_goods_on_hand_rows(
                    FROM inventory_valuation_layers vl
                    WHERE vl.item_type = 'finished_good'
                      AND vl.item_id = p.id
-                     AND substr(vl.valuation_date, 1, 10) <= ?
+                     AND (vl.valuation_date)::date <= %s
                      AND vl.review_state != 'reversed'
                ), 0) AS on_hand_value_cents,
                pip.opening_balance_state, pip.valuation_readiness,
@@ -305,7 +309,7 @@ def _inventory_valuation_rows(
         LEFT JOIN inventory_movements im ON im.id = vl.movement_id
         LEFT JOIN materials m ON vl.item_type = 'material' AND m.id = vl.item_id
         LEFT JOIN products p ON vl.item_type = 'finished_good' AND p.id = vl.item_id
-        WHERE substr(vl.valuation_date, 1, 10) BETWEEN ? AND ?
+        WHERE (vl.valuation_date)::date BETWEEN %s AND %s
         ORDER BY vl.valuation_date, vl.created_at, vl.id
         """,
         (period["period_start"], period["period_end"]),
@@ -325,7 +329,7 @@ def _cogs_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, 
                c.source_finished_batch_id, c.review_state, c.reversal_cogs_id
         FROM cogs_ledger c
         LEFT JOIN products p ON p.id = c.product_id
-        WHERE substr(c.cogs_date, 1, 10) BETWEEN ? AND ?
+        WHERE (c.cogs_date)::date BETWEEN %s AND %s
         ORDER BY c.cogs_date, c.created_at, c.id
         """,
         (period["period_start"], period["period_end"]),
@@ -351,7 +355,7 @@ def _inventory_writeoff_rows(
         LEFT JOIN inventory_valuation_layers vl ON vl.movement_id = im.id
         LEFT JOIN materials m ON im.item_type = 'material' AND m.id = im.item_id
         LEFT JOIN products p ON im.item_type = 'finished_good' AND p.id = im.item_id
-        WHERE substr(im.occurred_at, 1, 10) BETWEEN ? AND ?
+        WHERE (im.occurred_at)::date BETWEEN %s AND %s
           AND im.movement_type IN (
               'return_write_off', 'write_off', 'spoilage',
               'stock_count_correction', 'adjustment'
@@ -396,7 +400,7 @@ def list_export_packages(period_id: str | None = None) -> FinanceExportPackageLi
     with get_db() as conn:
         if period_id:
             rows = conn.execute(
-                "SELECT * FROM finance_export_packages WHERE period_id = ? ORDER BY version DESC",
+                "SELECT * FROM finance_export_packages WHERE period_id = %s ORDER BY version DESC",
                 (period_id,),
             ).fetchall()
         else:
@@ -417,7 +421,9 @@ def generate_export_package(
 ) -> FinanceExportPackageResponse:
     export_id = str(uuid.uuid4())
     with get_db() as conn:
-        period = conn.execute("SELECT * FROM finance_periods WHERE id = ?", (period_id,)).fetchone()
+        period = conn.execute(
+            "SELECT * FROM finance_periods WHERE id = %s", (period_id,)
+        ).fetchone()
         if period is None:
             raise FinancePeriodError(404, "FINANCE_PERIOD_NOT_FOUND", "Finance period not found.")
         if period["status"] != "closed":
@@ -427,8 +433,8 @@ def generate_export_package(
                 "Final export packages can only be generated for closed finance periods.",
             )
         version_row = conn.execute(
-            "SELECT COALESCE(MAX(version), 0) + 1 AS next_version "
-            "FROM finance_export_packages WHERE period_id = ?",
+            "SELECT COALESCE(MAX(version), 0) + 1 AS next_version FROM finance_export_packages "
+            "WHERE period_id = %s",
             (period_id,),
         ).fetchone()
         version = int(version_row["next_version"])
@@ -476,7 +482,7 @@ def generate_export_package(
         }
 
         conn.execute(
-            "UPDATE finance_export_packages SET current_final = 0 WHERE period_id = ?",
+            "UPDATE finance_export_packages SET current_final = 0 WHERE period_id = %s",
             (period_id,),
         )
         conn.execute(
@@ -485,7 +491,7 @@ def generate_export_package(
                 id, period_id, version, schema_version, xlsx_path, csv_dir_path,
                 manifest_path, manifest_json, generated_by_admin_id, generated_at,
                 current_final
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
             """,
             (
                 export_id,
@@ -501,8 +507,8 @@ def generate_export_package(
             ),
         )
         conn.execute(
-            "UPDATE finance_periods SET status = 'exported', "
-            "updated_by_admin_id = ?, updated_at = ? WHERE id = ?",
+            "UPDATE finance_periods SET status = 'exported', updated_by_admin_id = %s, "
+            "updated_at = %s WHERE id = %s",
             (actor_user_id, pricing.now_utc(), period_id),
         )
         row = _get_package_row(conn, export_id)
@@ -533,9 +539,9 @@ def accept_export_package(
         conn.execute(
             """
             UPDATE finance_export_packages
-            SET accepted_by_admin_id = ?, accepted_at = ?, accountant_name = ?,
-                accountant_reference = ?, acceptance_note = ?
-            WHERE id = ?
+            SET accepted_by_admin_id = %s, accepted_at = %s, accountant_name = %s,
+                accountant_reference = %s, acceptance_note = %s
+            WHERE id = %s
             """,
             (
                 actor_user_id,
@@ -549,8 +555,8 @@ def accept_export_package(
         after = _get_package_row(conn, export_id)
         if bool(after["current_final"]):
             conn.execute(
-                "UPDATE finance_periods SET status = 'accepted', accepted_at = ?, "
-                "updated_by_admin_id = ?, updated_at = ? WHERE id = ?",
+                "UPDATE finance_periods SET status = 'accepted', accepted_at = %s, "
+                "updated_by_admin_id = %s, updated_at = %s WHERE id = %s",
                 (now, actor_user_id, now, after["period_id"]),
             )
         accounting_config_service.write_finance_audit_event(

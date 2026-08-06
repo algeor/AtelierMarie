@@ -1,33 +1,38 @@
 """Accounting ledger service and API tests."""
 
-import sqlite3
-
+import psycopg
 import pytest
 
+from conftest import FAKE_SESSION_ID
 
-def _seed_settings(db: sqlite3.Connection) -> tuple[int, int]:
-    db.execute(
-        """
-        INSERT INTO seller_legal_profile_versions (
-            effective_date, reviewed, legal_name, default_currency
-        ) VALUES ('2026-08-01', 1, 'Atelier Marie OOD', 'EUR')
-        """
+
+def _seed_settings(db: psycopg.Connection) -> tuple[int, int]:
+    seller_id = int(
+        db.execute(
+            """
+            INSERT INTO seller_legal_profile_versions (
+                effective_date, reviewed, legal_name, default_currency
+            ) VALUES ('2026-08-01', 1, 'Atelier Marie OOD', 'EUR')
+            RETURNING id
+            """
+        ).fetchone()["id"]
     )
-    seller_id = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
-    db.execute(
-        """
-        INSERT INTO vat_fiscal_settings_versions (
-            effective_date, reviewed, vat_mode, fiscal_document_mode
-        ) VALUES ('2026-08-01', 1, 'registered', 'external_reference')
-        """
+    vat_id = int(
+        db.execute(
+            """
+            INSERT INTO vat_fiscal_settings_versions (
+                effective_date, reviewed, vat_mode, fiscal_document_mode
+            ) VALUES ('2026-08-01', 1, 'registered', 'external_reference')
+            RETURNING id
+            """
+        ).fetchone()["id"]
     )
-    vat_id = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
     db.commit()
     return seller_id, vat_id
 
 
 def _insert_order(
-    db: sqlite3.Connection,
+    db: psycopg.Connection,
     app,
     *,
     order_id: str,
@@ -44,7 +49,8 @@ def _insert_order(
     vat_id: int,
 ) -> None:
     db.execute(
-        "INSERT OR IGNORE INTO products (id, name_en, price_cents, stock) VALUES (?, ?, ?, 10)",
+        "INSERT INTO products (id, name_en, price_cents, stock) VALUES (%s, %s, %s, 10) "
+        "ON CONFLICT (id) DO NOTHING",
         (product_id, product_name, price_cents),
     )
     db.execute(
@@ -55,13 +61,13 @@ def _insert_order(
             seller_legal_profile_version_id, vat_fiscal_settings_version_id,
             accounting_classification_state, accounting_readiness_status,
             accounting_snapshot_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 'Ledger Buyer', ?, ?, ?, ?, ?,
-                  'domestic_default', 'ready', ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, %s, %s, 'Ledger Buyer', %s, %s, %s, %s, %s,
+                  'domestic_default', 'ready', %s, %s, %s)
         """,
         (
             order_id,
             order_id.upper(),
-            app._test_session_id,
+            FAKE_SESSION_ID,
             status,
             total_cents,
             f"{order_id}@example.com",
@@ -78,7 +84,7 @@ def _insert_order(
     db.execute(
         """
         INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity)
-        VALUES (?, ?, ?, ?, 1)
+        VALUES (%s, %s, %s, %s, 1)
         """,
         (order_id, product_id, product_name, price_cents),
     )

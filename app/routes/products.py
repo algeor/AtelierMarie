@@ -22,7 +22,7 @@ from app.services.product_service import NotFoundError
 router = APIRouter()
 
 # Cap distinct label slugs accepted from the public filter (bounds query cost and
-# keeps well under SQLite's bound-variable limit on an unauthenticated endpoint).
+# keeps unauthenticated endpoint query cost bounded.
 _MAX_LABEL_FILTERS = 50
 
 
@@ -30,7 +30,7 @@ def _parse_label_filters(labels: str | None, label: list[str] | None) -> list[st
     """Merge comma-separated and repeated label filters with stable de-duplication.
 
     Caps the number of distinct slugs (public, unauthenticated endpoint) so a
-    request can't blow past SQLite's bound-variable limit or amplify query cost.
+    request can't amplify query cost.
     """
     slugs: list[str] = []
     raw_values = [labels] if labels else []
@@ -53,7 +53,7 @@ def _parse_label_filters(labels: str | None, label: list[str] | None) -> list[st
     response_model=ProductListResponse,
     summary="List products",
     description="Browse active products with optional category filter, full-text search, "
-    "sort order, and pagination. Search uses SQLite FTS5 for relevance-ranked results.",
+    "sort order, and pagination. Search uses Postgres full-text search.",
 )
 async def list_products(
     product_type: str | None = Query(default=None, description="Filter by product type slug"),

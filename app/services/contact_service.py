@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import sqlite3
 from datetime import UTC, datetime, timedelta
 from typing import TypedDict
 
+import psycopg
 import structlog
 
 from app.config import Settings, get_settings
@@ -30,6 +30,9 @@ CONTACT_CLAIM_LEASE_SECONDS = 300
 CONTACT_MESSAGE_RETENTION_DAYS = 365
 _BACKOFF_BASE_SECONDS = 30
 _SWEEP_BATCH_LIMIT = 50
+# Advisory-lock namespace (first key of pg_advisory_xact_lock) for serializing
+# concurrent contact submissions that share a rate-limit bucket.
+_CONTACT_RATE_LOCK_NAMESPACE = 0x434F_4E54  # "CONT"
 
 
 class ContactMessageRow(TypedDict):
@@ -63,7 +66,7 @@ def _backoff_next_attempt(attempts: int) -> str:
 
 
 def is_contact_rate_limited(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     ip_address: str | None,
     *,
     limit: int = CONTACT_RATE_LIMIT_PER_HOUR,
@@ -74,8 +77,8 @@ def is_contact_rate_limited(
             """
             SELECT COUNT(*) AS count
             FROM contact_messages
-            WHERE ip_address = ?
-              AND created_at >= datetime('now', '-1 hour')
+            WHERE ip_address = %s
+              AND created_at >= CURRENT_TIMESTAMP - INTERVAL '1 hour'
             """,
             (ip_address,),
         ).fetchone()
@@ -85,14 +88,14 @@ def is_contact_rate_limited(
             SELECT COUNT(*) AS count
             FROM contact_messages
             WHERE ip_address IS NULL
-              AND created_at >= datetime('now', '-1 hour')
+              AND created_at >= CURRENT_TIMESTAMP - INTERVAL '1 hour'
             """
         ).fetchone()
     return int(row["count"] if row else 0) >= limit
 
 
 def create_contact_message(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     body: ContactRequest,
     *,
     ip_address: str | None,
@@ -104,26 +107,31 @@ def create_contact_message(
     """
     if body.website:
         return None
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    with conn.transaction():
+        # Serialize concurrent submissions sharing a rate-limit bucket so the
+        # count-then-insert check is atomic across connections. Under SQLite the
+        # BEGIN IMMEDIATE write lock did this implicitly; Postgres READ COMMITTED
+        # does not, so take a transaction-scoped advisory lock keyed on the IP
+        # bucket (auto-released at COMMIT/ROLLBACK). Different IPs never contend.
+        conn.execute(
+            "SELECT pg_advisory_xact_lock(%s, hashtext(%s))",
+            (_CONTACT_RATE_LOCK_NAMESPACE, ip_address or ""),
+        )
         if is_contact_rate_limited(conn, ip_address):
             raise ContactRateLimitExceededError("Too many requests. Please try again later.")
 
-        cursor = conn.execute(
+        row = conn.execute(
             """
             INSERT INTO contact_messages (name, email, message, locale, ip_address, email_status)
-            VALUES (?, ?, ?, ?, ?, 'queued')
+            VALUES (%s, %s, %s, %s, %s, 'queued')
+            RETURNING id
             """,
             (body.name, str(body.email).lower(), body.message, body.locale, ip_address),
-        )
-        message_id = cursor.lastrowid
+        ).fetchone()
+        message_id = row["id"] if row else None
         if message_id is None:
             raise RuntimeError("Contact message insert did not return an id")
-        conn.execute("COMMIT")
         return message_id
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
 
 
 def cleanup_old_contact_messages(retention_days: int = CONTACT_MESSAGE_RETENTION_DAYS) -> int:
@@ -132,9 +140,9 @@ def cleanup_old_contact_messages(retention_days: int = CONTACT_MESSAGE_RETENTION
         cursor = conn.execute(
             """
             DELETE FROM contact_messages
-            WHERE created_at < datetime('now', ?)
+            WHERE created_at < CURRENT_TIMESTAMP - make_interval(days => %s)
             """,
-            (f"-{retention_days} days",),
+            (retention_days,),
         )
         return cursor.rowcount
 
@@ -153,49 +161,46 @@ def _build_contact_context(row: ContactMessageRow) -> dict:
 
 def _claim_contact_row(row_id: int) -> ContactMessageRow | None:
     """Atomically claim one contact row for this drain tick."""
-    now_s = _now_s()
+    now_dt = _now()
     lease_s = (_now() + timedelta(seconds=CONTACT_CLAIM_LEASE_SECONDS)).strftime(
         SQLITE_DATETIME_FORMAT
     )
 
     with get_db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
+        with conn.transaction():
             row = conn.execute(
                 """
                 SELECT id, name, email, message, locale, ip_address, email_attempts, created_at,
                        email_status, email_next_attempt_at, email_claimed_until
                 FROM contact_messages
-                WHERE id = ?
+                WHERE id = %s
+                FOR UPDATE
                 """,
                 (row_id,),
             ).fetchone()
             if row is None:
-                conn.execute("COMMIT")
                 return None
 
             status = row["email_status"]
             next_attempt_at = row["email_next_attempt_at"]
             claimed_until = row["email_claimed_until"]
             is_retryable = status in {"queued", "failed"} and (
-                next_attempt_at is None or next_attempt_at <= now_s
+                next_attempt_at is None or next_attempt_at <= now_dt
             )
             is_expired_claim = status == "in_flight" and (
-                claimed_until is None or claimed_until < now_s
+                claimed_until is None or claimed_until < now_dt
             )
             if not (is_retryable or is_expired_claim):
-                conn.execute("COMMIT")
                 return None
 
             conn.execute(
                 """
                 UPDATE contact_messages
-                SET email_status = 'in_flight', email_claimed_until = ?, email_error = NULL
-                WHERE id = ?
+                SET email_status = 'in_flight', email_claimed_until = %s, email_error = NULL
+                WHERE id = %s
                 """,
                 (lease_s, row_id),
             )
-            conn.execute("COMMIT")
             return {
                 "id": int(row["id"]),
                 "name": row["name"],
@@ -206,9 +211,6 @@ def _claim_contact_row(row_id: int) -> ContactMessageRow | None:
                 "email_attempts": int(row["email_attempts"]),
                 "created_at": row["created_at"],
             }
-        except Exception:
-            conn.execute("ROLLBACK")
-            raise
 
 
 def _mark_contact_email(
@@ -221,23 +223,23 @@ def _mark_contact_email(
     sent_at: str | None = None,
 ) -> None:
     fields = [
-        "email_status = ?",
-        "email_error = ?",
-        "email_next_attempt_at = ?",
+        "email_status = %s",
+        "email_error = %s",
+        "email_next_attempt_at = %s",
         "email_claimed_until = NULL",
     ]
     params: list[object] = [status, error, next_attempt_at]
     if attempts is not None:
-        fields.append("email_attempts = ?")
+        fields.append("email_attempts = %s")
         params.append(attempts)
     if sent_at is not None:
-        fields.append("email_sent_at = ?")
+        fields.append("email_sent_at = %s")
         params.append(sent_at)
     params.append(row_id)
 
     with get_db() as conn:
         conn.execute(
-            f"UPDATE contact_messages SET {', '.join(fields)} WHERE id = ?",  # noqa: S608
+            f"UPDATE contact_messages SET {', '.join(fields)} WHERE id = %s",  # noqa: S608
             params,
         )
 
@@ -338,15 +340,15 @@ def drain_contact_message_emails(
         rows = conn.execute(
             """
             SELECT id FROM contact_messages
-            WHERE email_attempts < ?
+            WHERE email_attempts < %s
               AND (
                 (email_status IN ('queued', 'failed')
-                 AND (email_next_attempt_at IS NULL OR email_next_attempt_at <= ?))
+                 AND (email_next_attempt_at IS NULL OR email_next_attempt_at <= %s))
                 OR (email_status = 'in_flight'
-                    AND (email_claimed_until IS NULL OR email_claimed_until < ?))
+                    AND (email_claimed_until IS NULL OR email_claimed_until < %s))
               )
             ORDER BY id
-            LIMIT ?
+            LIMIT %s
             """,
             (MAX_CONTACT_EMAIL_ATTEMPTS, now_s, now_s, _SWEEP_BATCH_LIMIT),
         ).fetchall()

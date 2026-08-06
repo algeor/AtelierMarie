@@ -6,6 +6,17 @@ from app.config import Settings
 from app.services.contact_service import drain_contact_message_emails
 
 
+@pytest.fixture()
+def anyio_backend() -> str:
+    """Pin anyio tests to asyncio (the app's only supported loop).
+
+    ``@pytest.mark.anyio`` otherwise parametrizes over asyncio AND trio; the app's
+    ``RequestIdMiddleware`` is a starlette ``BaseHTTPMiddleware`` that is not
+    trio-compatible, and the production stack is asyncio/uvicorn only.
+    """
+    return "asyncio"
+
+
 class RecordingProvider:
     def __init__(self) -> None:
         self.sent: list[dict] = []
@@ -87,7 +98,7 @@ async def test_honeypot_returns_success_without_persisting(client, db):
 
     assert response.status_code == 201
     assert response.json()["message_id"] is None
-    count = db.execute("SELECT COUNT(*) FROM contact_messages").fetchone()[0]
+    count = db.execute("SELECT COUNT(*) AS n FROM contact_messages").fetchone()["n"]
     assert count == 0
 
 
@@ -145,7 +156,7 @@ async def test_rate_limit_returns_429(client, db):
     )
 
     assert response.status_code == 429
-    count = db.execute("SELECT COUNT(*) FROM contact_messages").fetchone()[0]
+    count = db.execute("SELECT COUNT(*) AS n FROM contact_messages").fetchone()["n"]
     assert count == 5
 
 

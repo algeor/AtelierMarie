@@ -6,7 +6,7 @@ It has one serious job: sell candles reliably. Analytics and ML ideas exist, but
 
 ## Stack
 
-- Backend: FastAPI, Python 3.11, Pydantic 2, SQLite WAL.
+- Backend: FastAPI, Python 3.11, Pydantic 2, Postgres.
 - Frontend: Next.js App Router, TypeScript, Tailwind, `next-intl`.
 - Auth: anonymous session cookie first, optional Google OAuth, JWT cookie for logged-in users.
 - Payments: COD, card through Stripe Checkout, bank transfer.
@@ -24,7 +24,7 @@ It includes products, cart, checkout, orders, auth, admin, payments, shipping, e
 
 Rules:
 
-- It uses SQLite as the system of record.
+- It uses Postgres as the system of record.
 - It should stay fast.
 - It must work if analytics is disabled.
 - It must not import or require ML sandbox code.
@@ -46,7 +46,7 @@ Rules:
 app/                      FastAPI backend
   main.py                 App setup, routers, lifespan background jobs
   config.py               Environment settings, no raw os.getenv in app code
-  database.py             SQLite schema, startup migrations, WAL setup
+  database.py             psycopg pool + get_db()/init_db() (migration-head verify); Postgres schema lives in alembic/
   models/                 Pydantic request/response models
   routes/                 Thin HTTP layer
   services/               Business logic

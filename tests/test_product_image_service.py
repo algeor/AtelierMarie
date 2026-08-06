@@ -1,13 +1,11 @@
 """Tests for product image gallery service and migration behavior."""
 
 import io
-import sqlite3
 from pathlib import Path
 
 import pytest
 from PIL import Image
 
-from app.database import get_db, init_db
 from app.services import product_image_service, product_service
 
 
@@ -19,8 +17,7 @@ def _make_jpeg(width: int = 100, height: int = 100) -> bytes:
 
 
 @pytest.fixture()
-def _product(db_path, tmp_path, monkeypatch):
-    init_db(db_path)
+def _product(db, tmp_path, monkeypatch):
     from app.config import get_settings
 
     settings = get_settings()
@@ -119,90 +116,3 @@ def test_delete_image_with_null_zoom_url_does_not_crash(_product):
     product_image_service.delete_image("gallery-product", result["id"])
 
     assert product_image_service.list_images("gallery-product") == []
-
-
-def test_migration_adds_zoom_url_to_existing_product_images(tmp_path):
-    """A pre-existing product_images table without zoom_url gets the column added.
-
-    images_for_products unconditionally SELECTs zoom_url, so this ALTER is
-    load-bearing on any DB created before the crisp-zoom-images change.
-    """
-    db_path = str(tmp_path / "legacy-images.db")
-    conn = sqlite3.connect(db_path)
-    conn.executescript(
-        """
-        CREATE TABLE products (
-            id TEXT PRIMARY KEY,
-            name_en TEXT NOT NULL,
-            price_cents INTEGER NOT NULL CHECK(price_cents > 0),
-            stock INTEGER NOT NULL DEFAULT 0 CHECK(stock >= 0),
-            is_active INTEGER NOT NULL DEFAULT 1,
-            is_featured INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        CREATE TABLE product_images (
-            id TEXT PRIMARY KEY,
-            product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-            image_url TEXT NOT NULL,
-            thumbnail_url TEXT NOT NULL,
-            sort_order INTEGER NOT NULL DEFAULT 0,
-            is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        INSERT INTO products (id, name_en, price_cents, stock)
-        VALUES ('legacy-product', 'Legacy', 1000, 1);
-        INSERT INTO product_images (id, product_id, image_url, thumbnail_url, is_primary)
-        VALUES ('img-1', 'legacy-product', '/static/products/x.webp',
-                '/static/products/x_thumb.webp', 1);
-        """
-    )
-    conn.commit()
-    conn.close()
-
-    init_db(db_path)
-
-    with get_db() as migrated:
-        columns = {row[1] for row in migrated.execute("PRAGMA table_info(product_images)")}
-        assert "zoom_url" in columns
-        row = migrated.execute("SELECT zoom_url FROM product_images WHERE id = 'img-1'").fetchone()
-        assert row["zoom_url"] is None
-
-
-def test_migration_moves_legacy_image_url_and_drops_column(tmp_path):
-    db_path = str(tmp_path / "legacy.db")
-    conn = sqlite3.connect(db_path)
-    conn.executescript(
-        """
-        CREATE TABLE products (
-            id TEXT PRIMARY KEY,
-            name_en TEXT NOT NULL,
-            price_cents INTEGER NOT NULL CHECK(price_cents > 0),
-            image_url TEXT,
-            stock INTEGER NOT NULL DEFAULT 0 CHECK(stock >= 0),
-            is_active INTEGER NOT NULL DEFAULT 1,
-            is_featured INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        INSERT INTO products (id, name_en, price_cents, image_url, stock)
-        VALUES ('legacy-product', 'Legacy', 1000, '/static/products/legacy-product.webp', 1);
-        """
-    )
-    conn.commit()
-    conn.close()
-
-    init_db(db_path)
-    init_db(db_path)
-
-    with get_db() as migrated:
-        columns = {row[1] for row in migrated.execute("PRAGMA table_info(products)")}
-        images = migrated.execute(
-            "SELECT product_id, image_url, thumbnail_url, is_primary FROM product_images"
-        ).fetchall()
-
-    assert "image_url" not in columns
-    assert len(images) == 1
-    assert images[0]["product_id"] == "legacy-product"
-    assert images[0]["thumbnail_url"] == "/static/products/legacy-product_thumb.webp"
-    assert images[0]["is_primary"] == 1

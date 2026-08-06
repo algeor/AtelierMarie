@@ -1,8 +1,9 @@
 """Product service — business logic for product CRUD, search, and listing."""
 
-import sqlite3
 from datetime import UTC, datetime
 from typing import Literal
+
+import psycopg
 
 from app.constants import MAX_LIMIT, MAX_PAGE
 from app.database import get_db
@@ -31,6 +32,12 @@ AdminProductSort = Literal[
 ]
 
 DEFAULT_ADMIN_LOW_STOCK_THRESHOLD = 5
+
+# Canonical timestamp string format shared across services (SQLite legacy shape).
+# psycopg returns TIMESTAMPTZ columns as datetime; product response models and
+# pricing.parse_discount_dt expect this string, so _row_to_dict normalises reads.
+_DT_FMT = "%Y-%m-%d %H:%M:%S"
+_TIMESTAMP_COLUMNS = ("created_at", "updated_at", "discount_starts_at", "discount_ends_at")
 
 
 class NotFoundError(Exception):
@@ -67,6 +74,18 @@ class LedgerManagedStockEditError(Exception):
 BULK_DISCOUNT_TARGET_LIMIT = 500
 
 
+def _fmt_discount_ts(value: object) -> str | None:
+    """Normalise a discount-bound read to the canonical ``_DT_FMT`` string.
+
+    psycopg returns TIMESTAMPTZ columns as ``datetime``; ``None`` and existing
+    strings pass through unchanged. Used to keep merge/window comparisons from
+    mixing ``datetime`` (persisted) with ``str`` (patch).
+    """
+    if isinstance(value, datetime):
+        return value.strftime(_DT_FMT)
+    return value  # type: ignore[return-value]
+
+
 def _validate_merged_discount(
     percent: int | None, starts_at: str | None, ends_at: str | None
 ) -> None:
@@ -80,7 +99,7 @@ def _validate_merged_discount(
         raise DiscountValidationError("discount_starts_at must be earlier than discount_ends_at")
 
 
-def merge_discount_update(existing: dict | sqlite3.Row, data: dict) -> dict:
+def merge_discount_update(existing: dict, data: dict) -> dict:
     """Merge a partial discount patch with the existing row and validate it.
 
     Shared by the single-product update path and the bulk discount path so both
@@ -89,6 +108,12 @@ def merge_discount_update(existing: dict | sqlite3.Row, data: dict) -> dict:
     `discount_percent=None` clears all three together. Raises
     `DiscountValidationError` on an invalid merged result.
     """
+    # ``existing`` is read straight from Postgres, so its TIMESTAMPTZ discount
+    # bounds arrive as ``datetime``; the patch (``data``) carries canonical
+    # ``_DT_FMT`` strings. Normalise the persisted bounds to the same string
+    # shape so the merge and window comparison never mix datetime with str.
+    existing_starts = _fmt_discount_ts(existing.get("discount_starts_at"))
+    existing_ends = _fmt_discount_ts(existing.get("discount_ends_at"))
     if "discount_percent" in data and data["discount_percent"] is None:
         # Clearing the discount clears all three fields together.
         merged_percent = merged_starts = merged_ends = None
@@ -97,13 +122,9 @@ def merge_discount_update(existing: dict | sqlite3.Row, data: dict) -> dict:
             data["discount_percent"] if "discount_percent" in data else existing["discount_percent"]
         )
         merged_starts = (
-            data["discount_starts_at"]
-            if "discount_starts_at" in data
-            else existing["discount_starts_at"]
+            data["discount_starts_at"] if "discount_starts_at" in data else existing_starts
         )
-        merged_ends = (
-            data["discount_ends_at"] if "discount_ends_at" in data else existing["discount_ends_at"]
-        )
+        merged_ends = data["discount_ends_at"] if "discount_ends_at" in data else existing_ends
         # A date without a resulting percent is invalid.
         if merged_percent is None and (merged_starts is not None or merged_ends is not None):
             raise DiscountValidationError(
@@ -129,9 +150,22 @@ def _annotate_admin(products: list[dict], now: str | None = None) -> list[dict]:
     return [pricing.annotate_product_pricing(p, now, public=False) for p in products]
 
 
-def _row_to_dict(row: sqlite3.Row) -> dict:
-    """Convert a sqlite3.Row to a plain dict."""
-    return dict(row)
+def _row_to_dict(row: dict) -> dict:
+    """Convert a database row to a plain dict.
+
+    Postgres TIMESTAMPTZ columns come back from psycopg (dict_row) as
+    ``datetime`` objects, but the product response models declare every
+    timestamp field as ``str`` (and ``pricing._parse_discount_dt`` parses the
+    discount bounds as the canonical ``_DT_FMT`` string). Products are written
+    with ``_now_utc()`` strings, so normalise reads through this single
+    chokepoint to the same shape. ``None`` and existing strings pass through.
+    """
+    product = dict(row)
+    for column in _TIMESTAMP_COLUMNS:
+        value = product.get(column)
+        if isinstance(value, datetime):
+            product[column] = value.strftime(_DT_FMT)
+    return product
 
 
 def _flatten_admin_labels(product: dict) -> dict:
@@ -140,12 +174,12 @@ def _flatten_admin_labels(product: dict) -> dict:
     return product
 
 
-def _attach_admin_inventory_context(conn: sqlite3.Connection, products: list[dict]) -> None:
+def _attach_admin_inventory_context(conn: psycopg.Connection, products: list[dict]) -> None:
     """Attach admin-only inventory/recipe/batch context without changing public payloads."""
     if not products:
         return
     product_ids = [product["id"] for product in products]
-    placeholders = ", ".join("?" for _ in product_ids)
+    placeholders = ", ".join("%s" for _ in product_ids)
 
     profiles = {
         row["product_id"]: row
@@ -155,7 +189,7 @@ def _attach_admin_inventory_context(conn: sqlite3.Connection, products: list[dic
         ).fetchall()
     }
 
-    active_recipes: dict[str, sqlite3.Row] = {}
+    active_recipes: dict[str, dict] = {}
     for row in conn.execute(
         f"""
         SELECT id, product_id, status, effective_date, review_state
@@ -167,7 +201,7 @@ def _attach_admin_inventory_context(conn: sqlite3.Connection, products: list[dic
     ).fetchall():
         active_recipes.setdefault(row["product_id"], row)
 
-    latest_batches: dict[str, sqlite3.Row] = {}
+    latest_batches: dict[str, dict] = {}
     for row in conn.execute(
         f"""
         SELECT id, product_id, batch_number, status, production_date
@@ -225,7 +259,11 @@ def _attach_admin_inventory_context(conn: sqlite3.Connection, products: list[dic
         product["latest_batch_id"] = batch["id"] if batch else None
         product["latest_batch_number"] = batch["batch_number"] if batch else None
         product["latest_batch_status"] = batch["status"] if batch else None
-        product["latest_batch_date"] = batch["production_date"] if batch else None
+        product["latest_batch_date"] = (
+            batch["production_date"].isoformat()
+            if batch and hasattr(batch["production_date"], "isoformat")
+            else (batch["production_date"] if batch else None)
+        )
         product["inventory_exception_count"] = int(exception_counts.get(product_id, 0))
         product["inventory_exceptions"] = exceptions_by_product.get(product_id, [])
         product["inventory_links"] = {
@@ -276,24 +314,18 @@ def _now_utc() -> str:
 
 
 def _sanitize_fts5_query(query: str) -> str:
-    """Sanitize user input for FTS5 MATCH expressions.
+    """Normalize user input for a Postgres ``plainto_tsquery`` search.
 
-    Strategy: Split on whitespace, wrap each token in double quotes to
-    escape all FTS5 special characters (*, OR, AND, NOT, NEAR, etc.),
-    then rejoin with spaces (implicit AND).
-
-    Returns an empty string if no valid tokens remain.
+    ``plainto_tsquery`` tokenizes and AND-combines the terms itself and treats
+    the argument purely as data (bound as a parameter), so no manual escaping of
+    query operators is needed — we only collapse whitespace and return "" when
+    there is nothing searchable.
     """
-    tokens = query.strip().split()
-    if not tokens:
-        return ""
-    # Remove any embedded double quotes from individual tokens
-    sanitized = [f'"{token.replace(chr(34), "")}"' for token in tokens if token.replace('"', "")]
-    return " ".join(sanitized)
+    return " ".join(query.split())
 
 
 def _escape_like(value: str) -> str:
-    """Escape SQLite LIKE wildcards for literal admin search."""
+    """Escape LIKE wildcards for literal admin search."""
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
@@ -314,11 +346,11 @@ def _clamp_pagination(page: int, limit: int) -> tuple[int, int]:
 def _admin_label_condition(labels: list[str]) -> tuple[str, list]:
     """Return an AND-semantics label condition for admin product filters."""
     unique_labels = list(dict.fromkeys(labels))
-    placeholders = ", ".join("?" for _ in unique_labels)
+    placeholders = ", ".join("%s" for _ in unique_labels)
     return (
         f"p.id IN (SELECT product_id FROM product_label_assignments "  # noqa: S608
         f"WHERE label_slug IN ({placeholders}) "
-        "GROUP BY product_id HAVING COUNT(DISTINCT label_slug) = ?)",
+        "GROUP BY product_id HAVING COUNT(DISTINCT label_slug) = %s)",
         [*unique_labels, len(unique_labels)],
     )
 
@@ -347,10 +379,10 @@ def _build_admin_product_filters(
     if q and q.strip():
         pattern = f"%{_escape_like(q.strip())}%"
         conditions.append(
-            "(p.id LIKE ? ESCAPE '\\' OR p.name_en LIKE ? ESCAPE '\\' "
-            "OR COALESCE(p.name_bg, '') LIKE ? ESCAPE '\\' "
-            "OR COALESCE(p.description_en, '') LIKE ? ESCAPE '\\' "
-            "OR COALESCE(p.description_bg, '') LIKE ? ESCAPE '\\')"
+            "(p.id ILIKE %s ESCAPE '\\' OR p.name_en ILIKE %s ESCAPE '\\' "
+            "OR COALESCE(p.name_bg, '') ILIKE %s ESCAPE '\\' "
+            "OR COALESCE(p.description_en, '') ILIKE %s ESCAPE '\\' "
+            "OR COALESCE(p.description_bg, '') ILIKE %s ESCAPE '\\')"
         )
         params.extend([pattern, pattern, pattern, pattern, pattern])
 
@@ -373,15 +405,15 @@ def _build_admin_product_filters(
     elif stock == "out_of_stock":
         conditions.append("p.stock = 0")
     elif stock == "low":
-        conditions.append("p.stock <= ?")
+        conditions.append("p.stock <= %s")
         params.append(low_stock_threshold)
 
     if product_type:
-        conditions.append("p.product_type_slug = ?")
+        conditions.append("p.product_type_slug = %s")
         params.append(product_type)
 
     if category:
-        conditions.append("p.category_slug = ?")
+        conditions.append("p.category_slug = %s")
         params.append(category)
 
     if labels:
@@ -390,21 +422,21 @@ def _build_admin_product_filters(
         params.extend(label_params)
 
     if featured is not None:
-        conditions.append("p.is_featured = ?")
+        conditions.append("p.is_featured = %s")
         params.append(1 if featured else 0)
 
     if discount == "active":
         conditions.append(
             "(p.discount_percent IS NOT NULL "
-            "AND (p.discount_starts_at IS NULL OR p.discount_starts_at <= ?) "
-            "AND (p.discount_ends_at IS NULL OR p.discount_ends_at >= ?))"
+            "AND (p.discount_starts_at IS NULL OR p.discount_starts_at <= %s) "
+            "AND (p.discount_ends_at IS NULL OR p.discount_ends_at >= %s))"
         )
         params.extend([now, now])
     elif discount == "scheduled":
         conditions.append(
             "(p.discount_percent IS NOT NULL "
             "AND p.discount_starts_at IS NOT NULL "
-            "AND p.discount_starts_at > ?)"
+            "AND p.discount_starts_at > %s)"
         )
         params.append(now)
     elif discount == "none":
@@ -413,7 +445,7 @@ def _build_admin_product_filters(
     if inventory_mode:
         conditions.append(
             "COALESCE((SELECT pip.inventory_mode FROM product_inventory_profiles pip "
-            "WHERE pip.product_id = p.id), 'legacy') = ?"
+            "WHERE pip.product_id = p.id), 'legacy') = %s"
         )
         params.append(inventory_mode)
 
@@ -430,7 +462,7 @@ def _build_admin_product_filters(
     elif recipe_status in {"draft", "archived"}:
         conditions.append(
             "EXISTS (SELECT 1 FROM recipe_versions rv "
-            "WHERE rv.product_id = p.id AND rv.status = ?)"
+            "WHERE rv.product_id = p.id AND rv.status = %s)"
         )
         params.append(recipe_status)
 
@@ -472,22 +504,22 @@ def list_products(
     params: list = []
 
     if product_type:
-        conditions.append("product_type_slug = ?")
+        conditions.append("product_type_slug = %s")
         params.append(product_type)
 
     if category:
-        conditions.append("category_slug = ?")
+        conditions.append("category_slug = %s")
         params.append(category)
 
     if labels:
-        # De-duplicate so the HAVING COUNT(DISTINCT) = ? equality holds even if a
+        # De-duplicate so the HAVING COUNT(DISTINCT) equality holds even if a
         # caller passes repeated slugs (the route already de-dupes; belt-and-braces).
         unique_labels = list(dict.fromkeys(labels))
-        placeholders = ", ".join("?" for _ in unique_labels)
+        placeholders = ", ".join("%s" for _ in unique_labels)
         conditions.append(
             f"id IN (SELECT product_id FROM product_label_assignments "  # noqa: S608
             f"WHERE label_slug IN ({placeholders}) "
-            "GROUP BY product_id HAVING COUNT(DISTINCT label_slug) = ?)"
+            "GROUP BY product_id HAVING COUNT(DISTINCT label_slug) = %s)"
         )
         params.extend(unique_labels)
         params.append(len(unique_labels))
@@ -528,7 +560,7 @@ def list_products(
             order_by = sort_map.get(sort or "", "created_at DESC")
             rows = conn.execute(
                 f"SELECT * FROM products WHERE {where_clause} "  # noqa: S608
-                f"ORDER BY {order_by} LIMIT ? OFFSET ?",
+                f"ORDER BY {order_by} LIMIT %s OFFSET %s",
                 [*params, limit, offset],
             ).fetchall()
 
@@ -556,7 +588,7 @@ def get_product(product_id: str, *, locale: Locale = "en") -> dict:
     """
     with get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM products WHERE id = ? AND is_active = 1",
+            "SELECT * FROM products WHERE id = %s AND is_active = 1",
             (product_id,),
         ).fetchone()
 
@@ -579,7 +611,7 @@ def get_product_admin(product_id: str) -> dict:
     """
     with get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM products WHERE id = ?",
+            "SELECT * FROM products WHERE id = %s",
             (product_id,),
         ).fetchone()
 
@@ -603,7 +635,7 @@ def product_exists(product_id: str) -> bool:
     """
     with get_db() as conn:
         return (
-            conn.execute("SELECT 1 FROM products WHERE id = ?", (product_id,)).fetchone()
+            conn.execute("SELECT 1 FROM products WHERE id = %s", (product_id,)).fetchone()
             is not None
         )
 
@@ -671,7 +703,7 @@ def list_products_admin(
 
         rows = conn.execute(
             f"SELECT p.* FROM products p {where_clause} "  # noqa: S608
-            f"ORDER BY {order_by} LIMIT ? OFFSET ?",
+            f"ORDER BY {order_by} LIMIT %s OFFSET %s",
             [*params, limit, offset],
         ).fetchall()
 
@@ -759,7 +791,7 @@ def create_product(data: dict) -> dict:
             now,
             now,
         ]
-        placeholders = ", ".join("?" for _ in columns)
+        placeholders = ", ".join("%s" for _ in columns)
         col_str = ", ".join(columns)
 
         try:
@@ -767,14 +799,12 @@ def create_product(data: dict) -> dict:
                 f"INSERT INTO products ({col_str}) VALUES ({placeholders})",  # noqa: S608
                 values,
             )
-        except sqlite3.IntegrityError as e:
-            if "UNIQUE constraint failed" in str(e):
-                raise DuplicateError(f"Product with this ID already exists: {product_id}") from e
-            raise
+        except psycopg.errors.UniqueViolation as e:
+            raise DuplicateError(f"Product with this ID already exists: {product_id}") from e
 
         taxonomy_service.replace_product_labels(conn, product_id, label_slugs)
 
-        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        row = conn.execute("SELECT * FROM products WHERE id = %s", (product_id,)).fetchone()
         product = _row_to_dict(row)
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
         _attach_admin_inventory_context(conn, [product])
@@ -803,7 +833,7 @@ def upsert_product(product_id: str, data: dict) -> dict:
             SELECT p.stock, COALESCE(pip.inventory_mode, 'legacy') AS inventory_mode
             FROM products p
             LEFT JOIN product_inventory_profiles pip ON pip.product_id = p.id
-            WHERE p.id = ?
+            WHERE p.id = %s
             """,
             (product_id,),
         ).fetchone()
@@ -869,7 +899,7 @@ def upsert_product(product_id: str, data: dict) -> dict:
                 update_parts.append(f"{col} = excluded.{col}")
 
         col_str = ", ".join(insert_cols)
-        placeholders = ", ".join("?" for _ in insert_cols)
+        placeholders = ", ".join("%s" for _ in insert_cols)
         update_str = ", ".join(update_parts)
         sql = (
             f"INSERT INTO products ({col_str}) VALUES ({placeholders}) "  # noqa: S608
@@ -881,7 +911,7 @@ def upsert_product(product_id: str, data: dict) -> dict:
         if labels is not None:
             taxonomy_service.replace_product_labels(conn, product_id, labels)
 
-        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        row = conn.execute("SELECT * FROM products WHERE id = %s", (product_id,)).fetchone()
         product = _row_to_dict(row)
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
         _attach_admin_inventory_context(conn, [product])
@@ -915,7 +945,7 @@ def update_product(product_id: str, data: dict) -> dict:
                    COALESCE(pip.inventory_mode, 'legacy') AS inventory_mode
             FROM products p
             LEFT JOIN product_inventory_profiles pip ON pip.product_id = p.id
-            WHERE p.id = ?
+            WHERE p.id = %s
             """,
             (product_id,),
         ).fetchone()
@@ -1002,9 +1032,9 @@ def update_product(product_id: str, data: dict) -> dict:
             updates["translation_stale_bg"] = 0
 
         if updates:
-            set_clause = ", ".join(f"{col} = ?" for col in updates)
+            set_clause = ", ".join(f"{col} = %s" for col in updates)
             conn.execute(
-                f"UPDATE products SET {set_clause} WHERE id = ?",  # noqa: S608
+                f"UPDATE products SET {set_clause} WHERE id = %s",  # noqa: S608
                 [*updates.values(), product_id],
             )
 
@@ -1014,11 +1044,11 @@ def update_product(product_id: str, data: dict) -> dict:
                 # A label-only change still modifies the product; touch the row so
                 # the products_updated_at trigger refreshes updated_at.
                 conn.execute(
-                    "UPDATE products SET updated_at = updated_at WHERE id = ?",
+                    "UPDATE products SET updated_at = updated_at WHERE id = %s",
                     (product_id,),
                 )
 
-        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        row = conn.execute("SELECT * FROM products WHERE id = %s", (product_id,)).fetchone()
         product = _row_to_dict(row)
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
         _attach_admin_inventory_context(conn, [product])
@@ -1035,7 +1065,7 @@ def deactivate_product(product_id: str) -> dict:
     """
     with get_db() as conn:
         # Check existence first (for 404)
-        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        row = conn.execute("SELECT * FROM products WHERE id = %s", (product_id,)).fetchone()
         if row is None:
             raise NotFoundError(f"Product not found: {product_id}")
 
@@ -1043,11 +1073,11 @@ def deactivate_product(product_id: str) -> dict:
 
     with get_db() as conn:
         conn.execute(
-            "UPDATE products SET is_active = 0 WHERE id = ?",
+            "UPDATE products SET is_active = 0 WHERE id = %s",
             (product_id,),
         )
 
-        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        row = conn.execute("SELECT * FROM products WHERE id = %s", (product_id,)).fetchone()
         product = _row_to_dict(row)
         taxonomy_service.resolve_products_taxonomy(conn, [product], "en")
         _attach_admin_inventory_context(conn, [product])
@@ -1057,9 +1087,20 @@ def deactivate_product(product_id: str) -> dict:
     return product_video_service.attach_video_fields_one(product, public_only=False)
 
 
+def _fts_expression(locale: Locale) -> str:
+    """Postgres tsvector expression matching the GIN search index for a locale.
+
+    Mirrors idx_products_search_{en,bg} exactly so the index is usable.
+    """
+    return (
+        f"to_tsvector('simple', COALESCE(p.name_{locale}, '') || ' ' "
+        f"|| COALESCE(p.description_{locale}, ''))"
+    )
+
+
 def _build_search_conditions(
     sanitized: str,
-    fts_table: str,
+    locale: Locale,
     *,
     product_type: str | None,
     category: str | None,
@@ -1070,24 +1111,27 @@ def _build_search_conditions(
 
     Returns (conditions, params) covering only the WHERE clause (no LIMIT/OFFSET).
     """
-    conditions = [f"{fts_table} MATCH ?", "p.is_active = 1"]
+    conditions = [
+        f"{_fts_expression(locale)} @@ plainto_tsquery('simple', %s)",
+        "p.is_active = 1",
+    ]
     params: list = [sanitized]
 
     if product_type:
-        conditions.append("p.product_type_slug = ?")
+        conditions.append("p.product_type_slug = %s")
         params.append(product_type)
 
     if category:
-        conditions.append("p.category_slug = ?")
+        conditions.append("p.category_slug = %s")
         params.append(category)
 
     if labels:
         unique_labels = list(dict.fromkeys(labels))
-        placeholders = ", ".join("?" for _ in unique_labels)
+        placeholders = ", ".join("%s" for _ in unique_labels)
         conditions.append(
             f"p.id IN (SELECT product_id FROM product_label_assignments "  # noqa: S608
             f"WHERE label_slug IN ({placeholders}) "
-            "GROUP BY product_id HAVING COUNT(DISTINCT label_slug) = ?)"
+            "GROUP BY product_id HAVING COUNT(DISTINCT label_slug) = %s)"
         )
         params.extend(unique_labels)
         params.append(len(unique_labels))
@@ -1118,10 +1162,9 @@ def count_search_products(
     if not sanitized:
         return 0
 
-    fts_table = f"products_fts_{locale}"
     conditions, params = _build_search_conditions(
         sanitized,
-        fts_table,
+        locale,
         product_type=product_type,
         category=category,
         labels=labels,
@@ -1132,8 +1175,7 @@ def count_search_products(
         row = conn.execute(
             f"""
             SELECT COUNT(*) AS cnt
-            FROM {fts_table} fts
-            JOIN products p ON p.rowid = fts.rowid
+            FROM products p
             WHERE {where_clause}
             """,  # noqa: S608
             params,
@@ -1173,16 +1215,16 @@ def search_products(
     if not sanitized:
         return []
 
-    fts_table = f"products_fts_{locale}"
     conditions, params = _build_search_conditions(
         sanitized,
-        fts_table,
+        locale,
         product_type=product_type,
         category=category,
         labels=labels,
         in_stock=in_stock,
     )
     where_clause = " AND ".join(conditions)
+    rank_expr = f"ts_rank({_fts_expression(locale)}, plainto_tsquery('simple', %s))"
 
     now = pricing.now_utc()
     price_sort = sort in ("price_asc", "price_desc")
@@ -1193,24 +1235,22 @@ def search_products(
             rows = conn.execute(
                 f"""
                 SELECT p.*
-                FROM {fts_table} fts
-                JOIN products p ON p.rowid = fts.rowid
+                FROM products p
                 WHERE {where_clause}
-                ORDER BY rank
+                ORDER BY {rank_expr} DESC, p.id
                 """,  # noqa: S608
-                params,
+                [*params, sanitized],
             ).fetchall()
         else:
             rows = conn.execute(
                 f"""
                 SELECT p.*
-                FROM {fts_table} fts
-                JOIN products p ON p.rowid = fts.rowid
+                FROM products p
                 WHERE {where_clause}
-                ORDER BY rank
-                LIMIT ? OFFSET ?
+                ORDER BY {rank_expr} DESC, p.id
+                LIMIT %s OFFSET %s
                 """,  # noqa: S608
-                [*params, limit, offset],
+                [*params, sanitized, limit, offset],
             ).fetchall()
 
         products = [_resolve_locale_fields(_row_to_dict(r), locale) for r in rows]
@@ -1238,7 +1278,7 @@ def get_low_stock_products(threshold: int = 5) -> list[dict]:
         raise ValueError("Threshold must be non-negative")
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT * FROM products WHERE stock <= ? AND is_active = 1",
+            "SELECT * FROM products WHERE stock <= %s AND is_active = 1",
             (threshold,),
         ).fetchall()
         products = [_row_to_dict(r) for r in rows]
@@ -1249,7 +1289,7 @@ def get_low_stock_products(threshold: int = 5) -> list[dict]:
     return product_video_service.attach_video_fields(products, public_only=False)
 
 
-def _resolve_filter_target_ids(conn: sqlite3.Connection, filt: dict) -> list[str]:
+def _resolve_filter_target_ids(conn: psycopg.Connection, filt: dict) -> list[str]:
     """Resolve an admin product-list filter descriptor to product IDs.
 
     Admin scope: all products (active and inactive) unless `is_active` is set.
@@ -1262,17 +1302,19 @@ def _resolve_filter_target_ids(conn: sqlite3.Connection, filt: dict) -> list[str
     q = (filt.get("q") or "").strip()
     if q:
         conditions.append(
-            "(name_en LIKE ? ESCAPE '\\' OR name_bg LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')"
+            "(name_en ILIKE %s ESCAPE '\\' "
+            "OR name_bg ILIKE %s ESCAPE '\\' "
+            "OR id ILIKE %s ESCAPE '\\')"
         )
         # Escape LIKE wildcards so a query like "50%" matches literally.
         escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         like = f"%{escaped}%"
         params.extend([like, like, like])
     if filt.get("category"):
-        conditions.append("category_slug = ?")
+        conditions.append("category_slug = %s")
         params.append(filt["category"])
     if filt.get("is_active") is not None:
-        conditions.append("is_active = ?")
+        conditions.append("is_active = %s")
         params.append(1 if filt["is_active"] else 0)
     if filt.get("in_stock"):
         conditions.append("stock > 0")
@@ -1321,7 +1363,7 @@ def bulk_update_discount(
     discount_percent: int | None = None,
     discount_starts_at: str | None = None,
     discount_ends_at: str | None = None,
-    conn: sqlite3.Connection | None = None,
+    conn: psycopg.Connection | None = None,
 ) -> dict:
     """Apply or clear the discount on a resolved list of products.
 
@@ -1351,14 +1393,14 @@ def bulk_update_discount(
     results: list[dict] = []
     success = 0
 
-    def _run(conn: sqlite3.Connection) -> None:
+    def _run(conn: psycopg.Connection) -> None:
         nonlocal success
         for pid in product_ids:
             conn.execute("SAVEPOINT bulk_item")
             try:
                 existing = conn.execute(
                     "SELECT discount_percent, discount_starts_at, discount_ends_at "
-                    "FROM products WHERE id = ?",
+                    "FROM products WHERE id = %s",
                     (pid,),
                 ).fetchone()
                 if existing is None:
@@ -1366,8 +1408,8 @@ def bulk_update_discount(
 
                 merged = merge_discount_update(existing, patch)
                 conn.execute(
-                    "UPDATE products SET discount_percent = ?, discount_starts_at = ?, "
-                    "discount_ends_at = ? WHERE id = ?",
+                    "UPDATE products SET discount_percent = %s, discount_starts_at = %s, "
+                    "discount_ends_at = %s WHERE id = %s",
                     (
                         merged["discount_percent"],
                         merged["discount_starts_at"],
@@ -1398,7 +1440,7 @@ def bulk_update_discount(
 
 
 def conservative_clear_discount(
-    targets: list[dict], conn: sqlite3.Connection | None = None
+    targets: list[dict], conn: psycopg.Connection | None = None
 ) -> dict:
     """Clear a discount only where a product's current fields still match.
 
@@ -1413,7 +1455,7 @@ def conservative_clear_discount(
     results: list[dict] = []
     success = 0
 
-    def _run(conn: sqlite3.Connection) -> None:
+    def _run(conn: psycopg.Connection) -> None:
         nonlocal success
         for t in targets:
             pid = t["product_id"]
@@ -1421,7 +1463,7 @@ def conservative_clear_discount(
             try:
                 row = conn.execute(
                     "SELECT discount_percent, discount_starts_at, discount_ends_at "
-                    "FROM products WHERE id = ?",
+                    "FROM products WHERE id = %s",
                     (pid,),
                 ).fetchone()
                 if row is None:
@@ -1448,13 +1490,13 @@ def conservative_clear_discount(
 
                 conn.execute(
                     "UPDATE products SET discount_percent = NULL, "
-                    "discount_starts_at = NULL, discount_ends_at = NULL WHERE id = ?",
+                    "discount_starts_at = NULL, discount_ends_at = NULL WHERE id = %s",
                     (pid,),
                 )
                 conn.execute("RELEASE clear_item")
                 results.append({"id": pid, "status": "updated"})
                 success += 1
-            except sqlite3.Error as e:
+            except psycopg.Error as e:
                 conn.execute("ROLLBACK TO clear_item")
                 conn.execute("RELEASE clear_item")
                 results.append({"id": pid, "status": "failed", "error": str(e)})

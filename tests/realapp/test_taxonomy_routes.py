@@ -2,9 +2,56 @@
 
 Uses the realapp fixtures (function-scoped fresh DB + real middleware) so admin
 CRUD mutations to the shared taxonomy tables stay isolated per test.
+
+Under the Postgres template-clone model the seed taxonomy tables are NOT
+truncated by the root ``_clean_tables`` autouse (they carry the migration-baked
+seed rows), so admin CRUD in one test would otherwise leak into the next. The
+``_restore_taxonomy_seeds`` autouse fixture below snapshots the seed taxonomy
+tables around each test and restores them, preserving the per-test isolation the
+suite was written against.
 """
 
 import pytest
+
+_SEED_TAXONOMY_TABLES = ("product_types", "product_categories", "product_labels")
+
+
+@pytest.fixture(autouse=True)
+def _restore_taxonomy_seeds(app):
+    """Snapshot and restore the seed taxonomy tables around each test.
+
+    The migration bakes the seed terms into every worker DB and the root
+    truncation deliberately skips these tables, so admin mutations (create /
+    rename / deactivate / delete) persist across tests. Capture each seed table's
+    rows before the test and rewrite them afterwards so every test starts from the
+    baked seed state.
+    """
+    from app.database import get_db
+
+    with get_db() as conn:
+        snapshots = {
+            table: [dict(r) for r in conn.execute(f"SELECT * FROM {table}").fetchall()]  # noqa: S608
+            for table in _SEED_TAXONOMY_TABLES
+        }
+    yield
+    with get_db() as conn:
+        # Clear rows that FK-reference the seed tables before rewriting them
+        # (both are volatile and get truncated before the next test anyway).
+        conn.execute("DELETE FROM product_label_assignments")
+        conn.execute("DELETE FROM products")
+        for table in _SEED_TAXONOMY_TABLES:
+            rows = snapshots[table]
+            conn.execute(f"DELETE FROM {table}")  # noqa: S608
+            if not rows:
+                continue
+            columns = list(rows[0].keys())
+            placeholders = ", ".join("%s" for _ in columns)
+            col_list = ", ".join(columns)
+            with conn.cursor() as cur:
+                cur.executemany(
+                    f"INSERT INTO {table} ({col_list}) VALUES ({placeholders})",  # noqa: S608
+                    [tuple(row[c] for c in columns) for row in rows],
+                )
 
 
 async def _create_product(admin_client, **overrides):

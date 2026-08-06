@@ -1,15 +1,14 @@
 """Admin Econt fulfillment route tests."""
 
 import json
-import sqlite3
 import uuid
 
+import psycopg
 import pytest
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr
 
 from app.config import get_settings
-from app.database import _seed_econt_settings
 from app.models.delivery import DeliveryInfo, DeliveryOffice
 from app.models.econt import EcontShipmentStatus
 from app.models.users import UserResponse
@@ -17,6 +16,7 @@ from app.services import auth_service
 from app.services.econt_delivery_client import EcontTransientError
 from app.services.econt_fulfillment_service import build_order_payload
 from app.services.order_service import checkout
+from conftest import FAKE_SESSION_ID
 
 
 class FakeEcontClient:
@@ -59,6 +59,18 @@ class FakeEcontClient:
         )
 
 
+def _seed_econt_settings(conn) -> None:
+    """Re-seed the singleton Econt settings ``default`` row.
+
+    ``econt_settings`` is a migration-seed table (never truncated by the root
+    ``_clean_tables``), but these tests mutate the singleton, so this file owns an
+    explicit per-test re-seed (Decision 15). Replaces the removed SQLite
+    ``app.database._seed_econt_settings`` helper — non-id columns take their DB
+    defaults, exactly as the old ``INSERT OR IGNORE`` did.
+    """
+    conn.execute("INSERT INTO econt_settings (id) VALUES ('default') ON CONFLICT (id) DO NOTHING")
+
+
 @pytest.fixture(autouse=True)
 def _reset_econt_settings(db):
     db.execute("DELETE FROM econt_settings")
@@ -77,7 +89,7 @@ def econt_secret(monkeypatch):
     yield
 
 
-def _configure_econt(db: sqlite3.Connection) -> None:
+def _configure_econt(db: psycopg.Connection) -> None:
     db.execute(
         """
         UPDATE econt_settings
@@ -88,18 +100,18 @@ def _configure_econt(db: sqlite3.Connection) -> None:
     db.commit()
 
 
-def _make_order(db: sqlite3.Connection, app, *, courier="econt", confirmed=True) -> str:
-    session_id = app._test_session_id
+def _make_order(db: psycopg.Connection, app, *, courier="econt", confirmed=True) -> str:
+    session_id = FAKE_SESSION_ID
     product_id = f"route-product-{uuid.uuid4().hex[:8]}"
     db.execute(
         """
         INSERT INTO products (id, name_en, price_cents, stock, is_active)
-        VALUES (?, 'Candle', 2500, 10, 1)
+        VALUES (%s, 'Candle', 2500, 10, 1)
         """,
         (product_id,),
     )
     db.execute(
-        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, ?, 1)",
+        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (%s, %s, 1)",
         (session_id, product_id),
     )
     db.commit()
@@ -122,20 +134,20 @@ def _make_order(db: sqlite3.Connection, app, *, courier="econt", confirmed=True)
         delivery=delivery,
     )
     if confirmed:
-        db.execute("UPDATE orders SET status = 'confirmed' WHERE id = ?", (order["id"],))
+        db.execute("UPDATE orders SET status = 'confirmed' WHERE id = %s", (order["id"],))
         db.commit()
     return order["id"]
 
 
-def _seed_admin_session(db: sqlite3.Connection, app, *, user_id: str = "jwt-admin") -> str:
+def _seed_admin_session(db: psycopg.Connection, app, *, user_id: str = "jwt-admin") -> str:
     db.execute(
         """
         INSERT INTO users (id, google_id, email, name, is_admin)
-        VALUES (?, ?, ?, 'JWT Admin', 1)
+        VALUES (%s, %s, %s, 'JWT Admin', 1)
         """,
         (user_id, f"google-{user_id}", f"{user_id}@example.com"),
     )
-    db.execute("UPDATE sessions SET user_id = ? WHERE id = ?", (user_id, app._test_session_id))
+    db.execute("UPDATE sessions SET user_id = %s WHERE id = %s", (user_id, FAKE_SESSION_ID))
     db.commit()
     user = UserResponse(
         id=user_id,
@@ -144,7 +156,7 @@ def _seed_admin_session(db: sqlite3.Connection, app, *, user_id: str = "jwt-admi
         avatar_url=None,
         is_admin=True,
     )
-    return auth_service.create_jwt(user, app._test_session_id)
+    return auth_service.create_jwt(user, FAKE_SESSION_ID)
 
 
 class TestAdminEcontRoutes:
@@ -184,7 +196,7 @@ class TestAdminEcontRoutes:
             """
             SELECT courier_provider, courier_status, courier_sync_status,
                    courier_shipment_number
-            FROM orders WHERE id = ?
+            FROM orders WHERE id = %s
             """,
             (order_id,),
         ).fetchone()
@@ -193,7 +205,7 @@ class TestAdminEcontRoutes:
         assert row["courier_sync_status"] == "manual_status"
         assert row["courier_shipment_number"] is None
         case = db.execute(
-            "SELECT reason, source, status FROM order_returns WHERE order_id = ?",
+            "SELECT reason, source, status FROM order_returns WHERE order_id = %s",
             (order_id,),
         ).fetchone()
         assert dict(case) == {"reason": "other", "source": "econt", "status": "requested"}
@@ -240,12 +252,14 @@ class TestAdminEcontRoutes:
     ):
         _configure_econt(db)
         order_id = _make_order(db, app)
-        row = db.execute("SELECT delivery_details FROM orders WHERE id = ?", (order_id,)).fetchone()
+        row = db.execute(
+            "SELECT delivery_details FROM orders WHERE id = %s", (order_id,)
+        ).fetchone()
         details = json.loads(row["delivery_details"])
         details.pop("office_code", None)
         details.pop("phone", None)
         db.execute(
-            "UPDATE orders SET delivery_details = ? WHERE id = ?",
+            "UPDATE orders SET delivery_details = %s WHERE id = %s",
             (json.dumps(details), order_id),
         )
         db.commit()
@@ -344,7 +358,7 @@ class TestAdminEcontRoutes:
         assert delete.status_code == 200
         assert delete.json()["status"] == "deleted"
         row = db.execute(
-            "SELECT courier_shipment_number, tracking_number FROM orders WHERE id = ?",
+            "SELECT courier_shipment_number, tracking_number FROM orders WHERE id = %s",
             (order_id,),
         ).fetchone()
         assert row["courier_shipment_number"] is None
@@ -369,7 +383,7 @@ class TestAdminEcontRoutes:
         monkeypatch.setattr("app.services.econt_fulfillment_service.make_client", lambda conn: fake)
         create = await admin_client.post(f"/v1/admin/orders/{order_id}/econt/label")
         assert create.status_code == 200
-        db.execute("UPDATE orders SET status = 'delivered' WHERE id = ?", (order_id,))
+        db.execute("UPDATE orders SET status = 'delivered' WHERE id = %s", (order_id,))
         db.commit()
 
         trace = await admin_client.post(f"/v1/admin/orders/{order_id}/econt/trace")
@@ -435,7 +449,7 @@ class TestAdminEcontRoutes:
         assert order["status"] == "shipped"
         assert order["tracking_number"] == "1234567890"
         shipped_email = db.execute(
-            "SELECT status FROM order_emails WHERE order_id = ? AND event = 'shipped'",
+            "SELECT status FROM order_emails WHERE order_id = %s AND event = 'shipped'",
             (order_id,),
         ).fetchone()
         assert shipped_email["status"] == "queued"
@@ -455,14 +469,14 @@ class TestAdminEcontRoutes:
 
         assert resp.status_code == 503
         row = db.execute(
-            "SELECT status, tracking_number, courier_sync_status FROM orders WHERE id = ?",
+            "SELECT status, tracking_number, courier_sync_status FROM orders WHERE id = %s",
             (order_id,),
         ).fetchone()
         assert row["status"] == "confirmed"
         assert row["tracking_number"] is None
         assert row["courier_sync_status"] == "failed"
         shipped_email = db.execute(
-            "SELECT 1 FROM order_emails WHERE order_id = ? AND event = 'shipped'",
+            "SELECT 1 FROM order_emails WHERE order_id = %s AND event = 'shipped'",
             (order_id,),
         ).fetchone()
         assert shipped_email is None

@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.database import get_db, init_db
+from app.database import get_db
 from app.services.comment_service import (
     CommentNotFoundError,
     ProductNotFoundError,
@@ -16,23 +16,12 @@ from app.services.comment_service import (
 
 
 @pytest.fixture()
-def db(tmp_path, monkeypatch):
-    """Initialize a fresh database for each test."""
-    db_path = str(tmp_path / "test.db")
-    init_db(db_path)
-    monkeypatch.setattr("app.database._db_path", db_path)
-    return db_path
-
-
-@pytest.fixture()
 def active_product(db):
     """Insert an active product for testing."""
-    from app.database import get_db
-
     with get_db() as conn:
         conn.execute(
             "INSERT INTO products (id, name_en, price_cents, stock, is_active)"
-            " VALUES (?, ?, ?, ?, ?)",
+            " VALUES (%s, %s, %s, %s, %s)",
             ("test-candle", "Test Candle", 2500, 10, 1),
         )
     return "test-candle"
@@ -41,12 +30,10 @@ def active_product(db):
 @pytest.fixture()
 def inactive_product(db):
     """Insert an inactive product."""
-    from app.database import get_db
-
     with get_db() as conn:
         conn.execute(
             "INSERT INTO products (id, name_en, price_cents, stock, is_active)"
-            " VALUES (?, ?, ?, ?, ?)",
+            " VALUES (%s, %s, %s, %s, %s)",
             ("inactive-candle", "Inactive Candle", 2500, 10, 0),
         )
     return "inactive-candle"
@@ -76,7 +63,7 @@ class TestCreateComment:
 
         with get_db() as conn:
             row = conn.execute(
-                "SELECT display_name, body FROM comments WHERE id = ?",
+                "SELECT display_name, body FROM comments WHERE id = %s",
                 (result["id"],),
             ).fetchone()
         assert "&lt;b&gt;" in row["display_name"]
@@ -133,12 +120,10 @@ class TestCreateComment:
             create_comment("session-1", None, inactive_product, "Marie", "Hello!")
 
     def test_stores_user_id(self, active_product):
-        from app.database import get_db
-
         # Need a user in the DB for the FK
         with get_db() as conn:
             conn.execute(
-                "INSERT INTO users (id, google_id, email, name) VALUES (?, ?, ?, ?)",
+                "INSERT INTO users (id, google_id, email, name) VALUES (%s, %s, %s, %s)",
                 ("user-123", "google-123", "user@test.com", "Test User"),
             )
 
@@ -159,14 +144,12 @@ class TestCommentRateLimits:
             create_comment("session-1", None, active_product, "Marie", "Fourth attempt")
 
     def test_different_products_within_limit(self, db):
-        from app.database import get_db
-
         # Create 3 products
         with get_db() as conn:
             for i in range(3):
                 conn.execute(
                     "INSERT INTO products (id, name_en, price_cents, stock, is_active) "
-                    "VALUES (?, ?, ?, ?, ?)",
+                    "VALUES (%s, %s, %s, %s, %s)",
                     (f"candle-{i}", f"Candle {i}", 2500, 10, 1),
                 )
 
@@ -176,14 +159,12 @@ class TestCommentRateLimits:
                 create_comment("session-1", None, f"candle-{i}", "Marie", f"Comment {j}")
 
     def test_hourly_limit_blocks_eleventh_comment(self, db):
-        from app.database import get_db
-
         # Create 11 products
         with get_db() as conn:
             for i in range(11):
                 conn.execute(
                     "INSERT INTO products (id, name_en, price_cents, stock, is_active) "
-                    "VALUES (?, ?, ?, ?, ?)",
+                    "VALUES (%s, %s, %s, %s, %s)",
                     (f"candle-{i}", f"Candle {i}", 2500, 10, 1),
                 )
 
@@ -264,17 +245,15 @@ class TestListAllComments:
         assert comments[0]["product_id"] == active_product
 
     def test_filters_by_product_id(self, db):
-        from app.database import get_db
-
         with get_db() as conn:
             conn.execute(
                 "INSERT INTO products (id, name_en, price_cents, stock, is_active) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "VALUES (%s, %s, %s, %s, %s)",
                 ("candle-a", "Candle A", 2500, 10, 1),
             )
             conn.execute(
                 "INSERT INTO products (id, name_en, price_cents, stock, is_active) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "VALUES (%s, %s, %s, %s, %s)",
                 ("candle-b", "Candle B", 2500, 10, 1),
             )
 

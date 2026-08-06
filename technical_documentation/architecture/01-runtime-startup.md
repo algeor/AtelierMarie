@@ -8,7 +8,7 @@ App startup does four jobs:
 
 1. Load settings from env.
 2. Configure FastAPI, middleware, routers, and static files.
-3. Initialize SQLite schema during lifespan startup.
+3. Open the psycopg connection pool and verify the DB is at Alembic head (no schema creation) during lifespan startup.
 4. Start background loops for cleanup, email, and video work.
 
 ## Main Files
@@ -58,7 +58,7 @@ The lifespan function runs when the ASGI app starts.
 It does this:
 
 1. Configures logging for the current environment.
-2. Calls `init_db(settings.database_path)`.
+2. Calls `init_db(settings.database_url)`.
 3. Initializes analytics storage only if analytics is enabled.
 4. Ensures static directories exist.
 5. Ensures video temp directory exists and is private.

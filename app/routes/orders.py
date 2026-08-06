@@ -160,18 +160,24 @@ async def create_order(
                 },
             )
 
+    # Read analytics consent BEFORE opening the order connection. It runs its
+    # own get_db(); nesting it inside the order's held connection would need two
+    # pooled connections at once for a single request and dead-locks the psycopg
+    # pool. The consent read is independent of the order transaction, so hoisting
+    # it out does not affect checkout atomicity.
+    analytics_consent = analytics_service.has_current_analytics_consent(session_id)
+
     try:
         with get_db() as conn:
             row = conn.execute(
                 "SELECT s.user_id, s.preferred_locale, u.email AS user_email "
                 "FROM sessions s LEFT JOIN users u ON u.id = s.user_id "
-                "WHERE s.id = ?",
+                "WHERE s.id = %s",
                 (session_id,),
             ).fetchone()
             user_id = row["user_id"] if row else None
             preferred_locale = row["preferred_locale"] if row else None
             locale: Literal["en", "bg"] = "bg" if preferred_locale == "bg" else "en"
-            analytics_consent = analytics_service.has_current_analytics_consent(session_id)
 
             # Resolve the order's contact email. A logged-in user may omit it and
             # fall back to their account email; anyone may supply a different one
@@ -199,7 +205,7 @@ async def create_order(
                 else None
             )
             # get_payment_settings() may lazily insert defaults; close that
-            # transaction before checkout() starts its explicit BEGIN IMMEDIATE.
+            # transaction before checkout() opens its own transaction block.
             conn.commit()
 
             order_data = checkout(
@@ -220,18 +226,6 @@ async def create_order(
                 shipping_quoted_at=body.shipping_quoted_at,
                 invoice_profile=body.invoice_profile,
                 pay_on_delivery_max_cents=pay_on_delivery_max_cents,
-            )
-
-            analytics_service.record_purchase_confirmed(
-                order_id=order_data["id"],
-                session_id=session_id,
-                user_id=user_id,
-                locale=locale,
-                total_cents=order_data["total_cents"],
-                payment_method=body.payment_method,
-                delivery_method=order_data["delivery_method"],
-                delivery_courier=order_data["delivery_courier"],
-                analytics_consent=analytics_consent,
             )
 
             stripe_checkout_url: str | None = None
@@ -327,6 +321,24 @@ async def create_order(
             },
         )
 
+    # Emit the purchase-confirmed analytics event AFTER the order connection is
+    # released. record_purchase_confirmed runs its own get_db(); calling it inside
+    # the held checkout connection would need two pooled connections for one
+    # request and can dead-lock the psycopg pool (same reasoning as the consent
+    # read hoisted above). Analytics is fire-and-forget and swallows its own
+    # exceptions, so this never affects the order that already committed.
+    analytics_service.record_purchase_confirmed(
+        order_id=order_data["id"],
+        session_id=session_id,
+        user_id=user_id,
+        locale=locale,
+        total_cents=order_data["total_cents"],
+        payment_method=body.payment_method,
+        delivery_method=order_data["delivery_method"],
+        delivery_courier=order_data["delivery_courier"],
+        analytics_consent=analytics_consent,
+    )
+
     response = _public_order_response(order_data)
     if stripe_checkout_url:
         response = response.model_copy(update={"stripe_checkout_url": stripe_checkout_url})
@@ -363,7 +375,7 @@ async def create_stripe_retry_session(
 
     with get_db() as conn:
         # Ownership check.
-        row = conn.execute("SELECT user_id FROM sessions WHERE id = ?", (session_id,)).fetchone()
+        row = conn.execute("SELECT user_id FROM sessions WHERE id = %s", (session_id,)).fetchone()
         user_id = row["user_id"] if row else None
         try:
             get_order(conn=conn, order_id=order_id, session_id=session_id, user_id=user_id)
@@ -377,7 +389,7 @@ async def create_stripe_retry_session(
                 "Card payments are not currently available",
             )
         # payment_method_available() may lazily insert default settings; close
-        # that transaction before the rate limiter starts BEGIN IMMEDIATE.
+        # that transaction before the rate limiter opens its own transaction.
         conn.commit()
 
         try:
@@ -442,7 +454,7 @@ def list_my_orders(
 ) -> OrderListResponse:
     """List orders for the current session/user."""
     with get_db() as conn:
-        row = conn.execute("SELECT user_id FROM sessions WHERE id = ?", (session_id,)).fetchone()
+        row = conn.execute("SELECT user_id FROM sessions WHERE id = %s", (session_id,)).fetchone()
         user_id = row["user_id"] if row else None
 
         result = list_orders(
@@ -498,7 +510,7 @@ def get_order_detail(
             )
 
     with get_db() as conn:
-        row = conn.execute("SELECT user_id FROM sessions WHERE id = ?", (session_id,)).fetchone()
+        row = conn.execute("SELECT user_id FROM sessions WHERE id = %s", (session_id,)).fetchone()
         user_id = row["user_id"] if row else None
 
         order_data = get_order(

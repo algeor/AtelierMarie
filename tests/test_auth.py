@@ -1,6 +1,5 @@
 """Tests for auth service and auth routes — Google OAuth flow."""
 
-import sqlite3
 import time
 from http.cookies import SimpleCookie
 from unittest.mock import AsyncMock, patch
@@ -62,29 +61,29 @@ def _unconfigure_oauth(monkeypatch, app):
 
 
 @pytest.fixture()
-def user_in_db(db_path) -> UserResponse:
+def user_in_db(app) -> UserResponse:
     """Insert a test user and return the UserResponse."""
     user_id = "user-test-001"
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "INSERT INTO users (id, google_id, email, name, avatar_url, is_admin) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (user_id, "google-123", "marie@example.com", "Marie", None, 1),
-    )
-    conn.commit()
-    conn.close()
+    from app.database import get_db
+
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO users (id, google_id, email, name, avatar_url, is_admin) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (user_id, "google-123", "marie@example.com", "Marie", None, 1),
+        )
     return UserResponse(
         id=user_id, email="marie@example.com", name="Marie", avatar_url=None, is_admin=True
     )
 
 
 @pytest.fixture()
-def authenticated_session(db_path, session_id, user_in_db) -> str:
+def authenticated_session(app, session_id, user_in_db) -> str:
     """Link the session to the user. Returns session_id."""
-    conn = sqlite3.connect(db_path)
-    conn.execute("UPDATE sessions SET user_id = ? WHERE id = ?", (user_in_db.id, session_id))
-    conn.commit()
-    conn.close()
+    from app.database import get_db
+
+    with get_db() as conn:
+        conn.execute("UPDATE sessions SET user_id = %s WHERE id = %s", (user_in_db.id, session_id))
     return session_id
 
 
@@ -265,74 +264,59 @@ class TestOAuthState:
 
 
 class TestUpsertUser:
-    def test_first_user_is_admin(self, db_path, app):
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys=ON")
+    def test_first_user_is_admin(self, db, app):
+        conn = db
 
         user = auth_service.upsert_user(conn, "google-1", "first@test.com", "First", None)
-        conn.close()
 
         assert user.is_admin is True
         assert user.email == "first@test.com"
         assert user.name == "First"
 
-    def test_second_user_is_not_admin(self, db_path, app):
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys=ON")
+    def test_second_user_is_not_admin(self, db, app):
+        conn = db
 
         auth_service.upsert_user(conn, "google-1", "first@test.com", "First", None)
         user2 = auth_service.upsert_user(conn, "google-2", "second@test.com", "Second", None)
-        conn.close()
 
         assert user2.is_admin is False
 
-    def test_returning_user_updated(self, db_path, app):
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys=ON")
+    def test_returning_user_updated(self, db, app):
+        conn = db
 
         user1 = auth_service.upsert_user(conn, "google-1", "a@test.com", "Old Name", None)
         user2 = auth_service.upsert_user(
             conn, "google-1", "a@test.com", "New Name", "http://avatar.jpg"
         )
-        conn.close()
 
         assert user1.id == user2.id  # Same user
         assert user2.name == "New Name"
         assert user2.avatar_url == "http://avatar.jpg"
         assert user2.is_admin is True  # Still admin
 
-    def test_blank_profile_fields_are_normalized(self, db_path, app):
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys=ON")
+    def test_blank_profile_fields_are_normalized(self, db, app):
+        conn = db
 
         user = auth_service.upsert_user(conn, "google-blank", "blank@test.com", "   ", "")
         row = conn.execute(
-            "SELECT name, avatar_url FROM users WHERE google_id = ?", ("google-blank",)
+            "SELECT name, avatar_url FROM users WHERE google_id = %s", ("google-blank",)
         ).fetchone()
-        conn.close()
 
         assert user.name is None
         assert user.avatar_url is None
         assert row["name"] is None
         assert row["avatar_url"] is None
 
-    def test_returning_user_omitted_profile_fields_preserve_existing_values(self, db_path, app):
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys=ON")
+    def test_returning_user_omitted_profile_fields_preserve_existing_values(self, db, app):
+        conn = db
 
         auth_service.upsert_user(
             conn, "google-1", "a@test.com", "Old Name", "http://old-avatar.jpg"
         )
         user = auth_service.upsert_user(conn, "google-1", "a@test.com", "", None)
         row = conn.execute(
-            "SELECT name, avatar_url FROM users WHERE google_id = ?", ("google-1",)
+            "SELECT name, avatar_url FROM users WHERE google_id = %s", ("google-1",)
         ).fetchone()
-        conn.close()
 
         assert user.name == "Old Name"
         assert user.avatar_url == "http://old-avatar.jpg"
@@ -445,12 +429,12 @@ class TestLogoutRoute:
         await auth_client.post("/v1/auth/logout")
 
         # Verify old session has user_id=NULL
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        row = conn.execute(
-            "SELECT user_id FROM sessions WHERE id = ?", (authenticated_session,)
-        ).fetchone()
-        conn.close()
+        from app.database import get_db
+
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT user_id FROM sessions WHERE id = %s", (authenticated_session,)
+            ).fetchone()
 
         assert row["user_id"] is None
 
@@ -538,18 +522,18 @@ class TestCallbackRoute:
         assert claims["session_id"] == new_session_id
 
         # User should be created in DB
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        user_row = conn.execute(
-            "SELECT * FROM users WHERE google_id = ?", ("google-new-user",)
-        ).fetchone()
-        old_session_row = conn.execute(
-            "SELECT * FROM sessions WHERE id = ?", (session_id,)
-        ).fetchone()
-        new_session_row = conn.execute(
-            "SELECT * FROM sessions WHERE id = ?", (new_session_id,)
-        ).fetchone()
-        conn.close()
+        from app.database import get_db
+
+        with get_db() as conn:
+            user_row = conn.execute(
+                "SELECT * FROM users WHERE google_id = %s", ("google-new-user",)
+            ).fetchone()
+            old_session_row = conn.execute(
+                "SELECT * FROM sessions WHERE id = %s", (session_id,)
+            ).fetchone()
+            new_session_row = conn.execute(
+                "SELECT * FROM sessions WHERE id = %s", (new_session_id,)
+            ).fetchone()
 
         assert user_row is not None
         assert user_row["email"] == "newuser@gmail.com"
@@ -715,15 +699,14 @@ class TestCallbackRoute:
     ):
         """After callback: session rotates and anonymous orders are backfilled."""
         # Insert an anonymous order for this session
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute(
-            "INSERT INTO orders (id, session_id, status, total_cents, customer_email) "
-            "VALUES (?, ?, 'pending', 5000, 'anon@example.com')",
-            ("order-anon-1", session_id),
-        )
-        conn.commit()
-        conn.close()
+        from app.database import get_db
+
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO orders (id, session_id, status, total_cents, customer_email) "
+                "VALUES (%s, %s, 'pending', 5000, 'anon@example.com')",
+                ("order-anon-1", session_id),
+            )
 
         url = auth_service.build_google_auth_url(session_id, return_to="/")
         from urllib.parse import parse_qs, urlparse
@@ -759,18 +742,16 @@ class TestCallbackRoute:
         assert new_session_id != session_id
 
         # Verify the old session was rotated away and the anonymous order was backfilled.
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        old_session_row = conn.execute(
-            "SELECT id FROM sessions WHERE id = ?", (session_id,)
-        ).fetchone()
-        new_session_row = conn.execute(
-            "SELECT user_id FROM sessions WHERE id = ?", (new_session_id,)
-        ).fetchone()
-        order_row = conn.execute(
-            "SELECT user_id FROM orders WHERE id = ?", ("order-anon-1",)
-        ).fetchone()
-        conn.close()
+        with get_db() as conn:
+            old_session_row = conn.execute(
+                "SELECT id FROM sessions WHERE id = %s", (session_id,)
+            ).fetchone()
+            new_session_row = conn.execute(
+                "SELECT user_id FROM sessions WHERE id = %s", (new_session_id,)
+            ).fetchone()
+            order_row = conn.execute(
+                "SELECT user_id FROM orders WHERE id = %s", ("order-anon-1",)
+            ).fetchone()
 
         assert old_session_row is None
         assert new_session_row["user_id"] is not None
@@ -786,18 +767,18 @@ class TestLogoutCartIsolation:
     ):
         """Add items, logout, verify new session has empty cart."""
         # Insert a cart item for the authenticated session
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "INSERT INTO products (id, name_en, price_cents, stock, is_active) "
-            "VALUES (?, ?, ?, ?, 1)",
-            ("test-prod-cart", "Test", 1000, 10),
-        )
-        conn.execute(
-            "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, ?, ?)",
-            (authenticated_session, "test-prod-cart", 2),
-        )
-        conn.commit()
-        conn.close()
+        from app.database import get_db
+
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO products (id, name_en, price_cents, stock, is_active) "
+                "VALUES (%s, %s, %s, %s, 1)",
+                ("test-prod-cart", "Test", 1000, 10),
+            )
+            conn.execute(
+                "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (%s, %s, %s)",
+                (authenticated_session, "test-prod-cart", 2),
+            )
 
         auth_client.cookies.set(settings.jwt_cookie_name, jwt_cookie)
         response = await auth_client.post("/v1/auth/logout")
@@ -808,12 +789,10 @@ class TestLogoutCartIsolation:
         assert len(session_cookie_values) == 1
         new_session_cookie = session_cookie_values[0]
         # Verify new session has no cart items
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        items = conn.execute(
-            "SELECT * FROM cart_items WHERE session_id = ?", (new_session_cookie,)
-        ).fetchall()
-        conn.close()
+        with get_db() as conn:
+            items = conn.execute(
+                "SELECT * FROM cart_items WHERE session_id = %s", (new_session_cookie,)
+            ).fetchall()
         assert len(items) == 0
 
 
@@ -1054,14 +1033,17 @@ class TestRequireAdmin:
     ):
         """Non-admin JWT → 403 Forbidden (key cannot escalate)."""
         # Create non-admin user
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "INSERT INTO users (id, google_id, email, name, is_admin) VALUES (?, ?, ?, ?, ?)",
-            ("user-nonadmin", "google-nonadmin", "nonadmin@test.com", "NonAdmin", 0),
-        )
-        conn.execute("UPDATE sessions SET user_id = ? WHERE id = ?", ("user-nonadmin", session_id))
-        conn.commit()
-        conn.close()
+        from app.database import get_db
+
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO users (id, google_id, email, name, is_admin) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                ("user-nonadmin", "google-nonadmin", "nonadmin@test.com", "NonAdmin", 0),
+            )
+            conn.execute(
+                "UPDATE sessions SET user_id = %s WHERE id = %s", ("user-nonadmin", session_id)
+            )
 
         user = UserResponse(
             id="user-nonadmin",
@@ -1135,17 +1117,17 @@ class TestRequireAdmin:
         self, auth_client: AsyncClient, settings, session_id, db_path
     ):
         """Non-admin JWT + valid API key → 403 (JWT is identity, key cannot escalate)."""
+        # Create non-admin user and link session
+        from app.database import get_db
         from conftest import ADMIN_API_KEY
 
-        # Create non-admin user and link session
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "INSERT INTO users (id, google_id, email, name, is_admin) VALUES (?, ?, ?, ?, ?)",
-            ("user-na2", "google-na2", "na2@test.com", "NA", 0),
-        )
-        conn.execute("UPDATE sessions SET user_id = ? WHERE id = ?", ("user-na2", session_id))
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO users (id, google_id, email, name, is_admin) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                ("user-na2", "google-na2", "na2@test.com", "NA", 0),
+            )
+            conn.execute("UPDATE sessions SET user_id = %s WHERE id = %s", ("user-na2", session_id))
 
         user = UserResponse(
             id="user-na2", email="na2@test.com", name="NA", avatar_url=None, is_admin=False
@@ -1218,23 +1200,20 @@ class TestReturnToValidation:
 class TestUpsertUserConcurrency:
     """Task 41: Test first-user-is-admin concurrency scenario."""
 
-    def test_concurrent_upsert_exactly_one_admin(self, db_path, app):
+    def test_concurrent_upsert_exactly_one_admin(self, app):
         """Two threads call upsert_user simultaneously, only one gets admin."""
         import threading
+
+        from app.database import get_db
 
         results = []
         barrier = threading.Barrier(2)
 
         def worker(google_id, email):
-            conn = sqlite3.connect(db_path)
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA foreign_keys=ON")
             barrier.wait()  # Start simultaneously
-            try:
+            with get_db() as conn:
                 user = auth_service.upsert_user(conn, google_id, email, "User", None)
                 results.append(user)
-            finally:
-                conn.close()
 
         t1 = threading.Thread(target=worker, args=("g1", "a@test.com"))
         t2 = threading.Thread(target=worker, args=("g2", "b@test.com"))

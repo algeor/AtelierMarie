@@ -4,12 +4,33 @@ Covers tasks 9.1–9.7: campaign CRUD/apply/remove, bulk discount validation and
 partial failure, and the admin/public banner APIs.
 """
 
-import sqlite3
-from pathlib import Path
-
 import pytest
 
-from app.database import init_db
+
+@pytest.fixture(autouse=True)
+def _reset_banner_singleton(app):
+    """Restore the seeded ``site_banners`` singleton before each test.
+
+    ``site_banners`` is a migration-seed table, so the root ``_clean_tables``
+    autouse fixture deliberately never truncates it (its seeded row must persist
+    across the template clone). Banner tests mutate that singleton, though, so
+    without an explicit reset the mutations would leak between tests. This mirrors
+    the per-file fresh-DB isolation the SQLite suite relied on.
+    """
+    from app.database import get_db
+
+    with get_db() as conn:
+        conn.execute(
+            """
+            UPDATE site_banners
+            SET message_en = 'Free shipping on orders over €50 ✨',
+                message_bg = 'Безплатна доставка за поръчки над 50€ ✨',
+                link_label_en = NULL, link_label_bg = NULL, link_url = NULL,
+                is_enabled = 1, starts_at = NULL, ends_at = NULL, version = 1
+            WHERE id = 'default'
+            """
+        )
+    yield
 
 
 def _make_product(product_id: str, **overrides) -> None:
@@ -23,8 +44,8 @@ def _make_product(product_id: str, **overrides) -> None:
     if category:
         with get_db() as conn:
             conn.execute(
-                "INSERT OR IGNORE INTO product_categories (slug, name_en, sort_order) "
-                "VALUES (?, ?, 0)",
+                "INSERT INTO product_categories (slug, name_en, sort_order) "
+                "VALUES (%s, %s, 0) ON CONFLICT (slug) DO NOTHING",
                 (category, category.replace("-", " ").title()),
             )
 
@@ -42,7 +63,7 @@ def _make_product(product_id: str, **overrides) -> None:
 
 def _get_discount(db, product_id: str) -> dict:
     row = db.execute(
-        "SELECT discount_percent, discount_starts_at, discount_ends_at FROM products WHERE id = ?",
+        "SELECT discount_percent, discount_starts_at, discount_ends_at FROM products WHERE id = %s",
         (product_id,),
     ).fetchone()
     return {
@@ -605,7 +626,7 @@ class TestPublicBanner:
         db.execute(
             """
             UPDATE site_banners
-            SET message_en = ?, link_label_en = ?, link_url = ?, is_enabled = 1, version = 2
+            SET message_en = %s, link_label_en = %s, link_url = %s, is_enabled = 1, version = 2
             WHERE id = 'default'
             """,
             ("Sale", "Shop now", "javascript:alert(1)"),
@@ -772,46 +793,33 @@ class TestApplyRemoveEdges:
 
 
 class TestPromotionSchemaMigration:
-    def test_existing_campaign_table_gets_last_result_column(self, db_path):
-        Path(db_path).unlink(missing_ok=True)
-        conn = sqlite3.connect(db_path)
-        conn.executescript(
+    def test_existing_campaign_table_gets_last_result_column(self, db):
+        # The legacy SQLite ``init_db`` add-column migration path is gone under
+        # Postgres: ``last_result`` ships in the initial migration. Assert the
+        # real schema exposes the column and it defaults to NULL for a row that
+        # does not set it (preserving the original intent).
+        db.execute(
             """
-            CREATE TABLE promotion_campaigns (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                note TEXT,
-                discount_percent INTEGER NOT NULL,
-                discount_starts_at TEXT,
-                discount_ends_at TEXT,
-                target_type TEXT NOT NULL,
-                target_ids TEXT,
-                target_filter TEXT,
-                applied_at TEXT,
-                removed_at TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
             INSERT INTO promotion_campaigns (
-                id, name, discount_percent, target_type, target_ids, created_at, updated_at
+                id, name, discount_percent, target_type, target_ids,
+                created_at, updated_at
             ) VALUES (
                 'legacy-campaign', 'Legacy', 20, 'ids', '["a-candle"]',
-                '2026-01-01 00:00:00', '2026-01-01 00:00:00'
-            );
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
             """
         )
-        conn.close()
-
-        init_db(db_path)
-
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        columns = {row[1] for row in conn.execute("PRAGMA table_info(promotion_campaigns)")}
-        row = conn.execute(
-            "SELECT last_result FROM promotion_campaigns WHERE id = ?",
+        columns = {
+            r["column_name"]
+            for r in db.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'promotion_campaigns'"
+            ).fetchall()
+        }
+        row = db.execute(
+            "SELECT last_result FROM promotion_campaigns WHERE id = %s",
             ("legacy-campaign",),
         ).fetchone()
-        conn.close()
 
         assert "last_result" in columns
         assert row["last_result"] is None

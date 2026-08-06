@@ -7,7 +7,6 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from app.config import get_settings
 from app.database import init_db
 
 
@@ -22,23 +21,24 @@ def test_video_temp_path_must_not_be_inside_static(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_lifespan_starts_and_cancels_cleanup_task(tmp_path, monkeypatch):
+async def test_lifespan_starts_and_cancels_cleanup_task(db_path, app):
     """The lifespan context manager starts the cleanup loop and cancels it on shutdown."""
-    db_path = str(tmp_path / "test.db")
-    monkeypatch.setenv("DATABASE_PATH", db_path)
-    get_settings.cache_clear()
     init_db(db_path)
 
     from app.main import create_app, lifespan
 
-    app = create_app()
+    created_app = create_app()
 
     # Exercise the lifespan context manager directly
-    async with lifespan(app):
+    async with lifespan(created_app):
         # The background task is running (asyncio.create_task was called inside)
         pass
-    # After exiting, the task was cancelled — no error means clean shutdown
-    get_settings.cache_clear()
+    # After exiting, the task was cancelled — no error means clean shutdown.
+    # ``lifespan`` shutdown calls ``close_db()``, which nulls the process-global
+    # pool owned by the session-scoped conftest ``app`` (one pool per xdist
+    # worker). Re-open it so subsequent tests on this worker don't hit
+    # "Database pool is not initialized".
+    init_db(db_path)
 
 
 @pytest.mark.asyncio

@@ -5,7 +5,7 @@ from io import BytesIO
 import pytest
 from PIL import Image
 
-from app.database import get_db, init_db
+from app.database import get_db
 from app.services import site_media_service
 
 
@@ -16,20 +16,18 @@ def _make_jpeg(width: int = 120, height: int = 90) -> bytes:
 
 
 @pytest.fixture()
-def site_media_db(tmp_path) -> str:
-    path = str(tmp_path / "site-media.db")
+def site_media_static_path(tmp_path, db):
     static_path = tmp_path / "static"
     from app.config import get_settings
 
     settings = get_settings()
     original_static_path = settings.static_file_path
     settings.static_file_path = str(static_path)
-    init_db(path)
-    yield path
+    yield static_path
     settings.static_file_path = original_static_path
 
 
-def test_seeded_assets_include_defaults_and_public_urls(site_media_db):
+def test_seeded_assets_include_defaults_and_public_urls(site_media_static_path):
     admin = site_media_service.list_admin_assets()["assets"]
     keys = [asset["key"] for asset in admin]
 
@@ -42,7 +40,7 @@ def test_seeded_assets_include_defaults_and_public_urls(site_media_db):
     )
 
 
-def test_upload_and_clear_asset_image(site_media_db):
+def test_upload_and_clear_asset_image(site_media_static_path):
     uploaded = site_media_service.set_asset_image("home_hero", _make_jpeg())
 
     assert uploaded["image_id"]
@@ -62,6 +60,6 @@ def test_upload_and_clear_asset_image(site_media_db):
     assert site_media_service.get_public_assets()["assets"]["home_hero"] is None
 
 
-def test_unknown_asset_key_is_rejected(site_media_db):
+def test_unknown_asset_key_is_rejected(site_media_static_path):
     with pytest.raises(site_media_service.SiteMediaNotFoundError):
         site_media_service.set_asset_image("missing", _make_jpeg())

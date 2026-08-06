@@ -7,14 +7,12 @@ Covers tasks 3.4–3.7:
 - 3.7 legacy order rows default to shipping_cents=0, live, non-fallback
 """
 
-import sqlite3
 import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from app.constants import SHIPPING_CENTS_MAX
-from app.database import init_db
 from app.models.delivery import DeliveryInfo, DeliveryOffice
 from app.services.order_service import (
     InvalidShippingPriceError,
@@ -26,14 +24,8 @@ _DT_FMT = "%Y-%m-%d %H:%M:%S"
 
 
 @pytest.fixture()
-def conn(tmp_path):
-    path = str(tmp_path / "checkout.db")
-    init_db(path)
-    c = sqlite3.connect(path)
-    c.row_factory = sqlite3.Row
-    c.execute("PRAGMA foreign_keys=ON")
-    yield c
-    c.close()
+def conn(db):
+    return db
 
 
 @pytest.fixture()
@@ -41,7 +33,7 @@ def session_id(conn):
     sid = str(uuid.uuid4())
     now = datetime.now(UTC)
     conn.execute(
-        "INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)",
+        "INSERT INTO sessions (id, created_at, expires_at) VALUES (%s, %s, %s)",
         (sid, now.strftime(_DT_FMT), (now + timedelta(days=30)).strftime(_DT_FMT)),
     )
     conn.commit()
@@ -70,7 +62,7 @@ def _cart_below_threshold(conn, session_id):
         " VALUES ('cheap', 'Cheap', 1800, 10, 1)"
     )
     conn.execute(
-        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, 'cheap', 1)",
+        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (%s, 'cheap', 1)",
         (session_id,),
     )
     conn.commit()
@@ -83,7 +75,7 @@ def _cart_above_threshold(conn, session_id):
         " VALUES ('pricey', 'Pricey', 6000, 10, 1)"
     )
     conn.execute(
-        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (?, 'pricey', 1)",
+        "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (%s, 'pricey', 1)",
         (session_id,),
     )
     conn.commit()
@@ -197,7 +189,7 @@ class TestLegacyOrderRetrieval:
         # Insert bypassing the shipping columns → they take their DB defaults.
         conn.execute(
             "INSERT INTO orders (id, session_id, status, total_cents, customer_email,"
-            " created_at, updated_at) VALUES (?, ?, 'pending', 2500, 'l@example.com', ?, ?)",
+            " created_at, updated_at) VALUES (%s, %s, 'pending', 2500, 'l@example.com', %s, %s)",
             (order_id, session_id, now, now),
         )
         conn.commit()

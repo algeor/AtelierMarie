@@ -1,5 +1,6 @@
 """Application configuration via environment variables."""
 
+import os
 from functools import lru_cache
 from typing import Literal
 
@@ -23,7 +24,18 @@ class Settings(BaseSettings):
 
     # Core
     environment: str = "development"
-    database_path: str = "./atelier_marie.db"
+    database_url: str = "postgresql://atelier:atelier@localhost:5432/atelier_marie"
+
+    # Database concurrency (design Decision 14). The psycopg pool and the Starlette
+    # threadpool are sized together: threadpool >= pool so a threadpooled DB handler
+    # never waits on a missing worker thread, only on a busy connection. Bounded
+    # above by Postgres max_connections (~100) on a single free-tier VPS, leaving
+    # headroom for migrations/admin. Pool wait timeout makes bursts queue then fail
+    # clean rather than hang. Validated (not trusted) by the stress test.
+    db_pool_min_size: int = Field(default=2, ge=1, le=100)
+    db_pool_max_size: int = Field(default=20, ge=1, le=100)
+    db_pool_timeout_seconds: float = Field(default=8.0, gt=0, le=60)
+    server_threadpool_size: int = Field(default=24, ge=1, le=200)
 
     # Auth
     jwt_secret: str = _DEV_JWT_SECRET
@@ -163,6 +175,21 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_production_config(self) -> "Settings":
         """Refuse to start in production with insecure defaults."""
+        if not self.database_url.startswith(("postgresql://", "postgres://")):
+            msg = "DATABASE_URL must be a Postgres connection URL. SQLite is no longer supported."
+            raise ValueError(msg)
+        if self.db_pool_max_size < self.db_pool_min_size:
+            msg = "DB_POOL_MAX_SIZE must be >= DB_POOL_MIN_SIZE."
+            raise ValueError(msg)
+        if self.server_threadpool_size < self.db_pool_max_size:
+            msg = (
+                "SERVER_THREADPOOL_SIZE must be >= DB_POOL_MAX_SIZE so a threadpooled "
+                "handler never waits on a missing worker thread, only on a busy connection."
+            )
+            raise ValueError(msg)
+        if self.environment == "production" and not os.getenv("DATABASE_URL"):
+            msg = "DATABASE_URL must be set in production."
+            raise ValueError(msg)
         if self.jwt_secret == _DEV_JWT_SECRET and self.environment not in (
             "development",
             "test",

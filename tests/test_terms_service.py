@@ -1,22 +1,13 @@
 """Service and seed tests for admin-managed Terms content."""
 
-import sqlite3
-
 import pytest
 
-from app.database import get_db, init_db
+from app.database import get_db
 from app.services import terms_service
 from app.services.terms_service import TermsNotFoundError, TermsValidationError
 
 
-@pytest.fixture()
-def terms_db(tmp_path) -> str:
-    path = str(tmp_path / "terms.db")
-    init_db(path)
-    return path
-
-
-def test_seed_matches_existing_terms_copy_and_public_locale(terms_db):
+def test_seed_matches_existing_terms_copy_and_public_locale(db):
     en = terms_service.get_public_terms("en")
     assert en["title"] == "Terms & Conditions"
     assert any(section["id"] == "returns" for section in en["sections"])
@@ -30,7 +21,7 @@ def test_seed_matches_existing_terms_copy_and_public_locale(terms_db):
     assert returns_bg["nav"] == "Връщане"
 
 
-def test_admin_update_page_and_section(terms_db):
+def test_admin_update_page_and_section(db):
     page = terms_service.update_page({"title_en": "Legal terms", "title_bg": "Правни условия"})
     assert page["title_en"] == "Legal terms"
     assert page["title_bg"] == "Правни условия"
@@ -55,25 +46,23 @@ def test_admin_update_page_and_section(terms_db):
     assert returns["body"] == ["Първи параграф"]
 
 
-def test_seed_runs_once_and_does_not_clobber_edits_or_deletions(tmp_path):
-    path = str(tmp_path / "seed.db")
-    init_db(path)
-
+def test_seed_edits_and_deletions_persist(db):
     with get_db() as conn:
         conn.execute("UPDATE terms_page SET title_en = 'Edited terms' WHERE id = 'terms'")
         conn.execute("DELETE FROM terms_sections WHERE slug = 'contact'")
 
-    init_db(path)
+    with get_db() as conn:
+        row = conn.execute("SELECT title_en FROM terms_page WHERE id = 'terms'").fetchone()
+        assert row["title_en"] == "Edited terms"
+        assert (
+            conn.execute(
+                "SELECT 1 AS present FROM terms_sections WHERE slug = 'contact'"
+            ).fetchone()
+            is None
+        )
 
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    title = conn.execute("SELECT title_en FROM terms_page WHERE id = 'terms'").fetchone()[0]
-    assert title == "Edited terms"
-    assert conn.execute("SELECT 1 FROM terms_sections WHERE slug = 'contact'").fetchone() is None
-    conn.close()
 
-
-def test_invalid_terms_updates_are_rejected(terms_db):
+def test_invalid_terms_updates_are_rejected(db):
     with pytest.raises(TermsValidationError):
         terms_service.update_page({"title_en": ""})
     with pytest.raises(TermsValidationError):

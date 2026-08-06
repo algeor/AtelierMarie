@@ -1,15 +1,15 @@
 """Integration tests for public product endpoints."""
 
-import sqlite3
-
 import pytest
 
 from app.config import get_settings
+from app.database import get_db
 from app.models.users import UserResponse
 from app.services import auth_service
+from conftest import FAKE_SESSION_ID
 
 
-def _authenticate_client(client, db_path: str, app) -> None:
+def _authenticate_client(client) -> None:
     """Attach a valid JWT for the fake middleware session used by route tests."""
     user = UserResponse(
         id="saved-user",
@@ -18,24 +18,22 @@ def _authenticate_client(client, db_path: str, app) -> None:
         avatar_url=None,
         is_admin=False,
     )
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "INSERT INTO users (id, google_id, email, name) VALUES (?, ?, ?, ?)",
-        (user.id, "google-saved", user.email, user.name),
-    )
-    conn.execute("UPDATE sessions SET user_id = ? WHERE id = ?", (user.id, app._test_session_id))
-    conn.commit()
-    conn.close()
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO users (id, google_id, email, name) VALUES (%s, %s, %s, %s)",
+            (user.id, "google-saved", user.email, user.name),
+        )
+        conn.execute("UPDATE sessions SET user_id = %s WHERE id = %s", (user.id, FAKE_SESSION_ID))
 
     client.cookies.clear()
     client.cookies.set(
         get_settings().jwt_cookie_name,
-        auth_service.create_jwt(user, app._test_session_id),
+        auth_service.create_jwt(user, FAKE_SESSION_ID),
     )
 
 
 @pytest.fixture()
-def _products(app, db_path):
+def _products(app, db):
     """Seed test products via the service layer."""
     from app.services import product_service
 
@@ -270,8 +268,8 @@ class TestSavedProducts:
         assert response.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_save_list_and_unsave_product(self, client, db_path, app, _products):
-        _authenticate_client(client, db_path, app)
+    async def test_save_list_and_unsave_product(self, client, _products):
+        _authenticate_client(client)
 
         save_response = await client.post("/v1/products/lavender-dream-300ml/saved")
         assert save_response.status_code == 201
@@ -299,8 +297,8 @@ class TestSavedProducts:
         assert empty_response.json()["total"] == 0
 
     @pytest.mark.asyncio
-    async def test_save_missing_product_returns_404(self, client, db_path, app, _products):
-        _authenticate_client(client, db_path, app)
+    async def test_save_missing_product_returns_404(self, client, _products):
+        _authenticate_client(client)
 
         response = await client.post("/v1/products/missing/saved")
 

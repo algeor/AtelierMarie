@@ -27,7 +27,7 @@ Checkout, products, cart, auth, shipping, payments, and email must work when ana
 
 ## Storage Model
 
-- Consent is stored in SQLite by session.
+- Consent is stored in Postgres by session.
 - Events can be appended to JSONL.
 - DuckDB is used for analytics reporting/aggregation.
 - Backend order totals can be compared against analytics events for coverage.

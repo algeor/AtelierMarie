@@ -53,7 +53,7 @@ Important details:
 - Public listing shows active products.
 - Admin listing can include inactive products.
 - Pagination is clamped.
-- Search uses FTS5 and sanitized query strings.
+- Search uses Postgres full-text search (GIN + `to_tsvector`/`plainto_tsquery`).
 - Taxonomy filters use slugs.
 
 ## How Detail Works

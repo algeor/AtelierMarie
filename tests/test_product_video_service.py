@@ -6,13 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from app.database import get_db, init_db
+from app.database import get_db
 from app.services import product_service, product_video_service, video_service
 
 
 @pytest.fixture()
-def _video_product(db_path, tmp_path, monkeypatch):
-    init_db(db_path)
+def _video_product(db, tmp_path, monkeypatch):
     from app.config import get_settings
 
     settings = get_settings()
@@ -169,7 +168,7 @@ def test_drain_video_transcodes_success(_video_product, monkeypatch):
         conn.execute(
             """
             INSERT INTO product_videos (id, product_id, status, source_path, duration_secs)
-            VALUES (?, 'video-product', 'queued', ?, 8.0)
+            VALUES (%s, 'video-product', 'queued', %s, 8.0)
             """,
             ("dddddddddddddddddddddddddddddddd", str(source)),
         )
@@ -207,7 +206,7 @@ def test_drain_video_transcodes_keeps_ready_when_poster_has_no_fallback(
         conn.execute(
             """
             INSERT INTO product_videos (id, product_id, status, source_path, duration_secs)
-            VALUES (?, 'video-product', 'queued', ?, 8.0)
+            VALUES (%s, 'video-product', 'queued', %s, 8.0)
             """,
             ("abababababababababababababababab", str(source)),
         )
@@ -234,7 +233,7 @@ def test_drain_video_transcodes_does_not_overwrite_row_no_longer_transcoding(
                 """
                 UPDATE product_videos
                 SET status = 'failed', failure_reason = 'lease stolen'
-                WHERE id = ?
+                WHERE id = %s
                 """,
                 (video_id,),
             )
@@ -249,7 +248,7 @@ def test_drain_video_transcodes_does_not_overwrite_row_no_longer_transcoding(
         conn.execute(
             """
             INSERT INTO product_videos (id, product_id, status, source_path, duration_secs)
-            VALUES (?, 'video-product', 'queued', ?, 8.0)
+            VALUES (%s, 'video-product', 'queued', %s, 8.0)
             """,
             ("cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd", str(source)),
         )
@@ -293,14 +292,14 @@ def test_drain_processes_only_one_queued_video_per_sweep(_video_product, monkeyp
         conn.execute(
             """
             INSERT INTO product_videos (id, product_id, status, source_path, duration_secs)
-            VALUES (?, 'video-product', 'queued', ?, 8.0)
+            VALUES (%s, 'video-product', 'queued', %s, 8.0)
             """,
             ("11111111111111111111111111111111", str(source_one)),
         )
         conn.execute(
             """
             INSERT INTO product_videos (id, product_id, status, source_path, duration_secs)
-            VALUES (?, 'second-video-product', 'queued', ?, 8.0)
+            VALUES (%s, 'second-video-product', 'queued', %s, 8.0)
             """,
             ("22222222222222222222222222222222", str(source_two)),
         )
@@ -335,7 +334,7 @@ def test_concurrent_drains_only_one_claims_single_queued_video(_video_product, m
         conn.execute(
             """
             INSERT INTO product_videos (id, product_id, status, source_path, duration_secs)
-            VALUES (?, 'video-product', 'queued', ?, 8.0)
+            VALUES (%s, 'video-product', 'queued', %s, 8.0)
             """,
             ("33333333333333333333333333333333", str(source)),
         )
@@ -367,7 +366,7 @@ def test_drain_video_transcodes_failure_is_terminal(_video_product, monkeypatch)
         conn.execute(
             """
             INSERT INTO product_videos (id, product_id, status, source_path, duration_secs)
-            VALUES (?, 'video-product', 'queued', ?, 8.0)
+            VALUES (%s, 'video-product', 'queued', %s, 8.0)
             """,
             ("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", str(source)),
         )
@@ -403,7 +402,7 @@ def test_expired_transcode_marked_failed(_video_product):
                 id, product_id, status, source_path, duration_secs, lease_expires_at
             ) VALUES (
                 'ffffffffffffffffffffffffffffffff', 'video-product', 'transcoding',
-                ?, 8.0, '2000-01-01 00:00:00'
+                %s, 8.0, '2000-01-01 00:00:00'
             )
             """,
             (str(source),),
@@ -458,7 +457,7 @@ def test_product_deactivate_transcoding_video_returns_conflict_before_deactivate
             "SELECT is_active FROM products WHERE id = 'video-product'"
         ).fetchone()
         video = conn.execute(
-            "SELECT status FROM product_videos WHERE product_id = ?", ("video-product",)
+            "SELECT status FROM product_videos WHERE product_id = %s", ("video-product",)
         ).fetchone()
     assert product["is_active"] == 1
     assert video["status"] == "transcoding"

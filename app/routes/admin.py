@@ -3,17 +3,17 @@
 import csv
 import io
 import re
-import sqlite3
 from pathlib import Path
 from typing import Annotated, cast, get_args
 
+import psycopg
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, Response
 
 from app.config import get_settings
 from app.constants import MAX_CSV_ROWS, MAX_CSV_UPLOAD_BYTES, MAX_PRICE_CENTS, MAX_STOCK
-from app.database import get_db
+from app.database import IntegrityError, get_db
 from app.dependencies.auth import require_admin
 from app.middleware.request_id import request_id_var
 from app.models.accounting import (
@@ -191,6 +191,7 @@ from app.services.order_service import (
     OrderNotFoundError,
     PaymentAlreadyPaidError,
     WrongPaymentMethodError,
+    _fmt_ts,
     apply_manual_payment_action,
     get_order_admin,
     get_order_inventory_context,
@@ -2437,7 +2438,7 @@ async def admin_import_products(
             DuplicateError,
             LedgerManagedStockEditError,
             ValueError,
-            sqlite3.IntegrityError,
+            IntegrityError,
         ) as e:
             # Expected per-row data errors are reported and the import continues.
             # Unexpected exceptions propagate rather than masquerading as row errors.
@@ -2743,7 +2744,7 @@ def _return_service_error_response(exc: Exception) -> JSONResponse:
 
 
 def _ensure_return_case_belongs_to_order(
-    conn: sqlite3.Connection, *, order_id: str, return_id: str
+    conn: psycopg.Connection, *, order_id: str, return_id: str
 ) -> None:
     case = get_return_case(conn, return_id)
     if case["order_id"] != order_id:
@@ -2943,7 +2944,7 @@ def admin_get_order_emails(order_id: str) -> OrderEmailAuditResponse:
         get_order_admin(conn=conn, order_id=order_id)
         rows = conn.execute(
             "SELECT event, recipient, status, reason, attempts, sent_at "
-            "FROM order_emails WHERE order_id = ? ORDER BY id",
+            "FROM order_emails WHERE order_id = %s ORDER BY id",
             (order_id,),
         ).fetchall()
 
@@ -2956,7 +2957,7 @@ def admin_get_order_emails(order_id: str) -> OrderEmailAuditResponse:
                 status=r["status"],
                 reason=r["reason"],
                 attempts=r["attempts"],
-                sent_at=r["sent_at"],
+                sent_at=_fmt_ts(r["sent_at"]),
             )
             for r in rows
         ],

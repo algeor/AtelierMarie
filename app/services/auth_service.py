@@ -7,7 +7,6 @@ Functions accept explicit parameters (conn, settings, etc.).
 import hashlib
 import logging
 import secrets
-import sqlite3
 import threading
 import time
 import uuid
@@ -18,6 +17,7 @@ from urllib.parse import urlencode
 
 import httpx
 import jwt
+import psycopg
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from jwt.algorithms import RSAAlgorithm
 
@@ -35,6 +35,9 @@ _JWKS_TTL_SECONDS = 6 * 60 * 60  # 6 hours
 _STATE_EXPIRY_SECONDS = 600  # 10 minutes
 _HTTP_TIMEOUT = httpx.Timeout(10.0)
 _SQLITE_DT_FMT = "%Y-%m-%d %H:%M:%S"
+# Stable key for the transaction-scoped advisory lock that serializes the
+# first-user-is-admin check in upsert_user across concurrent registrations.
+_UPSERT_USER_LOCK_KEY = 0x41544D5F55534552  # "ATM_USER"
 
 
 # --- Exceptions ---
@@ -326,7 +329,7 @@ def _blank_to_none(value: str | None) -> str | None:
 
 
 def upsert_user(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     google_id: str,
     email: str,
     name: str | None,
@@ -335,7 +338,8 @@ def upsert_user(
     """Create or update a user from Google OAuth claims.
 
     First user to register is auto-promoted to admin (first-user-is-admin rule).
-    Uses BEGIN IMMEDIATE for atomic first-user check.
+    The first-user check is serialized with a transaction-scoped advisory lock so
+    concurrent registrations cannot both read an empty table and both self-promote.
 
     Returns:
         UserResponse with user data.
@@ -346,7 +350,7 @@ def upsert_user(
 
     # Check if user already exists
     existing = conn.execute(
-        "SELECT id, email, name, avatar_url, is_admin FROM users WHERE google_id = ?",
+        "SELECT id, email, name, avatar_url, is_admin FROM users WHERE google_id = %s",
         (google_id,),
     ).fetchone()
 
@@ -357,7 +361,7 @@ def upsert_user(
         next_name = name if name is not None else existing_name
         next_avatar_url = avatar_url if avatar_url is not None else existing_avatar_url
         conn.execute(
-            "UPDATE users SET name = ?, avatar_url = ?, last_login_at = ? WHERE google_id = ?",
+            "UPDATE users SET name = %s, avatar_url = %s, last_login_at = %s WHERE google_id = %s",
             (next_name, next_avatar_url, now, google_id),
         )
         return UserResponse(
@@ -368,22 +372,20 @@ def upsert_user(
             is_admin=bool(existing["is_admin"]),
         )
 
-    # New user — atomic first-user-is-admin check
-    conn.execute("BEGIN IMMEDIATE")
-    try:
-        user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    # New user — atomic first-user-is-admin check. The advisory lock serializes
+    # concurrent inserts so the COUNT(*) below sees a consistent table; it is
+    # released automatically when the transaction ends.
+    with conn.transaction():
+        conn.execute("SELECT pg_advisory_xact_lock(%s)", (_UPSERT_USER_LOCK_KEY,))
+        user_count = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
         is_admin = 1 if user_count == 0 else 0
 
         user_id = str(uuid.uuid4())
         conn.execute(
             "INSERT INTO users (id, google_id, email, name, avatar_url, is_admin, last_login_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
             (user_id, google_id, email, name, avatar_url, is_admin, now),
         )
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
 
     return UserResponse(
         id=user_id,
@@ -435,7 +437,7 @@ def verify_jwt(token: str) -> dict | None:
         return None
 
 
-def get_user_from_session(conn: sqlite3.Connection, session_id: str) -> UserResponse | None:
+def get_user_from_session(conn: psycopg.Connection, session_id: str) -> UserResponse | None:
     """Look up the authenticated user for a session.
 
     Returns:
@@ -444,7 +446,7 @@ def get_user_from_session(conn: sqlite3.Connection, session_id: str) -> UserResp
     row = conn.execute(
         "SELECT u.id, u.email, u.name, u.avatar_url, u.is_admin "
         "FROM sessions s JOIN users u ON s.user_id = u.id "
-        "WHERE s.id = ?",
+        "WHERE s.id = %s",
         (session_id,),
     ).fetchone()
 

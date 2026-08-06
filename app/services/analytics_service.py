@@ -133,12 +133,12 @@ def record_consent(
             """
             INSERT INTO analytics_consents (
                 session_id, analytics, consent_version, locale, updated_at
-            ) VALUES (?, ?, ?, ?, datetime('now'))
+            ) VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
             ON CONFLICT(session_id) DO UPDATE SET
                 analytics = excluded.analytics,
                 consent_version = excluded.consent_version,
                 locale = excluded.locale,
-                updated_at = datetime('now')
+                updated_at = CURRENT_TIMESTAMP
             """,
             (session_id, 1 if analytics else 0, consent_version, normalized_locale),
         )
@@ -151,7 +151,7 @@ def has_current_analytics_consent(session_id: str) -> bool:
         row = conn.execute(
             """
             SELECT analytics FROM analytics_consents
-            WHERE session_id = ? AND consent_version = ?
+            WHERE session_id = %s AND consent_version = %s
             """,
             (session_id, settings.analytics_consent_version),
         ).fetchone()
@@ -634,7 +634,7 @@ def _sqlite_order_totals(start_date: str | None, end_date: str | None) -> dict[s
                    COALESCE(SUM(CASE WHEN analytics_consent = 1 THEN 1 ELSE 0 END), 0)
                    AS consented_order_count
             FROM orders
-            WHERE created_at >= ? AND created_at < ? AND status != 'cancelled'
+            WHERE created_at >= %s AND created_at < %s AND status != 'cancelled'
             """,
             (start, end_exclusive),
         ).fetchone()
@@ -742,7 +742,7 @@ def get_product_metrics(
     order_ids = [row[0] for row in purchase_order_rows]
     names: dict[str, str] = {}
     if order_ids:
-        placeholders = ",".join("?" * len(order_ids))
+        placeholders = ",".join("%s" for _ in order_ids)
         with get_db() as conn:
             purchase_rows = conn.execute(
                 f"""
@@ -770,7 +770,7 @@ def get_product_metrics(
 
     if metrics:
         product_ids = list(metrics)
-        placeholders = ",".join("?" * len(product_ids))
+        placeholders = ",".join("%s" for _ in product_ids)
         with get_db() as conn:
             for row in conn.execute(
                 f"""
@@ -883,7 +883,7 @@ def anonymize_subject(
         ("order_id", order_ids or []),
     ):
         if values:
-            placeholders = ",".join("?" * len(values))
+            placeholders = ",".join("?" for _ in values)
             conditions.append(f"{field} IN ({placeholders})")
             params.extend(values)
     if not conditions:

@@ -5,8 +5,6 @@ content or schedule changes, so the public dismiss key changes and a user who
 dismissed old copy sees the new banner (see site-banner spec).
 """
 
-import sqlite3
-
 import structlog
 
 from app.database import get_db
@@ -16,6 +14,25 @@ from app.utils.sanitize import is_safe_http_or_relative_url
 logger = structlog.get_logger(__name__)
 
 _BANNER_ID = "default"
+
+# Canonical timestamp string shape shared across services. psycopg returns
+# TIMESTAMPTZ columns as ``datetime`` but the banner response models declare
+# these fields as ``str``, so admin reads normalise through ``_fmt_ts``.
+_DT_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _fmt_ts(value: object) -> str | None:
+    """Render a timestamp column read as the canonical ``_DT_FMT`` string.
+
+    psycopg returns TIMESTAMPTZ as ``datetime``; ``None`` and existing strings
+    pass through unchanged.
+    """
+    from datetime import datetime
+
+    if isinstance(value, datetime):
+        return value.strftime(_DT_FMT)
+    return value  # type: ignore[return-value]
+
 
 # Fields whose change should bump the version (invalidate prior dismissals).
 _VERSIONED_FIELDS = (
@@ -30,7 +47,7 @@ _VERSIONED_FIELDS = (
 )
 
 
-def _row_to_admin(row: sqlite3.Row) -> dict:
+def _row_to_admin(row: dict) -> dict:
     return {
         "message_en": row["message_en"],
         "message_bg": row["message_bg"],
@@ -38,27 +55,27 @@ def _row_to_admin(row: sqlite3.Row) -> dict:
         "link_label_bg": row["link_label_bg"],
         "link_url": row["link_url"],
         "is_enabled": bool(row["is_enabled"]),
-        "starts_at": row["starts_at"],
-        "ends_at": row["ends_at"],
+        "starts_at": _fmt_ts(row["starts_at"]),
+        "ends_at": _fmt_ts(row["ends_at"]),
         "version": row["version"],
-        "updated_at": row["updated_at"],
+        "updated_at": _fmt_ts(row["updated_at"]),
     }
 
 
-def _get_row(conn: sqlite3.Connection) -> sqlite3.Row:
+def _get_row(conn) -> dict:
     """Read the singleton banner, seeding a disabled placeholder if absent.
 
     Used by the admin (read/write) paths only. The public read path must NOT
     seed — see `get_public_banner`.
     """
-    row = conn.execute("SELECT * FROM site_banners WHERE id = ?", (_BANNER_ID,)).fetchone()
+    row = conn.execute("SELECT * FROM site_banners WHERE id = %s", (_BANNER_ID,)).fetchone()
     if row is None:
         conn.execute(
-            "INSERT OR IGNORE INTO site_banners (id, is_enabled, version, updated_at) "
-            "VALUES (?, 0, 1, ?)",
+            "INSERT INTO site_banners (id, is_enabled, version, updated_at) "
+            "VALUES (%s, 0, 1, %s) ON CONFLICT (id) DO NOTHING",
             (_BANNER_ID, pricing.now_utc()),
         )
-        row = conn.execute("SELECT * FROM site_banners WHERE id = ?", (_BANNER_ID,)).fetchone()
+        row = conn.execute("SELECT * FROM site_banners WHERE id = %s", (_BANNER_ID,)).fetchone()
     return row
 
 
@@ -97,9 +114,9 @@ def update_banner(data: dict) -> dict:
         version_sql = "version + 1" if content_changed else "version"
 
         conn.execute(
-            "UPDATE site_banners SET message_en = ?, message_bg = ?, link_label_en = ?, "
-            "link_label_bg = ?, link_url = ?, is_enabled = ?, starts_at = ?, ends_at = ?, "
-            f"version = {version_sql}, updated_at = ? WHERE id = ?",  # noqa: S608 - literal only
+            "UPDATE site_banners SET message_en = %s, message_bg = %s, link_label_en = %s, "
+            "link_label_bg = %s, link_url = %s, is_enabled = %s, starts_at = %s, ends_at = %s, "
+            f"version = {version_sql}, updated_at = %s WHERE id = %s",  # noqa: S608 - literal only
             (
                 new_values["message_en"],
                 new_values["message_bg"],
@@ -121,10 +138,16 @@ def update_banner(data: dict) -> dict:
 
 def _normalize(value: object) -> str:
     """Normalize a value for change comparison (bool→flag, None→'', strings stripped)."""
+    from datetime import datetime
+
     if value is None:
         return ""
     if isinstance(value, bool):
         return "1" if value else "0"
+    if isinstance(value, datetime):
+        # Persisted TIMESTAMPTZ reads back as datetime; compare on the canonical
+        # ``_DT_FMT`` string so a no-op re-save doesn't spuriously bump version.
+        return value.strftime(_DT_FMT)
     return str(value).strip()
 
 
@@ -136,15 +159,17 @@ def get_public_banner(locale: str = "en") -> dict | None:
     public read never writes: a missing singleton is treated as "no banner".
     """
     with get_db() as conn:
-        row = conn.execute("SELECT * FROM site_banners WHERE id = ?", (_BANNER_ID,)).fetchone()
+        row = conn.execute("SELECT * FROM site_banners WHERE id = %s", (_BANNER_ID,)).fetchone()
 
     if row is None or not row["is_enabled"]:
         return None
 
     now = pricing.now_utc()
-    if row["starts_at"] is not None and now < row["starts_at"]:
+    starts_at = _fmt_ts(row["starts_at"])
+    ends_at = _fmt_ts(row["ends_at"])
+    if starts_at is not None and now < starts_at:
         return None
-    if row["ends_at"] is not None and now > row["ends_at"]:
+    if ends_at is not None and now > ends_at:
         return None
 
     message = _localized(row, "message", locale)
@@ -161,7 +186,7 @@ def get_public_banner(locale: str = "en") -> dict | None:
     }
 
 
-def _localized(row: sqlite3.Row, prefix: str, locale: str) -> str | None:
+def _localized(row: dict, prefix: str, locale: str) -> str | None:
     """Return the locale field with fallback from BG to EN."""
     if locale == "bg":
         value = row[f"{prefix}_bg"]

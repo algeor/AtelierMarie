@@ -50,7 +50,7 @@ Services should handle:
 - custom exceptions
 - return data that can be validated into response models
 
-Service functions usually take an explicit `sqlite3.Connection` when they are part of a larger transaction or need testable DB control.
+Service functions usually take an explicit psycopg `Connection` (dict-row) when they are part of a larger transaction or need testable DB control.
 
 ## Models
 
@@ -114,7 +114,7 @@ Use this order:
 
 ## Common Mistakes
 
-- Returning raw SQLite rows from routes.
+- Returning raw psycopg/DB rows from routes.
 - Letting a provider exception bubble to FastAPI.
 - Duplicating service SQL in admin and public routes.
 - Adding a backend field and forgetting `frontend/lib/types.ts`.
