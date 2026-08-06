@@ -393,9 +393,13 @@ def _update_row(
         params.append(next_attempt_at)
     params.append(row_id)
     try:
-        conn.execute(f"UPDATE order_emails SET {', '.join(fields)} WHERE id = %s", params)
+        with conn.transaction():
+            conn.execute(f"UPDATE order_emails SET {', '.join(fields)} WHERE id = %s", params)
     except IntegrityError:
         # A concurrent worker already recorded 'sent' for this (order_id, event).
+        # The failed UPDATE is contained by the savepoint above, so the connection
+        # is not left in a poisoned (InFailedSqlTransaction) state and this
+        # recovery UPDATE can run on the same connection.
         conn.execute(
             "UPDATE order_emails SET status = 'skipped_duplicate', reason = %s, sent_at = %s "
             "WHERE id = %s",

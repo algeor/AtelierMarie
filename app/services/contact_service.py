@@ -161,7 +161,7 @@ def _build_contact_context(row: ContactMessageRow) -> dict:
 
 def _claim_contact_row(row_id: int) -> ContactMessageRow | None:
     """Atomically claim one contact row for this drain tick."""
-    now_s = _now_s()
+    now_dt = _now()
     lease_s = (_now() + timedelta(seconds=CONTACT_CLAIM_LEASE_SECONDS)).strftime(
         SQLITE_DATETIME_FORMAT
     )
@@ -185,10 +185,10 @@ def _claim_contact_row(row_id: int) -> ContactMessageRow | None:
             next_attempt_at = row["email_next_attempt_at"]
             claimed_until = row["email_claimed_until"]
             is_retryable = status in {"queued", "failed"} and (
-                next_attempt_at is None or next_attempt_at <= now_s
+                next_attempt_at is None or next_attempt_at <= now_dt
             )
             is_expired_claim = status == "in_flight" and (
-                claimed_until is None or claimed_until < now_s
+                claimed_until is None or claimed_until < now_dt
             )
             if not (is_retryable or is_expired_claim):
                 return None

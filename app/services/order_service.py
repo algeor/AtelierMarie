@@ -37,6 +37,15 @@ logger = structlog.get_logger(__name__)
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
 _ORDER_NUMBER_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
+# Transaction-scoped advisory-lock key serializing checkout order-number/sequence
+# allocation. Under SQLite, checkout ran inside BEGIN IMMEDIATE (a DB-wide write
+# lock) which made the `MAX(internal_sequence) + 1` read collision-free. Postgres
+# runs at READ COMMITTED with true concurrent writers, so two simultaneous
+# checkouts could read the same MAX and collide on the UNIQUE constraint (→ 500).
+# pg_advisory_xact_lock restores that serialization; it is released automatically
+# when the surrounding transaction commits or rolls back.
+_CHECKOUT_SEQUENCE_LOCK_KEY = 0x0A7E_11E4  # stable arbitrary key ("AtelierMarie")
+
 # Runtime whitelist for the shipping price-source provenance column, derived from
 # the Literal so it can never drift from the type (same pattern as OrderStatus).
 _VALID_PRICE_SOURCES: frozenset[str] = frozenset(get_args(ShippingPriceSource))
@@ -949,6 +958,10 @@ def checkout(
     delivery_details_json = json.dumps(delivery_details, ensure_ascii=False)
 
     with conn.transaction():
+        # Serialize order-number / internal_sequence allocation across concurrent
+        # checkouts (see _CHECKOUT_SEQUENCE_LOCK_KEY). Held until this transaction
+        # ends, so the MAX(internal_sequence)+1 read below cannot race.
+        conn.execute("SELECT pg_advisory_xact_lock(%s)", (_CHECKOUT_SEQUENCE_LOCK_KEY,))
         name_expr = _localized_product_name(locale)
         # 1. Fetch cart items with product info
         cart_rows = conn.execute(
