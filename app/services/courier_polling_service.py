@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.config import get_settings
-from app.database import get_db
+from app.database import DbConnection, get_db
 from app.services import econt_fulfillment_service, speedy_admin_service
 from app.services.econt_delivery_client import EcontDeliveryError
 from app.services.econt_fulfillment_service import EcontFulfillmentError
@@ -35,7 +34,7 @@ def _after(seconds: int) -> str:
     return (datetime.now(UTC) + timedelta(seconds=seconds)).strftime(CANONICAL_DT_FMT)
 
 
-def _provider_for(row: sqlite3.Row) -> str | None:
+def _provider_for(row: dict) -> str | None:
     provider = row["courier_provider"] or row["tracking_carrier"] or row["delivery_courier"]
     return provider if provider in {"speedy", "econt"} else None
 
@@ -45,7 +44,7 @@ def _safe_error(exc: Exception) -> dict[str, Any]:
         return redact_mapping(exc.to_safe_dict())
     validation_error = isinstance(
         exc,
-        (CourierPollingValidationError, EcontFulfillmentError, SpeedyAdminError),
+        CourierPollingValidationError | EcontFulfillmentError | SpeedyAdminError,
     )
     payload: dict[str, Any] = {
         "category": "validation" if validation_error else "unexpected",
@@ -67,17 +66,17 @@ def _enabled_providers() -> set[str]:
     return providers
 
 
-def _identifier(row: sqlite3.Row) -> str | None:
+def _identifier(row: dict) -> str | None:
     return row["courier_shipment_number"] or row["tracking_number"]
 
 
 def _select_due_candidates(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     *,
     providers: set[str],
     batch_size: int,
     now: str,
-) -> list[sqlite3.Row]:
+) -> list[dict]:
     if not providers or batch_size < 1:
         return []
     placeholders = ",".join("%s" for _ in providers)
@@ -101,19 +100,19 @@ def _select_due_candidates(
 
 
 def acquire_due_orders(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     *,
     batch_size: int | None = None,
     lease_seconds: int | None = None,
     providers: set[str] | None = None,
-) -> list[sqlite3.Row]:
+) -> list[dict]:
     """Acquire durable polling leases for due active courier shipments."""
     settings = get_settings()
     if not settings.courier_polling_enabled:
         return []
     now = now_utc()
     lease_until = _after(lease_seconds or settings.courier_polling_lease_seconds)
-    acquired: list[sqlite3.Row] = []
+    acquired: list[dict] = []
     for row in _select_due_candidates(
         conn,
         providers=providers or _enabled_providers(),
@@ -137,8 +136,8 @@ def acquire_due_orders(
 
 
 async def _refresh_provider(
-    conn: sqlite3.Connection,
-    row: sqlite3.Row,
+    conn: DbConnection,
+    row: dict,
     *,
     actor_user_id: str | None,
     speedy_track_func: Any | None = None,
@@ -165,7 +164,7 @@ async def _refresh_provider(
     )
 
 
-def _mark_success(conn: sqlite3.Connection, order_id: str, *, interval_seconds: int) -> None:
+def _mark_success(conn: DbConnection, order_id: str, *, interval_seconds: int) -> None:
     now = now_utc()
     conn.execute(
         """
@@ -179,7 +178,7 @@ def _mark_success(conn: sqlite3.Connection, order_id: str, *, interval_seconds: 
 
 
 def _mark_failure(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     order_id: str,
     exc: Exception,
     *,
@@ -213,7 +212,7 @@ def _mark_failure(
 
 
 async def poll_due_shipments(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     *,
     batch_size: int | None = None,
     providers: set[str] | None = None,
@@ -272,7 +271,7 @@ async def poll_due_shipments_from_settings() -> dict[str, int]:
 
 
 async def refresh_order_now(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     order_id: str,
     *,
     provider: str | None = None,

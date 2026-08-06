@@ -6,8 +6,8 @@ Module-specific constants stay local to their file.
 
 from typing import Literal
 
-# SQLite-compatible datetime format (no T separator, no timezone suffix)
-SQLITE_DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+# Canonical UTC database datetime format (no T separator, no timezone suffix)
+CANONICAL_DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 # Session expiry (in days, used to derive seconds in config)
 SESSION_MAX_AGE_DAYS = 30

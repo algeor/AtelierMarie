@@ -625,7 +625,7 @@ def get_funnel(
     return steps
 
 
-def _sqlite_order_totals(start_date: str | None, end_date: str | None) -> dict[str, int]:
+def _backend_order_totals(start_date: str | None, end_date: str | None) -> dict[str, int]:
     start, end_exclusive = _date_bounds(start_date, end_date)
     with get_db() as conn:
         row = conn.execute(
@@ -668,7 +668,7 @@ def get_summary(start_date: str | None = None, end_date: str | None = None) -> d
             (start, end_exclusive),
         ).fetchone()
 
-    order_totals = _sqlite_order_totals(start_date, end_date)
+    order_totals = _backend_order_totals(start_date, end_date)
     accepted_events = int(event_row[0] or 0)
     consented_sessions = int(event_row[1] or 0)
     analytics_purchases = int(purchase_row[0] or 0)

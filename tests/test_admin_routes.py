@@ -319,9 +319,7 @@ class TestAdminListProducts:
 
     @pytest.mark.asyncio
     async def test_filters_by_search_status_and_low_stock(self, admin_client, _products):
-        response = await admin_client.get(
-            "/v1/admin/products?q=inactive&status=inactive&stock=low"
-        )
+        response = await admin_client.get("/v1/admin/products?q=inactive&status=inactive&stock=low")
 
         assert response.status_code == 200
         body = response.json()

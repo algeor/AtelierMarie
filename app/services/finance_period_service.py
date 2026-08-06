@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import uuid
 from datetime import date
 from typing import Any
 
-from app.database import get_db
+from app.database import DbConnection, get_db
 from app.models.accounting import (
     FinanceExceptionActionRequest,
     FinanceExceptionListResponse,
@@ -74,7 +73,7 @@ def _validate_date_range(period_start: str, period_end: str) -> None:
         )
 
 
-def _period_counts(conn: sqlite3.Connection, period_id: str) -> tuple[int, int]:
+def _period_counts(conn: DbConnection, period_id: str) -> tuple[int, int]:
     row = conn.execute(
         """
         SELECT
@@ -89,7 +88,7 @@ def _period_counts(conn: sqlite3.Connection, period_id: str) -> tuple[int, int]:
     return int(row["open_count"] or 0), int(row["blocking_count"] or 0)
 
 
-def _period_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> FinancePeriodResponse:
+def _period_from_row(conn: DbConnection, row: dict) -> FinancePeriodResponse:
     open_count, blocking_count = _period_counts(conn, row["id"])
     return FinancePeriodResponse(
         id=row["id"],
@@ -112,7 +111,7 @@ def _period_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> FinancePerio
     )
 
 
-def _exception_from_row(row: sqlite3.Row) -> FinanceExceptionResponse:
+def _exception_from_row(row: dict) -> FinanceExceptionResponse:
     return FinanceExceptionResponse(
         id=row["id"],
         period_id=row["period_id"],
@@ -132,21 +131,21 @@ def _exception_from_row(row: sqlite3.Row) -> FinanceExceptionResponse:
     )
 
 
-def _get_period_row(conn: sqlite3.Connection, period_id: str) -> sqlite3.Row:
+def _get_period_row(conn: DbConnection, period_id: str) -> dict:
     row = conn.execute("SELECT * FROM finance_periods WHERE id = %s", (period_id,)).fetchone()
     if row is None:
         raise FinancePeriodError(404, "FINANCE_PERIOD_NOT_FOUND", "Finance period not found.")
     return row
 
 
-def _get_exception_row(conn: sqlite3.Connection, exception_id: str) -> sqlite3.Row:
+def _get_exception_row(conn: DbConnection, exception_id: str) -> dict:
     row = conn.execute("SELECT * FROM finance_exceptions WHERE id = %s", (exception_id,)).fetchone()
     if row is None:
         raise FinancePeriodError(404, "FINANCE_EXCEPTION_NOT_FOUND", "Finance exception not found.")
     return row
 
 
-def _ensure_transition(row: sqlite3.Row, allowed: set[str], action: str) -> None:
+def _ensure_transition(row: dict, allowed: set[str], action: str) -> None:
     if row["status"] not in allowed:
         raise FinancePeriodError(
             409,
@@ -156,7 +155,7 @@ def _ensure_transition(row: sqlite3.Row, allowed: set[str], action: str) -> None
         )
 
 
-def _assign_orders_to_period(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
+def _assign_orders_to_period(conn: DbConnection, row: dict) -> None:
     conn.execute(
         """
         UPDATE orders
@@ -168,13 +167,13 @@ def _assign_orders_to_period(conn: sqlite3.Connection, row: sqlite3.Row) -> None
     )
 
 
-def _latest_settings_row(conn: sqlite3.Connection, table: str) -> sqlite3.Row | None:
+def _latest_settings_row(conn: DbConnection, table: str) -> dict | None:
     return conn.execute(
         f"SELECT * FROM {table} ORDER BY effective_date DESC, id DESC LIMIT 1"  # noqa: S608
     ).fetchone()
 
 
-def _settings_exception_specs(conn: sqlite3.Connection) -> list[dict[str, object]]:
+def _settings_exception_specs(conn: DbConnection) -> list[dict[str, object]]:
     seller = _latest_settings_row(conn, "seller_legal_profile_versions")
     vat = _latest_settings_row(conn, "vat_fiscal_settings_versions")
     issues: list[dict[str, object]] = []
@@ -222,7 +221,7 @@ def _settings_exception_specs(conn: sqlite3.Connection) -> list[dict[str, object
     return issues
 
 
-def _document_rules(conn: sqlite3.Connection) -> dict[str, object]:
+def _document_rules(conn: DbConnection) -> dict[str, object]:
     row = _latest_settings_row(conn, "vat_fiscal_settings_versions")
     if row is None:
         return {}
@@ -230,7 +229,7 @@ def _document_rules(conn: sqlite3.Connection) -> dict[str, object]:
     return rules if isinstance(rules, dict) else {}
 
 
-def _expense_settings(conn: sqlite3.Connection) -> tuple[set[str], str]:
+def _expense_settings(conn: DbConnection) -> tuple[set[str], str]:
     row = conn.execute("SELECT * FROM expense_evidence_settings WHERE id = 'default'").fetchone()
     if row is None:
         return set(), "warn"
@@ -240,18 +239,18 @@ def _expense_settings(conn: sqlite3.Connection) -> tuple[set[str], str]:
     return {str(category) for category in categories}, row["close_behavior"]
 
 
-def _product_cost_settings(conn: sqlite3.Connection) -> tuple[bool, str]:
+def _product_cost_settings(conn: DbConnection) -> tuple[bool, str]:
     row = conn.execute("SELECT * FROM product_cost_settings WHERE id = 'default'").fetchone()
     if row is None:
         return False, "none"
     return bool(row["enabled"]), row["missing_cost_policy"]
 
 
-def _inventory_settings(conn: sqlite3.Connection) -> sqlite3.Row | None:
+def _inventory_settings(conn: DbConnection) -> dict | None:
     return conn.execute("SELECT * FROM inventory_settings WHERE id = 'default'").fetchone()
 
 
-def _tolerance_cents(conn: sqlite3.Connection) -> int:
+def _tolerance_cents(conn: DbConnection) -> int:
     row = _latest_settings_row(conn, "vat_fiscal_settings_versions")
     return int(row["tolerance_cents"] or 0) if row is not None else 1
 
@@ -260,9 +259,7 @@ def _period_order_clause() -> str:
     return "(o.created_at)::date BETWEEN %s AND %s AND o.status != 'cancelled'"
 
 
-def _collect_exception_specs(
-    conn: sqlite3.Connection, period: sqlite3.Row
-) -> list[dict[str, object]]:
+def _collect_exception_specs(conn: DbConnection, period: dict) -> list[dict[str, object]]:
     period_start = period["period_start"]
     period_end = period["period_end"]
     specs = _settings_exception_specs(conn)
@@ -749,7 +746,7 @@ def _exception_key(spec: dict[str, object]) -> tuple[str, str, str]:
 
 
 def _upsert_exception(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     *,
     period_id: str,
     spec: dict[str, object],
@@ -810,9 +807,7 @@ def _upsert_exception(
     )
 
 
-def refresh_period_exceptions(
-    conn: sqlite3.Connection, period_id: str
-) -> list[FinanceExceptionResponse]:
+def refresh_period_exceptions(conn: DbConnection, period_id: str) -> list[FinanceExceptionResponse]:
     """Recompute engine-managed exceptions for a period and return open rows."""
     period = _get_period_row(conn, period_id)
     desired_specs = _collect_exception_specs(conn, period)
@@ -854,7 +849,7 @@ def refresh_period_exceptions(
     return [_exception_from_row(row) for row in rows]
 
 
-def calculate_summary_totals(conn: sqlite3.Connection, period: sqlite3.Row) -> dict[str, object]:
+def calculate_summary_totals(conn: DbConnection, period: dict) -> dict[str, object]:
     """Calculate pragmatic period summary totals from current operational tables."""
     period_start = period["period_start"]
     period_end = period["period_end"]

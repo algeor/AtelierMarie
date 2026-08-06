@@ -5,13 +5,12 @@ from __future__ import annotations
 import csv
 import io
 import json
-import sqlite3
 import uuid
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 from app.config import get_settings
-from app.database import get_db
+from app.database import DbConnection, get_db
 from app.models.accounting import (
     StripeBalanceImportResponse,
     StripePayoutImportStatusResponse,
@@ -112,7 +111,7 @@ def _normalize_import_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _tolerance_cents(conn: sqlite3.Connection) -> int:
+def _tolerance_cents(conn: DbConnection) -> int:
     row = conn.execute(
         "SELECT tolerance_cents FROM vat_fiscal_settings_versions "
         "ORDER BY effective_date DESC, id DESC LIMIT 1"
@@ -120,7 +119,7 @@ def _tolerance_cents(conn: sqlite3.Connection) -> int:
     return int(row["tolerance_cents"] or 0) if row else 1
 
 
-def _matching_local_amount(conn: sqlite3.Connection, row: sqlite3.Row) -> int | None:
+def _matching_local_amount(conn: DbConnection, row: dict) -> int | None:
     if row["payment_intent_id"]:
         payment = conn.execute(
             """
@@ -146,7 +145,7 @@ def _matching_local_amount(conn: sqlite3.Connection, row: sqlite3.Row) -> int | 
     return None
 
 
-def _reconcile_row(conn: sqlite3.Connection, row_id: str) -> str:
+def _reconcile_row(conn: DbConnection, row_id: str) -> str:
     row = conn.execute(
         "SELECT * FROM stripe_balance_transactions WHERE id = %s", (row_id,)
     ).fetchone()

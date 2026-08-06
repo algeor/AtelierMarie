@@ -25,8 +25,7 @@ def _validate_product_active(product_id: str) -> None:
 def toggle_reaction(session_id: str, product_id: str, reaction_type: str) -> bool:
     """Toggle a reaction on a product. Returns True if added, False if removed.
 
-    Uses INSERT OR IGNORE + rowcount check for atomic, idempotent operation.
-    Rate limit check, toggle, and log all happen within a single connection
+    Uses a single transaction for the rate-limit check, toggle, and log write
     to eliminate TOCTOU race conditions.
     """
     _validate_product_active(product_id)

@@ -7,8 +7,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-import psycopg
-
+from app.database import DbConnection
 from app.services.order_service import (
     _DT_FMT,
     _fmt_ts,
@@ -125,7 +124,7 @@ def _validate_choice(field: str, value: str, valid: frozenset[str]) -> None:
 
 
 def _append_return_event(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     order_return_id: str | None,
     order_id: str,
@@ -155,19 +154,19 @@ def _append_return_event(
     )
 
 
-def _get_return_case(conn: psycopg.Connection, return_id: str) -> dict:
+def _get_return_case(conn: DbConnection, return_id: str) -> dict:
     row = conn.execute("SELECT * FROM order_returns WHERE id = %s", (return_id,)).fetchone()
     if row is None:
         raise ReturnCaseNotFoundError(return_id)
     return row
 
 
-def get_return_case(conn: psycopg.Connection, return_id: str) -> dict[str, Any]:
+def get_return_case(conn: DbConnection, return_id: str) -> dict[str, Any]:
     """Return a return case row as a plain dict."""
     return _row_to_dict(_get_return_case(conn, return_id))
 
 
-def list_return_cases_for_order(conn: psycopg.Connection, order_id: str) -> list[dict[str, Any]]:
+def list_return_cases_for_order(conn: DbConnection, order_id: str) -> list[dict[str, Any]]:
     """List return cases for admin order detail payloads."""
     rows = conn.execute(
         "SELECT * FROM order_returns WHERE order_id = %s ORDER BY created_at ASC, id ASC",
@@ -176,7 +175,7 @@ def list_return_cases_for_order(conn: psycopg.Connection, order_id: str) -> list
     return [_row_to_dict(row) for row in rows]
 
 
-def list_return_events_for_order(conn: psycopg.Connection, order_id: str) -> list[dict[str, Any]]:
+def list_return_events_for_order(conn: DbConnection, order_id: str) -> list[dict[str, Any]]:
     """List return audit events for admin order detail payloads."""
     rows = conn.execute(
         """
@@ -189,7 +188,7 @@ def list_return_events_for_order(conn: psycopg.Connection, order_id: str) -> lis
     return [_row_to_dict(row) for row in rows]
 
 
-def list_refunds_for_order(conn: psycopg.Connection, order_id: str) -> list[dict[str, Any]]:
+def list_refunds_for_order(conn: DbConnection, order_id: str) -> list[dict[str, Any]]:
     """List refund records for admin order detail payloads."""
     rows = conn.execute(
         """
@@ -202,13 +201,13 @@ def list_refunds_for_order(conn: psycopg.Connection, order_id: str) -> list[dict
     return [_row_to_dict(row) for row in rows]
 
 
-def get_cod_settlement_for_order(conn: psycopg.Connection, order_id: str) -> dict[str, Any] | None:
+def get_cod_settlement_for_order(conn: DbConnection, order_id: str) -> dict[str, Any] | None:
     """Return a COD settlement row for admin order detail payloads."""
     row = conn.execute("SELECT * FROM cod_settlements WHERE order_id = %s", (order_id,)).fetchone()
     return _row_to_dict(row) if row is not None else None
 
 
-def cod_settlement_required_for_order(conn: psycopg.Connection, order_id: str) -> bool:
+def cod_settlement_required_for_order(conn: DbConnection, order_id: str) -> bool:
     """Return True when a delivered COD order has no explicit settlement record."""
     row = conn.execute(
         "SELECT status, payment_method FROM orders WHERE id = %s",
@@ -226,7 +225,7 @@ def cod_settlement_required_for_order(conn: psycopg.Connection, order_id: str) -
 
 
 def record_cod_settlement(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     order_id: str,
     amount_cents: int,
@@ -287,7 +286,7 @@ def record_cod_settlement(
 
 
 def update_return_accounting(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     return_id: str,
     *,
     courier_return_fee_cents: int | None = None,
@@ -358,7 +357,7 @@ def update_return_accounting(
 
 
 def create_return_case(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     order_id: str,
     reason: str,
@@ -436,7 +435,7 @@ def create_return_case(
 
 
 def _transition_return_case(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     return_id: str,
     new_status: str,
@@ -476,7 +475,7 @@ def _transition_return_case(
 
 
 def receive_return_case(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     return_id: str,
     *,
     admin_id: str | None = None,
@@ -495,7 +494,7 @@ def receive_return_case(
     )
 
 
-def _ordered_quantities(conn: psycopg.Connection, order_id: str) -> dict[str, int]:
+def _ordered_quantities(conn: DbConnection, order_id: str) -> dict[str, int]:
     rows = conn.execute(
         "SELECT product_id, quantity FROM order_items WHERE order_id = %s",
         (order_id,),
@@ -528,7 +527,7 @@ def _restock_quantities_for_decision(
 
 
 def inspect_return_case(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     return_id: str,
     *,
     restock_decision: str,
@@ -674,7 +673,7 @@ def inspect_return_case(
 
 
 def close_return_case(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     return_id: str,
     *,
     admin_id: str | None = None,

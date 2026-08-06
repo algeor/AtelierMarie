@@ -5,11 +5,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-import psycopg
 import structlog
 
 from app.config import get_settings
-from app.database import get_db
+from app.database import DbConnection, get_db
 from app.services.image_service import process_image, validate_image_file
 
 logger = structlog.get_logger(__name__)
@@ -127,7 +126,7 @@ def _slot_for(key: str) -> SiteMediaSlot:
         raise SiteMediaNotFoundError(key) from exc
 
 
-def _ensure_rows(conn: psycopg.Connection) -> None:
+def _ensure_rows(conn: DbConnection) -> None:
     for slot in SLOTS:
         conn.execute(
             "INSERT INTO site_media_assets (key) VALUES (%s) ON CONFLICT (key) DO NOTHING",

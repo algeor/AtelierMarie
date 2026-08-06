@@ -1,7 +1,6 @@
 """Session cookie middleware — assigns anonymous identity to every request."""
 
 import re
-import sqlite3
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -11,8 +10,8 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.config import get_settings
-from app.constants import SQLITE_DATETIME_FORMAT
-from app.database import DatabaseError, get_db
+from app.constants import CANONICAL_DATETIME_FORMAT
+from app.database import DatabaseError, DbConnection, get_db
 
 logger = structlog.get_logger(__name__)
 
@@ -35,8 +34,8 @@ def _detect_locale_from_accept_language(request: Request) -> str:
 
 
 def _format_dt(dt: datetime) -> str:
-    """Format a datetime as SQLite-compatible string (UTC, no timezone suffix)."""
-    return dt.strftime(SQLITE_DATETIME_FORMAT)
+    """Format a datetime as the canonical UTC database string."""
+    return dt.strftime(CANONICAL_DATETIME_FORMAT)
 
 
 def _parse_dt(s: str | datetime) -> datetime:
@@ -48,7 +47,7 @@ def _parse_dt(s: str | datetime) -> datetime:
     """
     if isinstance(s, datetime):
         return s if s.tzinfo is not None else s.replace(tzinfo=UTC)
-    return datetime.strptime(s, SQLITE_DATETIME_FORMAT).replace(tzinfo=UTC)
+    return datetime.strptime(s, CANONICAL_DATETIME_FORMAT).replace(tzinfo=UTC)
 
 
 def _should_skip_path(path: str, skip_paths: list[str]) -> bool:
@@ -160,7 +159,7 @@ class SessionMiddleware(BaseHTTPMiddleware):
                     expires_at = now + timedelta(seconds=settings.session_max_age)
                     # Detect locale from browser Accept-Language on new sessions
                     preferred_locale = _detect_locale_from_accept_language(request)
-                    # Bug #5 fix: use SQLite-compatible datetime format
+                    # Use the canonical database timestamp format.
                     conn.execute(
                         "INSERT INTO sessions (id, created_at, expires_at, preferred_locale) "
                         "VALUES (%s, %s, %s, %s)",
@@ -206,9 +205,7 @@ class SessionMiddleware(BaseHTTPMiddleware):
         return response
 
 
-def rotate_session_in_transaction(
-    conn: "sqlite3.Connection", old_session_id: str, user_id: str
-) -> str:
+def rotate_session_in_transaction(conn: DbConnection, old_session_id: str, user_id: str) -> str:
     """Rotate a session using the caller's active transaction."""
     settings = get_settings()
     new_session_id = str(uuid.uuid4())
@@ -235,7 +232,7 @@ def rotate_session_in_transaction(
     return new_session_id
 
 
-def rotate_session(conn: "sqlite3.Connection", old_session_id: str, user_id: str) -> str:
+def rotate_session(conn: DbConnection, old_session_id: str, user_id: str) -> str:
     """Rotate session ID on login to prevent session fixation.
 
     Wraps the three mutations in ``conn.transaction()`` so they commit together

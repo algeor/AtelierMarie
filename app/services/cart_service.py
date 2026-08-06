@@ -1,6 +1,6 @@
 """Cart service — business logic for cart operations.
 
-Pure functions taking explicit psycopg.Connection parameter.
+Pure functions taking explicit DbConnection parameter.
 No HTTP concerns — testable without FastAPI/Starlette.
 """
 
@@ -12,6 +12,7 @@ import psycopg
 import structlog
 
 from app.config import get_settings
+from app.database import DbConnection
 from app.services import pricing, taxonomy_service
 from app.services.product_image_service import images_for_products, with_image_fields
 
@@ -166,7 +167,7 @@ class AddItemResult:
 # --- Service Functions ---
 
 
-def get_cart(conn: psycopg.Connection, session_id: str, locale: Locale = "en") -> CartData:
+def get_cart(conn: DbConnection, session_id: str, locale: Locale = "en") -> CartData:
     """Retrieve the cart for a session, separating active and unavailable items.
 
     Line and total pricing use each product's effective (discounted) price. A
@@ -283,7 +284,7 @@ def get_cart(conn: psycopg.Connection, session_id: str, locale: Locale = "en") -
 
 
 def add_item(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     session_id: str,
     product_id: str,
     quantity: int,
@@ -371,7 +372,7 @@ def add_item(
 
 
 def update_quantity(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     session_id: str,
     product_id: str,
     quantity: int,
@@ -439,7 +440,7 @@ def update_quantity(
 
 
 def remove_item(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     session_id: str,
     product_id: str,
     locale: Locale = "en",

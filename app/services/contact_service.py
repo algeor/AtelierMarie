@@ -5,12 +5,11 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import TypedDict
 
-import psycopg
 import structlog
 
 from app.config import Settings, get_settings
-from app.constants import SQLITE_DATETIME_FORMAT
-from app.database import get_db
+from app.constants import CANONICAL_DATETIME_FORMAT
+from app.database import DbConnection, get_db
 from app.email.providers import (
     EmailProvider,
     PermanentEmailError,
@@ -57,16 +56,16 @@ def _now() -> datetime:
 
 
 def _now_s() -> str:
-    return _now().strftime(SQLITE_DATETIME_FORMAT)
+    return _now().strftime(CANONICAL_DATETIME_FORMAT)
 
 
 def _backoff_next_attempt(attempts: int) -> str:
     delay = _BACKOFF_BASE_SECONDS * (2 ** max(0, attempts - 1))
-    return (_now() + timedelta(seconds=delay)).strftime(SQLITE_DATETIME_FORMAT)
+    return (_now() + timedelta(seconds=delay)).strftime(CANONICAL_DATETIME_FORMAT)
 
 
 def is_contact_rate_limited(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     ip_address: str | None,
     *,
     limit: int = CONTACT_RATE_LIMIT_PER_HOUR,
@@ -95,7 +94,7 @@ def is_contact_rate_limited(
 
 
 def create_contact_message(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     body: ContactRequest,
     *,
     ip_address: str | None,
@@ -109,10 +108,8 @@ def create_contact_message(
         return None
     with conn.transaction():
         # Serialize concurrent submissions sharing a rate-limit bucket so the
-        # count-then-insert check is atomic across connections. Under SQLite the
-        # BEGIN IMMEDIATE write lock did this implicitly; Postgres READ COMMITTED
-        # does not, so take a transaction-scoped advisory lock keyed on the IP
-        # bucket (auto-released at COMMIT/ROLLBACK). Different IPs never contend.
+        # count-then-insert check is atomic under Postgres READ COMMITTED. The
+        # advisory lock is transaction-scoped and auto-released at COMMIT/ROLLBACK.
         conn.execute(
             "SELECT pg_advisory_xact_lock(%s, hashtext(%s))",
             (_CONTACT_RATE_LOCK_NAMESPACE, ip_address or ""),
@@ -163,7 +160,7 @@ def _claim_contact_row(row_id: int) -> ContactMessageRow | None:
     """Atomically claim one contact row for this drain tick."""
     now_dt = _now()
     lease_s = (_now() + timedelta(seconds=CONTACT_CLAIM_LEASE_SECONDS)).strftime(
-        SQLITE_DATETIME_FORMAT
+        CANONICAL_DATETIME_FORMAT
     )
 
     with get_db() as conn:

@@ -27,8 +27,8 @@ def _set_client_cookie(client: AsyncClient, name: str, value: str) -> None:
 # ``db_path`` only for ordering; they inherit the root conftest's session-scoped
 # ``db_path`` shim (which yields this worker's ``DATABASE_URL``). Defining a
 # local module-scoped ``db_path`` here would shadow the root session-scoped
-# fixtures and reintroduce the SQLite ``init_db(<path>)`` collision that the
-# Decision 15 consolidation removed.
+# fixtures and reintroduce the ``init_db(<path>)`` collision that the Decision 15
+# consolidation removed.
 
 
 @pytest.fixture(scope="module")
@@ -82,10 +82,9 @@ async def client(app) -> AsyncGenerator[AsyncClient, None]:
 
 
 # Per-test isolation is handled by the root conftest's autouse ``_clean_tables``
-# (TRUNCATE of volatile tables). The former file-local ``_clean`` fixture (a raw
-# sqlite3 ``DELETE FROM {table}`` loop over order_items/orders/cart_items/
-# sessions/users) is removed: it was the SQLite-era equivalent of ``_clean_tables``
-# and is now redundant under the Postgres template-clone harness.
+# (TRUNCATE of volatile tables). The former file-local ``_clean`` fixture is
+# removed because it duplicated ``_clean_tables`` under the Postgres
+# template-clone harness.
 
 
 # --- Task 70: Smoke test full OAuth flow ---

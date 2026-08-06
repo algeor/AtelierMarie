@@ -2,10 +2,9 @@
 
 from datetime import datetime
 
-import psycopg
 import structlog
 
-from app.database import get_db
+from app.database import DbConnection, get_db
 from app.models.delivery import Courier, DeliveryMethod
 from app.services import pricing
 
@@ -41,7 +40,7 @@ def _row_to_settings(row: dict) -> dict:
     }
 
 
-def _get_row(conn: psycopg.Connection) -> dict:
+def _get_row(conn: DbConnection) -> dict:
     row = conn.execute(
         "SELECT * FROM delivery_settings WHERE id = %s",
         (_SETTINGS_ID,),

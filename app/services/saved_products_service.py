@@ -1,7 +1,6 @@
 """Saved product service for account shortlists."""
 
-import psycopg
-
+from app.database import DbConnection
 from app.services import pricing, product_image_service, product_video_service, taxonomy_service
 from app.services.product_service import (
     Locale,
@@ -12,7 +11,7 @@ from app.services.product_service import (
 )
 
 
-def _ensure_public_product_exists(conn: psycopg.Connection, product_id: str) -> None:
+def _ensure_public_product_exists(conn: DbConnection, product_id: str) -> None:
     row = conn.execute(
         "SELECT 1 FROM products WHERE id = %s AND is_active = 1",
         (product_id,),
@@ -21,7 +20,7 @@ def _ensure_public_product_exists(conn: psycopg.Connection, product_id: str) -> 
         raise NotFoundError(f"Product not found: {product_id}")
 
 
-def save_product(conn: psycopg.Connection, *, user_id: str, product_id: str) -> None:
+def save_product(conn: DbConnection, *, user_id: str, product_id: str) -> None:
     """Save an active product for a user."""
     _ensure_public_product_exists(conn, product_id)
     conn.execute(
@@ -34,7 +33,7 @@ def save_product(conn: psycopg.Connection, *, user_id: str, product_id: str) -> 
     )
 
 
-def unsave_product(conn: psycopg.Connection, *, user_id: str, product_id: str) -> None:
+def unsave_product(conn: DbConnection, *, user_id: str, product_id: str) -> None:
     """Remove a product from a user's saved products."""
     conn.execute(
         "DELETE FROM user_saved_products WHERE user_id = %s AND product_id = %s",
@@ -42,7 +41,7 @@ def unsave_product(conn: psycopg.Connection, *, user_id: str, product_id: str) -
     )
 
 
-def get_saved_product_ids(conn: psycopg.Connection, *, user_id: str) -> list[str]:
+def get_saved_product_ids(conn: DbConnection, *, user_id: str) -> list[str]:
     """Return saved active product IDs, newest save first."""
     rows = conn.execute(
         """
@@ -57,7 +56,7 @@ def get_saved_product_ids(conn: psycopg.Connection, *, user_id: str) -> list[str
     return [row["product_id"] for row in rows]
 
 
-def is_product_saved(conn: psycopg.Connection, *, user_id: str, product_id: str) -> bool:
+def is_product_saved(conn: DbConnection, *, user_id: str, product_id: str) -> bool:
     """Return whether a user has saved a product."""
     row = conn.execute(
         "SELECT 1 FROM user_saved_products WHERE user_id = %s AND product_id = %s",
@@ -67,7 +66,7 @@ def is_product_saved(conn: psycopg.Connection, *, user_id: str, product_id: str)
 
 
 def list_saved_products(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     user_id: str,
     page: int = 1,

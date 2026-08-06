@@ -4,7 +4,7 @@ import json
 import uuid
 from datetime import datetime
 
-import psycopg
+from app.database import DbConnection
 
 # Mirrors app.services.order_service._DT_FMT — kept local to avoid importing the
 # heavy order_service module into this low-level alert helper.
@@ -21,7 +21,7 @@ def _fmt_ts(value: object) -> str | None:
 
 
 def create_admin_alert(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     alert_type: str,
     title: str,
@@ -54,7 +54,7 @@ def create_admin_alert(
 
 
 def list_admin_alerts(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     limit: int = 20,
     unread_only: bool = False,

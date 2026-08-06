@@ -9,9 +9,7 @@ blocked while any product references the term.
 from datetime import UTC, datetime
 from typing import Literal
 
-import psycopg
-
-from app.database import IntegrityError, get_db
+from app.database import DbConnection, IntegrityError, get_db
 from app.utils.slugify import slugify, unique_slug
 
 # Public kind identifiers used in admin routes (/v1/admin/taxonomy/<kind>).
@@ -76,7 +74,7 @@ def _localized_name(name_en: str, name_bg: str | None, locale: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _counts_for_kind(conn: psycopg.Connection, kind: str) -> dict[str, int]:
+def _counts_for_kind(conn: DbConnection, kind: str) -> dict[str, int]:
     """Return {slug: in_use_product_count} for every referenced slug of a kind."""
     if kind == "product-types":
         sql = (
@@ -96,7 +94,7 @@ def _counts_for_kind(conn: psycopg.Connection, kind: str) -> dict[str, int]:
     return {row["slug"]: row["c"] for row in conn.execute(sql)}
 
 
-def _count_one(conn: psycopg.Connection, kind: str, slug: str) -> int:
+def _count_one(conn: DbConnection, kind: str, slug: str) -> int:
     # Counts include soft-deleted (is_active=0) products on purpose: a term ever
     # referenced by any product — even an archived one — must stay for order and
     # history integrity. Such a term can be deactivated but not hard-deleted.
@@ -114,7 +112,7 @@ def _count_one(conn: psycopg.Connection, kind: str, slug: str) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _public_terms(conn: psycopg.Connection, table: str, locale: str) -> list[dict]:
+def _public_terms(conn: DbConnection, table: str, locale: str) -> list[dict]:
     rows = conn.execute(
         f"SELECT slug, name_en, name_bg, sort_order FROM {table} "  # noqa: S608 — table is a constant
         "WHERE is_active = 1 ORDER BY sort_order, slug"
@@ -279,7 +277,7 @@ def delete_term(kind: Kind, slug: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _term_state(conn: psycopg.Connection, table: str, slug: str) -> int | None:
+def _term_state(conn: DbConnection, table: str, slug: str) -> int | None:
     """Return is_active (0/1) for a slug, or None if the slug does not exist."""
     row = conn.execute(
         f"SELECT is_active FROM {table} WHERE slug = %s",
@@ -288,7 +286,7 @@ def _term_state(conn: psycopg.Connection, table: str, slug: str) -> int | None:
     return None if row is None else row["is_active"]
 
 
-def default_product_type(conn: psycopg.Connection) -> str:
+def default_product_type(conn: DbConnection) -> str:
     """Return the default product type slug for products created without one.
 
     The lowest-sort_order active product type, ties broken by slug. Avoids
@@ -303,9 +301,7 @@ def default_product_type(conn: psycopg.Connection) -> str:
     return row["slug"]
 
 
-def validate_product_type(
-    conn: psycopg.Connection, slug: str, *, current: str | None = None
-) -> None:
+def validate_product_type(conn: DbConnection, slug: str, *, current: str | None = None) -> None:
     """Product type must be an active product type, or equal the current one.
 
     Passing the product's current (possibly inactive) type is allowed so admins
@@ -323,9 +319,7 @@ def validate_product_type(
         raise TaxonomyValidationError(f"Product type is not active: {slug}")
 
 
-def validate_category(
-    conn: psycopg.Connection, slug: str | None, *, current: str | None = None
-) -> None:
+def validate_category(conn: DbConnection, slug: str | None, *, current: str | None = None) -> None:
     """Category may be NULL, an active category, or the product's current one."""
     if slug is None or slug == "":
         return
@@ -341,7 +335,7 @@ def validate_category(
 
 
 def validate_labels(
-    conn: psycopg.Connection, slugs: list[str], *, current: set[str] | None = None
+    conn: DbConnection, slugs: list[str], *, current: set[str] | None = None
 ) -> None:
     """Each label must be an active label, or already assigned to the product.
 
@@ -371,7 +365,7 @@ def validate_labels(
 # ---------------------------------------------------------------------------
 
 
-def get_product_label_slugs(conn: psycopg.Connection, product_id: str) -> list[str]:
+def get_product_label_slugs(conn: DbConnection, product_id: str) -> list[str]:
     """Return a product's assigned label slugs ordered by the label sort order."""
     rows = conn.execute(
         "SELECT a.label_slug AS slug FROM product_label_assignments a "
@@ -382,7 +376,7 @@ def get_product_label_slugs(conn: psycopg.Connection, product_id: str) -> list[s
     return [r["slug"] for r in rows]
 
 
-def replace_product_labels(conn: psycopg.Connection, product_id: str, slugs: list[str]) -> None:
+def replace_product_labels(conn: DbConnection, product_id: str, slugs: list[str]) -> None:
     """Replace a product's label set within the caller's transaction."""
     conn.execute("DELETE FROM product_label_assignments WHERE product_id = %s", (product_id,))
     # De-duplicate while preserving order.
@@ -405,7 +399,7 @@ def replace_product_labels(conn: psycopg.Connection, product_id: str, slugs: lis
 # ---------------------------------------------------------------------------
 
 
-def _name_map(conn: psycopg.Connection, table: str, slugs: set[str], locale: str) -> dict[str, str]:
+def _name_map(conn: DbConnection, table: str, slugs: set[str], locale: str) -> dict[str, str]:
     """Map slug → localized name for the given slugs (includes inactive terms)."""
     if not slugs:
         return {}
@@ -418,7 +412,7 @@ def _name_map(conn: psycopg.Connection, table: str, slugs: set[str], locale: str
 
 
 def resolve_products_taxonomy(
-    conn: psycopg.Connection, products: list[dict], locale: str = "en"
+    conn: DbConnection, products: list[dict], locale: str = "en"
 ) -> list[dict]:
     """Attach taxonomy display metadata to product dicts without N+1 queries.
 

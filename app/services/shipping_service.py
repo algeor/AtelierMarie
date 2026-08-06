@@ -14,17 +14,17 @@ Never raises for a courier being down — the clients degrade to a flat fallback
 """
 
 import asyncio
-import sqlite3
 from datetime import UTC, datetime
 
 import structlog
 
 from app.config import get_settings
 from app.constants import (
+    CANONICAL_DATETIME_FORMAT,
     FREE_SHIPPING_THRESHOLD_CENTS,
     PACKAGING_WEIGHT_GRAMS,
-    SQLITE_DATETIME_FORMAT,
 )
+from app.database import DbConnection
 from app.models.delivery import Courier
 from app.models.shipping import ShippingAddress, ShippingQuote
 from app.services import delivery_service, econt_client, speedy_client
@@ -32,7 +32,7 @@ from app.services import delivery_service, econt_client, speedy_client
 logger = structlog.get_logger(__name__)
 
 
-def cart_weight_grams(conn: sqlite3.Connection, session_id: str) -> int:
+def cart_weight_grams(conn: DbConnection, session_id: str) -> int:
     """Sum each cart line's product weight × quantity, plus the packaging buffer.
 
     Reads `products.weight_grams` (default 300g) server-side — the client never
@@ -116,7 +116,7 @@ async def calculate_quotes(
     rather than city-approximate. In office mode `office_id` is forwarded and
     `address` is ignored.
     """
-    quoted_at = datetime.now(UTC).strftime(SQLITE_DATETIME_FORMAT)
+    quoted_at = datetime.now(UTC).strftime(CANONICAL_DATETIME_FORMAT)
 
     if items_total_cents >= FREE_SHIPPING_THRESHOLD_CENTS:
         return _free_shipping_quotes(couriers, quoted_at)

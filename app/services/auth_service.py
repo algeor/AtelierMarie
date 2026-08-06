@@ -17,11 +17,11 @@ from urllib.parse import urlencode
 
 import httpx
 import jwt
-import psycopg
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from jwt.algorithms import RSAAlgorithm
 
 from app.config import get_settings
+from app.database import DbConnection
 from app.models.users import UserResponse
 from app.utils.circuit_breaker import CircuitBreaker
 
@@ -34,7 +34,7 @@ _GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs"
 _JWKS_TTL_SECONDS = 6 * 60 * 60  # 6 hours
 _STATE_EXPIRY_SECONDS = 600  # 10 minutes
 _HTTP_TIMEOUT = httpx.Timeout(10.0)
-_SQLITE_DT_FMT = "%Y-%m-%d %H:%M:%S"
+_CANONICAL_DT_FMT = "%Y-%m-%d %H:%M:%S"
 # Stable key for the transaction-scoped advisory lock that serializes the
 # first-user-is-admin check in upsert_user across concurrent registrations.
 _UPSERT_USER_LOCK_KEY = 0x41544D5F55534552  # "ATM_USER"
@@ -329,7 +329,7 @@ def _blank_to_none(value: str | None) -> str | None:
 
 
 def upsert_user(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     google_id: str,
     email: str,
     name: str | None,
@@ -344,7 +344,7 @@ def upsert_user(
     Returns:
         UserResponse with user data.
     """
-    now = datetime.now(UTC).strftime(_SQLITE_DT_FMT)
+    now = datetime.now(UTC).strftime(_CANONICAL_DT_FMT)
     name = _blank_to_none(name)
     avatar_url = _blank_to_none(avatar_url)
 
@@ -437,7 +437,7 @@ def verify_jwt(token: str) -> dict | None:
         return None
 
 
-def get_user_from_session(conn: psycopg.Connection, session_id: str) -> UserResponse | None:
+def get_user_from_session(conn: DbConnection, session_id: str) -> UserResponse | None:
     """Look up the authenticated user for a session.
 
     Returns:

@@ -6,14 +6,13 @@ import re
 from pathlib import Path
 from typing import Annotated, cast, get_args
 
-import psycopg
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, Response
 
 from app.config import get_settings
 from app.constants import MAX_CSV_ROWS, MAX_CSV_UPLOAD_BYTES, MAX_PRICE_CENTS, MAX_STOCK
-from app.database import IntegrityError, get_db
+from app.database import DbConnection, IntegrityError, get_db
 from app.dependencies.auth import require_admin
 from app.middleware.request_id import request_id_var
 from app.models.accounting import (
@@ -2744,7 +2743,7 @@ def _return_service_error_response(exc: Exception) -> JSONResponse:
 
 
 def _ensure_return_case_belongs_to_order(
-    conn: psycopg.Connection, *, order_id: str, return_id: str
+    conn: DbConnection, *, order_id: str, return_id: str
 ) -> None:
     case = get_return_case(conn, return_id)
     if case["order_id"] != order_id:

@@ -4,7 +4,6 @@ Owns the product_images aggregate: upload, ordering, primary selection, and
 the response fields product readers expose to API clients.
 """
 
-import sqlite3
 import uuid
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
@@ -12,7 +11,7 @@ from urllib.parse import urlsplit, urlunsplit
 import structlog
 
 from app.config import get_settings
-from app.database import get_db
+from app.database import DbConnection, get_db
 from app.services.image_service import process_image, validate_image_file
 
 logger = structlog.get_logger(__name__)
@@ -40,7 +39,7 @@ class ProductNotFoundError(ProductImageError):
     """Raised when a product does not exist."""
 
 
-def _row_to_image(row: sqlite3.Row) -> dict:
+def _row_to_image(row: dict) -> dict:
     return {
         "id": row["id"],
         "image_url": row["image_url"],
@@ -69,7 +68,7 @@ def with_image_fields(product: dict, images: list[dict]) -> dict:
     return result
 
 
-def images_for_products(conn: sqlite3.Connection, product_ids: list[str]) -> dict[str, list[dict]]:
+def images_for_products(conn: DbConnection, product_ids: list[str]) -> dict[str, list[dict]]:
     """Load ordered images for a product id set."""
     if not product_ids:
         return {}
@@ -302,7 +301,7 @@ def add_existing_image_url(product_id: str, image_url: str) -> dict | None:
     return _row_to_image(row)
 
 
-def _ensure_product_exists(conn: sqlite3.Connection, product_id: str) -> None:
+def _ensure_product_exists(conn: DbConnection, product_id: str) -> None:
     row = conn.execute("SELECT 1 FROM products WHERE id = %s", (product_id,)).fetchone()
     if row is None:
         raise ProductNotFoundError(f"Product not found: {product_id}")

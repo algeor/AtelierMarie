@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-import psycopg
+from app.database import DbConnection
 
 CHECKOUT_SESSION_LIMIT = 5
 CHECKOUT_SESSION_WINDOW_SECONDS = 15 * 60
@@ -50,7 +50,7 @@ def _key(value: str | None) -> str:
 
 
 def _count_bucket(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     action: str,
     bucket: _RateLimitBucket,
@@ -80,7 +80,7 @@ def _count_bucket(
 
 
 def _check_buckets(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     action: str,
     buckets: list[_RateLimitBucket],
@@ -96,7 +96,7 @@ def _check_buckets(
 
 
 def _consume_rate_limit(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     action: str,
     buckets: list[_RateLimitBucket],
@@ -120,7 +120,7 @@ def _consume_rate_limit(
 
 
 def consume_checkout_order_rate_limit(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     session_id: str,
     ip_address: str | None,
@@ -162,7 +162,7 @@ def _stripe_session_bucket(session_id: str) -> _RateLimitBucket:
 
 
 def assert_stripe_session_rate_limit_available(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     session_id: str,
 ) -> None:
@@ -175,7 +175,7 @@ def assert_stripe_session_rate_limit_available(
 
 
 def consume_stripe_session_rate_limit(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     order_id: str,
     session_id: str,
@@ -199,7 +199,7 @@ def consume_stripe_session_rate_limit(
 
 
 def consume_pay_on_delivery_rate_limit(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     session_id: str,
     ip_address: str | None,
@@ -232,7 +232,7 @@ def consume_pay_on_delivery_rate_limit(
 
 
 def consume_payment_status_poll_rate_limit(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     session_id: str,
     ip_address: str | None,

@@ -6,7 +6,7 @@ from typing import Literal
 import psycopg
 
 from app.constants import MAX_LIMIT, MAX_PAGE
-from app.database import get_db
+from app.database import DbConnection, get_db
 from app.models.common import calculate_offset
 from app.services import pricing, product_image_service, product_video_service, taxonomy_service
 
@@ -33,7 +33,7 @@ AdminProductSort = Literal[
 
 DEFAULT_ADMIN_LOW_STOCK_THRESHOLD = 5
 
-# Canonical timestamp string format shared across services (SQLite legacy shape).
+# Canonical UTC database timestamp string format shared across services.
 # psycopg returns TIMESTAMPTZ columns as datetime; product response models and
 # pricing.parse_discount_dt expect this string, so _row_to_dict normalises reads.
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
@@ -174,7 +174,7 @@ def _flatten_admin_labels(product: dict) -> dict:
     return product
 
 
-def _attach_admin_inventory_context(conn: psycopg.Connection, products: list[dict]) -> None:
+def _attach_admin_inventory_context(conn: DbConnection, products: list[dict]) -> None:
     """Attach admin-only inventory/recipe/batch context without changing public payloads."""
     if not products:
         return
@@ -1289,7 +1289,7 @@ def get_low_stock_products(threshold: int = 5) -> list[dict]:
     return product_video_service.attach_video_fields(products, public_only=False)
 
 
-def _resolve_filter_target_ids(conn: psycopg.Connection, filt: dict) -> list[str]:
+def _resolve_filter_target_ids(conn: DbConnection, filt: dict) -> list[str]:
     """Resolve an admin product-list filter descriptor to product IDs.
 
     Admin scope: all products (active and inactive) unless `is_active` is set.
@@ -1363,7 +1363,7 @@ def bulk_update_discount(
     discount_percent: int | None = None,
     discount_starts_at: str | None = None,
     discount_ends_at: str | None = None,
-    conn: psycopg.Connection | None = None,
+    conn: DbConnection | None = None,
 ) -> dict:
     """Apply or clear the discount on a resolved list of products.
 
@@ -1393,7 +1393,7 @@ def bulk_update_discount(
     results: list[dict] = []
     success = 0
 
-    def _run(conn: psycopg.Connection) -> None:
+    def _run(conn: DbConnection) -> None:
         nonlocal success
         for pid in product_ids:
             conn.execute("SAVEPOINT bulk_item")
@@ -1439,9 +1439,7 @@ def bulk_update_discount(
     }
 
 
-def conservative_clear_discount(
-    targets: list[dict], conn: psycopg.Connection | None = None
-) -> dict:
+def conservative_clear_discount(targets: list[dict], conn: DbConnection | None = None) -> dict:
     """Clear a discount only where a product's current fields still match.
 
     Each target: `{product_id, applied_percent, applied_starts_at, applied_ends_at}`
@@ -1455,7 +1453,7 @@ def conservative_clear_discount(
     results: list[dict] = []
     success = 0
 
-    def _run(conn: psycopg.Connection) -> None:
+    def _run(conn: DbConnection) -> None:
         nonlocal success
         for t in targets:
             pid = t["product_id"]

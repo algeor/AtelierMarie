@@ -16,12 +16,11 @@ no send-level idempotency key (design Decisions 11, 14, 25). Logs bind
 import json
 from datetime import UTC, datetime, timedelta
 
-import psycopg
 import structlog
 
 from app.config import Settings, get_settings
 from app.constants import STATUS_TO_EMAIL_EVENT
-from app.database import IntegrityError, get_db
+from app.database import DbConnection, IntegrityError, get_db
 from app.email.providers import (
     EmailProvider,
     PermanentEmailError,
@@ -156,7 +155,7 @@ def _build_delivery_email_context(order_data: OrderData, locale: str) -> dict:
     }
 
 
-def _latest_payment_review_context(conn: psycopg.Connection, order_id: str) -> dict:
+def _latest_payment_review_context(conn: DbConnection, order_id: str) -> dict:
     """Return safe metadata for the latest payment review event."""
     row = conn.execute(
         """
@@ -274,7 +273,7 @@ def recipient_for(customer_email: str, event: str, settings: Settings) -> str:
 
 
 def queue_order_email(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     order_id: str,
     event: str,
     recipient: str,
@@ -301,12 +300,12 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def _is_suppressed(conn: psycopg.Connection, email: str) -> bool:
+def _is_suppressed(conn: DbConnection, email: str) -> bool:
     row = conn.execute("SELECT 1 FROM suppressed_emails WHERE email = %s", (email,)).fetchone()
     return row is not None
 
 
-def _already_sent(conn: psycopg.Connection, order_id: str, event: str) -> bool:
+def _already_sent(conn: DbConnection, order_id: str, event: str) -> bool:
     row = conn.execute(
         "SELECT 1 FROM order_emails WHERE order_id = %s AND event = %s AND status = 'sent'",
         (order_id, event),
@@ -314,12 +313,12 @@ def _already_sent(conn: psycopg.Connection, order_id: str, event: str) -> bool:
     return row is not None
 
 
-def _try_acquire_claim(conn: psycopg.Connection, order_id: str, event: str) -> bool:
+def _try_acquire_claim(conn: DbConnection, order_id: str, event: str) -> bool:
     """Atomically claim (order_id, event) for this sweeper.
 
     Returns True if the claim was acquired (fresh, or taken over from an expired
     in_flight / failed claim), False if another live sender holds it or a send
-    already succeeded. SQLite's single-writer property makes this atomic.
+    already succeeded. The unique key plus transaction keep the claim atomic.
     """
     now = _now()
     now_s = now.strftime(_DT_FMT)
@@ -352,7 +351,7 @@ def _try_acquire_claim(conn: psycopg.Connection, order_id: str, event: str) -> b
         return cursor.rowcount == 1
 
 
-def _claim_status(conn: psycopg.Connection, order_id: str, event: str) -> str | None:
+def _claim_status(conn: DbConnection, order_id: str, event: str) -> str | None:
     row = conn.execute(
         "SELECT status FROM order_email_send_claims WHERE order_id = %s AND event = %s",
         (order_id, event),
@@ -360,7 +359,7 @@ def _claim_status(conn: psycopg.Connection, order_id: str, event: str) -> str | 
     return row["status"] if row else None
 
 
-def _release_claim(conn: psycopg.Connection, order_id: str, event: str, status: str) -> None:
+def _release_claim(conn: DbConnection, order_id: str, event: str, status: str) -> None:
     conn.execute(
         "UPDATE order_email_send_claims SET status = %s, updated_at = %s "
         "WHERE order_id = %s AND event = %s",
@@ -369,7 +368,7 @@ def _release_claim(conn: psycopg.Connection, order_id: str, event: str, status: 
 
 
 def _update_row(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     row_id: int,
     status: str,
     *,

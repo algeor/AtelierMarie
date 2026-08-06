@@ -1,21 +1,21 @@
-"""Defensive row-access helper for sqlite3.Row transformations.
+"""Defensive row-access helper for database dict rows.
 
 Provides safe attribute access with explicit defaults, avoiding KeyError
 crashes when database schema evolves or columns are unexpectedly NULL.
 """
 
-import sqlite3
+from collections.abc import Mapping
 from typing import Any
 
 
-def safe_row_get(row: sqlite3.Row, key: str, default: Any = None) -> Any:
-    """Safely extract a value from a sqlite3.Row, returning default if missing.
+def safe_row_get(row: Mapping[str, Any], key: str, default: Any = None) -> Any:
+    """Safely extract a value from a dict-like row, returning default if missing.
 
     Unlike dict(row)[key], this never raises KeyError for missing columns.
     Useful in service-layer transformations where schema may evolve.
 
     Args:
-        row: A sqlite3.Row instance.
+        row: A dict-like database row.
         key: Column name to extract.
         default: Value to return if the column is missing or None.
 
@@ -29,11 +29,13 @@ def safe_row_get(row: sqlite3.Row, key: str, default: Any = None) -> Any:
     return value if value is not None else default
 
 
-def row_to_dict_safe(row: sqlite3.Row, defaults: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Convert a sqlite3.Row to a dict, applying defaults for None values.
+def row_to_dict_safe(
+    row: Mapping[str, Any], defaults: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Convert a dict-like row to a plain dict, applying defaults for None values.
 
     Args:
-        row: A sqlite3.Row instance.
+        row: A dict-like database row.
         defaults: Optional mapping of column_name → default_value.
             If a column's value is None and the column has a default,
             the default is substituted.

@@ -4,7 +4,7 @@ from app.database import get_db
 
 
 def get_dashboard_stats() -> dict:
-    """Fetch basic dashboard statistics from SQLite.
+    """Fetch basic dashboard statistics from the database.
 
     Returns counts and revenue figures from the orders and products tables.
     All monetary values are in cents.
