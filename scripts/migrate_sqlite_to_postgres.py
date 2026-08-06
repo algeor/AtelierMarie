@@ -11,15 +11,27 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sqlite3
 import sys
 from collections import defaultdict, deque
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import psycopg
 from psycopg import sql
 from psycopg.rows import dict_row
+
+# Postgres data_type values (information_schema.columns) that expect a
+# date/time, not a bare number. SQLite stores some of these as epoch-seconds
+# strings (e.g. Stripe's created), which Postgres cannot parse as a date.
+DATETIME_PG_TYPES = {
+    "timestamp with time zone",
+    "timestamp without time zone",
+    "date",
+}
+_EPOCH_RE = re.compile(r"^-?\d+(\.\d+)?$")
 
 SKIP_SQLITE_PREFIXES = ("sqlite_", "products_fts_")
 SKIP_SQLITE_TABLES = {"products_fts_en", "products_fts_bg", "schema_migrations"}
@@ -115,6 +127,37 @@ def postgres_columns(conn: psycopg.Connection, table: str) -> list[str]:
     return [row["column_name"] for row in rows]
 
 
+def postgres_datetime_columns(conn: psycopg.Connection, table: str) -> set[str]:
+    rows = conn.execute(
+        """
+        SELECT column_name, data_type
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = %s
+        """,
+        (table,),
+    ).fetchall()
+    return {row["column_name"] for row in rows if row["data_type"] in DATETIME_PG_TYPES}
+
+
+def coerce_datetime_value(value: Any) -> Any:
+    """Convert epoch-seconds numbers/strings to aware datetimes; pass the rest through.
+
+    SQLite stores some datetime columns as epoch-seconds (Stripe's created,
+    available_on, ...) and others as ISO strings. Postgres parses ISO strings
+    natively but rejects a bare epoch number, so only numeric values are
+    converted here.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):  # bool is an int subclass — never an epoch
+        return value
+    if isinstance(value, int | float):
+        return datetime.fromtimestamp(value, tz=UTC)
+    if isinstance(value, str) and _EPOCH_RE.match(value):
+        return datetime.fromtimestamp(float(value), tz=UTC)
+    return value
+
+
 def postgres_count(conn: psycopg.Connection, table: str) -> int:
     query = sql.SQL("SELECT COUNT(*) AS count FROM {}").format(sql.Identifier(table))
     return int(conn.execute(query).fetchone()["count"])
@@ -197,6 +240,7 @@ def copy_table(
     pg_conn: psycopg.Connection,
     table: str,
     columns: list[str],
+    datetime_columns: set[str],
     batch_size: int,
 ) -> int:
     if not columns:
@@ -211,13 +255,17 @@ def copy_table(
         sql.SQL(", ").join(sql.Identifier(column) for column in columns),
         sql.SQL(", ").join(sql.Placeholder() for _ in columns),
     )
+    dt_cols = [column for column in columns if column in datetime_columns]
     copied = 0
     with pg_conn.cursor() as cur:
         for start in range(0, len(rows), batch_size):
             batch = rows[start : start + batch_size]
-            values: list[tuple[Any, ...]] = [
-                tuple(row[column] for column in columns) for row in batch
-            ]
+            values: list[tuple[Any, ...]] = []
+            for row in batch:
+                record = {column: row[column] for column in columns}
+                for column in dt_cols:
+                    record[column] = coerce_datetime_value(record[column])
+                values.append(tuple(record[column] for column in columns))
             cur.executemany(insert_query, values)
             copied += len(values)
     return copied
@@ -267,6 +315,7 @@ def main() -> int:
         ordered = dependency_order(shared, postgres_fk_edges(pg_conn, shared))
 
         table_columns: dict[str, list[str]] = {}
+        table_datetime_columns: dict[str, set[str]] = {}
         print("Migration plan:")
         total = 0
         for table in ordered:
@@ -274,6 +323,7 @@ def main() -> int:
             pg_cols = set(postgres_columns(pg_conn, table))
             columns = [column for column in sqlite_cols if column in pg_cols]
             table_columns[table] = columns
+            table_datetime_columns[table] = postgres_datetime_columns(pg_conn, table)
             count = sqlite_count(sqlite_conn, table)
             total += count
             skipped = len(sqlite_cols) - len(columns)
@@ -296,7 +346,12 @@ def main() -> int:
 
             for table in ordered:
                 copied = copy_table(
-                    sqlite_conn, pg_conn, table, table_columns[table], args.batch_size
+                    sqlite_conn,
+                    pg_conn,
+                    table,
+                    table_columns[table],
+                    table_datetime_columns[table],
+                    args.batch_size,
                 )
                 print(f"Copied {copied} row(s) into {table}")
             reset_sequences(pg_conn, ordered)
