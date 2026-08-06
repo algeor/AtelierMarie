@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: atelier
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-atelier}
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U atelier -d atelier_marie" ]
       interval: 5s
@@ -24,7 +24,7 @@ services:
     env_file:
       - .env.docker
     environment:
-      DATABASE_URL: postgresql://atelier:${POSTGRES_PASSWORD:-atelier}@postgres:5432/atelier_marie
+      DATABASE_URL: ${COMPOSE_DATABASE_URL:-postgresql://atelier:${POSTGRES_PASSWORD:-atelier}@postgres:5432/atelier_marie}
     depends_on:
       postgres:
         condition: service_healthy
@@ -43,7 +43,7 @@ services:
     env_file:
       - .env.docker
     environment:
-      DATABASE_URL: postgresql://atelier:${POSTGRES_PASSWORD:-atelier}@postgres:5432/atelier_marie
+      DATABASE_URL: ${COMPOSE_DATABASE_URL:-postgresql://atelier:${POSTGRES_PASSWORD:-atelier}@postgres:5432/atelier_marie}
       STATIC_FILE_PATH: /data/static
       VIDEO_UPLOAD_TEMP_PATH: /data/video-temp
       ANALYTICS_DATA_DIR: /data/analytics
@@ -52,7 +52,7 @@ services:
       FFMPEG_PATH: ffmpeg
       FFPROBE_PATH: ffprobe
     ports:
-      - "127.0.0.1:8001:8001"
+      - "127.0.0.1:${BACKEND_HOST_PORT:-8001}:8001"
     volumes:
       - atelier_static:/data/static
       - atelier_video_temp:/data/video-temp
@@ -63,9 +63,9 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8001}
-        NEXT_PUBLIC_MEDIA_URL: ${NEXT_PUBLIC_MEDIA_URL:-http://localhost:8001/static}
-        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:${BACKEND_HOST_PORT:-8001}}
+        NEXT_PUBLIC_MEDIA_URL: ${NEXT_PUBLIC_MEDIA_URL:-http://localhost:${BACKEND_HOST_PORT:-8001}/static}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:${FRONTEND_HOST_PORT:-3000}}
         NEXT_PUBLIC_USE_MOCK_API: ${NEXT_PUBLIC_USE_MOCK_API:-false}
         NEXT_PUBLIC_STRIPE_ENABLED: ${NEXT_PUBLIC_STRIPE_ENABLED:-false}
         NEXT_PUBLIC_BANK_IBAN: ${NEXT_PUBLIC_BANK_IBAN:-}
@@ -85,7 +85,7 @@ services:
       backend:
         condition: service_healthy
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:${FRONTEND_HOST_PORT:-3000}:3000"
 
 volumes:
   atelier_postgres:

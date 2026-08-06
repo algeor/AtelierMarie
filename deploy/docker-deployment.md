@@ -38,8 +38,8 @@ chmod 600 .env.docker
 
 Edit `.env.docker` and set real values for:
 
-- `POSTGRES_PASSWORD` (Postgres superuser password; also interpolated into the
-  backend `DATABASE_URL` in `compose.yml`)
+- `POSTGRES_PASSWORD` (local Compose Postgres password)
+- `POSTGRES_HOST_PORT`, `BACKEND_HOST_PORT`, `FRONTEND_HOST_PORT` when local ports are occupied
 - `JWT_SECRET`
 - `ADMIN_API_KEY`
 - `FRONTEND_URL`
@@ -49,10 +49,21 @@ Edit `.env.docker` and set real values for:
 - `NEXT_PUBLIC_SITE_URL`
 - payment/email/courier credentials when those features are ready
 
-The backend `DATABASE_URL` is composed in `compose.yml` from `POSTGRES_PASSWORD`
-and points at the in-stack `postgres` service. To use a managed/external
-Postgres instead, override `DATABASE_URL` in `.env.docker` with the full
-connection string and drop the `postgres` service dependency.
+By default, Compose points `backend` and `migrate` at the in-stack `postgres` service.
+The host ports are configurable with `POSTGRES_HOST_PORT`, `BACKEND_HOST_PORT`,
+and `FRONTEND_HOST_PORT`; update `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_MEDIA_URL`,
+`NEXT_PUBLIC_SITE_URL`, and OAuth callback URLs to match any public port/origin changes.
+
+To use a managed/external Postgres without editing `compose.yml`, set
+`COMPOSE_DATABASE_URL` and include the external DB override file:
+
+```bash
+COMPOSE_DATABASE_URL=postgresql://user:password@host:5432/database \
+  docker compose -f compose.yml -f compose.external-db.yml up --build frontend
+```
+
+The override removes the app dependency on the local `postgres` service and uses
+`COMPOSE_DATABASE_URL` for both `migrate` and `backend`.
 
 Generate secrets with:
 
