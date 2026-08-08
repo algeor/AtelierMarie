@@ -33,7 +33,7 @@ video-temp
 video-temp/**
 *.log
 tests
-docs
+technical_documentation/docs
 qa-artifacts
 openspec
 README.md

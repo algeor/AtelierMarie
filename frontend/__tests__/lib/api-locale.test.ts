@@ -25,6 +25,22 @@ describe("API locale contracts", () => {
     );
   });
 
+  it("passes public product listing filters to product list requests", async () => {
+    await getProducts(2, 24, "en", {
+      product_type: "candles",
+      category: "small",
+      labels: ["floral", "gift"],
+      q: "lavender",
+      sort: "price_asc",
+      in_stock: true,
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/v1/products?page=2&limit=24&locale=en&product_type=candles&category=small&labels=floral%2Cgift&q=lavender&sort=price_asc&in_stock=1",
+      expect.any(Object)
+    );
+  });
+
   it("passes locale to product detail requests", async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(jsonResponse({ id: "candle" }));
 

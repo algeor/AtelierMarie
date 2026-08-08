@@ -107,106 +107,89 @@ The system is split into two strict layers:
 | Zero dependency on Layer 2 | Must work if DuckDB is deleted |
 | Zero dependency on external services | Except Google OAuth (optional) |
 
+### Data Model Overview
+
+**Core entities:**
+- **Products:** Catalog items with localized names/descriptions (en/bg), pricing in cents, stock levels, taxonomy (types/categories/labels)
+- **Users:** Optional Google OAuth accounts with admin flag
+- **Sessions:** Cookie-based anonymous identity, links to user on login
+- **Cart:** Session-keyed shopping cart with quantity limits (1-10 per item, 20 distinct max)
+- **Orders:** Immutable purchase records with items snapshots (prices frozen at purchase time)
+- **Delivery & Shipping:** Econt/Speedy courier integration with live pricing, office/door delivery methods
+- **Payments:** Stripe checkout sessions + pay-on-delivery support, separate payment_status from order fulfillment status
+- **Content:** Managed FAQ sections/items, Atelier/about pages, site banners, taxonomy
+
+**Key design:** All prices as integer cents. Product IDs are business slugs (e.g., `lavender-dream-300ml`). Order items are immutable snapshots—never joined back to products table.
+
 ### Postgres Schema (System of Record)
 
-```sql
--- Products: The core business entity
-CREATE TABLE products (
-    id          TEXT PRIMARY KEY,
-    name        TEXT NOT NULL,
-    description TEXT,
-    price_cents INTEGER NOT NULL,
-    category    TEXT,
-    image_url   TEXT,
-    stock       INTEGER NOT NULL DEFAULT 0,
-    is_active   INTEGER NOT NULL DEFAULT 1,
-    is_featured INTEGER NOT NULL DEFAULT 0,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
-);
+**Full schema reference:** `docs/DATABASE_SCHEMA.md` contains detailed table definitions, foreign keys, indexes, and constraints.
 
--- Users: Optional (Google OAuth)
-CREATE TABLE users (
-    id          TEXT PRIMARY KEY,
-    google_id   TEXT UNIQUE NOT NULL,
-    email       TEXT UNIQUE NOT NULL,
-    name        TEXT,
-    avatar_url  TEXT,
-    is_admin    INTEGER NOT NULL DEFAULT 0,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-    last_login_at TEXT
-);
-
--- Sessions: Cookie-based, for cart persistence
-CREATE TABLE sessions (
-    id          TEXT PRIMARY KEY,
-    user_id     TEXT REFERENCES users(id),
-    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-    expires_at  TEXT NOT NULL
-);
-
--- Cart: Session-keyed
-CREATE TABLE cart_items (
-    session_id  TEXT NOT NULL REFERENCES sessions(id),
-    product_id  TEXT NOT NULL REFERENCES products(id),
-    quantity    INTEGER NOT NULL DEFAULT 1,
-    added_at    TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (session_id, product_id)
-);
-
--- Orders
-CREATE TABLE orders (
-    id          TEXT PRIMARY KEY,
-    session_id  TEXT NOT NULL,
-    user_id     TEXT REFERENCES users(id),
-    status      TEXT NOT NULL DEFAULT 'pending',
-    total_cents INTEGER NOT NULL,
-    customer_email TEXT NOT NULL,
-    customer_name  TEXT,
-    shipping_address TEXT,
-    notes       TEXT,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
--- Order Items: Snapshot at purchase time
-CREATE TABLE order_items (
-    order_id    TEXT NOT NULL REFERENCES orders(id),
-    product_id  TEXT NOT NULL,
-    product_name TEXT NOT NULL,
-    price_cents INTEGER NOT NULL,
-    quantity    INTEGER NOT NULL,
-    PRIMARY KEY (order_id, product_id)
-);
+**Key tables:**
+```
+products (id, name_en/bg, description_en/bg, price_cents, stock, category_slug, type_slug)
+│
+├─ product_images (id, product_id, image_url, thumbnail_url, zoom_url, is_primary)
+├─ product_videos (id, product_id, status, video_url, poster_url, duration_secs)
+├─ product_label_assignments (product_id, label_slug)
+│
+users (id, google_id, email, is_admin, last_login_at)
+│
+sessions (id, user_id, preferred_locale, expires_at)
+│
+├─ cart_items (session_id, product_id, quantity)
+├─ analytics_consents (session_id, analytics, consent_version)
+│
+orders (id, session_id, user_id, status, payment_status, payment_method, ...)
+│
+├─ order_items (order_id, product_id, product_name, price_cents, quantity)
+├─ order_emails (order_id, event, recipient, status)
+├─ order_courier_events (order_id, courier, action, status, request/response json)
 ```
 
 ### Data Flows (Synchronous)
 
-**Browse products:**
+**Browse & search products:**
 ```
-Browser → GET /v1/products → SELECT FROM products WHERE is_active=1 → JSON response (~30ms)
+GET /v1/products?search=lavender&category=classic&page=1&limit=20
+  → FTS search on name_en/description_en (GIN indexes) + category/stock filters
+  → Paginated {items, total, page, limit} response (~30ms)
 ```
 
 **Add to cart:**
 ```
-Browser → POST /v1/cart {product_id, quantity}
-  → Validate stock (SELECT stock FROM products)
+POST /v1/cart {product_id, quantity}
+  → Validate stock available ≥ quantity
+  → If not → 409 Conflict {available: N}
   → INSERT/UPDATE cart_items
-  → Return updated cart (~50ms)
+  → Return full cart with product details (~50ms)
 ```
 
 **Checkout:**
 ```
-Browser → POST /v1/orders {email, address, ...}
+POST /v1/orders {email, delivery_method, delivery_courier, payment_method, ...}
   → BEGIN TRANSACTION
-    → Validate all cart items still in stock
+    → Validate cart not empty
+    → Validate all items still in stock
+    → Get live courier quote (Econt/Speedy) if applicable
     → INSERT INTO orders
-    → INSERT INTO order_items (snapshot prices)
+    → INSERT INTO order_items (snapshot: product_name, price_cents, quantity)
     → UPDATE products SET stock = stock - quantity
     → DELETE FROM cart_items WHERE session_id = ?
   → COMMIT
-  → Return order confirmation (~150ms)
-  → AFTER RESPONSE: queue "purchase" event (fire-and-forget, Layer 2)
+  → Return order {id, order_number, total_cents, status='pending'} (~150-200ms)
+  → AFTER RESPONSE: fire "purchase" event (Layer 2), queue transactional email (outbox)
+```
+
+**Card payment checkout (Stripe):**
+```
+POST /v1/orders/stripe {email, ...}
+  → CREATE order with payment_method='card', payment_status='pending'
+  → CREATE Stripe Checkout Session
+  → Set reserved_until = now + 15 minutes
+  → Return {session_id, client_secret} to frontend
+  → After webhook: update payment_status → 'paid' or 'failed'
+  → Expired card orders: cleanup job restores stock every 1 min
 ```
 
 ### Identity Model
@@ -216,37 +199,97 @@ Anonymous-first: Full functionality without login.
 
 1. User visits → session cookie created (UUID v4)
 2. User browses, carts, checks out → all keyed to session_id
-3. User optionally logs in (Google OAuth) → session.user_id updated
-4. Cart persists across the transition — it's session-keyed, already there
+3. Optional login (Google OAuth) → session.user_id updated, JWT issued
+4. Cart persists across login transition — it's session-keyed, already there
 5. Orders show in "My Orders" if user_id matches
+6. Session expires after 30 days; cleanup runs hourly
 
 Login is an OVERLAY, not a prerequisite.
 ```
 
-### API Surface (Layer 1)
+### Complete API Reference
 
+For exhaustive endpoint definitions, see `docs/API.md`.
+
+**Products & Catalog:**
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| GET | `/v1/products` | Public | List/search active products |
-| GET | `/v1/products/{id}` | Public | Product detail |
-| GET | `/v1/cart` | Session | Get cart contents with product info |
-| POST | `/v1/cart` | Session | Add item to cart |
-| PATCH | `/v1/cart/{product_id}` | Session | Update quantity |
-| DELETE | `/v1/cart/{product_id}` | Session | Remove from cart |
-| POST | `/v1/orders` | Session | Create order (checkout) |
-| GET | `/v1/orders` | Session/JWT | List orders |
-| GET | `/v1/orders/{id}` | Session/JWT | Order detail |
-| GET | `/v1/auth/login` | Public | Google OAuth redirect |
-| GET | `/v1/auth/callback` | Public | OAuth callback |
-| GET | `/v1/auth/me` | JWT | Current user |
-| POST | `/v1/auth/logout` | JWT/Session | Logout (clear JWT, rotate session) |
+| GET | `/v1/products` | Public | List/search active products with pagination |
+| GET | `/v1/products/{id}` | Public | Product detail with reactions/comments counts |
 | POST | `/v1/admin/products` | Admin | Create product |
 | PUT | `/v1/admin/products/{id}` | Admin | Update product |
-| POST | `/v1/admin/products/import` | Admin | CSV bulk import |
-| POST | `/v1/admin/products/{id}/image` | Admin | Upload product image |
-| DELETE | `/v1/admin/products/{id}` | Admin | Deactivate product |
-| GET | `/v1/admin/orders` | Admin | All orders (paginated) |
-| PATCH | `/v1/admin/orders/{id}/status` | Admin | Update order status |
+| DELETE | `/v1/admin/products/{id}` | Admin | Deactivate product (soft delete) |
+| POST | `/v1/admin/products/import` | Admin | CSV bulk import (streaming, upsert per row) |
+| POST | `/v1/admin/products/{id}/image` | Admin | Upload product image (creates thumbnail + zoom) |
+| DELETE | `/v1/admin/products/{id}/image/{image_id}` | Admin | Delete product image |
+| POST | `/v1/admin/products/{id}/video` | Admin | Upload product video (queues transcode) |
+| GET | `/v1/admin/products/{id}/video/status` | Admin | Video transcode status |
+
+**Cart & Checkout:**
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/v1/cart` | Session | Get cart contents with product details |
+| POST | `/v1/cart` | Session | Add item to cart (validates stock) |
+| PATCH | `/v1/cart/{product_id}` | Session | Update quantity or remove (qty=0) |
+| DELETE | `/v1/cart/{product_id}` | Session | Remove item from cart |
+| GET | `/v1/delivery/quote` | Public | Get live courier quotes (Speedy/Econt) |
+| POST | `/v1/orders` | Session | Create order (checkout with COD/bank transfer) |
+| POST | `/v1/orders/stripe` | Session | Create Stripe checkout session + order |
+| GET | `/v1/orders` | Session/JWT | List user's orders (paginated) |
+| GET | `/v1/orders/{id}` | Session/JWT | Order detail with timeline + tracking |
+
+**Auth:**
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/v1/auth/login` | Public | Google OAuth redirect + PKCE flow |
+| GET | `/v1/auth/callback` | Public | OAuth callback, create/link user, issue JWT |
+| GET | `/v1/auth/me` | JWT/Session | Current user + admin flag |
+| POST | `/v1/auth/logout` | JWT/Session | Logout (invalidate JWT, rotate session ID) |
+
+**Social & Content:**
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/v1/products/{id}/reactions` | Session | Toggle emoji reaction (heart, thumbs_up) |
+| GET | `/v1/products/{id}/reactions` | Public | Reaction counts by type |
+| POST | `/v1/products/{id}/comments` | Session | Post comment (sanitized, display_name) |
+| GET | `/v1/products/{id}/comments` | Public | List comments for product |
+| DELETE | `/v1/products/{id}/comments/{comment_id}` | Admin | Hide/delete comment |
+| POST | `/v1/contact` | Public | Submit contact form (rate-limited, queues email) |
+| GET | `/v1/faq` | Public | List FAQ sections + items by locale |
+| GET | `/v1/about` | Public | Get about/atelier page sections |
+
+**Admin & Settings:**
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/v1/admin/dashboard` | Admin | Stats (orders, revenue, top products) |
+| GET | `/v1/admin/orders` | Admin | All orders (paginated, filterable by status/payment) |
+| PATCH | `/v1/admin/orders/{id}/status` | Admin | Update fulfillment status (pending → confirmed → shipped → delivered) |
+| PATCH | `/v1/admin/orders/{id}/payment-status` | Admin | Update payment status (manual override for COD) |
+| GET | `/v1/admin/orders/{id}/courier` | Admin | Courier tracking + shipment details |
+| POST | `/v1/admin/orders/{id}/courier/create-waybill` | Admin | Create Speedy/Econt shipment |
+| GET | `/v1/admin/taxonomy` | Admin | Product types, categories, labels |
+| POST | `/v1/admin/taxonomy/{entity}` | Admin | Create type/category/label |
+| PUT | `/v1/admin/taxonomy/{entity}/{slug}` | Admin | Update taxonomy entry |
+| GET | `/v1/admin/delivery` | Admin | Delivery settings (courier methods enabled) |
+| PUT | `/v1/admin/delivery` | Admin | Update delivery settings |
+| GET | `/v1/admin/delivery/speedy` | Admin | Speedy admin operations + health check |
+| GET | `/v1/admin/delivery/econt` | Admin | Econt admin operations + health check |
+| GET | `/v1/admin/faq` | Admin | List FAQ sections + items (draft/published) |
+| POST | `/v1/admin/faq/sections` | Admin | Create FAQ section |
+| POST | `/v1/admin/faq/items` | Admin | Create FAQ item |
+| PUT | `/v1/admin/faq/items/{id}` | Admin | Update FAQ item |
+| GET | `/v1/admin/about` | Admin | List about page sections |
+| POST | `/v1/admin/about/sections` | Admin | Create about section |
+| PUT | `/v1/admin/about/sections/{slug}` | Admin | Update about section |
+| GET | `/v1/settings/payments` | Public | Payment method availability (card/COD/bank transfer) |
+| GET | `/v1/admin/analytics` | Admin | Funnel analytics dashboard + CSV export |
+
+**System & Health:**
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/health` | Public | Health check (DB, DuckDB, background jobs status) |
+| POST | `/v1/analytics/consent` | Session | Record cookie consent (opt-in for tracking) |
+| POST | `/v1/analytics/events` | Session | Submit analytics event (fire-and-forget, Layer 2) |
 
 ---
 

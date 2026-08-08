@@ -17,6 +17,12 @@ Verification used:
   with `psql` / `pg_dump --schema-only`
 - `analytics-data/analytics.duckdb`, inspected with `uv run python`
 
+## Storage Architecture
+
+**Multi-database design:**
+- **Postgres** (`DATABASE_URL`): System of record for e-commerce (Layer 1). All transactional data: users, sessions, products, orders, payments.
+- **DuckDB** (`ANALYTICS_DUCKDB_PATH`): Optional analytics warehouse (Layer 2). Append-only events + computed aggregations. Never affects Layer 1.
+
 ## Storage Rules
 
 - Main app database: Postgres, addressed by `DATABASE_URL`
@@ -27,16 +33,20 @@ Verification used:
   DB layer serialize them to ISO-8601 strings for API responses.
 - `updated_at` columns are maintained by a shared `set_updated_at()` trigger
   function attached per table (replacing the old SQLite `AFTER UPDATE` triggers).
-- Money values are integer cents.
+- Money values are **always integer cents** (EUR cents for display). Never float. Field name suffix: `_cents`.
+  - E.g., EUR 35.00 → `3500` cents. Display: `price_cents / 100` EUR.
+  - Shipping, discount, total, revenue: all cents.
 - Boolean values are stored as `integer` constrained to `0` or `1` via
   `CHECK (col IN (0, 1))` — the 0/1 flag semantics from SQLite are preserved so
   no application/serialization code changed (migration Decision 2.6).
-- JSON payloads are stored in `text` columns.
+- JSON payloads are stored in `text` columns (filters, error snapshots, metadata).
 - Full-text product search uses expression **GIN** indexes over
   `to_tsvector('simple', name || ' ' || description)` per locale
   (`idx_products_search_en`, `idx_products_search_bg`) — see the Search section.
+- Product IDs are **text business slugs** (e.g., `lavender-dream-300ml`), not auto-increment integers.
+  - Immutable. Referenced in snapshots (`order_items`) to preserve historical data even after product deletion.
 - Analytics storage is a separate DuckDB at `ANALYTICS_DUCKDB_PATH`, default
-  `./analytics-data/analytics.duckdb`.
+  `./analytics-data/analytics.duckdb`. Completely isolated from Postgres.
 
 > **Type mapping note:** In the per-table listings below, `TEXT` = Postgres
 > `text`, `INTEGER` = `integer`, and any timestamp column is `timestamptz`.

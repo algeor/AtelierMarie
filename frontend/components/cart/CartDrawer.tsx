@@ -9,6 +9,7 @@ import { useCart } from "@/contexts/CartContext";
 import { useFocusTrap } from "@/lib/useFocusTrap";
 import { Portal } from "@/components/ui/Portal";
 import { trackAnalytics } from "@/lib/analytics";
+import { PurchaseAssurance } from "@/components/commerce/PurchaseAssurance";
 import { CartItem } from "./CartItem";
 
 export function CartDrawer() {
@@ -246,6 +247,7 @@ export function CartDrawer() {
                     })
                   : t("freeShippingUnlocked")}
               </div>
+              <PurchaseAssurance variant="cart" />
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-muted">
                   {t("subtotal")}

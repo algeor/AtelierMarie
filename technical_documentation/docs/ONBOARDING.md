@@ -9,13 +9,15 @@ that exist now over older archived plans/specs.
 
 Use these facts as the source of truth for local development:
 
-- Backend: FastAPI on `http://localhost:8000`.
-- Backend docs: `http://localhost:8000/v1/docs`.
-- Frontend: Next.js on `http://localhost:3000`.
-- Storefront URLs are locale-prefixed: `http://localhost:3000/en` and `/bg`.
-- Frontend mock mode is on by default: `NEXT_PUBLIC_USE_MOCK_API=true`.
-- Real frontend/backend mode uses `NEXT_PUBLIC_API_URL=http://localhost:8000`.
-- Python dependencies come from `pyproject.toml`, not `requirements.txt`.
+- **Backend:** FastAPI on `http://localhost:8000` (uvicorn with 2 workers + reload)
+- **Backend docs:** `http://localhost:8000/v1/docs` (auto-generated Swagger UI)
+- **Frontend:** Next.js on `http://localhost:3000` (App Router, hot reload)
+- **Storefront URLs:** Locale-prefixed `/en/products`, `/bg/products`; `/` redirects to browser language or EN
+- **Frontend mock mode:** `NEXT_PUBLIC_USE_MOCK_API=true` (default for UI development, no backend needed)
+- **Frontend real mode:** `NEXT_PUBLIC_USE_MOCK_API=false` + `NEXT_PUBLIC_API_URL=http://localhost:8000` (integration testing)
+- **Dependencies:** Python from `pyproject.toml`, npm from `package.json`; no `requirements.txt`
+- **Database:** Postgres (local dev assumes `postgresql://atelier:atelier@localhost:5432/atelier_marie`)
+- **Key files:** `CLAUDE.md` (project rules), `docs/ARCHITECTURE.md` (system design), `docs/DATABASE_SCHEMA.md` (data model)
 
 ## Prerequisites
 
@@ -322,6 +324,216 @@ Analytics is implemented, but consent-gated and off by default.
 - Do not send PII in analytics properties.
 - Do not add analytics work that blocks checkout, order creation, email, or admin operations.
 - Production analytics requires explicit `ANALYTICS_LEGAL_APPROVED=true`.
+
+## Common Checks
+
+Run these before handing off backend changes:
+
+```bash
+make test-backend
+.venv/bin/ruff check .
+```
+
+Run these before handing off frontend changes:
+
+```bash
+npm --prefix frontend run typecheck
+make test-frontend
+npm --prefix frontend run lint
+```
+
+Run this before handing off cross-stack checkout/cart/admin changes:
+
+```bash
+make test
+make test-chrome-stack
+```
+
+## Development Workflows
+
+### Workflow: Add a New Product Attribute
+
+1. **Decide:** Will this need a new DB column? If yes, file an Alembic migration.
+2. **Backend:**
+   - Add field to `app/models/products.py` Pydantic model
+   - Update `product_service.py` to handle the new field
+   - Add tests in `tests/test_products.py`
+3. **Frontend:**
+   - Add field to `frontend/lib/types.ts` ProductResponse interface
+   - Update `ProductCard` or product detail component to display
+   - Add mock data in `frontend/lib/mock-api.ts`
+   - Update `frontend/messages/en.json` and `bg.json` if adding UI labels
+4. **Test:**
+   - Run backend tests: `make test-backend`
+   - Run frontend tests: `make test-frontend`
+   - Manual smoke test: Add a product via admin, see it on product page
+5. **Commit:** One commit per logical change (model → service → route → frontend)
+
+### Workflow: Fix a Bug
+
+1. **Reproduce:** Can you hit it locally in mock mode or real mode?
+2. **Locate:** Search codebase for the symptom (function name, error code, UI text)
+3. **Understand:** Read the data flow (ARCHITECTURE.md helps); check the relevant service layer code
+4. **Fix:** Make the smallest change that fixes the bug (avoid refactors)
+5. **Test:**
+   - Add a test that would have caught this bug
+   - Run: `make test`
+6. **Verify:** Manually test the fixed flow end-to-end (admin + storefront if applicable)
+
+### Workflow: Add an Admin Feature
+
+1. **Frontend:**
+   - Add page or modal under `frontend/app/[locale]/admin/`
+   - Create/update component in `frontend/components/admin/`
+   - Use mock API first (update `frontend/lib/mock-api.ts`)
+2. **Backend:**
+   - Add route in `app/routes/admin.py` or new admin module
+   - Add service logic in `app/services/`
+   - Add model/schema in `app/models/`
+3. **Test:**
+   - Test the backend endpoint directly: `curl -H "Authorization: Bearer $ADMIN_API_KEY" http://localhost:8000/v1/admin/...`
+   - Switch frontend to real mode and test the flow
+4. **Permission:** Ensure admin-only check on backend (`require_admin` dependency)
+
+### Workflow: Debug a Stripe Payment Issue
+
+1. **Local webhook forwarding:** Run `make dev-stripe-webhook` in a separate terminal
+2. **Check `.env`:** Ensure `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and `STRIPE_PUBLISHABLE_KEY` are set
+3. **Add logs:** Temporarily add `print()` or structured logging in `payment_service.py`
+4. **Trigger:** Create an order with card payment locally; watch the backend logs
+5. **Inspect:** Check `stripe_events` table for webhook records: `.venv/bin/psql postgresql://atelier:atelier@localhost:5432/atelier_marie -c "SELECT * FROM stripe_events ORDER BY received_at DESC LIMIT 5;"`
+
+### Workflow: Test Courier (Speedy/Econt) Functionality
+
+1. **Credentials:** Ensure `SPEEDY_API_USERNAME`, `SPEEDY_API_PASSWORD`, `SPEEDY_CLIENT_ID` or `ECONT_API_USERNAME`, `ECONT_API_PASSWORD` are set in `.env`
+2. **Health check:** Go to `/admin/delivery/speedy` or `/admin/delivery/econt` in the browser; click "Check Connection"
+3. **Live testing:** Create an order with the desired courier; the quote should reflect live pricing
+4. **Debugging:** Check `order_courier_events` table for failed requests: `.venv/bin/psql postgresql://atelier:atelier@localhost:5432/atelier_marie -c "SELECT * FROM order_courier_events ORDER BY created_at DESC LIMIT 10;"`
+
+### Workflow: Add a Test
+
+**Backend (pytest):**
+```bash
+# Unit test for a service
+vi tests/test_cart_service.py
+
+def test_add_to_cart_out_of_stock(db):
+    # Arrange
+    product = add_product(db, "test-product", stock=0)
+    # Act & Assert
+    with pytest.raises(OutOfStockError):
+        cart_service.add_to_cart(session_id, "test-product", quantity=1)
+```
+
+**Frontend (vitest):**
+```bash
+# Component test
+vi frontend/__tests__/components/ProductCard.test.tsx
+
+test('renders product card with reaction count', () => {
+  const { getByText } = render(<ProductCard product={mockProduct} />)
+  expect(getByText('42')).toBeInTheDocument() // heart count
+})
+```
+
+## How Services Are Organized
+
+**Pattern: Thin routes, fat services**
+
+```
+route layer (HTTP only):
+  ✓ Validate input (Pydantic does this)
+  ✓ Call service function
+  ✓ Translate exceptions to HTTP responses
+  ✗ No business logic
+
+service layer (testable, no HTTP):
+  ✓ All business logic (stock validation, state transitions, pricing)
+  ✓ Raise domain exceptions (OutOfStockError, InvalidTransitionError)
+  ✓ Take explicit parameters
+  ✗ No knowledge of HTTP, requests, or responses
+
+Example route:
+  @router.post("/orders", response_model=OrderResponse)
+  async def create_order(order_req: CreateOrderRequest, session: Session = Depends(...)):
+      try:
+          order = await order_service.create_order(
+              session_id=session.id,
+              customer_email=order_req.customer_email,
+              ...
+          )
+          return OrderResponse.model_validate(order)
+      except OutOfStockError as e:
+          raise HTTPException(status_code=409, detail={"error": {"code": "OUT_OF_STOCK"}})
+```
+
+## Architecture Decision Records
+
+**ADHD-friendly summary of key design choices — read `docs/ARCHITECTURE.md` for full rationale:**
+
+| Decision | Why |
+|----------|-----|
+| **Two layers (e-commerce + analytics)** | Ensures checkout works even if analytics is completely down |
+| **Postgres (not SQLite)** | Robust concurrency for multi-worker setup; Alembic migrations; full-text search |
+| **Session-first identity** | Anonymous checkout works; users can log in later without losing cart |
+| **Prices in cents** | No floating-point errors; money is an integer domain type |
+| **Order items are snapshots** | If a product price changes, old orders still show original price (immutable history) |
+| **Courier live pricing** | Give customers accurate shipping cost *before* checkout (not a surprise after) |
+| **Stripe checkout (not in-house CC)** | Never touch card data; Stripe handles PCI compliance |
+
+## Key Constraints & Safety Checks
+
+**Always enforce these:**
+
+1. **Layer 1 code NEVER imports Layer 2 modules:** If you add code under `app/analytics/` or `app/ml/`, Layer 1 routes must not import from there
+2. **Cart stock validation at add, not just checkout:** Return 409 immediately if item is out of stock (don't wait)
+3. **Transactional email must work offline:** Email is Layer 1; never depend on Layer 2 or external services
+4. **Order items are immutable:** Never update `order_items` after creation (snapshot principle)
+5. **Tests must clean up:** Use `autouse=True` fixtures to DELETE between tests; leave the DB clean for the next run
+6. **API responses are JSON only:** No HTML, XML, or plaintext; use standard error envelope
+7. **Admin routes require authentication:** Always use `require_admin` dependency on admin endpoints
+
+## Good First Tasks
+
+Start with tasks that are small and easy to verify:
+
+- Add or improve a frontend component test.
+- Add a backend service test for an edge case.
+- Improve empty/loading/error states in a page.
+- Tighten localized copy in both `en.json` and `bg.json`.
+- Add a focused admin workflow polish item.
+- Update stale docs when code and docs disagree.
+- Write a missing test for an existing feature (improve coverage).
+- Fix a type warning in the codebase (`npm --prefix frontend run typecheck`).
+
+Avoid these as first tasks:
+
+- Payment provider behavior.
+- Session/auth rotation.
+- Alembic schema migrations.
+- Analytics consent/legal behavior.
+- Product video processing.
+- Cross-stack checkout changes.
+- Courier integration tuning.
+
+## Performance Tips
+
+- **Frontend:** Use the mock API (`NEXT_PUBLIC_USE_MOCK_API=true`) for UI work; real mode only when you need backend state
+- **Backend:** Add `--reload` to `make dev-backend` to auto-restart on code changes; uvicorn is very fast
+- **Database:** Indexes are already in place for common queries; add indexes only if you hit slow queries in production
+- **Caching:** Session lookups, product queries, and taxonomy are already optimized; resist premature micro-optimizations
+
+## Documentation Map
+
+| Document | Content |
+|----------|---------|
+| `CLAUDE.md` (checked in) | Project philosophy, coding standards, testing rules |
+| `ARCHITECTURE.md` | System design, data flows, Layer 1 vs Layer 2, concurrency model |
+| `DATABASE_SCHEMA.md` | Full Postgres schema, indexes, constraints, migrations |
+| `API.md` | Complete endpoint reference with examples (auto-generated from OpenSpec) |
+| `ONBOARDING.md` (this file) | First-time setup, useful commands, common workflows, troubleshooting |
+| `openspec/changes/*/design.md` | Feature specifications (what was built and why) |
+| `openspec/changes/*/tasks.md` | Implementation task breakdown (how it was built) |
 
 ## Common Checks
 

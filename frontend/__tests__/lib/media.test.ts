@@ -37,6 +37,19 @@ describe("media URL resolution", () => {
     );
   });
 
+  it("does not duplicate /static when media URL is already the static root", async () => {
+    vi.stubEnv("NEXT_PUBLIC_MEDIA_URL", "https://api.example.com/static/");
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.example.com/");
+    vi.stubEnv("NEXT_PUBLIC_USE_MOCK_API", "false");
+
+    const { MEDIA_URL, resolveMediaUrl } = await loadMedia();
+
+    expect(MEDIA_URL).toBe("https://api.example.com/static");
+    expect(resolveMediaUrl("/static/products/candle.webp")).toBe(
+      "https://api.example.com/static/products/candle.webp"
+    );
+  });
+
   it("keeps bundled mock media relative when no media origin is configured", async () => {
     vi.stubEnv("NEXT_PUBLIC_MEDIA_URL", "");
     vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.example.com/");

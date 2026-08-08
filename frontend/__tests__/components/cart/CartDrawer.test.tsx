@@ -109,6 +109,7 @@ describe("CartDrawer", () => {
     renderWithIntl(<CartDrawer />);
     expect(screen.getByText("Test Candle")).toBeInTheDocument();
     expect(document.querySelector('img[src="/img/test.jpg"]')).toBeInTheDocument();
+    expect(screen.getByText("Delivery is clear.")).toBeInTheDocument();
   });
 
   it("shows unavailable items with a remove action", () => {

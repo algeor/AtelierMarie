@@ -32,7 +32,7 @@ vi.mock("@/lib/api", () => ({
     steps: [{ event_type: "product_view", count: 10, conversion_from_previous: 0 }],
   })),
   getAdminAnalyticsProducts: vi.fn(async () => ({
-    products: [{ product_id: "lavender", product_name: "Lavender", views: 10, add_to_cart: 3, purchases: 2, revenue_cents: 6400, conversion_rate: 20 }],
+    products: [{ product_id: "lavender", product_name: "Lavender", impressions: 20, clicks: 12, views: 10, add_to_cart: 3, purchases: 2, revenue_cents: 6400, click_through_rate: 60, conversion_rate: 20 }],
   })),
   getAdminAnalyticsCheckout: vi.fn(async () => ({
     checkout_starts: 4,

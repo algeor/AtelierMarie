@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 class AnalyticsEventType(StrEnum):
     """Initial storefront funnel event taxonomy."""
 
+    PRODUCT_IMPRESSION = "product_impression"
+    PRODUCT_CLICK = "product_click"
     PRODUCT_VIEW = "product_view"
     LISTING_FILTER = "listing_filter"
     ADD_TO_CART = "add_to_cart"
@@ -154,10 +156,13 @@ class ProductAnalyticsRow(BaseModel):
 
     product_id: str
     product_name: str | None = None
+    impressions: int = 0
+    clicks: int = 0
     views: int = 0
     add_to_cart: int = 0
     purchases: int = 0
     revenue_cents: int = 0
+    click_through_rate: float = 0.0
     conversion_rate: float = 0.0
 
 

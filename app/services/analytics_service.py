@@ -25,6 +25,8 @@ from app.models.analytics import (
 logger = structlog.get_logger(__name__)
 
 FUNNEL_SEQUENCE: tuple[AnalyticsEventType, ...] = (
+    AnalyticsEventType.PRODUCT_IMPRESSION,
+    AnalyticsEventType.PRODUCT_CLICK,
     AnalyticsEventType.PRODUCT_VIEW,
     AnalyticsEventType.LISTING_FILTER,
     AnalyticsEventType.ADD_TO_CART,
@@ -37,9 +39,32 @@ FUNNEL_SEQUENCE: tuple[AnalyticsEventType, ...] = (
     AnalyticsEventType.PURCHASE_CONFIRMED,
 )
 
+DISCOVERY_CONTEXT_PROPERTIES = {
+    "product_id",
+    "index",
+    "listing_context",
+    "active_filters",
+    "sort",
+    "product_type",
+    "category",
+    "result_count",
+    "total_count",
+}
+
 PROPERTY_ALLOWLIST: dict[AnalyticsEventType, set[str]] = {
+    AnalyticsEventType.PRODUCT_IMPRESSION: DISCOVERY_CONTEXT_PROPERTIES,
+    AnalyticsEventType.PRODUCT_CLICK: DISCOVERY_CONTEXT_PROPERTIES | {"click_target"},
     AnalyticsEventType.PRODUCT_VIEW: {"product_id", "category", "currency", "value_cents"},
-    AnalyticsEventType.LISTING_FILTER: {"filter_name", "filter_value", "category", "sort"},
+    AnalyticsEventType.LISTING_FILTER: {
+        "filter_name",
+        "filter_value",
+        "category",
+        "sort",
+        "listing_context",
+        "active_filters",
+        "result_count",
+        "total_count",
+    },
     AnalyticsEventType.ADD_TO_CART: {"product_id", "quantity", "currency", "value_cents"},
     AnalyticsEventType.CART_OPEN: {"item_count", "currency", "value_cents"},
     AnalyticsEventType.CHECKOUT_START: {"item_count", "currency", "value_cents"},
@@ -72,6 +97,8 @@ PROPERTY_ALLOWLIST: dict[AnalyticsEventType, set[str]] = {
         "value_cents",
     },
 }
+
+SAFE_PII_FRAGMENT_KEYS = {"filter_name"}
 
 PII_KEY_FRAGMENTS = {
     "email",
@@ -300,7 +327,9 @@ def _validate_properties(event: AnalyticsEventRequest) -> dict[str, Any]:
         normalized_key = key.lower()
         if normalized_key not in allowed:
             raise AnalyticsValidationError(f"unknown analytics property: {key}")
-        if any(fragment in normalized_key for fragment in PII_KEY_FRAGMENTS):
+        if normalized_key not in SAFE_PII_FRAGMENT_KEYS and any(
+            fragment in normalized_key for fragment in PII_KEY_FRAGMENTS
+        ):
             raise AnalyticsValidationError(f"PII-like analytics property rejected: {key}")
         if isinstance(value, str):
             if len(value) > STRING_VALUE_MAX_LENGTH:
@@ -741,6 +770,12 @@ def get_product_metrics(
             behavior_rows = duck.execute(
                 """
                 SELECT product_id,
+                       SUM(
+                           CASE WHEN event_type = 'product_impression' THEN 1 ELSE 0 END
+                       ) AS impressions,
+                       SUM(
+                           CASE WHEN event_type = 'product_click' THEN 1 ELSE 0 END
+                       ) AS clicks,
                        SUM(CASE WHEN event_type = 'product_view' THEN 1 ELSE 0 END) AS views,
                        SUM(CASE WHEN event_type = 'add_to_cart' THEN 1 ELSE 0 END) AS add_to_cart
                 FROM analytics_events
@@ -766,11 +801,20 @@ def get_product_metrics(
         purchase_order_rows = []
 
     metrics: dict[str, dict[str, int]] = {}
-    for product_id, views, add_to_cart in behavior_rows:
+    for product_id, impressions, clicks, views, add_to_cart in behavior_rows:
         metrics.setdefault(
             product_id,
-            {"views": 0, "add_to_cart": 0, "purchases": 0, "revenue_cents": 0},
+            {
+                "impressions": 0,
+                "clicks": 0,
+                "views": 0,
+                "add_to_cart": 0,
+                "purchases": 0,
+                "revenue_cents": 0,
+            },
         )
+        metrics[product_id]["impressions"] += int(impressions or 0)
+        metrics[product_id]["clicks"] += int(clicks or 0)
         metrics[product_id]["views"] += int(views or 0)
         metrics[product_id]["add_to_cart"] += int(add_to_cart or 0)
 
@@ -798,7 +842,14 @@ def get_product_metrics(
             names[product_id] = row["name"]
             metrics.setdefault(
                 product_id,
-                {"views": 0, "add_to_cart": 0, "purchases": 0, "revenue_cents": 0},
+                {
+                    "impressions": 0,
+                    "clicks": 0,
+                    "views": 0,
+                    "add_to_cart": 0,
+                    "purchases": 0,
+                    "revenue_cents": 0,
+                },
             )
             metrics[product_id]["purchases"] += int(row["purchases"] or 0)
             metrics[product_id]["revenue_cents"] += int(row["revenue_cents"] or 0)
@@ -818,23 +869,37 @@ def get_product_metrics(
 
     result: list[dict[str, Any]] = []
     for product_id, row_metrics in metrics.items():
+        impressions = row_metrics["impressions"]
+        clicks = row_metrics["clicks"]
         views_i = row_metrics["views"]
         purchases_i = row_metrics["purchases"]
         add_to_cart = row_metrics["add_to_cart"]
         revenue_cents = row_metrics["revenue_cents"]
+        click_through_rate = 0.0 if impressions == 0 else round((clicks / impressions) * 100, 2)
         conversion_rate = 0.0 if views_i == 0 else round((purchases_i / views_i) * 100, 2)
         result.append(
             {
                 "product_id": product_id,
                 "product_name": names.get(product_id),
+                "impressions": impressions,
+                "clicks": clicks,
                 "views": views_i,
                 "add_to_cart": add_to_cart,
                 "purchases": purchases_i,
                 "revenue_cents": revenue_cents,
+                "click_through_rate": click_through_rate,
                 "conversion_rate": conversion_rate,
             }
         )
-    result.sort(key=lambda item: (-item["views"], -item["add_to_cart"], -item["purchases"]))
+    result.sort(
+        key=lambda item: (
+            -item["impressions"],
+            -item["clicks"],
+            -item["views"],
+            -item["add_to_cart"],
+            -item["purchases"],
+        )
+    )
     return result
 
 

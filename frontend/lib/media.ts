@@ -16,5 +16,9 @@ export const MEDIA_URL = (() => {
 export function resolveMediaUrl(url: string | null | undefined): string | null {
   if (!url) return null;
   if (!url.startsWith("/static/")) return url;
-  return MEDIA_URL ? `${MEDIA_URL}${url}` : url;
+  if (!MEDIA_URL) return url;
+  if (MEDIA_URL.endsWith("/static")) {
+    return `${MEDIA_URL}${url.slice("/static".length)}`;
+  }
+  return `${MEDIA_URL}${url}`;
 }
