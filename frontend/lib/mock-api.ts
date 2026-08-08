@@ -70,6 +70,7 @@ import type {
   CreateOrderRequest,
   CreateReturnCaseRequest,
   CreateAboutItemRequest,
+  CreateHomeItemRequest,
   CreateFaqItemRequest,
   CreateProductRequest,
   CreateTaxonomyTermRequest,
@@ -77,6 +78,10 @@ import type {
   FaqItemAdminResponse,
   FaqResponse,
   FaqSectionAdminResponse,
+  HomeAdminResponse,
+  HomeItemAdmin,
+  HomePublicResponse,
+  HomeSectionAdmin,
   ImageUploadResponse,
   LegalIdentityResponse,
   InspectReturnCaseRequest,
@@ -94,6 +99,8 @@ import type {
   ManualPaymentAction,
   PatchAboutItemRequest,
   PatchAboutSectionRequest,
+  PatchHomeItemRequest,
+  PatchHomeSectionRequest,
   ProductListQuery,
   ProductListResponse,
   ProductImage,
@@ -1010,6 +1017,7 @@ const MOCK_PRODUCTS: MockProduct[] = [
 const nowIso = () => new Date().toISOString();
 
 let nextAboutItemId = 18;
+let nextHomeItemId = 5;
 
 const MOCK_ABOUT_SECTIONS: AboutSectionAdmin[] = [
   mockAboutSection(
@@ -1131,6 +1139,63 @@ const MOCK_ABOUT_SECTIONS: AboutSectionAdmin[] = [
     "Заявете индивидуална поръчка",
     "/contact",
   ),
+];
+
+const MOCK_HOME_SECTIONS: HomeSectionAdmin[] = [
+  mockHomeSection(
+    "hero",
+    "hero",
+    0,
+    "Atelier Marie",
+    "Ателие Мари",
+    "Hand-poured in small batches",
+    "Ръчно наливане в малки серии",
+    "Handmade candles, soft scents, and gift-ready details crafted with a premium organic wax blend.",
+    "Ръчно изработени свещи, меки аромати и детайли за подарък, създадени с премиум органична восъчна смес.",
+    "Shop Collection",
+    "Разгледай колекцията",
+    "/products",
+  ),
+  mockHomeSection(
+    "featured",
+    "featured_products",
+    1,
+    "Featured pieces",
+    "Препоръчани изделия",
+    "Editor's picks",
+    "Избор от ателието",
+    "A curated glimpse at current atelier favorites, with texture, price, and product details close at hand.",
+    "Подбран поглед към актуални любими изделия с текстура, цена и детайли за продукта наблизо.",
+  ),
+  mockHomeSection(
+    "trust",
+    "cards",
+    2,
+    "A short note from the atelier",
+    "Кратка бележка от ателието",
+    "Made by hand",
+    "Изработено на ръка",
+    "Each piece is prepared in small batches with careful finishing, selected fragrance blends, and materials chosen for a refined home feel.",
+    "Всяко изделие се подготвя в малки серии с внимателен финиш, подбрани ароматни смеси и материали за изискано усещане у дома.",
+  ),
+  mockHomeSection(
+    "categories",
+    "category_links",
+    3,
+    "Choose a handmade category",
+    "Избери ръчно изработена категория",
+    "Shop by mood",
+    "Пазарувай по настроение",
+    "Discover our current handmade collections, gathered by mood and craft.",
+    "Открийте настоящите ни ръчно изработени колекции, подбрани по настроение и занаят.",
+  ),
+];
+
+MOCK_HOME_SECTIONS.find((s) => s.slug === "trust")!.items = [
+  mockHomeItem(1, "trust", 0, "Handmade slowly", "Бавна ръчна изработка", "Every candle is poured, finished, and checked by hand in the atelier.", "Всяка свещ се налива, завършва и проверява на ръка в ателието."),
+  mockHomeItem(2, "trust", 1, "Premium organic wax", "Премиум органичен восък", "The wax blend is selected for a clean finish, elegant texture, and consistent quality.", "Восъчната смес е подбрана за чист финиш, елегантна текстура и постоянно качество."),
+  mockHomeItem(3, "trust", 2, "Refined scents", "Изискани аромати", "Fragrances are chosen to feel soft, warm, and beautiful at home.", "Ароматите са избрани да се усещат меки, топли и красиви у дома."),
+  mockHomeItem(4, "trust", 3, "Gift-ready care", "Грижа за подарък", "Presentation, finish, and support are part of the Atelier Marie experience.", "Представянето, финишът и личното съдействие са част от преживяването Ателие Мари."),
 ];
 
 MOCK_ABOUT_SECTIONS.find((s) => s.slug === "differentiators")!.items = [
@@ -1318,6 +1383,71 @@ function mockAboutItem(
   };
 }
 
+function mockHomeSection(
+  slug: HomeSectionAdmin["slug"],
+  type: HomeSectionAdmin["type"],
+  sortOrder: number,
+  headingEn: string,
+  headingBg: string | null,
+  subheadingEn: string | null,
+  subheadingBg: string | null,
+  bodyEn: string | null,
+  bodyBg: string | null,
+  ctaLabelEn: string | null = null,
+  ctaLabelBg: string | null = null,
+  ctaHref: string | null = null,
+): HomeSectionAdmin {
+  const timestamp = nowIso();
+  return {
+    slug,
+    type,
+    heading_en: headingEn,
+    heading_bg: headingBg,
+    subheading_en: subheadingEn,
+    subheading_bg: subheadingBg,
+    body_en: bodyEn,
+    body_bg: bodyBg,
+    cta_label_en: ctaLabelEn,
+    cta_label_bg: ctaLabelBg,
+    cta_href: ctaHref,
+    image_id: null,
+    image: null,
+    sort_order: sortOrder,
+    is_published: true,
+    created_at: timestamp,
+    updated_at: timestamp,
+    items: [],
+  };
+}
+
+function mockHomeItem(
+  id: number,
+  section: string,
+  sortOrder: number,
+  titleEn: string,
+  titleBg: string | null,
+  textEn: string | null,
+  textBg: string | null,
+  linkHref: string | null = null,
+): HomeItemAdmin {
+  const timestamp = nowIso();
+  return {
+    id,
+    section,
+    title_en: titleEn,
+    title_bg: titleBg,
+    text_en: textEn,
+    text_bg: textBg,
+    image_id: null,
+    image: null,
+    link_href: linkHref,
+    sort_order: sortOrder,
+    is_published: true,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+}
+
 function publicAbout(locale: string = "en"): AboutPublicResponse {
   return {
     sections: MOCK_ABOUT_SECTIONS.filter((section) => section.is_published)
@@ -1358,6 +1488,39 @@ function publicAbout(locale: string = "en"): AboutPublicResponse {
             id: item.id,
             title:
               locale === "bg" ? item.title_bg || item.title_en : item.title_en,
+            text: locale === "bg" ? item.text_bg || item.text_en : item.text_en,
+            image: item.image,
+            link: item.link_href,
+          })),
+      })),
+  };
+}
+
+function publicHome(locale: string = "en"): HomePublicResponse {
+  return {
+    sections: MOCK_HOME_SECTIONS.filter((section) => section.is_published)
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((section) => ({
+        slug: section.slug,
+        type: section.type,
+        heading: locale === "bg" ? section.heading_bg || section.heading_en : section.heading_en,
+        subheading: locale === "bg" ? section.subheading_bg || section.subheading_en : section.subheading_en,
+        body: locale === "bg" ? section.body_bg || section.body_en : section.body_en,
+        cta:
+          section.cta_href &&
+          (locale === "bg" ? section.cta_label_bg || section.cta_label_en : section.cta_label_en)
+            ? {
+                label: (locale === "bg" ? section.cta_label_bg || section.cta_label_en : section.cta_label_en) || "",
+                href: section.cta_href,
+              }
+            : null,
+        image: section.image,
+        items: section.items
+          .filter((item) => item.is_published)
+          .sort((a, b) => a.sort_order - b.sort_order)
+          .map((item) => ({
+            id: item.id,
+            title: locale === "bg" ? item.title_bg || item.title_en : item.title_en,
             text: locale === "bg" ? item.text_bg || item.text_en : item.text_en,
             image: item.image,
             link: item.link_href,
@@ -5494,6 +5657,148 @@ function findAboutItem(slug: string, itemId: number): AboutItemAdmin {
   return item;
 }
 
+// --- Homepage Content Mock ---
+
+export async function getHome(locale?: string): Promise<HomePublicResponse> {
+  await delay();
+  return publicHome(locale);
+}
+
+export async function getAdminHome(): Promise<HomeAdminResponse> {
+  await delay();
+  return {
+    sections: [...MOCK_HOME_SECTIONS].sort((a, b) => a.sort_order - b.sort_order),
+  };
+}
+
+export async function updateHomeSection(slug: string, data: PatchHomeSectionRequest): Promise<HomeSectionAdmin> {
+  await delay();
+  const section = MOCK_HOME_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `Homepage section ${slug} not found`);
+  Object.assign(section, data, { updated_at: nowIso() });
+  return section;
+}
+
+export async function createHomeItem(slug: string, data: CreateHomeItemRequest): Promise<HomeItemAdmin> {
+  await delay();
+  const section = MOCK_HOME_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `Homepage section ${slug} not found`);
+  const item = mockHomeItem(
+    nextHomeItemId++,
+    slug,
+    section.items.length,
+    data.title_en,
+    data.title_bg ?? null,
+    data.text_en ?? null,
+    data.text_bg ?? null,
+    data.link_href ?? null,
+  );
+  item.is_published = data.is_published ?? true;
+  section.items.push(item);
+  return item;
+}
+
+export async function updateHomeItem(slug: string, itemId: number, data: PatchHomeItemRequest): Promise<HomeItemAdmin> {
+  await delay();
+  const item = findHomeItem(slug, itemId);
+  Object.assign(item, data, { updated_at: nowIso() });
+  return item;
+}
+
+export async function deleteHomeItem(slug: string, itemId: number): Promise<void> {
+  await delay();
+  const section = MOCK_HOME_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `Homepage section ${slug} not found`);
+  section.items = section.items.filter((item) => item.id !== itemId);
+}
+
+export async function reorderHomeSections(slugs: string[]): Promise<HomeSectionAdmin[]> {
+  await delay();
+  if (new Set(slugs).size !== MOCK_HOME_SECTIONS.length) {
+    mockError("INVALID_ORDER", "slugs must match all homepage sections");
+  }
+  slugs.forEach((slug, index) => {
+    const section = MOCK_HOME_SECTIONS.find((s) => s.slug === slug);
+    if (!section) mockError("INVALID_ORDER", "slugs must match all homepage sections");
+    section.sort_order = index;
+  });
+  return (await getAdminHome()).sections;
+}
+
+export async function reorderHomeItems(slug: string, ids: number[]): Promise<HomeItemAdmin[]> {
+  await delay();
+  const section = MOCK_HOME_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `Homepage section ${slug} not found`);
+  if (new Set(ids).size !== section.items.length) {
+    mockError("INVALID_ORDER", "ids must match all section items");
+  }
+  ids.forEach((id, index) => {
+    const item = section.items.find((i) => i.id === id);
+    if (!item) mockError("INVALID_ORDER", "ids must match all section items");
+    item.sort_order = index;
+  });
+  return [...section.items].sort((a, b) => a.sort_order - b.sort_order);
+}
+
+export async function setHomeSectionPublished(slug: string, isPublished: boolean): Promise<HomeSectionAdmin> {
+  await delay();
+  const section = MOCK_HOME_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `Homepage section ${slug} not found`);
+  section.is_published = isPublished;
+  section.updated_at = nowIso();
+  return section;
+}
+
+export async function setHomeItemPublished(slug: string, itemId: number, isPublished: boolean): Promise<HomeItemAdmin> {
+  await delay();
+  const item = findHomeItem(slug, itemId);
+  item.is_published = isPublished;
+  item.updated_at = nowIso();
+  return item;
+}
+
+export async function uploadHomeSectionImage(slug: string, _file: File): Promise<HomeSectionAdmin> {
+  await delay();
+  const section = MOCK_HOME_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `Homepage section ${slug} not found`);
+  section.image_id = `mock-${Date.now()}`;
+  section.image = `/static/products/home-${slug.replace("_", "-")}_${section.image_id}.webp`;
+  return section;
+}
+
+export async function clearHomeSectionImage(slug: string): Promise<HomeSectionAdmin> {
+  await delay();
+  const section = MOCK_HOME_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `Homepage section ${slug} not found`);
+  section.image_id = null;
+  section.image = null;
+  return section;
+}
+
+export async function uploadHomeItemImage(slug: string, itemId: number, _file: File): Promise<HomeItemAdmin> {
+  await delay();
+  const item = findHomeItem(slug, itemId);
+  item.image_id = `mock-${Date.now()}`;
+  item.image = `/static/products/home-item-${itemId}_${item.image_id}.webp`;
+  return item;
+}
+
+export async function clearHomeItemImage(slug: string, itemId: number): Promise<HomeItemAdmin> {
+  await delay();
+  const item = findHomeItem(slug, itemId);
+  item.image_id = null;
+  item.image = null;
+  return item;
+}
+
+function findHomeItem(slug: string, itemId: number): HomeItemAdmin {
+  const section = MOCK_HOME_SECTIONS.find((s) => s.slug === slug);
+  if (!section) mockError("NOT_FOUND", `Homepage section ${slug} not found`);
+  const item = section.items.find((i) => i.id === itemId);
+  if (!item) mockError("NOT_FOUND", `Homepage item ${itemId} not found`);
+  return item;
+}
+
 // --- Taxonomy Mock ---
 
 function localizedName(term: MockTerm, locale?: string): string {
@@ -6153,6 +6458,8 @@ const MOCK_SITE_MEDIA_BASE: SiteMediaAssetAdmin[] = [
   ...(
     [
       ["atelier_hero_fallback", "Atelier hero fallback"],
+      ["home_text_image_fallback", "Homepage story fallback"],
+      ["home_collections_fallback", "Homepage collections fallback"],
       ["atelier_story_fallback", "Atelier story fallback"],
       ["atelier_atelier_fallback", "Inside atelier fallback"],
       ["atelier_collections_fallback", "Atelier collections fallback"],

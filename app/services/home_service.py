@@ -3,6 +3,7 @@
 import uuid
 
 from app.database import DbConnection, get_db, require_row
+from app.services import object_storage_service
 from app.services.image_service import process_image, validate_image_file
 from app.utils.sanitize import is_safe_http_or_relative_url, sanitize_text, unsanitize_text
 
@@ -53,7 +54,11 @@ _ITEM_URL_FIELDS = {"link_href"}
 def _image_url(owner_slug: str, image_id: str | None) -> str | None:
     if not image_id:
         return None
-    return f"/static/products/{owner_slug}_{image_id}.webp"
+    key = object_storage_service.object_key_for_stem(f"{owner_slug}_{image_id}", ".webp")
+    try:
+        return object_storage_service.public_url(key)
+    except object_storage_service.StorageConfigError:
+        return None
 
 
 def _section_owner_slug(slug: str) -> str:
@@ -207,10 +212,14 @@ def get_public_home(locale: str = "en") -> dict:
 def list_admin_home() -> dict:
     """Return all raw bilingual homepage sections and items for admin editing."""
     with get_db() as conn:
-        section_rows = conn.execute("SELECT * FROM home_sections ORDER BY sort_order, slug").fetchall()
+        section_rows = conn.execute(
+            "SELECT * FROM home_sections ORDER BY sort_order, slug"
+        ).fetchall()
         sections = [_admin_section_dict(row) for row in section_rows]
         by_slug = {section["slug"]: section for section in sections}
-        item_rows = conn.execute("SELECT * FROM home_items ORDER BY section, sort_order, id").fetchall()
+        item_rows = conn.execute(
+            "SELECT * FROM home_items ORDER BY section, sort_order, id"
+        ).fetchall()
         for row in item_rows:
             section = by_slug.get(row["section"])
             if section is not None:
@@ -237,7 +246,9 @@ def update_section_text(slug: str, updates: dict) -> dict:
     fields: dict[str, object] = {}
     for key, value in updates.items():
         if key in _SECTION_TEXT_FIELDS:
-            fields[key] = _sanitize_required(value) if key == "heading_en" else _sanitize_optional(value)
+            fields[key] = (
+                _sanitize_required(value) if key == "heading_en" else _sanitize_optional(value)
+            )
         elif key in _SECTION_URL_FIELDS:
             fields[key] = _clean_url(value)
         else:
@@ -314,7 +325,9 @@ def update_item(section: str, item_id: int, updates: dict) -> dict:
     fields: dict[str, object] = {}
     for key, value in updates.items():
         if key in _ITEM_TEXT_FIELDS:
-            fields[key] = _sanitize_required(value) if key == "title_en" else _sanitize_optional(value)
+            fields[key] = (
+                _sanitize_required(value) if key == "title_en" else _sanitize_optional(value)
+            )
         elif key in _ITEM_URL_FIELDS:
             fields[key] = _clean_url(value)
         elif key == "is_published":
@@ -372,7 +385,12 @@ def reorder_items(section: str, ids: list[int]) -> list[dict]:
                 "WHERE section = %s AND id = %s",
                 (sort_order, section, item_id),
             )
-    return [item for s in list_admin_home()["sections"] if s["slug"] == section for item in s["items"]]
+    return [
+        item
+        for s in list_admin_home()["sections"]
+        if s["slug"] == section
+        for item in s["items"]
+    ]
 
 
 def set_section_published(slug: str, is_published: bool) -> dict:
@@ -405,7 +423,8 @@ def set_section_image(slug: str, file_bytes: bytes) -> dict:
         _ensure_section_exists(conn, slug)
         process_image(file_bytes, owner_slug, image_id=image_id)
         conn.execute(
-            "UPDATE home_sections SET image_id = %s, updated_at = CURRENT_TIMESTAMP WHERE slug = %s",
+            "UPDATE home_sections SET image_id = %s, updated_at = CURRENT_TIMESTAMP "
+            "WHERE slug = %s",
             (image_id, slug),
         )
     return next(s for s in list_admin_home()["sections"] if s["slug"] == slug)
@@ -415,7 +434,8 @@ def clear_section_image(slug: str) -> dict:
     with get_db() as conn:
         _ensure_section_exists(conn, slug)
         conn.execute(
-            "UPDATE home_sections SET image_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE slug = %s",
+            "UPDATE home_sections SET image_id = NULL, updated_at = CURRENT_TIMESTAMP "
+            "WHERE slug = %s",
             (slug,),
         )
     return next(s for s in list_admin_home()["sections"] if s["slug"] == slug)

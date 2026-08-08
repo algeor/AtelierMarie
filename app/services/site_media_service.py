@@ -51,6 +51,22 @@ SLOTS: tuple[SiteMediaSlot, ...] = (
         sort_order=20,
     ),
     SiteMediaSlot(
+        key="home_text_image_fallback",
+        owner_slug="site-media-home-text-image",
+        label="Homepage story fallback",
+        description="Fallback image for editable homepage image-and-text sections.",
+        default_url="/rebrand/error-candle.webp",
+        sort_order=25,
+    ),
+    SiteMediaSlot(
+        key="home_collections_fallback",
+        owner_slug="site-media-home-collections",
+        label="Homepage collections fallback",
+        description="Fallback image for editable homepage collection cards.",
+        default_url="/rebrand/error-candle.webp",
+        sort_order=27,
+    ),
+    SiteMediaSlot(
         key="atelier_hero_fallback",
         owner_slug="site-media-atelier-hero",
         label="Atelier hero fallback",

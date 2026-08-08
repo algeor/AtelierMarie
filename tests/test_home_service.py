@@ -5,6 +5,7 @@ import pytest
 from app.database import get_db
 from app.services import home_service
 from app.services.home_service import HomeReorderError, HomeValidationError
+from tests.conftest import R2_TEST_PUBLIC_BASE
 
 
 def test_seed_has_expected_home_sections_and_items(db):
@@ -33,6 +34,30 @@ def test_bg_locale_falls_back_to_english(db):
 
     hero = home_service.get_public_home("bg")["sections"][0]
     assert hero["heading"] == "Atelier Marie"
+
+
+def test_public_home_reconstructs_r2_image_urls(db, fake_storage):
+    section_image_id = "a" * 32
+    item_image_id = "b" * 32
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE home_sections SET image_id = %s WHERE slug = 'hero'",
+            (section_image_id,),
+        )
+        item_id = conn.execute(
+            "SELECT id FROM home_items WHERE section = 'trust' ORDER BY sort_order LIMIT 1"
+        ).fetchone()["id"]
+        conn.execute("UPDATE home_items SET image_id = %s WHERE id = %s", (item_image_id, item_id))
+
+    sections = home_service.get_public_home()["sections"]
+    hero = next(section for section in sections if section["slug"] == "hero")
+    trust = next(section for section in sections if section["slug"] == "trust")
+    item = next(item for item in trust["items"] if item["id"] == item_id)
+
+    assert hero["image"] == f"{R2_TEST_PUBLIC_BASE}/products/home-hero_{section_image_id}.webp"
+    assert item["image"] == (
+        f"{R2_TEST_PUBLIC_BASE}/products/home-item-{item_id}_{item_image_id}.webp"
+    )
 
 
 def test_reorder_sections_validates_submitted_set(db):

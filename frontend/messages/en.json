@@ -1217,6 +1217,24 @@
             { "term": "Override", "meaning": "Uploaded image that replaces the default behavior." }
           ]
         },
+        "home": {
+          "title": "Homepage",
+          "purpose": "Edit public homepage sections, images, ordering, visibility, and translations.",
+          "steps": [
+            "Edit the section copy.",
+            "Use Site media for reusable fallback images.",
+            "Hide unfinished sections before publishing."
+          ],
+          "watch": [
+            "Featured products still come from product feature flags.",
+            "Dynamic categories still render only when matching active products exist."
+          ],
+          "glossary": [
+            { "term": "Section", "meaning": "One block in the homepage flow." },
+            { "term": "Published", "meaning": "Visible to customers." },
+            { "term": "Site media", "meaning": "Reusable image slots used as fallbacks." }
+          ]
+        },
         "atelier": {
           "title": "Atelier",
           "purpose": "Edit the public page about the Atelier Marie story and process.",
@@ -1856,6 +1874,7 @@
     "deliveryNav": "Delivery",
     "paymentSettingsNav": "Payments",
     "siteMediaNav": "Site media",
+    "homeNav": "Homepage",
     "atelierNav": "Atelier",
     "termsNav": "Terms",
     "privacyNav": "Privacy",

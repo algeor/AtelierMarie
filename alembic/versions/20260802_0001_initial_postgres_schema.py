@@ -2412,9 +2412,9 @@ VALUES
     ('values', 'Elegance', 'Елегантност', 'Our creations are inspired by timeless aesthetics, designed to complement your home and bring a refined sense of beauty to your surroundings.', 'Нашите творения са вдъхновени от вечната естетика, замислени да допълват вашия дом и да внесат изтънчено усещане за красота в заобикалящата ви среда.', NULL, NULL, 1, 1),
     ('values', 'Emotion', 'Емоция', 'The most meaningful objects are those connected to memories. Whether chosen for yourself or gifted to someone special, our candles are created to celebrate moments worth remembering.', 'Най-значимите предмети са тези, свързани със спомени. Независимо дали са избрани за вас, или подарени на някого специален, нашите свещи са създадени да отбележат мигове, които си заслужава да бъдат помнени.', NULL, NULL, 2, 1),
     ('values', 'Personal Touch', 'Личен досег', 'Every home and every occasion is unique. Through personalised creations, we aim to create pieces that feel truly yours.', 'Всеки дом и всеки повод са уникални. Чрез персонализирани творения се стремим да създаваме изделия, които усещате като истински ваши.', NULL, NULL, 3, 1),
-    ('collections', 'Floral Collection', 'Флорална колекция', 'Romantic designs inspired by nature.', 'Романтични дизайни, вдъхновени от природата.', NULL, '/products?category=floral', 0, 1),
-    ('collections', 'Sculptural Collection', 'Скулптурна колекция', 'Statement pieces designed to decorate your space.', 'Акцентни изделия, създадени да украсят вашето пространство.', NULL, '/products?category=sculptural', 1, 1),
-    ('collections', 'Bespoke Collection', 'Колекция по поръчка', 'Custom creations made for meaningful moments.', 'Творения по поръчка за значими мигове.', NULL, '/products?category=bespoke', 2, 1)
+    ('collections', 'Floral Collection', 'Флорална колекция', 'Romantic designs inspired by nature.', 'Романтични дизайни, вдъхновени от природата.', NULL, '/products?labels=floral', 0, 1),
+    ('collections', 'Sculptural Collection', 'Скулптурна колекция', 'Statement pieces designed to decorate your space.', 'Акцентни изделия, създадени да украсят вашето пространство.', NULL, '/products?labels=sculptural', 1, 1),
+    ('collections', 'Bespoke Collection', 'Колекция по поръчка', 'Custom creations made for meaningful moments.', 'Творения по поръчка за значими мигове.', NULL, '/products?labels=bespoke', 2, 1)
 ON CONFLICT DO NOTHING;
 
 -- Keep identity sequences above seeded ids.

@@ -5,6 +5,8 @@ import io
 import pytest
 from PIL import Image
 
+from tests.conftest import R2_TEST_PUBLIC_BASE
+
 
 def _make_jpeg(width: int = 96, height: int = 96) -> bytes:
     buffer = io.BytesIO()
@@ -31,7 +33,9 @@ class TestPublicHome:
 
     @pytest.mark.asyncio
     async def test_hidden_sections_and_items_are_excluded(self, admin_client, client):
-        await admin_client.patch("/v1/admin/home/sections/categories/publish", json={"is_published": False})
+        await admin_client.patch(
+            "/v1/admin/home/sections/categories/publish", json={"is_published": False}
+        )
         home = (await client.get("/v1/home")).json()
         assert "categories" not in [section["slug"] for section in home["sections"]]
 
@@ -96,39 +100,39 @@ class TestAdminHome:
 
     @pytest.mark.asyncio
     async def test_section_reorder_validation_and_success(self, admin_client):
-        invalid = await admin_client.post("/v1/admin/home/sections/reorder", json={"slugs": ["hero"]})
+        invalid = await admin_client.post(
+            "/v1/admin/home/sections/reorder", json={"slugs": ["hero"]}
+        )
         assert invalid.status_code == 409
 
         listing = (await admin_client.get("/v1/admin/home")).json()
         slugs = [section["slug"] for section in listing["sections"]]
         reordered = list(reversed(slugs))
-        response = await admin_client.post("/v1/admin/home/sections/reorder", json={"slugs": reordered})
+        response = await admin_client.post(
+            "/v1/admin/home/sections/reorder", json={"slugs": reordered}
+        )
         assert response.status_code == 200
         assert [section["slug"] for section in response.json()] == reordered
 
     @pytest.mark.asyncio
-    async def test_image_upload_invalid_and_clear(self, admin_client, tmp_path):
-        from app.config import get_settings
-
+    async def test_image_upload_invalid_and_clear(self, admin_client, fake_storage):
         invalid = await admin_client.post(
             "/v1/admin/home/sections/hero/image",
             files={"file": ("not.txt", b"not an image", "text/plain")},
         )
         assert invalid.status_code == 422
 
-        settings = get_settings()
-        original = settings.static_file_path
-        settings.static_file_path = str(tmp_path)
-        try:
-            upload = await admin_client.post(
-                "/v1/admin/home/sections/hero/image",
-                files={"file": ("hero.jpg", _make_jpeg(), "image/jpeg")},
-            )
-            assert upload.status_code == 200
-            assert upload.json()["image"].startswith("/static/products/home-hero_")
+        upload = await admin_client.post(
+            "/v1/admin/home/sections/hero/image",
+            files={"file": ("hero.jpg", _make_jpeg(), "image/jpeg")},
+        )
+        assert upload.status_code == 200
+        image_id = upload.json()["image_id"]
+        assert image_id
+        expected_url = f"{R2_TEST_PUBLIC_BASE}/products/home-hero_{image_id}.webp"
+        assert upload.json()["image"] == expected_url
+        assert f"products/home-hero_{image_id}.webp" in fake_storage.objects
 
-            clear = await admin_client.delete("/v1/admin/home/sections/hero/image")
-            assert clear.status_code == 200
-            assert clear.json()["image"] is None
-        finally:
-            settings.static_file_path = original
+        clear = await admin_client.delete("/v1/admin/home/sections/hero/image")
+        assert clear.status_code == 200
+        assert clear.json()["image_id"] is None

@@ -70,6 +70,7 @@ import type {
   SpeedyShipmentSearchResponse,
   CreateOrderRequest,
   CreateAboutItemRequest,
+  CreateHomeItemRequest,
   CreateProductRequest,
   CreateTaxonomyTermRequest,
   CreateFaqItemRequest,
@@ -78,6 +79,10 @@ import type {
   FaqItemAdminResponse,
   FaqResponse,
   FaqSectionAdminResponse,
+  HomeAdminResponse,
+  HomeItemAdmin,
+  HomePublicResponse,
+  HomeSectionAdmin,
   ImageUploadResponse,
   LegalIdentityResponse,
   InspectReturnCaseRequest,
@@ -114,6 +119,8 @@ import type {
   ProductImage,
   PatchAboutItemRequest,
   PatchAboutSectionRequest,
+  PatchHomeItemRequest,
+  PatchHomeSectionRequest,
   SiteMediaAdminResponse,
   SiteMediaAssetAdmin,
   ProductVideo,
@@ -466,6 +473,132 @@ export async function clearAboutItemImage(
   if (USE_MOCK) return (await getMock()).clearAboutItemImage(slug, itemId);
   return apiClient.del<AboutItemAdmin>(
     `/v1/admin/about/sections/${encodeURIComponent(slug)}/items/${itemId}/image`,
+  );
+}
+
+// --- Homepage Content ---
+
+export async function getHome(locale?: Locale): Promise<HomePublicResponse> {
+  if (USE_MOCK) return (await getMock()).getHome(locale);
+  const params = new URLSearchParams();
+  if (locale) params.set("locale", locale);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<HomePublicResponse>(`/v1/home${query}`);
+}
+
+export async function getAdminHome(): Promise<HomeAdminResponse> {
+  if (USE_MOCK) return (await getMock()).getAdminHome();
+  return apiClient.get<HomeAdminResponse>("/v1/admin/home");
+}
+
+export async function updateHomeSection(
+  slug: string,
+  data: PatchHomeSectionRequest,
+): Promise<HomeSectionAdmin> {
+  if (USE_MOCK) return (await getMock()).updateHomeSection(slug, data);
+  return apiClient.patch<HomeSectionAdmin>(
+    `/v1/admin/home/sections/${encodeURIComponent(slug)}`,
+    data,
+  );
+}
+
+export async function createHomeItem(
+  slug: string,
+  data: CreateHomeItemRequest,
+): Promise<HomeItemAdmin> {
+  if (USE_MOCK) return (await getMock()).createHomeItem(slug, data);
+  return apiClient.post<HomeItemAdmin>(
+    `/v1/admin/home/sections/${encodeURIComponent(slug)}/items`,
+    data,
+  );
+}
+
+export async function updateHomeItem(
+  slug: string,
+  itemId: number,
+  data: PatchHomeItemRequest,
+): Promise<HomeItemAdmin> {
+  if (USE_MOCK) return (await getMock()).updateHomeItem(slug, itemId, data);
+  return apiClient.patch<HomeItemAdmin>(
+    `/v1/admin/home/sections/${encodeURIComponent(slug)}/items/${itemId}`,
+    data,
+  );
+}
+
+export async function deleteHomeItem(slug: string, itemId: number): Promise<void> {
+  if (USE_MOCK) return (await getMock()).deleteHomeItem(slug, itemId);
+  return apiClient.del<void>(`/v1/admin/home/sections/${encodeURIComponent(slug)}/items/${itemId}`);
+}
+
+export async function reorderHomeSections(slugs: string[]): Promise<HomeSectionAdmin[]> {
+  if (USE_MOCK) return (await getMock()).reorderHomeSections(slugs);
+  return apiClient.post<HomeSectionAdmin[]>("/v1/admin/home/sections/reorder", { slugs });
+}
+
+export async function reorderHomeItems(slug: string, ids: number[]): Promise<HomeItemAdmin[]> {
+  if (USE_MOCK) return (await getMock()).reorderHomeItems(slug, ids);
+  return apiClient.post<HomeItemAdmin[]>(
+    `/v1/admin/home/sections/${encodeURIComponent(slug)}/items/reorder`,
+    { ids },
+  );
+}
+
+export async function setHomeSectionPublished(
+  slug: string,
+  isPublished: boolean,
+): Promise<HomeSectionAdmin> {
+  if (USE_MOCK) return (await getMock()).setHomeSectionPublished(slug, isPublished);
+  return apiClient.patch<HomeSectionAdmin>(
+    `/v1/admin/home/sections/${encodeURIComponent(slug)}/publish`,
+    { is_published: isPublished },
+  );
+}
+
+export async function setHomeItemPublished(
+  slug: string,
+  itemId: number,
+  isPublished: boolean,
+): Promise<HomeItemAdmin> {
+  if (USE_MOCK) return (await getMock()).setHomeItemPublished(slug, itemId, isPublished);
+  return apiClient.patch<HomeItemAdmin>(
+    `/v1/admin/home/sections/${encodeURIComponent(slug)}/items/${itemId}/publish`,
+    { is_published: isPublished },
+  );
+}
+
+export async function uploadHomeSectionImage(slug: string, file: File): Promise<HomeSectionAdmin> {
+  if (USE_MOCK) return (await getMock()).uploadHomeSectionImage(slug, file);
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiClient.postForm<HomeSectionAdmin>(
+    `/v1/admin/home/sections/${encodeURIComponent(slug)}/image`,
+    formData,
+  );
+}
+
+export async function clearHomeSectionImage(slug: string): Promise<HomeSectionAdmin> {
+  if (USE_MOCK) return (await getMock()).clearHomeSectionImage(slug);
+  return apiClient.del<HomeSectionAdmin>(`/v1/admin/home/sections/${encodeURIComponent(slug)}/image`);
+}
+
+export async function uploadHomeItemImage(
+  slug: string,
+  itemId: number,
+  file: File,
+): Promise<HomeItemAdmin> {
+  if (USE_MOCK) return (await getMock()).uploadHomeItemImage(slug, itemId, file);
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiClient.postForm<HomeItemAdmin>(
+    `/v1/admin/home/sections/${encodeURIComponent(slug)}/items/${itemId}/image`,
+    formData,
+  );
+}
+
+export async function clearHomeItemImage(slug: string, itemId: number): Promise<HomeItemAdmin> {
+  if (USE_MOCK) return (await getMock()).clearHomeItemImage(slug, itemId);
+  return apiClient.del<HomeItemAdmin>(
+    `/v1/admin/home/sections/${encodeURIComponent(slug)}/items/${itemId}/image`,
   );
 }
 
