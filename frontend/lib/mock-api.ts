@@ -94,6 +94,7 @@ import type {
   ManualPaymentAction,
   PatchAboutItemRequest,
   PatchAboutSectionRequest,
+  ProductListQuery,
   ProductListResponse,
   ProductImage,
   SavedProductListResponse,
@@ -1919,11 +1920,50 @@ export async function getProducts(
   page = 1,
   limit = 20,
   _locale?: string,
+  query: ProductListQuery = {},
 ): Promise<ProductListResponse> {
   await delay();
   if (limit > 100)
     mockError("VALIDATION_ERROR", "Limit exceeds maximum of 100");
-  const active = MOCK_PRODUCTS.filter((p) => p.is_active);
+  const search = query.q?.trim().toLowerCase();
+  let active = MOCK_PRODUCTS.filter((p) => p.is_active);
+  if (query.product_type) {
+    active = active.filter((p) => p.product_type === query.product_type);
+  }
+  if (query.category) {
+    active = active.filter((p) => p.category === query.category);
+  }
+  if (query.labels?.length) {
+    active = active.filter((p) =>
+      query.labels!.every((label) => p.labels.some((pl) => pl.slug === label)),
+    );
+  }
+  if (query.in_stock) {
+    active = active.filter((p) => p.stock > 0);
+  }
+  if (search) {
+    active = active.filter((p) =>
+      `${p.name} ${p.description ?? ""}`.toLowerCase().includes(search),
+    );
+  }
+
+  active = [...active];
+  switch (query.sort) {
+    case "price_asc":
+      active.sort((a, b) => a.effective_price_cents - b.effective_price_cents);
+      break;
+    case "price_desc":
+      active.sort((a, b) => b.effective_price_cents - a.effective_price_cents);
+      break;
+    case "name":
+      active.sort((a, b) => a.name.localeCompare(b.name));
+      break;
+    case "newest":
+    default:
+      active.sort((a, b) => b.created_at.localeCompare(a.created_at));
+      break;
+  }
+
   const start = (page - 1) * limit;
   const slice = active.slice(start, start + limit);
   return {

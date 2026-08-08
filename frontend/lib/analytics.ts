@@ -5,6 +5,8 @@ export const CONSENT_VERSION = process.env.NEXT_PUBLIC_ANALYTICS_CONSENT_VERSION
 const USE_MOCK_API = process.env.NEXT_PUBLIC_USE_MOCK_API === "true";
 
 export type AnalyticsEventType =
+  | "product_impression"
+  | "product_click"
   | "product_view"
   | "listing_filter"
   | "add_to_cart"

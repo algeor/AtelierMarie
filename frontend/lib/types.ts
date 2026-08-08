@@ -90,6 +90,17 @@ export interface ProductResponse {
   updated_at: string;
 }
 
+export type ProductListSort = "price_asc" | "price_desc" | "name" | "newest";
+
+export interface ProductListQuery {
+  product_type?: string;
+  category?: string;
+  labels?: string[];
+  q?: string;
+  sort?: ProductListSort;
+  in_stock?: boolean;
+}
+
 export interface ProductListResponse {
   products: ProductResponse[];
   total: number;
@@ -2590,6 +2601,8 @@ export interface CreateOrderRequest {
 // --- Analytics ---
 
 export type AnalyticsEventType =
+  | "product_impression"
+  | "product_click"
   | "product_view"
   | "listing_filter"
   | "add_to_cart"
@@ -2641,10 +2654,13 @@ export interface AnalyticsFunnelResponse {
 export interface ProductAnalyticsRow {
   product_id: string;
   product_name: string | null;
+  impressions: number;
+  clicks: number;
   views: number;
   add_to_cart: number;
   purchases: number;
   revenue_cents: number;
+  click_through_rate: number;
   conversion_rate: number;
 }
 

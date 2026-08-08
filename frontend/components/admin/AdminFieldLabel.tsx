@@ -6,12 +6,13 @@ import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
 
 type AdminFieldLabelProps = {
   children: ReactNode;
+  extra?: ReactNode;
   htmlFor?: string;
   info?: string;
   className?: string;
 };
 
-export function AdminFieldLabel({ children, htmlFor, info, className }: AdminFieldLabelProps) {
+export function AdminFieldLabel({ children, extra, htmlFor, info, className }: AdminFieldLabelProps) {
   const labelClass = cn("block text-sm font-medium text-soft-brown", className);
 
   return (
@@ -24,6 +25,7 @@ export function AdminFieldLabel({ children, htmlFor, info, className }: AdminFie
         <span className={labelClass}>{children}</span>
       )}
       {info && <AdminInfoPopover content={info} />}
+      {extra}
     </div>
   );
 }

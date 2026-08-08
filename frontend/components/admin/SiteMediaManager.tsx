@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import Image from "next/image";
 import { ImageCropEditor } from "@/components/admin/ImageCropEditor";
+import { AdminTranslationGapButton, MissingBgLabel, isMissingTranslation, type AdminTranslationGap } from "@/components/admin/AdminTranslationGaps";
 import { SaveConfirmation } from "@/components/admin/SaveConfirmation";
 import { Button } from "@/components/ui/Button";
 import { DeleteIconButton } from "@/components/ui/DeleteIconButton";
@@ -367,6 +368,7 @@ function AboutItemMediaCard({
   const [draft, setDraft] = useState<CollectionItemTextDraft>(() => textDraftFromItem(item));
   const label = `Collection card: ${item.title_en}`;
   const titleIsEmpty = draft.title_en.trim().length === 0;
+  const translationGaps = siteMediaItemTranslationGaps(section.slug, item.id, draft);
 
   useEffect(() => {
     setDraft(textDraftFromItem(item));
@@ -393,6 +395,7 @@ function AboutItemMediaCard({
             <span className="rounded-brand bg-warm-ivory px-2 py-1 text-xs font-medium text-soft-brown">
               {isCustom ? "Custom" : fallbackUrl ? "Uses fallback" : "Empty"}
             </span>
+            <AdminTranslationGapButton gaps={translationGaps} label={`${label} translation gaps`} />
           </div>
           <p className="mt-3 text-sm leading-6 text-soft-brown">
             Displayed on this collection card. When empty, it uses the shared collection image or fallback.
@@ -404,7 +407,9 @@ function AboutItemMediaCard({
               onChange={(value) => setDraft((current) => ({ ...current, title_en: value }))}
             />
             <TextField
+              id={siteMediaItemFieldId(section.slug, item.id, "title-bg")}
               label="Name BG"
+              missing={isMissingTranslation(draft.title_en, draft.title_bg)}
               value={draft.title_bg ?? ""}
               onChange={(value) => setDraft((current) => ({ ...current, title_bg: value || null }))}
             />
@@ -414,7 +419,9 @@ function AboutItemMediaCard({
               onChange={(value) => setDraft((current) => ({ ...current, text_en: value || null }))}
             />
             <TextArea
+              id={siteMediaItemFieldId(section.slug, item.id, "text-bg")}
               label="Description BG"
+              missing={isMissingTranslation(draft.text_en, draft.text_bg)}
               value={draft.text_bg ?? ""}
               onChange={(value) => setDraft((current) => ({ ...current, text_bg: value || null }))}
             />
@@ -494,11 +501,26 @@ function normalizeTextDraft(draft: CollectionItemTextDraft): CollectionItemTextD
   };
 }
 
-function TextField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function siteMediaItemTranslationGaps(sectionSlug: string, itemId: number, draft: CollectionItemTextDraft): AdminTranslationGap[] {
+  const fields: Array<[string, string, string | null | undefined, string | null | undefined]> = [
+    ["title-bg", "Collection card > Name BG", draft.title_en, draft.title_bg],
+    ["text-bg", "Collection card > Description BG", draft.text_en, draft.text_bg],
+  ];
+  return fields
+    .filter(([, , en, bg]) => isMissingTranslation(en, bg))
+    .map(([field, label]) => ({ id: `site-media-${sectionSlug}-${itemId}-${field}`, label, fieldId: siteMediaItemFieldId(sectionSlug, itemId, field) }));
+}
+
+function siteMediaItemFieldId(sectionSlug: string, itemId: number, field: string) {
+  return `site-media-${sectionSlug}-item-${itemId}-${field}`;
+}
+
+function TextField({ id, label, missing = false, value, onChange }: { id?: string; label: string; missing?: boolean; value: string; onChange: (value: string) => void }) {
   return (
     <label className="block text-sm font-medium text-charcoal">
-      {label}
+      {label}<MissingBgLabel show={missing} />
       <input
+        id={id}
         className="mt-1 w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm text-charcoal focus:border-muted-gold focus:outline-none"
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -507,11 +529,12 @@ function TextField({ label, value, onChange }: { label: string; value: string; o
   );
 }
 
-function TextArea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function TextArea({ id, label, missing = false, value, onChange }: { id?: string; label: string; missing?: boolean; value: string; onChange: (value: string) => void }) {
   return (
     <label className="block text-sm font-medium text-charcoal lg:col-span-2">
-      {label}
+      {label}<MissingBgLabel show={missing} />
       <textarea
+        id={id}
         className="mt-1 min-h-24 w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm leading-6 text-charcoal focus:border-muted-gold focus:outline-none"
         value={value}
         onChange={(event) => onChange(event.target.value)}

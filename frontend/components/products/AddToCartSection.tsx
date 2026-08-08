@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { useCart } from "@/contexts/CartContext";
 import { Button } from "@/components/ui/Button";
+import { PurchaseAssurance } from "@/components/commerce/PurchaseAssurance";
 import { QuantitySelector } from "./QuantitySelector";
 
 interface AddToCartSectionProps {
@@ -60,6 +61,8 @@ export function AddToCartSection({ productId, stock }: AddToCartSectionProps) {
             ? `${t("added")} ✓`
             : t("addToCart")}
       </Button>
+
+      <PurchaseAssurance />
 
       <Link
         href="/faq#care"

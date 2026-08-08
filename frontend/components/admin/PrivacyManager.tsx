@@ -349,11 +349,11 @@ function TargetCard({ title, detail, selected, countLabel, gaps, onSelect }: {
       <button type="button" onClick={onSelect} className="block w-full min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-focus focus-visible:ring-offset-2 focus-visible:ring-offset-admin-surface" aria-current={selected ? "true" : undefined}>
         <h3 className="truncate font-heading text-lg text-charcoal">{title}</h3>
         <p className="mt-0.5 truncate text-xs text-soft-brown">{detail}</p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <span className="rounded-pill border border-champagne-beige bg-warm-ivory px-2 py-1 text-xs font-semibold text-soft-brown">{countLabel}</span>
-          <AdminTranslationGapButton gaps={gaps} label={`${title} translation gaps`} />
-        </div>
       </button>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <span className="rounded-pill border border-champagne-beige bg-warm-ivory px-2 py-1 text-xs font-semibold text-soft-brown">{countLabel}</span>
+        <AdminTranslationGapButton gaps={gaps} label={`${title} translation gaps`} />
+      </div>
     </article>
   );
 }

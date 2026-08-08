@@ -50,6 +50,14 @@ def event_payload(event_id="evt-test-1", event_type="add_to_cart", **properties)
         default_properties = {"product_id": "lavender-dream-300ml", "quantity": 1}
     elif event_type == "product_view":
         default_properties = {"product_id": "lavender-dream-300ml"}
+    elif event_type in {"product_impression", "product_click"}:
+        default_properties = {
+            "product_id": "lavender-dream-300ml",
+            "index": 0,
+            "listing_context": "products",
+        }
+    elif event_type == "listing_filter":
+        default_properties = {"filter_name": "product_type", "filter_value": "candles"}
     return {
         "event_id": event_id,
         "event_type": event_type,
@@ -178,6 +186,69 @@ async def test_duckdb_rebuild_from_jsonl_preserves_counts(client):
     analytics_service.rebuild_duckdb_from_jsonl()
 
     assert analytics_service.count_events_by_type()["add_to_cart"] == 1
+
+
+async def test_discovery_events_capture_impressions_clicks_and_filter_context(client):
+    await grant_analytics_consent(client)
+
+    response = await client.post(
+        "/v1/analytics/events",
+        json={
+            "events": [
+                event_payload(
+                    "evt-impression",
+                    event_type="product_impression",
+                    active_filters="type:candles",
+                    sort="newest",
+                    result_count=2,
+                    total_count=8,
+                ),
+                event_payload(
+                    "evt-click",
+                    event_type="product_click",
+                    active_filters="type:candles",
+                    sort="newest",
+                    result_count=2,
+                    total_count=8,
+                    click_target="card",
+                ),
+            ]
+        },
+    )
+
+    assert response.status_code == 202
+    assert response.json()["accepted"] == 2
+    counts = analytics_service.count_events_by_type()
+    assert counts["product_impression"] == 1
+    assert counts["product_click"] == 1
+
+    product_metrics = analytics_service.get_product_metrics()
+    assert product_metrics[0]["product_id"] == "lavender-dream-300ml"
+    assert product_metrics[0]["impressions"] == 1
+    assert product_metrics[0]["clicks"] == 1
+    assert product_metrics[0]["click_through_rate"] == 100.0
+
+
+async def test_listing_filter_name_is_allowed_for_discovery_context(client):
+    await grant_analytics_consent(client)
+
+    response = await client.post(
+        "/v1/analytics/events",
+        json={
+            "event": event_payload(
+                "evt-filter-context",
+                event_type="listing_filter",
+                listing_context="products",
+                active_filters="type:candles",
+                result_count=0,
+                total_count=8,
+            )
+        },
+    )
+
+    assert response.status_code == 202
+    assert response.json()["accepted"] == 1
+    assert analytics_service.count_events_by_type()["listing_filter"] == 1
 
 
 async def test_admin_analytics_endpoints_require_admin(client, admin_client):

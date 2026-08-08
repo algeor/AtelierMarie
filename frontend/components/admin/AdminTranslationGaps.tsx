@@ -155,7 +155,7 @@ export function AdminTranslationGapButton({
 export function MissingBgLabel({ show }: { show: boolean }) {
   if (!show) return null;
   return (
-    <span className="ml-2 inline-flex rounded-pill border border-amber-200 bg-amber-50 px-1.5 py-0.5 align-middle text-[11px] font-semibold text-amber-800">
+    <span aria-hidden="true" className="ml-2 inline-flex rounded-pill border border-amber-200 bg-amber-50 px-1.5 py-0.5 align-middle text-[11px] font-semibold text-amber-800">
       Missing BG
     </span>
   );

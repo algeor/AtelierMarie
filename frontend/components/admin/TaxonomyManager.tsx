@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { SaveConfirmation } from "@/components/admin/SaveConfirmation";
+import { AdminTranslationGapButton, MissingBgLabel, isMissingTranslation, type AdminTranslationGap } from "@/components/admin/AdminTranslationGaps";
 import { Button } from "@/components/ui/Button";
 import { DeleteIconButton } from "@/components/ui/DeleteIconButton";
 import { Input } from "@/components/ui/Input";
@@ -119,6 +120,8 @@ export function TaxonomyManager({ kind }: TaxonomyManagerProps) {
     setEditBg(term.name_bg ?? "");
   }
 
+  const translationGaps = terms.flatMap((term) => taxonomyTermTranslationGaps(kind, term, () => startRename(term)));
+
   function cancelRename() {
     setEditingSlug(null);
   }
@@ -184,6 +187,14 @@ export function TaxonomyManager({ kind }: TaxonomyManagerProps) {
       )}
       {saveNotice && <SaveConfirmation key={saveNotice.id} message={saveNotice.message} />}
 
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-brand border border-champagne-beige bg-warm-ivory px-4 py-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-gold">Translation gaps</p>
+          <p className="mt-0.5 text-sm text-soft-brown">Bulgarian taxonomy names missing while English is filled.</p>
+        </div>
+        <AdminTranslationGapButton gaps={translationGaps} label="Taxonomy translation gaps" />
+      </div>
+
       {/* Create form */}
       <div className="flex flex-wrap items-end gap-3 rounded-brand border border-champagne-beige bg-warm-ivory p-4">
         <div className="w-48">
@@ -195,7 +206,9 @@ export function TaxonomyManager({ kind }: TaxonomyManagerProps) {
         </div>
         <div className="w-48">
           <Input
+            id="taxonomy-new-name-bg"
             label={t("taxonomy.nameBg")}
+            labelExtra={<MissingBgLabel show={isMissingTranslation(newNameEn, newNameBg)} />}
             value={newNameBg}
             onChange={(e) => setNewNameBg(e.target.value)}
           />
@@ -236,20 +249,23 @@ export function TaxonomyManager({ kind }: TaxonomyManagerProps) {
                           className="w-32 rounded-brand border border-champagne-beige bg-warm-ivory px-2 py-1 text-sm text-charcoal focus:border-muted-gold focus:outline-none"
                         />
                         <input
+                          id={taxonomyTermFieldId(kind, term.slug)}
                           aria-label={t("taxonomy.nameBg")}
                           value={editBg}
                           onChange={(e) => setEditBg(e.target.value)}
                           placeholder={t("taxonomy.nameBg")}
                           className="w-32 rounded-brand border border-champagne-beige bg-warm-ivory px-2 py-1 text-sm text-charcoal focus:border-muted-gold focus:outline-none"
                         />
+                        <MissingBgLabel show={isMissingTranslation(editEn, editBg)} />
                       </div>
                     ) : (
-                      <>
+                      <div className="flex flex-wrap items-center gap-2">
                         {term.name_en}
                         {term.name_bg ? (
                           <span className="text-soft-brown/70"> / {term.name_bg}</span>
                         ) : null}
-                      </>
+                        <AdminTranslationGapButton gaps={taxonomyTermTranslationGaps(kind, term, () => startRename(term))} label={`${term.name_en} translation gaps`} />
+                      </div>
                     )}
                   </td>
                   <td className="py-2 pr-3 font-mono text-xs text-soft-brown">{term.slug}</td>
@@ -343,4 +359,18 @@ export function TaxonomyManager({ kind }: TaxonomyManagerProps) {
       )}
     </div>
   );
+}
+
+function taxonomyTermTranslationGaps(kind: TaxonomyKind, term: AdminTaxonomyTerm, onFix?: () => void): AdminTranslationGap[] {
+  if (!isMissingTranslation(term.name_en, term.name_bg)) return [];
+  return [{
+    id: `taxonomy-${kind}-${term.slug}-name-bg`,
+    label: `${term.name_en} > Name BG`,
+    fieldId: taxonomyTermFieldId(kind, term.slug),
+    onFix,
+  }];
+}
+
+function taxonomyTermFieldId(kind: TaxonomyKind, slug: string) {
+  return `taxonomy-${kind}-${slug}-name-bg`;
 }

@@ -8,6 +8,7 @@ import type { CartItemResponse, ProductResponse, TaxonomyResponse } from "@/lib/
 const mockTrackAnalytics = vi.fn();
 const mockCreateOrder = vi.fn();
 const mockPush = vi.fn();
+const mockReplace = vi.fn();
 const mockAddToCart = vi.fn();
 const mockOpenDrawer = vi.fn();
 
@@ -111,11 +112,25 @@ vi.mock("@/contexts/AuthContext", () => ({
 }));
 
 vi.mock("@/i18n/navigation", () => ({
-  Link: ({ children, href, className, onClick }: { children: React.ReactNode; href: string; className?: string; onClick?: () => void }) => (
-    <a href={href} className={className} onClick={onClick}>{children}</a>
+  Link: ({ children, href, className, onClick }: { children: React.ReactNode; href: string; className?: string; onClick?: (event: React.MouseEvent<HTMLAnchorElement>) => void }) => (
+    <a
+      href={href}
+      className={className}
+      onClick={(event) => {
+        event.preventDefault();
+        onClick?.(event);
+      }}
+    >
+      {children}
+    </a>
   ),
   useRouter: () => ({ replace: vi.fn(), push: mockPush }),
   usePathname: () => "/",
+}));
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/en/products",
+  useRouter: () => ({ replace: mockReplace }),
 }));
 
 vi.mock("@/components/checkout/DeliverySection", () => ({
@@ -242,14 +257,59 @@ describe("storefront analytics instrumentation", () => {
           product({ id: "box", name: "Box", product_type: "boxes", category: "premium" }),
         ]}
         taxonomy={taxonomy}
+        total={2}
+        page={1}
+        limit={24}
+        filters={{}}
       />
     );
+    await waitFor(() => expect(mockTrackAnalytics).toHaveBeenCalledWith(
+      "product_impression",
+      expect.objectContaining({
+        product_id: "small",
+        index: 0,
+        listing_context: "products",
+        result_count: 2,
+        total_count: 2,
+      })
+    ));
+    await user.click(screen.getByRole("link", { name: /Small/ }));
+    expect(mockTrackAnalytics).toHaveBeenCalledWith(
+      "product_click",
+      expect.objectContaining({
+        product_id: "small",
+        index: 0,
+        listing_context: "products",
+      })
+    );
+
     await user.click(screen.getByRole("button", { name: "Open product menu" }));
     const menu = screen.getByLabelText("Product menu");
     await user.click(within(menu).getByRole("button", { name: /Boxes/ }));
+    expect(mockReplace).toHaveBeenCalledWith("/en/products?type=boxes", {
+      scroll: false,
+    });
+
+    renderWithIntl(
+      <ProductListingClient
+        products={[product({ id: "box", name: "Box", product_type: "boxes", category: "premium" })]}
+        taxonomy={taxonomy}
+        total={1}
+        page={1}
+        limit={24}
+        filters={{ product_type: "boxes" }}
+      />
+    );
     await waitFor(() => expect(mockTrackAnalytics).toHaveBeenCalledWith(
       "listing_filter",
-      { filter_name: "product_type", filter_value: "boxes" }
+      expect.objectContaining({
+        filter_name: "product_type",
+        filter_value: "boxes",
+        listing_context: "products",
+        active_filters: "type:boxes",
+        result_count: 1,
+        total_count: 1,
+      })
     ));
 
     renderWithIntl(<AddToCartButton productId="lavender-dream" stock={5} />);

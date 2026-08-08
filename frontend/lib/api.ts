@@ -93,6 +93,7 @@ import type {
   PaymentSettingsUpdate,
   PaymentStatus,
   ManualPaymentAction,
+  ProductListQuery,
   ProductListResponse,
   ProductAnalyticsResponse,
   PublicPaymentSettingsResponse,
@@ -227,13 +228,22 @@ export async function getProducts(
   page = 1,
   limit = 20,
   locale?: Locale,
+  query: ProductListQuery = {},
 ): Promise<ProductListResponse> {
-  if (USE_MOCK) return (await getMock()).getProducts(page, limit, locale);
+  if (USE_MOCK) return (await getMock()).getProducts(page, limit, locale, query);
   const params = new URLSearchParams({
     page: String(page),
     limit: String(limit),
   });
   if (locale) params.set("locale", locale);
+  if (query.product_type) params.set("product_type", query.product_type);
+  if (query.category) params.set("category", query.category);
+  if (query.labels?.length) params.set("labels", query.labels.join(","));
+  if (query.q) params.set("q", query.q);
+  if (query.sort) params.set("sort", query.sort);
+  if (query.in_stock !== undefined) {
+    params.set("in_stock", query.in_stock ? "1" : "0");
+  }
   return apiClient.get<ProductListResponse>(`/v1/products?${params}`);
 }
 

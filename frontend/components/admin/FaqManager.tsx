@@ -650,13 +650,13 @@ function SectionNavCard({ section, index, totalSections, selected, activeTab, tr
             <p className="mt-0.5 text-xs text-soft-brown">{published}/{section.items.length} published</p>
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <span className="rounded-pill border border-champagne-beige bg-warm-ivory px-2 py-1 text-xs font-semibold text-soft-brown">
-            {section.items.length} question{section.items.length === 1 ? "" : "s"}
-          </span>
-          <AdminTranslationGapButton gaps={translationGaps} label={`${section.title_en} translation gaps`} />
-        </div>
       </button>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <span className="rounded-pill border border-champagne-beige bg-warm-ivory px-2 py-1 text-xs font-semibold text-soft-brown">
+          {section.items.length} question{section.items.length === 1 ? "" : "s"}
+        </span>
+        <AdminTranslationGapButton gaps={translationGaps} label={`${section.title_en} translation gaps`} />
+      </div>
       <div className="mt-3 border-t border-admin-border/35 pt-3">
         <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-gold">FAQ parts</p>
         <div className="grid grid-cols-2 gap-2">
