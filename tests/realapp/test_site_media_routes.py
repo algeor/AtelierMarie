@@ -23,34 +23,30 @@ class TestSiteMediaRoutes:
         assert assets["error_page_image"] == "/rebrand/error-candle.webp"
 
     @pytest.mark.asyncio
-    async def test_admin_upload_invalid_and_clear(self, admin_client, tmp_path):
-        from app.config import get_settings
-
+    async def test_admin_upload_invalid_and_clear(self, admin_client, fake_storage):
         invalid = await admin_client.post(
             "/v1/admin/site-media/assets/home_hero/image",
             files={"file": ("not.txt", b"not an image", "text/plain")},
         )
         assert invalid.status_code == 422
 
-        settings = get_settings()
-        original = settings.static_file_path
-        settings.static_file_path = str(tmp_path)
-        try:
-            upload = await admin_client.post(
-                "/v1/admin/site-media/assets/home_hero/image",
-                files={"file": ("hero.jpg", _make_jpeg(), "image/jpeg")},
-            )
+        upload = await admin_client.post(
+            "/v1/admin/site-media/assets/home_hero/image",
+            files={"file": ("hero.jpg", _make_jpeg(), "image/jpeg")},
+        )
 
-            assert upload.status_code == 200
-            assert upload.json()["image_id"]
-            assert upload.json()["image_url"].startswith("/static/products/site-media-home-hero_")
+        assert upload.status_code == 200
+        image_id = upload.json()["image_id"]
+        assert image_id
+        assert upload.json()["image_url"].startswith(
+            "https://cdn.test.example/products/site-media-home-hero_"
+        )
+        assert f"products/site-media-home-hero_{image_id}.webp" in fake_storage.objects
 
-            public = await admin_client.get("/v1/site-media")
-            assert public.json()["assets"]["home_hero"] == upload.json()["image_url"]
+        public = await admin_client.get("/v1/site-media")
+        assert public.json()["assets"]["home_hero"] == upload.json()["image_url"]
 
-            clear = await admin_client.delete("/v1/admin/site-media/assets/home_hero/image")
-        finally:
-            settings.static_file_path = original
+        clear = await admin_client.delete("/v1/admin/site-media/assets/home_hero/image")
 
         assert clear.status_code == 200
         assert clear.json()["image_id"] is None
