@@ -21,6 +21,13 @@ from pathlib import Path
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+# Re-export the shared media-storage fixtures (FakeStorageBackend / fake_storage)
+# so realapp route tests that exercise a real upload path (e.g. the about-image
+# route) can inject the in-memory R2 backend instead of hitting a live bucket.
+from tests.conftest import R2_TEST_PUBLIC_BASE, FakeStorageBackend, fake_storage
+
+__all__ = ["FakeStorageBackend", "R2_TEST_PUBLIC_BASE", "fake_storage"]
+
 _REALAPP_DIR = str(Path(__file__).parent)
 
 # Reuse the root harness's admin key so admin_client auth lines up.

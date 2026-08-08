@@ -5,6 +5,8 @@ import io
 import pytest
 from PIL import Image
 
+from tests.conftest import R2_TEST_PUBLIC_BASE
+
 
 def _make_jpeg(width: int = 96, height: int = 96) -> bytes:
     buffer = io.BytesIO()
@@ -113,29 +115,27 @@ class TestAdminAbout:
         assert [section["slug"] for section in response.json()] == reordered
 
     @pytest.mark.asyncio
-    async def test_image_upload_invalid_and_clear(self, admin_client, tmp_path):
-        from app.config import get_settings
-
+    async def test_image_upload_invalid_and_clear(self, admin_client, fake_storage):
         invalid = await admin_client.post(
             "/v1/admin/about/sections/hero/image",
             files={"file": ("not.txt", b"not an image", "text/plain")},
         )
         assert invalid.status_code == 422
 
-        settings = get_settings()
-        original = settings.static_file_path
-        settings.static_file_path = str(tmp_path)
-        try:
-            upload = await admin_client.post(
-                "/v1/admin/about/sections/hero/image",
-                files={"file": ("hero.jpg", _make_jpeg(), "image/jpeg")},
-            )
-        finally:
-            settings.static_file_path = original
+        upload = await admin_client.post(
+            "/v1/admin/about/sections/hero/image",
+            files={"file": ("hero.jpg", _make_jpeg(), "image/jpeg")},
+        )
 
         assert upload.status_code == 200
-        assert upload.json()["image_id"]
-        assert upload.json()["image"].startswith("/static/products/about-hero_")
+        image_id = upload.json()["image_id"]
+        assert image_id
+        # Owner images are uploaded to R2 under the shared products/ prefix and
+        # exposed as absolute R2 public URLs (not the legacy /static path).
+        expected_url = f"{R2_TEST_PUBLIC_BASE}/products/about-hero_{image_id}.webp"
+        assert upload.json()["image"] == expected_url
+        # The main WebP variant object was actually written to the fake backend.
+        assert f"products/about-hero_{image_id}.webp" in fake_storage.objects
 
         clear = await admin_client.delete("/v1/admin/about/sections/hero/image")
         assert clear.status_code == 200

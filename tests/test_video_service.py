@@ -6,7 +6,33 @@ import subprocess
 import pytest
 
 from app.config import get_settings
-from app.services import video_service
+from app.services import object_storage_service, video_service
+
+
+class _FakeStorageBackend:
+    """In-memory key->bytes backend (design Decision 8); records deletes."""
+
+    def __init__(self) -> None:
+        self.objects: dict[str, bytes] = {}
+        self.deleted: list[str] = []
+
+    def put_object(self, key: str, data: bytes, content_type: str) -> None:
+        self.objects[key] = data
+
+    def delete_object(self, key: str) -> None:
+        self.deleted.append(key)
+        self.objects.pop(key, None)
+
+
+@pytest.fixture()
+def fake_storage(monkeypatch):
+    backend = _FakeStorageBackend()
+    object_storage_service.set_backend(backend)
+    monkeypatch.setattr(
+        get_settings(), "r2_public_base_url", "https://media.example.com", raising=False
+    )
+    yield backend
+    object_storage_service.set_backend(None)
 
 
 def test_probe_video_reads_duration_codec_and_dimensions(tmp_path, monkeypatch):
@@ -108,15 +134,43 @@ def test_unlink_video_files_allows_legacy_static_temp_source(tmp_path, monkeypat
     assert not legacy_source.exists()
 
 
+def test_unlink_video_files_deletes_r2_objects_by_url(fake_storage, monkeypatch):
+    video_service.unlink_video_files(
+        "https://media.example.com/products/p_v_video.mp4",
+        "https://media.example.com/products/p_v_poster.webp",
+    )
+
+    assert fake_storage.deleted == [
+        "products/p_v_video.mp4",
+        "products/p_v_poster.webp",
+    ]
+
+
+def test_unlink_video_files_skips_external_urls(fake_storage):
+    video_service.unlink_video_files("https://cdn.other-host.example/legacy/clip.mp4")
+
+    assert fake_storage.deleted == []
+
+
+def test_unlink_video_files_r2_delete_error_is_swallowed(fake_storage, monkeypatch):
+    def boom(key):
+        raise object_storage_service.MediaStorageError("R2 down")
+
+    monkeypatch.setattr(object_storage_service, "delete_object", boom)
+
+    # Best-effort: a storage error must not propagate out of cleanup.
+    video_service.unlink_video_files("https://media.example.com/products/p_v_video.mp4")
+
+
 def test_video_product_id_validator_matches_create_model_slug_pattern():
     video_service.validate_product_id("x")
 
 
-def test_transcode_uses_argument_list_and_static_output(tmp_path, monkeypatch):
+def test_transcode_uses_argument_list_and_local_output(tmp_path, monkeypatch):
     source = tmp_path / "source.mp4"
     source.write_bytes(b"video")
     settings = get_settings()
-    monkeypatch.setattr(settings, "static_file_path", str(tmp_path / "static"))
+    monkeypatch.setattr(settings, "video_upload_temp_path", str(tmp_path / "video-temp"))
     monkeypatch.setattr("app.services.video_service._resolve_binary", lambda binary, label: label)
     monkeypatch.setattr("app.services.video_service._command_prefix", lambda: [])
 
@@ -133,5 +187,5 @@ def test_transcode_uses_argument_list_and_static_output(tmp_path, monkeypatch):
 
     assert captured["shell"] is False
     assert isinstance(captured["command"], list)
-    assert result["video_url"].startswith("/static/products/valid-product_")
-    assert result["video_url"].endswith("_video.mp4")
+    assert result["video_path"].endswith("valid-product_" + "a" * 32 + "_video.mp4")
+    assert "video-temp" in result["video_path"]
