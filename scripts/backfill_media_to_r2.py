@@ -328,7 +328,13 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    init_db()
+    settings = get_settings()
+    init_db(
+        settings.database_url,
+        min_size=settings.db_pool_min_size,
+        max_size=settings.db_pool_max_size,
+        timeout=settings.db_pool_timeout_seconds,
+    )
     try:
         summary = backfill(
             dry_run=args.dry_run,

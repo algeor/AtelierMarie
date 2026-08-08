@@ -15,6 +15,7 @@ COPY app ./app
 COPY data ./data
 COPY frontend/messages ./frontend/messages
 COPY scripts/sync_cookie_inventory.py ./scripts/sync_cookie_inventory.py
+COPY scripts/backfill_media_to_r2.py ./scripts/backfill_media_to_r2.py
 
 COPY alembic.ini ./
 COPY alembic ./alembic
