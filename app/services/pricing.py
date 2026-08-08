@@ -13,7 +13,7 @@ checks use direct string comparison after normalization.
 
 from datetime import UTC, datetime
 
-# SQLite-compatible canonical UTC datetime format.
+# Canonical UTC database datetime format.
 CANONICAL_DT_FMT = "%Y-%m-%d %H:%M:%S"
 
 

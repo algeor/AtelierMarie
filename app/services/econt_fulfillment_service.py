@@ -5,12 +5,12 @@ client, persists shipment metadata, and records redacted audit events.
 """
 
 import json
-import sqlite3
 from collections.abc import Mapping
 from typing import Any
 
 from app.config import Settings, get_settings
 from app.constants import tracking_url_for
+from app.database import DbConnection, require_row
 from app.models.econt import (
     EcontCustomerInfo,
     EcontOrderItem,
@@ -42,7 +42,7 @@ class EcontFulfillmentValidationError(EcontFulfillmentError):
     """Raised when local settings/order data cannot produce a safe Econt call."""
 
 
-def _settings_row(conn: sqlite3.Connection) -> sqlite3.Row:
+def _settings_row(conn: DbConnection) -> dict:
     row = conn.execute("SELECT * FROM econt_settings WHERE id = %s", (_SETTINGS_ID,)).fetchone()
     if row is None:
         conn.execute(
@@ -50,26 +50,26 @@ def _settings_row(conn: sqlite3.Connection) -> sqlite3.Row:
             (_SETTINGS_ID,),
         )
         row = conn.execute("SELECT * FROM econt_settings WHERE id = %s", (_SETTINGS_ID,)).fetchone()
-    return row
+    return require_row(row, "econt_settings row missing after ensure")
 
 
-def _base_url(settings: Settings, row: sqlite3.Row) -> str:
+def _base_url(settings: Settings, row: dict) -> str:
     if settings.econt_delivery_base_url:
         return settings.econt_delivery_base_url.rstrip("/") + "/"
     return _PRODUCTION_BASE_URL if row["environment"] == "production" else _DEMO_BASE_URL
 
 
-def _private_key(settings: Settings, row: sqlite3.Row) -> str:
+def _private_key(settings: Settings, row: dict) -> str:
     if row["credential_source"] == "env":
         return settings.econt_delivery_private_key.get_secret_value()
     return ""
 
 
-def _shop_id(settings: Settings, row: sqlite3.Row) -> str:
+def _shop_id(settings: Settings, row: dict) -> str:
     return row["shop_id"] or settings.econt_delivery_shop_id or ""
 
 
-def make_client(conn: sqlite3.Connection) -> EcontDeliveryClient:
+def make_client(conn: DbConnection) -> EcontDeliveryClient:
     """Build an Econt client from current DB settings + env secrets."""
     settings = get_settings()
     row = _settings_row(conn)
@@ -80,13 +80,13 @@ def make_client(conn: sqlite3.Connection) -> EcontDeliveryClient:
     )
 
 
-def validate_label_readiness(conn: sqlite3.Connection, order_id: str) -> dict[str, Any]:
+def validate_label_readiness(conn: DbConnection, order_id: str) -> dict[str, Any]:
     """Return readiness blockers for creating an Econt label."""
     blockers = _readiness_blockers(conn, order_id)
     return {"ready": not blockers, "blockers": blockers}
 
 
-def get_fulfillment_state(conn: sqlite3.Connection, order_id: str) -> dict[str, Any]:
+def get_fulfillment_state(conn: DbConnection, order_id: str) -> dict[str, Any]:
     """Return admin-safe Econt fulfillment state for an order."""
     order = get_order_admin(conn, order_id)
     readiness = validate_label_readiness(conn, order_id)
@@ -106,7 +106,7 @@ def get_fulfillment_state(conn: sqlite3.Connection, order_id: str) -> dict[str, 
     }
 
 
-def get_latest_cod_evidence(conn: sqlite3.Connection, order_id: str) -> dict[str, Any] | None:
+def get_latest_cod_evidence(conn: DbConnection, order_id: str) -> dict[str, Any] | None:
     """Return latest Econt COD collected/paid evidence from courier events."""
     rows = conn.execute(
         """
@@ -139,7 +139,7 @@ def get_latest_cod_evidence(conn: sqlite3.Connection, order_id: str) -> dict[str
 
 
 def repair_order_fields(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     order_id: str,
     *,
     office_code: str | None = None,
@@ -209,7 +209,7 @@ def repair_order_fields(
 
 
 def record_manual_status(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     order_id: str,
     *,
     courier_status: str,
@@ -283,7 +283,7 @@ def record_manual_status(
     }
 
 
-def build_order_payload(conn: sqlite3.Connection, order_id: str) -> EcontOrderPayload:
+def build_order_payload(conn: DbConnection, order_id: str) -> EcontOrderPayload:
     """Build an Econt Order payload from local order data and settings."""
     blockers = _readiness_blockers(conn, order_id, require_status=False, require_enabled=False)
     local_blockers = [b for b in blockers if not b.startswith("settings_")]
@@ -331,7 +331,7 @@ def build_order_payload(conn: sqlite3.Connection, order_id: str) -> EcontOrderPa
 
 
 async def sync_order(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     order_id: str,
     *,
     client: EcontDeliveryClient | None = None,
@@ -363,7 +363,7 @@ async def sync_order(
 
 
 async def create_label(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     order_id: str,
     *,
     client: EcontDeliveryClient | None = None,
@@ -441,7 +441,7 @@ async def create_label(
 
 
 async def create_label_and_mark_shipped(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     order_id: str,
     *,
     client: EcontDeliveryClient | None = None,
@@ -486,7 +486,7 @@ async def create_label_and_mark_shipped(
 
 
 async def delete_label(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     order_id: str,
     *,
     client: EcontDeliveryClient | None = None,
@@ -538,7 +538,7 @@ async def delete_label(
 
 
 async def refresh_trace(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     order_id: str,
     *,
     client: EcontDeliveryClient | None = None,
@@ -599,7 +599,7 @@ async def refresh_trace(
 
 
 def _readiness_blockers(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     order_id: str,
     *,
     require_status: bool = True,
@@ -640,11 +640,11 @@ def _readiness_blockers(
     return blockers
 
 
-def _label_status_supported(status: str, _row: sqlite3.Row) -> bool:
+def _label_status_supported(status: str, _row: dict) -> bool:
     return status in _LABEL_STATUSES
 
 
-def _raise_if_not_ready(conn: sqlite3.Connection, order_id: str, *, require_status: bool) -> None:
+def _raise_if_not_ready(conn: DbConnection, order_id: str, *, require_status: bool) -> None:
     blockers = _readiness_blockers(conn, order_id, require_status=require_status)
     if blockers:
         raise EcontFulfillmentValidationError("Econt order is not ready", blockers=blockers)
@@ -673,7 +673,7 @@ def _customer_info(order: Mapping[str, Any], details: dict[str, Any]) -> EcontCu
     )
 
 
-def _sender_info(row: sqlite3.Row) -> EcontSenderInfo:
+def _sender_info(row: dict) -> EcontSenderInfo:
     if row["sender_delivery_mode"] == "office":
         return EcontSenderInfo(office_code=row["sender_office_code"])
     return EcontSenderInfo(
@@ -687,7 +687,7 @@ def _sender_info(row: sqlite3.Row) -> EcontSenderInfo:
     )
 
 
-def _order_items(conn: sqlite3.Connection, order_id: str) -> list[EcontOrderItem]:
+def _order_items(conn: DbConnection, order_id: str) -> list[EcontOrderItem]:
     rows = conn.execute(
         """
         SELECT oi.product_id, oi.product_name, oi.price_cents, oi.quantity,
@@ -711,7 +711,7 @@ def _order_items(conn: sqlite3.Connection, order_id: str) -> list[EcontOrderItem
     ]
 
 
-def _amount_for_currency(total_cents: int, row: sqlite3.Row) -> float:
+def _amount_for_currency(total_cents: int, row: dict) -> float:
     amount = total_cents / 100
     if row["courier_currency"] == "BGN":
         return round(amount * float(row["currency_conversion_rate"]), 2)
@@ -754,7 +754,7 @@ def _normalize_return_signal(shipment: EcontShipmentStatus) -> tuple[str | None,
 
 
 def _record_return_review_signal(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     order_id: str,
     courier_status: str,
     reason: str,
@@ -778,7 +778,7 @@ def _record_return_review_signal(
 
 
 def _record_event(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     order_id: str,
     action: str,
     status: str,
@@ -807,7 +807,7 @@ def _record_event(
 
 
 def _persist_failure(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     order_id: str,
     action: str,
     request_payload: Any,

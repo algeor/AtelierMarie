@@ -1,7 +1,7 @@
 """Postgres connection layer.
 
 Schema is owned entirely by Alembic (design Decision 3); this module no longer
-creates tables, seeds rows, or runs SQLite-style backfills. It provides:
+creates tables, seeds rows, or runs startup backfills. It provides:
 
 - a module-global psycopg ``ConnectionPool`` (Decision 2a) — mirroring the old
   ``_db_path`` global so ``get_db()`` stays the single chokepoint and the
@@ -26,7 +26,7 @@ from typing import Any
 import psycopg
 import structlog
 from psycopg import Connection
-from psycopg.rows import dict_row
+from psycopg.rows import DictRow, dict_row
 from psycopg_pool import ConnectionPool
 
 logger = structlog.get_logger(__name__)
@@ -34,7 +34,7 @@ logger = structlog.get_logger(__name__)
 # psycopg exception aliases so callers can catch database errors without
 # importing psycopg directly (Decision 5 / task 3.5). ``IntegrityError`` covers
 # constraint violations (unique, FK, check, not-null); ``DatabaseError`` is the
-# broad base for connection/operational failures that replaces ``sqlite3.Error``.
+# broad base for connection/operational failures exposed to callers.
 IntegrityError = psycopg.errors.IntegrityError
 DatabaseError = psycopg.errors.DatabaseError
 Error = psycopg.Error
@@ -42,10 +42,13 @@ Error = psycopg.Error
 # Module-global connection pool — set during app startup via init_db(), mirroring
 # the old _db_path global. None until init_db() runs. Under pytest-xdist each
 # worker is a separate process with its own per-process pool (Decision 2a).
-_pool: ConnectionPool | None = None
+DbConnection = Connection[DictRow]
+DbRow = DictRow
+
+_pool: ConnectionPool[DbConnection] | None = None
 
 
-def _configure_connection(conn: Connection) -> None:
+def _configure_connection(conn: DbConnection) -> None:
     """Configure every pooled connection exactly once (Decisions 2a, 3.3, 12).
 
     - ``row_factory = dict_row`` gives keyed (dict-like) row access, so the
@@ -70,7 +73,7 @@ def _script_head_revisions() -> set[str]:
     return set(script.get_heads())
 
 
-def _db_current_revisions(conn: Connection) -> set[str]:
+def _db_current_revisions(conn: DbConnection) -> set[str]:
     """Return the revision id(s) recorded in the database's alembic_version table.
 
     An empty set means the database has never been stamped (no migrations
@@ -84,7 +87,7 @@ def _db_current_revisions(conn: Connection) -> set[str]:
         return set()
 
 
-def _verify_migration_head(conn: Connection) -> None:
+def _verify_migration_head(conn: DbConnection) -> None:
     """Fail startup unless the database is at the Alembic head revision.
 
     Compares the database's current revision(s) against the script directory's
@@ -113,7 +116,7 @@ def init_db(
 ) -> None:
     """Open the connection pool and verify the DB is at the Alembic head.
 
-    Replaces the former SQLite schema-creation path: schema now comes only from
+    Replaces the former startup schema-creation path: schema now comes only from
     ``alembic upgrade head``. This opens a module-global pool against ``url``,
     then fails fast if the connected database is behind head (Decision 3).
 
@@ -157,7 +160,7 @@ def close_db() -> None:
 
 
 @contextmanager
-def get_db() -> Generator[Connection, None, None]:
+def get_db() -> Generator[DbConnection, None, None]:
     """Yield a pooled psycopg connection.
 
     Commits on success, rolls back on exception. The connection is returned to
@@ -195,6 +198,13 @@ def row_get(row: dict[str, Any], key: str, default: Any = None) -> Any:
     return value if value is not None else default
 
 
+def require_row(row: DbRow | None, message: str = "Expected database row") -> DbRow:
+    """Return a fetched row, or fail explicitly when an invariant query returned none."""
+    if row is None:
+        raise RuntimeError(message)
+    return row
+
+
 def row_to_dict(row: dict[str, Any], defaults: dict[str, Any] | None = None) -> dict[str, Any]:
     """Copy a dict_row row to a plain dict, substituting defaults for None values."""
     result = dict(row)
@@ -217,14 +227,13 @@ def any_param(values: Sequence[Any]) -> list[Any]:
 
 
 def insert_returning_id(
-    conn: Connection,
+    conn: DbConnection,
     sql: str,
     params: Sequence[Any] = (),
 ) -> Any:
     """Execute an INSERT that ends in ``RETURNING id`` and return the new id.
 
-    Replaces SQLite's ``cursor.lastrowid`` / ``last_insert_rowid()``: Postgres
-    identity columns surface the generated id via a ``RETURNING`` clause. The
+    Postgres identity columns surface generated ids via a ``RETURNING`` clause. The
     caller is responsible for including ``RETURNING id`` in ``sql``.
     """
     with conn.cursor() as cur:

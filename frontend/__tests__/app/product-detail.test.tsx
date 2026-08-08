@@ -71,6 +71,10 @@ vi.mock("@/components/products/ProductSocialSection", () => ({
   ProductSocialSection: () => <div data-testid="product-social" />,
 }));
 
+vi.mock("@/components/products/SaveProductButton", () => ({
+  SaveProductButton: () => <button type="button">Save product</button>,
+}));
+
 const mockedGetProduct = vi.mocked(getProduct);
 
 const PRODUCT: ProductResponse = {

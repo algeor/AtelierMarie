@@ -1,6 +1,6 @@
 """Order service — checkout, retrieval, and state management.
 
-All functions accept an explicit psycopg.Connection and primitive parameters.
+All functions accept an explicit DbConnection and primitive parameters.
 Routes destructure Pydantic models before calling these functions.
 """
 
@@ -15,6 +15,7 @@ import structlog
 
 from app.constants import (
     FREE_SHIPPING_THRESHOLD_CENTS,
+    INTERNAL_DELIVERY_CENTS,
     MAX_LIMIT,
     MAX_PAGE,
     SHIPPING_CENTS_MAX,
@@ -22,6 +23,7 @@ from app.constants import (
     ShippingPriceSource,
     tracking_url_for,
 )
+from app.database import DbConnection, require_row
 from app.models.delivery import DeliveryInfo
 from app.models.orders import InvoiceProfile, OrderStatus
 from app.services import (
@@ -33,23 +35,36 @@ from app.services import (
 
 logger = structlog.get_logger(__name__)
 
-# SQLite-compatible datetime format
+# Canonical UTC database datetime format.
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
-_ORDER_NUMBER_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+_ORDER_NUMBER_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"  # pragma: allowlist secret
 
 # Transaction-scoped advisory-lock key serializing checkout order-number/sequence
-# allocation. Under SQLite, checkout ran inside BEGIN IMMEDIATE (a DB-wide write
-# lock) which made the `MAX(internal_sequence) + 1` read collision-free. Postgres
-# runs at READ COMMITTED with true concurrent writers, so two simultaneous
-# checkouts could read the same MAX and collide on the UNIQUE constraint (→ 500).
-# pg_advisory_xact_lock restores that serialization; it is released automatically
-# when the surrounding transaction commits or rolls back.
+# allocation. Postgres runs at READ COMMITTED with true concurrent writers, so
+# two simultaneous checkouts could read the same MAX and collide on the UNIQUE
+# constraint. pg_advisory_xact_lock serializes that sequence allocation and is
+# released automatically when the surrounding transaction commits or rolls back.
 _CHECKOUT_SEQUENCE_LOCK_KEY = 0x0A7E_11E4  # stable arbitrary key ("AtelierMarie")
 
 # Runtime whitelist for the shipping price-source provenance column, derived from
 # the Literal so it can never drift from the type (same pattern as OrderStatus).
 _VALID_PRICE_SOURCES: frozenset[str] = frozenset(get_args(ShippingPriceSource))
 _DEFAULT_SHIPMENT_WEIGHT_GRAMS = 300
+_COURIER_DELIVERY_SETTING_KEYS = (
+    "speedy_office_enabled",
+    "speedy_door_enabled",
+    "econt_office_enabled",
+    "econt_door_enabled",
+)
+
+OrderListView = Literal["all", "active", "needs_action", "delivered"]
+OrderDateRange = Literal["all", "last_30_days", "last_6_months"]
+OrderSort = Literal["newest", "oldest", "highest"]
+
+
+def _courier_delivery_available() -> bool:
+    settings = delivery_settings_service.get_delivery_settings()
+    return any(bool(settings[key]) for key in _COURIER_DELIVERY_SETTING_KEYS)
 
 
 class AccountingAdminFields(TypedDict):
@@ -62,7 +77,7 @@ class AccountingAdminFields(TypedDict):
     finance_hub_links: dict[str, str | None] | None
 
 
-def _generate_order_number(conn: psycopg.Connection) -> str:
+def _generate_order_number(conn: DbConnection) -> str:
     """Generate AM-xxxxxx public order numbers with bounded collision retries."""
     for _ in range(10):
         code = "AM-" + "".join(secrets.choice(_ORDER_NUMBER_ALPHABET) for _ in range(6))
@@ -73,7 +88,7 @@ def _generate_order_number(conn: psycopg.Connection) -> str:
     raise OrderServiceError(msg)
 
 
-def _generate_payment_return_token(conn: psycopg.Connection) -> str:
+def _generate_payment_return_token(conn: DbConnection) -> str:
     """Generate a bearer token used for payment return/status flows."""
     for _ in range(10):
         token = secrets.token_urlsafe(24)
@@ -157,7 +172,7 @@ def _fmt_ts(value: object) -> str | None:
 
 
 def _normalize_quoted_at(value: str | None) -> str | None:
-    """Keep `quoted_at` only if it parses as our SQLite timestamp format.
+    """Keep `quoted_at` only if it parses as the canonical timestamp format.
 
     The client echoes this back from the quote; it is audit metadata, so we
     drop anything that isn't a well-formed `_DT_FMT` string rather than persist
@@ -187,7 +202,7 @@ def _order_item_key(order_id: str, product_id: str) -> str:
     return f"{order_id}:{product_id}"
 
 
-def _ledger_modes_for_products(conn: psycopg.Connection, product_ids: list[str]) -> dict[str, str]:
+def _ledger_modes_for_products(conn: DbConnection, product_ids: list[str]) -> dict[str, str]:
     if not product_ids:
         return {}
     placeholders = ",".join("%s" for _ in product_ids)
@@ -202,7 +217,7 @@ def _ledger_modes_for_products(conn: psycopg.Connection, product_ids: list[str])
     return {row["product_id"]: row["inventory_mode"] for row in rows}
 
 
-def _product_inventory_mode(conn: psycopg.Connection, product_id: str) -> str:
+def _product_inventory_mode(conn: DbConnection, product_id: str) -> str:
     row = conn.execute(
         "SELECT inventory_mode FROM product_inventory_profiles WHERE product_id = %s",
         (product_id,),
@@ -215,7 +230,7 @@ def _is_ledger_managed_mode(mode: str | None) -> bool:
 
 
 def _insert_inventory_exception(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     exception_type: str,
     message: str,
@@ -261,7 +276,7 @@ def _insert_inventory_exception(
 
 
 def _record_finished_good_movement(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     product_id: str,
     movement_type: str,
@@ -325,7 +340,7 @@ def _record_finished_good_movement(
 
 
 def _sale_issue_movement(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     order_id: str,
     product_id: str,
@@ -346,7 +361,7 @@ def _sale_issue_movement(
 
 
 def _accounting_admin_fields(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     order_id: str,
     total_cents: int,
@@ -496,7 +511,7 @@ def _payment_provider_for_method(payment_method: str) -> str:
 
 
 def _ensure_payment_row(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     order_id: str,
     provider: str,
@@ -535,7 +550,7 @@ def _ensure_payment_row(
 
 
 def _append_payment_event(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     order_id: str,
     payment_id: str | None,
@@ -717,7 +732,7 @@ class TrackingRequiredError(OrderServiceError):
         super().__init__(f"Tracking information required when shipping: {', '.join(missing)}")
 
 
-def _order_weight_grams(conn: psycopg.Connection, order_id: str) -> int:
+def _order_weight_grams(conn: DbConnection, order_id: str) -> int:
     row = conn.execute(
         """
         SELECT COALESCE(
@@ -732,7 +747,7 @@ def _order_weight_grams(conn: psycopg.Connection, order_id: str) -> int:
     return max(1, int(row["weight_grams"] if row else _DEFAULT_SHIPMENT_WEIGHT_GRAMS))
 
 
-def _speedy_waybill_kwargs(conn: psycopg.Connection, row: dict) -> dict:
+def _speedy_waybill_kwargs(conn: DbConnection, row: dict) -> dict:
     """Build Speedy shipment kwargs from an order row."""
     from app.config import get_settings
 
@@ -780,7 +795,7 @@ def _speedy_waybill_kwargs(conn: psycopg.Connection, row: dict) -> dict:
     return kwargs
 
 
-async def _create_speedy_waybill(conn: psycopg.Connection, row: dict) -> tuple[str, str | None]:
+async def _create_speedy_waybill(conn: DbConnection, row: dict) -> tuple[str, str | None]:
     """Create a Speedy waybill from an order row."""
     from app.services import speedy_client
 
@@ -874,7 +889,7 @@ class OrderListData(TypedDict):
 
 
 def checkout(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     session_id: str,
     customer_email: str,
     delivery: DeliveryInfo,
@@ -945,7 +960,7 @@ def checkout(
                 )
             delivery_details["office_code"] = office_code
         delivery_courier = office_delivery.courier
-    else:
+    elif delivery.method == "door":
         door_delivery = delivery.door
         if door_delivery is not None and not delivery_settings_service.is_delivery_method_enabled(
             door_delivery.courier,
@@ -954,6 +969,14 @@ def checkout(
             raise DeliveryMethodUnavailableError(door_delivery.courier, "door")
         delivery_details = door_delivery.model_dump() if door_delivery is not None else None
         delivery_courier = door_delivery.courier if door_delivery is not None else None
+    else:
+        if _courier_delivery_available():
+            raise DeliveryMethodUnavailableError("internal", "internal")
+        internal_delivery = delivery.internal
+        delivery_details = internal_delivery.model_dump() if internal_delivery is not None else None
+        if delivery_details is not None:
+            delivery_details["handled_by"] = "atelier"
+        delivery_courier = None
 
     delivery_details_json = json.dumps(delivery_details, ensure_ascii=False)
 
@@ -1016,9 +1039,11 @@ def checkout(
         reserved_until = (
             (now_dt + timedelta(minutes=15)).strftime(_DT_FMT) if payment_method == "card" else None
         )
-        internal_sequence = conn.execute(
-            "SELECT COALESCE(MAX(internal_sequence), 0) + 1 AS next_seq FROM orders"
-        ).fetchone()["next_seq"]
+        internal_sequence = require_row(
+            conn.execute(
+                "SELECT COALESCE(MAX(internal_sequence), 0) + 1 AS next_seq FROM orders"
+            ).fetchone()
+        )["next_seq"]
         order_number = _generate_order_number(conn)
         payment_return_token = _generate_payment_return_token(conn)
         # Effective (discounted) price per row, computed once from a single `now`
@@ -1054,6 +1079,11 @@ def checkout(
         # Server-side re-quoting is deferred to Phase C (reconciliation).
         if items_total_cents >= FREE_SHIPPING_THRESHOLD_CENTS:
             shipping_cents = 0
+            shipping_price_source = "live"
+            shipping_is_fallback = False
+            shipping_quoted_at = None
+        elif delivery.method == "internal":
+            shipping_cents = INTERNAL_DELIVERY_CENTS
             shipping_price_source = "live"
             shipping_is_fallback = False
             shipping_quoted_at = None
@@ -1360,7 +1390,7 @@ def checkout(
     )
 
 
-def _fetch_order_with_items(conn: psycopg.Connection, order_id: str) -> OrderData | None:
+def _fetch_order_with_items(conn: DbConnection, order_id: str) -> OrderData | None:
     """Fetch an order and its items. Returns None if not found."""
     row = conn.execute("SELECT * FROM orders WHERE id = %s", (order_id,)).fetchone()
     if not row:
@@ -1528,13 +1558,13 @@ def _fetch_order_with_items(conn: psycopg.Connection, order_id: str) -> OrderDat
         blocking_exception_count=accounting_admin_fields["blocking_exception_count"],
         finance_hub_links=accounting_admin_fields["finance_hub_links"],
         analytics_consent=bool(row["analytics_consent"] if "analytics_consent" in row_keys else 0),
-        created_at=_fmt_ts(row["created_at"]),
-        updated_at=_fmt_ts(row["updated_at"]),
+        created_at=_fmt_ts(row["created_at"]) or "",
+        updated_at=_fmt_ts(row["updated_at"]) or "",
         items=items,
     )
 
 
-def get_order_inventory_context(conn: psycopg.Connection, order_id: str) -> dict[str, object]:
+def get_order_inventory_context(conn: DbConnection, order_id: str) -> dict[str, object]:
     """Return admin-only inventory context for one order."""
     item_rows = conn.execute(
         "SELECT product_id, quantity FROM order_items WHERE order_id = %s ORDER BY product_id",
@@ -1694,7 +1724,7 @@ def get_order_inventory_context(conn: psycopg.Connection, order_id: str) -> dict
 
 
 def get_order(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     order_id: str,
     session_id: str,
     user_id: str | None = None,
@@ -1715,7 +1745,7 @@ def get_order(
     return order
 
 
-def get_order_admin(conn: psycopg.Connection, order_id: str) -> OrderData:
+def get_order_admin(conn: DbConnection, order_id: str) -> OrderData:
     """Fetch order without ownership check (admin auth enforced at route level)."""
     order = _fetch_order_with_items(conn, order_id)
     if order is None:
@@ -1724,9 +1754,13 @@ def get_order_admin(conn: psycopg.Connection, order_id: str) -> OrderData:
 
 
 def list_orders(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     session_id: str,
     user_id: str | None = None,
+    q: str | None = None,
+    view: OrderListView = "all",
+    date_range: OrderDateRange = "all",
+    sort: OrderSort = "newest",
     page: int = 1,
     limit: int = 20,
 ) -> OrderListData:
@@ -1745,22 +1779,64 @@ def list_orders(
 
     offset = (page - 1) * limit
 
+    conditions: list[str] = []
+    params: list = []
+
     if user_id is not None:
-        where_clause = "WHERE user_id = %s"
-        params: list = [user_id]
+        conditions.append("o.user_id = %s")
+        params.append(user_id)
     else:
-        where_clause = "WHERE session_id = %s"
-        params = [session_id]
+        conditions.append("o.session_id = %s")
+        params.append(session_id)
+
+    if q and q.strip():
+        search = q.strip().lstrip("#")
+        escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        conditions.append(
+            "(o.id ILIKE %s ESCAPE '\\' "
+            "OR COALESCE(o.order_number, '') ILIKE %s ESCAPE '\\' "
+            "OR EXISTS (SELECT 1 FROM order_items oi "
+            "WHERE oi.order_id = o.id AND oi.product_name ILIKE %s ESCAPE '\\'))"
+        )
+        params.extend([pattern, pattern, pattern])
+
+    if view == "active":
+        conditions.append("o.status IN ('pending', 'confirmed', 'shipped')")
+    elif view == "delivered":
+        conditions.append("o.status = 'delivered'")
+    elif view == "needs_action":
+        conditions.append(
+            "(o.status = 'return_in_transit' OR o.payment_status IN "
+            "('pending', 'failed', 'review_required', 'refund_pending', 'dispute_open'))"
+        )
+
+    if date_range != "all":
+        days = 30 if date_range == "last_30_days" else 183
+        threshold = (datetime.now(UTC) - timedelta(days=days)).strftime(_DT_FMT)
+        conditions.append("o.created_at >= %s")
+        params.append(threshold)
+
+    where_clause = f"WHERE {' AND '.join(conditions)}"
+    order_by_map = {
+        "newest": "o.created_at DESC, o.id DESC",
+        "oldest": "o.created_at ASC, o.id ASC",
+        "highest": "o.total_cents DESC, o.created_at DESC, o.id DESC",
+    }
+    order_by = order_by_map.get(sort, order_by_map["newest"])
 
     # Total count
-    total = conn.execute(
-        f"SELECT COUNT(*) AS count FROM orders {where_clause}",  # noqa: S608
-        params,
-    ).fetchone()["count"]
+    total = require_row(
+        conn.execute(
+            f"SELECT COUNT(*) AS count FROM orders o {where_clause}",  # noqa: S608
+            params,
+        ).fetchone()
+    )["count"]
 
     # Paginated results
     rows = conn.execute(
-        f"SELECT id FROM orders {where_clause} ORDER BY created_at DESC LIMIT %s OFFSET %s",
+        f"SELECT o.id FROM orders o {where_clause} "  # noqa: S608
+        f"ORDER BY {order_by} LIMIT %s OFFSET %s",
         [*params, limit, offset],
     ).fetchall()
 
@@ -1774,7 +1850,7 @@ def list_orders(
 
 
 def list_orders_admin(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     status: OrderStatus | None = None,
     payment_status: str | None = None,
     payment_method: str | None = None,
@@ -2043,10 +2119,12 @@ def list_orders_admin(
 
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
-    total = conn.execute(
-        f"SELECT COUNT(*) AS count FROM orders {where_clause}",  # noqa: S608
-        params,
-    ).fetchone()["count"]
+    total = require_row(
+        conn.execute(
+            f"SELECT COUNT(*) AS count FROM orders {where_clause}",  # noqa: S608
+            params,
+        ).fetchone()
+    )["count"]
 
     rows = conn.execute(
         f"SELECT id FROM orders {where_clause} ORDER BY created_at DESC LIMIT %s OFFSET %s",
@@ -2062,7 +2140,7 @@ def list_orders_admin(
     return OrderListData(items=items, total=total, page=page, limit=limit)
 
 
-def list_payment_events(conn: psycopg.Connection, order_id: str) -> list[dict]:
+def list_payment_events(conn: DbConnection, order_id: str) -> list[dict]:
     """Return safe admin payment timeline rows for an order."""
     rows = conn.execute(
         """
@@ -2079,7 +2157,7 @@ def list_payment_events(conn: psycopg.Connection, order_id: str) -> list[dict]:
 
 
 async def update_status_async(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     order_id: str,
     new_status: OrderStatus,
     tracking_number: str | None = None,
@@ -2125,7 +2203,7 @@ async def update_status_async(
 
 
 def update_status(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     order_id: str,
     new_status: OrderStatus,
     tracking_number: str | None = None,
@@ -2316,7 +2394,7 @@ def update_status(
 
 
 def mark_bank_transfer_paid(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     order_id: str,
 ) -> OrderData:
     """Mark a bank_transfer order's payment_status as 'paid'.
@@ -2360,7 +2438,7 @@ def mark_bank_transfer_paid(
 
 
 def apply_manual_payment_action(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     order_id: str,
     action: str,
     note: str,

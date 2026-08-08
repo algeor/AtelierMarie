@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import uuid
 from datetime import date, datetime
 
-from app.database import get_db
+from app.database import DbConnection, get_db
 from app.models.accounting import (
     ExpenseEvidenceListResponse,
     ExpenseEvidenceRequest,
@@ -52,7 +51,7 @@ def _json_loads(value: str | None, default: object | None = None) -> object | No
         return default
 
 
-def _expense_from_row(row: sqlite3.Row) -> ExpenseEvidenceResponse:
+def _expense_from_row(row: dict) -> ExpenseEvidenceResponse:
     return ExpenseEvidenceResponse(
         id=row["id"],
         supplier_name=row["supplier_name"],
@@ -81,14 +80,14 @@ def _expense_from_row(row: sqlite3.Row) -> ExpenseEvidenceResponse:
     )
 
 
-def _get_expense_row(conn: sqlite3.Connection, expense_id: str) -> sqlite3.Row:
+def _get_expense_row(conn: DbConnection, expense_id: str) -> dict:
     row = conn.execute("SELECT * FROM expense_evidence WHERE id = %s", (expense_id,)).fetchone()
     if row is None:
         raise FinancePeriodError(404, "EXPENSE_EVIDENCE_NOT_FOUND", "Expense evidence not found.")
     return row
 
 
-def _validate_expense_links(conn: sqlite3.Connection, body: ExpenseEvidenceRequest) -> None:
+def _validate_expense_links(conn: DbConnection, body: ExpenseEvidenceRequest) -> None:
     if (
         body.linked_product_id
         and conn.execute(
@@ -290,7 +289,7 @@ def update_expense_payment_status(
     return _expense_from_row(after)
 
 
-def _component_from_row(row: sqlite3.Row) -> ProductCostComponentResponse:
+def _component_from_row(row: dict) -> ProductCostComponentResponse:
     return ProductCostComponentResponse(
         id=row["id"],
         cost_version_id=row["cost_version_id"],
@@ -305,7 +304,7 @@ def _component_from_row(row: sqlite3.Row) -> ProductCostComponentResponse:
     )
 
 
-def _cost_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> ProductCostVersionResponse:
+def _cost_from_row(conn: DbConnection, row: dict) -> ProductCostVersionResponse:
     components = conn.execute(
         "SELECT * FROM product_cost_components WHERE cost_version_id = %s ORDER BY created_at, id",
         (row["id"],),
@@ -339,7 +338,7 @@ def _cost_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> ProductCostVer
     )
 
 
-def _get_cost_row(conn: sqlite3.Connection, cost_version_id: str) -> sqlite3.Row:
+def _get_cost_row(conn: DbConnection, cost_version_id: str) -> dict:
     row = conn.execute(
         "SELECT * FROM product_cost_versions WHERE id = %s", (cost_version_id,)
     ).fetchone()
@@ -364,7 +363,7 @@ def _estimated_unit_cost(body: ProductCostVersionRequest) -> int:
 
 
 def _insert_components(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     cost_version_id: str,
     body: ProductCostVersionRequest,
 ) -> None:

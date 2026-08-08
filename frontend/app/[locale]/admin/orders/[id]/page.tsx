@@ -717,15 +717,15 @@ export default function AdminOrderDetailPage() {
           </section>
 
           <aside className="space-y-5">
-            <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2 text-sm">
+            <dl className="grid grid-cols-1 gap-x-4 gap-y-2 text-sm sm:grid-cols-[max-content_minmax(0,1fr)]">
               <dt className="text-soft-brown">{tAdmin("placed")}</dt>
-              <dd className="text-charcoal">{formatDateTime(order.created_at, locale)}</dd>
+              <dd className="min-w-0 break-words text-charcoal">{formatDateTime(order.created_at, locale)}</dd>
               <dt className="text-soft-brown">{tAdmin("updated")}</dt>
-              <dd className="text-charcoal">{formatDateTime(order.updated_at, locale)}</dd>
+              <dd className="min-w-0 break-words text-charcoal">{formatDateTime(order.updated_at, locale)}</dd>
               <dt className="text-soft-brown">{tAdmin("customer")}</dt>
-              <dd className="text-charcoal">{order.customer_email}</dd>
+              <dd className="min-w-0 break-words text-charcoal">{order.customer_email}</dd>
               <dt className="text-soft-brown">{tAdmin("customerName")}</dt>
-              <dd className="text-charcoal">
+              <dd className="min-w-0 break-words text-charcoal">
                 {order.customer_name || tAdmin("notProvided")}
               </dd>
             </dl>

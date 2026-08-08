@@ -196,19 +196,19 @@ export function EcontFulfillmentPanel({ order, onRefreshOrder }: EcontFulfillmen
           <h3 className="mb-3 text-xs font-semibold uppercase text-soft-brown">
             {t("shipment")}
           </h3>
-          <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2 text-sm">
+          <dl className="grid grid-cols-1 gap-x-4 gap-y-2 text-sm sm:grid-cols-[max-content_minmax(0,1fr)]">
             <dt className="text-soft-brown">{t("fields.syncStatus")}</dt>
-            <dd className="text-charcoal">{state?.courier_sync_status ?? t("empty")}</dd>
+            <dd className="min-w-0 break-words text-charcoal">{state?.courier_sync_status ?? t("empty")}</dd>
             <dt className="text-soft-brown">{t("fields.courierStatus")}</dt>
-            <dd className="text-charcoal">{order.courier_status ?? t("empty")}</dd>
+            <dd className="min-w-0 break-words text-charcoal">{order.courier_status ?? t("empty")}</dd>
             <dt className="text-soft-brown">{t("fields.shipmentNumber")}</dt>
-            <dd className="font-mono text-charcoal">{shipmentNumber ?? t("empty")}</dd>
+            <dd className="min-w-0 break-words font-mono text-charcoal">{shipmentNumber ?? t("empty")}</dd>
             <dt className="text-soft-brown">{t("fields.lastSync")}</dt>
-            <dd className="text-charcoal">{state?.courier_last_synced_at ?? t("empty")}</dd>
+            <dd className="min-w-0 break-words text-charcoal">{state?.courier_last_synced_at ?? t("empty")}</dd>
             {state?.courier_last_error && (
               <>
                 <dt className="text-soft-brown">{t("fields.lastError")}</dt>
-                <dd className="break-words text-red-700">{state.courier_last_error}</dd>
+                <dd className="min-w-0 break-words text-red-700">{state.courier_last_error}</dd>
               </>
             )}
           </dl>

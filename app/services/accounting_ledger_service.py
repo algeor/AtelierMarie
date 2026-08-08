@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from collections.abc import Callable
 from typing import Any
 
-from app.database import get_db
+from app.database import DbConnection, get_db
 from app.models.accounting import AccountingLedgerName, AccountingLedgerResponse
 from app.services import accounting_report_service
 from app.services.finance_period_service import FinancePeriodError
@@ -57,14 +56,14 @@ def _json_loads(value: str | None, default: Any = None) -> Any:
         return default
 
 
-def _get_period(conn: sqlite3.Connection, period_id: str) -> sqlite3.Row:
+def _get_period(conn: DbConnection, period_id: str) -> dict:
     row = conn.execute("SELECT * FROM finance_periods WHERE id = %s", (period_id,)).fetchone()
     if row is None:
         raise FinancePeriodError(404, "FINANCE_PERIOD_NOT_FOUND", "Finance period not found.")
     return row
 
 
-def _row_to_dict(row: sqlite3.Row) -> dict[str, object]:
+def _row_to_dict(row: dict) -> dict[str, object]:
     return {key: row[key] for key in row.keys()}
 
 
@@ -112,7 +111,7 @@ def _paginate(rows: list[dict[str, object]], *, page: int, limit: int) -> list[d
 
 
 def _document_status(
-    conn: sqlite3.Connection, *, order_id: str | None, refund_id: str | None = None
+    conn: DbConnection, *, order_id: str | None, refund_id: str | None = None
 ) -> str:
     if not order_id and not refund_id:
         return "not_applicable"
@@ -136,7 +135,7 @@ def _document_status(
     return "recorded" if row is not None else "missing"
 
 
-def _sales_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, object]]:
+def _sales_rows(conn: DbConnection, period: dict) -> list[dict[str, object]]:
     rows = conn.execute(
         """
         SELECT o.id AS order_id, o.order_number, substr((o.created_at)::text, 1, 10) AS order_date,
@@ -265,7 +264,7 @@ def _sales_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str,
     return ledger
 
 
-def _payment_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, object]]:
+def _payment_rows(conn: DbConnection, period: dict) -> list[dict[str, object]]:
     rows = conn.execute(
         """
         SELECT p.id AS source_event_id, substr((p.created_at)::text, 1, 10) AS event_date,
@@ -303,7 +302,7 @@ def _payment_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[st
     return ledger
 
 
-def _stripe_payout_rows(conn: sqlite3.Connection, _period: sqlite3.Row) -> list[dict[str, object]]:
+def _stripe_payout_rows(conn: DbConnection, _period: dict) -> list[dict[str, object]]:
     rows = conn.execute(
         """
         SELECT id, balance_transaction_id, reporting_category, transaction_type,
@@ -321,7 +320,7 @@ def _stripe_payout_rows(conn: sqlite3.Connection, _period: sqlite3.Row) -> list[
     return [_row_to_dict(row) for row in rows]
 
 
-def _cod_rows(conn: sqlite3.Connection, _period: sqlite3.Row) -> list[dict[str, object]]:
+def _cod_rows(conn: DbConnection, _period: dict) -> list[dict[str, object]]:
     order_dates = {
         row["id"]: _date_part(row["created_at"])
         for row in conn.execute("SELECT id, created_at FROM orders").fetchall()
@@ -336,9 +335,9 @@ def _cod_rows(conn: sqlite3.Connection, _period: sqlite3.Row) -> list[dict[str, 
 
 
 def _report_rows(
-    report_func: Callable[[sqlite3.Connection], list[dict[str, Any]]],
-) -> Callable[[sqlite3.Connection, sqlite3.Row], list[dict[str, object]]]:
-    def adapter(conn: sqlite3.Connection, _period: sqlite3.Row) -> list[dict[str, object]]:
+    report_func: Callable[[DbConnection], list[dict[str, Any]]],
+) -> Callable[[DbConnection, dict], list[dict[str, object]]]:
+    def adapter(conn: DbConnection, _period: dict) -> list[dict[str, object]]:
         rows: list[dict[str, object]] = []
         for row in report_func(conn):
             item = dict(row)
@@ -351,7 +350,7 @@ def _report_rows(
     return adapter
 
 
-def _document_rows(conn: sqlite3.Connection, _period: sqlite3.Row) -> list[dict[str, object]]:
+def _document_rows(conn: DbConnection, _period: dict) -> list[dict[str, object]]:
     rows = conn.execute(
         """
         SELECT d.id, d.document_type, d.document_number, d.source_system,
@@ -368,7 +367,7 @@ def _document_rows(conn: sqlite3.Connection, _period: sqlite3.Row) -> list[dict[
     return [_row_to_dict(row) for row in rows]
 
 
-def _expense_rows(conn: sqlite3.Connection, _period: sqlite3.Row) -> list[dict[str, object]]:
+def _expense_rows(conn: DbConnection, _period: dict) -> list[dict[str, object]]:
     rows = conn.execute(
         """
         SELECT id AS expense_id, supplier_name, supplier_identifier, document_number,
@@ -388,7 +387,7 @@ def _expense_rows(conn: sqlite3.Connection, _period: sqlite3.Row) -> list[dict[s
     return [_row_to_dict(row) for row in rows]
 
 
-def _product_cost_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, object]]:
+def _product_cost_rows(conn: DbConnection, period: dict) -> list[dict[str, object]]:
     settings = conn.execute("SELECT * FROM product_cost_settings WHERE id = 'default'").fetchone()
     if settings is not None and not bool(settings["enabled"]):
         return []
@@ -454,9 +453,7 @@ def _product_cost_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[di
     return ledger
 
 
-def _inventory_movement_rows(
-    conn: sqlite3.Connection, period: sqlite3.Row
-) -> list[dict[str, object]]:
+def _inventory_movement_rows(conn: DbConnection, period: dict) -> list[dict[str, object]]:
     settings = conn.execute("SELECT * FROM inventory_settings WHERE id = 'default'").fetchone()
     official = bool(settings and settings["valuation_enabled"] and settings["accountant_reviewed"])
     rows = conn.execute(
@@ -492,9 +489,7 @@ def _inventory_movement_rows(
     ]
 
 
-_LEDGER_BUILDERS: dict[
-    str, Callable[[sqlite3.Connection, sqlite3.Row], list[dict[str, object]]]
-] = {
+_LEDGER_BUILDERS: dict[str, Callable[[DbConnection, dict], list[dict[str, object]]]] = {
     "sales": _sales_rows,
     "payments": _payment_rows,
     "stripe_payouts": _stripe_payout_rows,

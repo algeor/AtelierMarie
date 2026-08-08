@@ -12,6 +12,8 @@ interface AddToCartButtonProps {
   stock: number;
   quantity?: number;
   className?: string;
+  disabled?: boolean;
+  tabIndex?: number;
 }
 
 export function AddToCartButton({
@@ -19,6 +21,8 @@ export function AddToCartButton({
   stock,
   quantity = 1,
   className,
+  disabled = false,
+  tabIndex,
 }: AddToCartButtonProps) {
   const t = useTranslations("products");
   const { addToCart, openDrawer } = useCart();
@@ -31,7 +35,7 @@ export function AddToCartButton({
       e.preventDefault();
       e.stopPropagation();
 
-      if (status !== "idle" || isOutOfStock) return;
+      if (disabled || status !== "idle" || isOutOfStock) return;
 
       setStatus("loading");
       try {
@@ -44,13 +48,14 @@ export function AddToCartButton({
         setStatus("idle");
       }
     },
-    [addToCart, openDrawer, productId, quantity, status, isOutOfStock]
+    [addToCart, disabled, openDrawer, productId, quantity, status, isOutOfStock]
   );
 
   if (isOutOfStock) {
     return (
       <Button
         disabled
+        tabIndex={tabIndex}
         variant="secondary"
         className={cn("w-full sm:w-auto", className)}
       >
@@ -62,7 +67,8 @@ export function AddToCartButton({
   return (
     <Button
       onClick={handleClick}
-      disabled={status !== "idle"}
+      disabled={disabled || status !== "idle"}
+      tabIndex={tabIndex}
       isLoading={status === "loading"}
       className={cn("w-full sm:w-auto", className)}
     >

@@ -13,7 +13,7 @@ const SECOND_SECTION = [
 ];
 
 describe("FaqAccordion", () => {
-  it("keeps one item open per section while sections stay independent", () => {
+  it("starts collapsed and keeps one item open per section while sections stay independent", () => {
     render(
       <>
         <FaqAccordion items={FIRST_SECTION} />
@@ -23,12 +23,15 @@ describe("FaqAccordion", () => {
 
     expect(screen.getByRole("button", { name: /First question/ })).toHaveAttribute(
       "aria-expanded",
-      "true"
+      "false"
     );
     expect(screen.getByRole("button", { name: /Third question/ })).toHaveAttribute(
       "aria-expanded",
-      "true"
+      "false"
     );
+
+    fireEvent.click(screen.getByRole("button", { name: /First question/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Third question/ }));
 
     fireEvent.click(screen.getByRole("button", { name: /Second question/ }));
 

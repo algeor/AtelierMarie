@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithIntl } from "../../test-utils";
 import type { FaqAdminResponse, FaqItemAdminResponse } from "@/lib/types";
@@ -55,7 +55,11 @@ describe("FaqManager", () => {
 
   it("requires English question before saving", async () => {
     renderWithIntl(<FaqManager />);
-    await screen.findByDisplayValue("Old EN question");
+    await screen.findByText("Old EN question");
+
+    const itemCard = screen.getByText("Old EN question").closest("article");
+    expect(itemCard).not.toBeNull();
+    fireEvent.click(within(itemCard!).getByRole("button", { name: "Edit" }));
 
     fireEvent.change(screen.getAllByLabelText("Question (EN)")[0]!, {
       target: { value: "" },
@@ -75,7 +79,11 @@ describe("FaqManager", () => {
       answer_bg: "New BG answer",
     });
     renderWithIntl(<FaqManager />);
-    await screen.findByDisplayValue("Old EN question");
+    await screen.findByText("Old EN question");
+
+    const itemCard = screen.getByText("Old EN question").closest("article");
+    expect(itemCard).not.toBeNull();
+    fireEvent.click(within(itemCard!).getByRole("button", { name: "Edit" }));
 
     fireEvent.change(screen.getAllByLabelText("Question (EN)")[0]!, {
       target: { value: "New EN question" },

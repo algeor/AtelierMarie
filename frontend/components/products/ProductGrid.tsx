@@ -9,8 +9,8 @@ export function ProductGrid({ children, className }: ProductGridProps) {
   return (
     <div
       className={cn(
-        "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6",
-        className
+        "grid grid-cols-1 gap-x-6 gap-y-10 md:grid-cols-2 lg:grid-cols-4",
+        className,
       )}
     >
       {children}

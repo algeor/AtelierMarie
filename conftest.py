@@ -1,8 +1,7 @@
 """Central Postgres test provisioning (design Decision 15).
 
 This is the single shared test harness for the backend suite (the canonical
-repo-root ``conftest.py``). It replaces the former SQLite fixtures (per-file
-``init_db(db_path)`` against a ``:memory:`` or tmp-file database) with a
+repo-root ``conftest.py``). It replaces the former file-based fixtures with a
 template-clone-per-worker model against a real, already-reachable Postgres.
 
 Mechanics (Decision 15):
@@ -26,16 +25,15 @@ Mechanics (Decision 15):
   settings, about content) live inside the initial migration and are carried into
   every worker DB by the clone; those tables are deliberately excluded from the
   truncate set so their rows persist. There are no ``_seed_*`` re-seed calls.
-- **Reachable Postgres required.** Postgres has no in-memory mode and the SQLite
-  dialect is gone (Decision 1), so there is no zero-infra path: tests assume a
-  Postgres is reachable via ``DATABASE_URL`` (locally ``docker compose up -d
-  postgres``; CI provides a service container).
+- **Reachable Postgres required.** Postgres has no in-memory mode, so there is
+  no zero-infra path: tests assume a Postgres is reachable via ``DATABASE_URL``
+  (locally ``docker compose up -d postgres``; CI provides a service container).
 
 This is test-infra work only (Tasks 6.1-6.3); it is not part of the app
 ``?``->``%s`` sweep. ``get_db()`` remains the single connection chokepoint —
 service signatures are untouched.
 
-Consolidation note: this file previously lived in two places (a SQLite root
+Consolidation note: this file previously lived in two places (a root
 ``conftest.py`` and a Postgres ``tests/conftest.py`` that silently shadowed it —
 root wins when both load same-named fixtures, so the port had no effect). The
 Postgres port now lives here alone; the duplicate ``tests/conftest.py`` was
@@ -239,10 +237,45 @@ def _run_maintenance(admin_url: str, statement: sql.Composable) -> None:
         conn.execute(statement)
 
 
+def _drop_database(admin_url: str, dbname: str) -> None:
+    """Drop a test database, terminating stale pooled sessions first."""
+    with psycopg.connect(admin_url, autocommit=True) as conn:
+        conn.execute(
+            """
+            SELECT pg_terminate_backend(pid)
+            FROM pg_stat_activity
+            WHERE datname = %s AND pid <> pg_backend_pid()
+            """,
+            (dbname,),
+        )
+        conn.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(dbname)))
+
+
 def _database_exists(admin_url: str, dbname: str) -> bool:
     with psycopg.connect(admin_url, autocommit=True) as conn:
         row = conn.execute("SELECT 1 FROM pg_database WHERE datname = %s", (dbname,)).fetchone()
         return row is not None
+
+
+def _script_head_revisions() -> set[str]:
+    """Return the Alembic script directory head revision id(s)."""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    alembic_ini = Path(__file__).resolve().parent / "alembic.ini"
+    config = Config(str(alembic_ini))
+    script = ScriptDirectory.from_config(config)
+    return set(script.get_heads())
+
+
+def _database_current_revisions(database_url: str) -> set[str]:
+    """Return Alembic revisions currently stamped in a database."""
+    try:
+        with psycopg.connect(database_url, row_factory=dict_row) as conn:
+            rows = conn.execute("SELECT version_num FROM alembic_version").fetchall()
+    except psycopg.Error:
+        return set()
+    return {row["version_num"] for row in rows}
 
 
 # ---------------------------------------------------------------------------
@@ -270,14 +303,23 @@ def _migrate_template(base_url: str) -> str:
     with psycopg.connect(admin_url, autocommit=True) as conn:
         conn.execute("SELECT pg_advisory_lock(%s)", (lock_key,))
         try:
-            if not _database_exists(admin_url, template):
+            template_exists = _database_exists(admin_url, template)
+            template_is_stale = (
+                template_exists
+                and _database_current_revisions(template_url) != _script_head_revisions()
+            )
+            if template_is_stale:
+                _drop_database(admin_url, template)
+                template_exists = False
+
+            if not template_exists:
                 conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(template)))
                 try:
                     _alembic_upgrade_head(template_url)
                 except Exception:
                     # A half-created (empty/partial) template must not survive:
                     # a later run would see it "exists" and skip migration.
-                    conn.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(template)))
+                    _drop_database(admin_url, template)
                     raise
         finally:
             conn.execute("SELECT pg_advisory_unlock(%s)", (lock_key,))
@@ -315,7 +357,7 @@ def _clone_worker_db(base_url: str, template_url: str) -> str:
     # A fresh clone every session; drop any stale leftover first so reruns start
     # from the migrated template, not a mutated previous run.
     if _database_exists(admin_url, worker):
-        _run_maintenance(admin_url, sql.SQL("DROP DATABASE {}").format(sql.Identifier(worker)))
+        _drop_database(admin_url, worker)
     _run_maintenance(
         admin_url,
         sql.SQL("CREATE DATABASE {} TEMPLATE {}").format(
@@ -345,17 +387,16 @@ def worker_database_url() -> Generator[str, None, None]:
     admin_url = _admin_url(base_url)
     worker = _worker_dbname(_base_dbname(base_url))
     if _database_exists(admin_url, worker):
-        _run_maintenance(admin_url, sql.SQL("DROP DATABASE {}").format(sql.Identifier(worker)))
+        _drop_database(admin_url, worker)
 
 
 @pytest.fixture(scope="session")
 def db_path(worker_database_url: str) -> str:
     """Backward-compatible alias.
 
-    The historical fixture name is ``db_path`` (a SQLite file path). It now
-    yields the worker ``DATABASE_URL`` so existing fixtures that depend on
-    ``db_path`` keep resolving; their bodies still need the ``?``->``%s`` /
-    ``datetime('now')`` port (Task 6.3) but the plumbing is unchanged.
+    The historical fixture name is ``db_path``. It now yields the worker
+    ``DATABASE_URL`` so existing fixtures that depend on ``db_path`` keep
+    resolving while using Postgres plumbing.
     """
     return worker_database_url
 
@@ -404,10 +445,8 @@ def app(worker_database_url: str):
 def service_db(app) -> Generator[psycopg.Connection, None, None]:
     """A pooled ``dict_row`` connection against the worker DB for service tests.
 
-    Replaces the SQLite ``db`` / ``service_db`` fixtures that handed back a raw
-    ``sqlite3.Connection`` with ``row_factory=sqlite3.Row`` and
-    ``PRAGMA foreign_keys=ON``. Under Postgres FK enforcement is always on, so no
-    PRAGMA; keyed row access comes from the pool's ``dict_row`` factory
+    Replaces the old raw-connection fixtures. Under Postgres FK enforcement is
+    always on, and keyed row access comes from the pool's ``dict_row`` factory
     (Decision 15).
 
     **Function-scoped, not session-scoped.** A session-scoped connection would
@@ -435,9 +474,7 @@ def db(service_db: psycopg.Connection) -> psycopg.Connection:
 # These consolidate the per-file ``seed_products`` copies and inline
 # ``INSERT INTO sessions`` snippets that used to live in ``test_cart_routes.py``,
 # ``tests/realapp/test_integration.py`` and ``tests/realapp/test_delivery_checkout.py``.
-# They take a pooled ``dict_row`` psycopg connection (NOT a ``sqlite3.Connection``):
-# ``?`` -> ``%s``, ``datetime('now')`` -> ``CURRENT_TIMESTAMP``, no
-# ``PRAGMA foreign_keys`` (always on under Postgres). The caller owns commit —
+# They take a pooled ``dict_row`` psycopg connection. The caller owns commit —
 # under ``with get_db() as conn:`` the chokepoint commits on exit.
 
 # Default product catalog used across cart/integration route tests. Tuple shape:
@@ -596,8 +633,8 @@ def session_id(app) -> str:
 
     The row exists in the DB (re-inserted each test by ``_clean_tables``), so
     tests that need a session_id for OAuth state, DB lookups, etc. get the same
-    ID the middleware stamps on every request. Replaces the SQLite-era
-    ``app._test_session_id`` random UUID with the stable ``FAKE_SESSION_ID``.
+    ID the middleware stamps on every request. Replaces the old per-app random
+    UUID with the stable ``FAKE_SESSION_ID``.
     """
     return FAKE_SESSION_ID
 

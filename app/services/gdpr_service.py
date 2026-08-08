@@ -7,11 +7,9 @@ scrub `order_emails.recipient` for an erased order, and age out
 by `order_id` (join to the erased order), not by user.
 """
 
-import sqlite3
-
 import structlog
 
-from app.database import get_db
+from app.database import DbConnection, get_db
 from app.services import analytics_service
 
 logger = structlog.get_logger(__name__)
@@ -20,14 +18,14 @@ logger = structlog.get_logger(__name__)
 _ERASED_PLACEHOLDER = "[erased]"
 
 
-def anonymize_order_emails(order_id: str, conn: sqlite3.Connection | None = None) -> int:
+def anonymize_order_emails(order_id: str, conn: DbConnection | None = None) -> int:
     """Scrub recipient addresses on all order_emails rows for an order.
 
     Returns the number of rows updated. Preserves row/audit structure (status,
     event, timestamps) — only the PII (recipient) is removed.
     """
 
-    def _run(c: sqlite3.Connection) -> int:
+    def _run(c: DbConnection) -> int:
         cursor = c.execute(
             "UPDATE order_emails SET recipient = %s WHERE order_id = %s AND recipient != %s",
             (_ERASED_PLACEHOLDER, order_id, _ERASED_PLACEHOLDER),

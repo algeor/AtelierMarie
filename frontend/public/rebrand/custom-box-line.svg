@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120" width="160" height="120" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+  <title>Custom box line drawing</title>
+  <path d="M34 53 L78 35 L122 53 L78 72Z"/>
+  <path d="M34 53 V91 L78 111 V72"/>
+  <path d="M122 53 V91 L78 111"/>
+  <path d="M78 35 V111"/>
+  <path d="M58 44 C53 34 66 28 78 35 C90 28 103 34 98 44"/>
+  <path d="M78 35 C71 29 64 29 58 36"/>
+  <path d="M78 35 C85 29 92 29 98 36"/>
+</svg>

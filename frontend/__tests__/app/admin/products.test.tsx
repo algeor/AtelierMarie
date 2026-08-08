@@ -26,6 +26,7 @@ vi.mock("@/lib/api", () => ({
   getAdminProduct: vi.fn(),
   getAdminTaxonomy: vi.fn(),
   updateProduct: vi.fn(),
+  deleteProduct: vi.fn(),
   createProduct: vi.fn(),
   uploadProductImage: vi.fn(),
   deleteProductImage: vi.fn(),
@@ -43,6 +44,7 @@ import {
   getAdminProduct,
   getAdminTaxonomy,
   updateProduct,
+  deleteProduct,
   createProduct,
 } from "@/lib/api";
 import type {
@@ -57,6 +59,7 @@ const mockedGetAdminProducts = vi.mocked(getAdminProducts);
 const mockedGetAdminProduct = vi.mocked(getAdminProduct);
 const mockedGetAdminTaxonomy = vi.mocked(getAdminTaxonomy);
 const mockedUpdateProduct = vi.mocked(updateProduct);
+const mockedDeleteProduct = vi.mocked(deleteProduct);
 const mockedCreateProduct = vi.mocked(createProduct);
 
 const ADMIN_USER: UserResponse = {
@@ -185,14 +188,14 @@ describe("Admin Products List", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Lavender Dreams")).toBeInTheDocument();
-      expect(screen.getByText("Vanilla Bourbon")).toBeInTheDocument();
+      expect(screen.getAllByText("Lavender Dreams").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Vanilla Bourbon").length).toBeGreaterThan(0);
     });
 
-    expect(screen.getByText("€32.00")).toBeInTheDocument();
-    expect(screen.getByText("€38.00")).toBeInTheDocument();
-    expect(screen.getByText("Active")).toBeInTheDocument();
-    expect(screen.getByText("Inactive")).toBeInTheDocument();
+    expect(screen.getAllByText("€32.00").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("€38.00").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Active").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Inactive").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Missing image").length).toBeGreaterThanOrEqual(2);
   });
 
@@ -216,6 +219,39 @@ describe("Admin Products List", () => {
     });
   });
 
+  it("loads products with search and status filters", async () => {
+    mockedGetAdminProducts.mockResolvedValue(MOCK_PRODUCT_LIST);
+
+    const { AdminProvider } = await import("@/contexts/AdminContext");
+    const { AdminGuard } = await import("@/components/admin/AdminGuard");
+    const AdminProductsPage = (await import("@/app/[locale]/admin/products/page")).default;
+
+    renderWithIntl(
+      <AdminProvider>
+        <AdminGuard>
+          <AdminProductsPage />
+        </AdminGuard>
+      </AdminProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Search products")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Search products"), {
+      target: { value: "Lavender" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Active" }));
+
+    await waitFor(() => {
+      expect(mockedGetAdminProducts).toHaveBeenLastCalledWith(
+        1,
+        100,
+        expect.objectContaining({ q: "Lavender", status: "active" })
+      );
+    });
+  });
+
   it("toggles product active status", async () => {
     mockedGetAdminProducts.mockResolvedValue(MOCK_PRODUCT_LIST);
     mockedUpdateProduct.mockResolvedValue({ ...MOCK_PRODUCT, is_active: false });
@@ -233,7 +269,7 @@ describe("Admin Products List", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Lavender Dreams")).toBeInTheDocument();
+      expect(screen.getAllByText("Lavender Dreams").length).toBeGreaterThan(0);
     });
 
     const deactivateButtons = screen.getAllByText("Deactivate");
@@ -243,6 +279,34 @@ describe("Admin Products List", () => {
       expect(mockedUpdateProduct).toHaveBeenCalledWith("lavender-dreams-300ml", {
         is_active: false,
       });
+    });
+  });
+
+  it("soft deletes a product from the list action", async () => {
+    mockedGetAdminProducts.mockResolvedValue(MOCK_PRODUCT_LIST);
+    mockedDeleteProduct.mockResolvedValue({ ...MOCK_PRODUCT, is_active: false });
+
+    const { AdminProvider } = await import("@/contexts/AdminContext");
+    const { AdminGuard } = await import("@/components/admin/AdminGuard");
+    const AdminProductsPage = (await import("@/app/[locale]/admin/products/page")).default;
+
+    renderWithIntl(
+      <AdminProvider>
+        <AdminGuard>
+          <AdminProductsPage />
+        </AdminGuard>
+      </AdminProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Lavender Dreams").length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getAllByLabelText("Delete Product")[0]!);
+    fireEvent.click(screen.getAllByLabelText("Confirm delete product")[0]!);
+
+    await waitFor(() => {
+      expect(mockedDeleteProduct).toHaveBeenCalledWith("lavender-dreams-300ml");
     });
   });
 
@@ -262,10 +326,12 @@ describe("Admin Products List", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Vanilla Bourbon")).toBeInTheDocument();
+      expect(screen.getAllByText("Vanilla Bourbon").length).toBeGreaterThan(0);
     });
 
-    expect(screen.getByRole("button", { name: "Activate" })).toBeDisabled();
+    for (const activateButton of screen.getAllByRole("button", { name: "Activate" })) {
+      expect(activateButton).toBeDisabled();
+    }
   });
 
   it("shows loading skeletons on initial load", async () => {
@@ -331,8 +397,8 @@ describe("Admin Products List", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText("No products found. Create your first product to get started.")
-      ).toBeInTheDocument();
+        screen.getAllByText("No products found. Create your first product to get started.").length
+      ).toBeGreaterThan(0);
     });
   });
 });

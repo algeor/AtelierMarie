@@ -1,9 +1,8 @@
 """Service layer for the editable atelier story page."""
 
-import sqlite3
 import uuid
 
-from app.database import get_db
+from app.database import DbConnection, get_db, require_row
 from app.services import object_storage_service
 from app.services.image_service import process_image, validate_image_file
 from app.utils.sanitize import is_safe_http_or_relative_url, sanitize_text, unsanitize_text
@@ -102,7 +101,7 @@ def _clean_url(value: str | None) -> str | None:
     return stripped
 
 
-def _public_section_dict(row: sqlite3.Row) -> dict:
+def _public_section_dict(row: dict) -> dict:
     cta = None
     if row["cta_label"] and row["cta_href"]:
         cta = {"label": unsanitize_text(row["cta_label"]), "href": row["cta_href"]}
@@ -118,7 +117,7 @@ def _public_section_dict(row: sqlite3.Row) -> dict:
     }
 
 
-def _admin_item_dict(row: sqlite3.Row) -> dict:
+def _admin_item_dict(row: dict) -> dict:
     item_id = int(row["id"])
     return {
         "id": item_id,
@@ -137,7 +136,7 @@ def _admin_item_dict(row: sqlite3.Row) -> dict:
     }
 
 
-def _admin_section_dict(row: sqlite3.Row) -> dict:
+def _admin_section_dict(row: dict) -> dict:
     return {
         "slug": row["slug"],
         "type": row["type"],
@@ -233,13 +232,13 @@ def list_admin_about() -> dict:
     return {"sections": sections}
 
 
-def _ensure_section_exists(conn: sqlite3.Connection, slug: str) -> None:
+def _ensure_section_exists(conn: DbConnection, slug: str) -> None:
     row = conn.execute("SELECT 1 FROM about_sections WHERE slug = %s", (slug,)).fetchone()
     if row is None:
         raise AboutSectionNotFoundError(f"About section not found: {slug}")
 
 
-def _ensure_item_exists(conn: sqlite3.Connection, section: str, item_id: int) -> None:
+def _ensure_item_exists(conn: DbConnection, section: str, item_id: int) -> None:
     row = conn.execute(
         "SELECT 1 FROM about_items WHERE section = %s AND id = %s", (section, item_id)
     ).fetchone()
@@ -289,7 +288,7 @@ def create_item(section: str, payload: dict) -> dict:
             "SELECT COALESCE(MAX(sort_order), -1) AS max_order FROM about_items WHERE section = %s",
             (section,),
         ).fetchone()
-        sort_order = int(row["max_order"]) + 1
+        sort_order = int(require_row(row)["max_order"]) + 1
         cursor = conn.execute(
             """
             INSERT INTO about_items (

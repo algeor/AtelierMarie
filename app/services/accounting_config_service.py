@@ -1,12 +1,11 @@
 """Accounting & Finance Hub configuration services."""
 
 import json
-import sqlite3
 import uuid
 from datetime import date, datetime
 from typing import Any
 
-from app.database import get_db
+from app.database import DbConnection, get_db, require_row
 from app.models.accounting import (
     AccountingConfigurationResponse,
     AccountingSetupException,
@@ -55,7 +54,7 @@ _SENSITIVE_BANK_KEYS = {
 
 
 def _json_default(value: object) -> str:
-    if isinstance(value, (datetime, date)):
+    if isinstance(value, datetime | date):
         return _fmt_ts(value) or ""
     return str(value)
 
@@ -98,7 +97,7 @@ def _redacted_payload(payload: dict[str, object] | None) -> dict[str, object] | 
 
 
 def write_finance_audit_event(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     *,
     action: str,
     target_type: str,
@@ -137,7 +136,7 @@ def write_finance_audit_event(
 
 
 def _seller_profile_from_row(
-    row: sqlite3.Row | None,
+    row: dict | None,
     *,
     include_sensitive: bool = False,
 ) -> SellerLegalProfileResponse | None:
@@ -164,7 +163,7 @@ def _seller_profile_from_row(
     )
 
 
-def _vat_settings_from_row(row: sqlite3.Row | None) -> VatFiscalSettingsResponse | None:
+def _vat_settings_from_row(row: dict | None) -> VatFiscalSettingsResponse | None:
     if row is None:
         return None
     return VatFiscalSettingsResponse(
@@ -184,7 +183,7 @@ def _vat_settings_from_row(row: sqlite3.Row | None) -> VatFiscalSettingsResponse
     )
 
 
-def _category_mapping_from_row(row: sqlite3.Row) -> CategoryMappingResponse:
+def _category_mapping_from_row(row: dict) -> CategoryMappingResponse:
     return CategoryMappingResponse(
         id=row["id"],
         mapping_key=row["mapping_key"],
@@ -197,7 +196,7 @@ def _category_mapping_from_row(row: sqlite3.Row) -> CategoryMappingResponse:
     )
 
 
-def _export_schema_from_row(row: sqlite3.Row) -> ExportSchemaSettingsResponse:
+def _export_schema_from_row(row: dict) -> ExportSchemaSettingsResponse:
     return ExportSchemaSettingsResponse(
         id=row["id"],
         workbook_language=row["workbook_language"],
@@ -211,7 +210,7 @@ def _export_schema_from_row(row: sqlite3.Row) -> ExportSchemaSettingsResponse:
     )
 
 
-def _expense_settings_from_row(row: sqlite3.Row) -> ExpenseEvidenceSettingsResponse:
+def _expense_settings_from_row(row: dict) -> ExpenseEvidenceSettingsResponse:
     return ExpenseEvidenceSettingsResponse(
         id=row["id"],
         required_document_categories=_json_loads(row["required_document_categories_json"], []),
@@ -223,7 +222,7 @@ def _expense_settings_from_row(row: sqlite3.Row) -> ExpenseEvidenceSettingsRespo
     )
 
 
-def _product_cost_settings_from_row(row: sqlite3.Row) -> ProductCostSettingsResponse:
+def _product_cost_settings_from_row(row: dict) -> ProductCostSettingsResponse:
     return ProductCostSettingsResponse(
         id=row["id"],
         enabled=bool(row["enabled"]),
@@ -237,25 +236,28 @@ def _product_cost_settings_from_row(row: sqlite3.Row) -> ProductCostSettingsResp
     )
 
 
-def _latest_row(conn: sqlite3.Connection, table: str) -> sqlite3.Row | None:
+def _latest_row(conn: DbConnection, table: str) -> dict | None:
     return conn.execute(
         f"SELECT * FROM {table} ORDER BY effective_date DESC, id DESC LIMIT 1"  # noqa: S608
     ).fetchone()
 
 
-def _ensure_export_schema_row(conn: sqlite3.Connection) -> sqlite3.Row:
+def _ensure_export_schema_row(conn: DbConnection) -> dict:
     conn.execute(
         "INSERT INTO accounting_export_schema_settings (id) VALUES (%s) "
         "ON CONFLICT (id) DO NOTHING",
         (_SETTINGS_ID,),
     )
-    return conn.execute(
-        "SELECT * FROM accounting_export_schema_settings WHERE id = %s",
-        (_SETTINGS_ID,),
-    ).fetchone()
+    return require_row(
+        conn.execute(
+            "SELECT * FROM accounting_export_schema_settings WHERE id = %s",
+            (_SETTINGS_ID,),
+        ).fetchone(),
+        "accounting_export_schema_settings row missing after ensure",
+    )
 
 
-def _ensure_expense_settings_row(conn: sqlite3.Connection) -> sqlite3.Row:
+def _ensure_expense_settings_row(conn: DbConnection) -> dict:
     conn.execute(
         """
         INSERT INTO expense_evidence_settings (
@@ -271,21 +273,27 @@ def _ensure_expense_settings_row(conn: sqlite3.Connection) -> sqlite3.Row:
             _json_dumps({}),
         ),
     )
-    return conn.execute(
-        "SELECT * FROM expense_evidence_settings WHERE id = %s",
-        (_SETTINGS_ID,),
-    ).fetchone()
+    return require_row(
+        conn.execute(
+            "SELECT * FROM expense_evidence_settings WHERE id = %s",
+            (_SETTINGS_ID,),
+        ).fetchone(),
+        "expense_evidence_settings row missing after ensure",
+    )
 
 
-def _ensure_product_cost_settings_row(conn: sqlite3.Connection) -> sqlite3.Row:
+def _ensure_product_cost_settings_row(conn: DbConnection) -> dict:
     conn.execute(
         "INSERT INTO product_cost_settings (id) VALUES (%s) ON CONFLICT (id) DO NOTHING",
         (_SETTINGS_ID,),
     )
-    return conn.execute(
-        "SELECT * FROM product_cost_settings WHERE id = %s",
-        (_SETTINGS_ID,),
-    ).fetchone()
+    return require_row(
+        conn.execute(
+            "SELECT * FROM product_cost_settings WHERE id = %s",
+            (_SETTINGS_ID,),
+        ).fetchone(),
+        "product_cost_settings row missing after ensure",
+    )
 
 
 def setup_exceptions(
@@ -396,8 +404,8 @@ def create_seller_legal_profile(
                 actor_user_id,
                 pricing.now_utc(),
             ),
-        ).fetchone()["id"]
-        profile_id = int(inserted)
+        ).fetchone()
+        profile_id = int(require_row(inserted, "seller profile insert returned no row")["id"])
         row = conn.execute(
             "SELECT * FROM seller_legal_profile_versions WHERE id = %s",
             (profile_id,),
@@ -413,7 +421,10 @@ def create_seller_legal_profile(
             after=payload,
             reason=reason,
         )
-    return _seller_profile_from_row(row)  # type: ignore[return-value]
+    profile = _seller_profile_from_row(require_row(row, "seller profile row missing after insert"))
+    if profile is None:
+        raise RuntimeError("seller profile row missing after insert")
+    return profile
 
 
 def create_vat_fiscal_settings(
@@ -451,8 +462,8 @@ def create_vat_fiscal_settings(
                 actor_user_id,
                 pricing.now_utc(),
             ),
-        ).fetchone()["id"]
-        settings_id = int(inserted)
+        ).fetchone()
+        settings_id = int(require_row(inserted, "VAT settings insert returned no row")["id"])
         row = conn.execute(
             "SELECT * FROM vat_fiscal_settings_versions WHERE id = %s",
             (settings_id,),
@@ -468,7 +479,10 @@ def create_vat_fiscal_settings(
             after=payload,
             reason=reason,
         )
-    return _vat_settings_from_row(row)  # type: ignore[return-value]
+    settings = _vat_settings_from_row(require_row(row, "VAT settings row missing after insert"))
+    if settings is None:
+        raise RuntimeError("VAT settings row missing after insert")
+    return settings
 
 
 def upsert_category_mapping(
@@ -514,6 +528,7 @@ def upsert_category_mapping(
             "SELECT * FROM accounting_category_mappings WHERE mapping_key = %s",
             (key,),
         ).fetchone()
+        row = require_row(row, "category mapping row missing after upsert")
         write_finance_audit_event(
             conn,
             action="category_mapping.upsert",
@@ -663,7 +678,7 @@ def update_product_cost_settings(
     return _product_cost_settings_from_row(row)
 
 
-def current_seller_profile_version_id(conn: sqlite3.Connection) -> int | None:
+def current_seller_profile_version_id(conn: DbConnection) -> int | None:
     """Return the latest reviewed seller profile version id, if configured."""
     row = conn.execute(
         """
@@ -676,7 +691,7 @@ def current_seller_profile_version_id(conn: sqlite3.Connection) -> int | None:
     return int(row["id"]) if row else None
 
 
-def current_vat_fiscal_settings_version_id(conn: sqlite3.Connection) -> int | None:
+def current_vat_fiscal_settings_version_id(conn: DbConnection) -> int | None:
     """Return the latest reviewed VAT/fiscal settings version id, if configured."""
     row = conn.execute(
         """

@@ -332,7 +332,9 @@ describe("Admin accounting frontend", () => {
     expect(screen.getByText("missing")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Finance hub" })).toHaveAttribute("href", "/admin/accounting?period=period-2026-08");
 
-    fireEvent.click(screen.getByRole("button", { name: "Missing document" }));
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+    fireEvent.click(screen.getByRole("button", { name: "Accounting filter" }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Missing document" }));
     await waitFor(() => expect(api.getAdminOrders).toHaveBeenLastCalledWith(1, 100, undefined, undefined, undefined, "missing_document_reference"));
   });
 

@@ -6,11 +6,10 @@ secret/config state. Raw private keys are never returned.
 
 from typing import Any
 
-import psycopg
 import structlog
 
 from app.config import Settings, get_settings
-from app.database import get_db
+from app.database import DbConnection, get_db, require_row
 from app.models.delivery import DeliveryConfigResponse, EcontCheckoutConfig
 from app.models.econt import (
     EcontConnectionTestResponse,
@@ -69,7 +68,7 @@ _BOOL_FIELDS = {
 }
 
 
-def _get_row(conn: psycopg.Connection) -> dict:
+def _get_row(conn: DbConnection) -> dict:
     row = conn.execute("SELECT * FROM econt_settings WHERE id = %s", (_SETTINGS_ID,)).fetchone()
     if row is None:
         conn.execute(
@@ -77,7 +76,7 @@ def _get_row(conn: psycopg.Connection) -> dict:
             (_SETTINGS_ID,),
         )
         row = conn.execute("SELECT * FROM econt_settings WHERE id = %s", (_SETTINGS_ID,)).fetchone()
-    return row
+    return require_row(row, "econt_settings row missing after ensure")
 
 
 def _configured_secret(settings: Settings, row: dict) -> bool:
@@ -295,7 +294,7 @@ async def test_econt_configuration() -> EcontConnectionTestResponse:
 
 
 def _record_health(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     status: str,
     checked_at: str,
     error: str | None,

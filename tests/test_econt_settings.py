@@ -13,9 +13,8 @@ def _seed_econt_settings(conn) -> None:
 
     ``econt_settings`` is a migration-seed table (never truncated by the root
     ``_clean_tables``), but these tests mutate the singleton, so this file owns an
-    explicit per-test re-seed (Decision 15). Replaces the removed SQLite
-    ``app.database._seed_econt_settings`` helper — the row's non-id columns take
-    their DB defaults, exactly as the old ``INSERT OR IGNORE`` did.
+    explicit per-test re-seed (Decision 15). The row's non-id columns take their
+    DB defaults via ``ON CONFLICT DO NOTHING``.
     """
     conn.execute("INSERT INTO econt_settings (id) VALUES ('default') ON CONFLICT (id) DO NOTHING")
 
@@ -105,7 +104,7 @@ class TestEcontSettingsRoutes:
     async def test_patch_rejects_unknown_or_invalid_fields(self, admin_client):
         resp = await admin_client.patch(
             "/v1/admin/econt/settings",
-            json={"private_key": "must-not-be-accepted"},
+            json={"private_key": "must-not-be-accepted"},  # pragma: allowlist secret
         )
 
         assert resp.status_code == 422
@@ -175,11 +174,11 @@ class TestEcontSettingsRoutes:
         assert body["details"] == {"blockers": []}
         assert calls == {
             "base_url": "https://delivery-demo.econt.com/services/",
-            "private_key": "private-demo-key",
+            "private_key": "private-demo-key",  # pragma: allowlist secret
             "shop_id": "shop-db-9",
             "tested": True,
         }
-        assert "private-demo-key" not in str(body)
+        assert "private-demo-key" not in str(body)  # pragma: allowlist secret
 
     @pytest.mark.asyncio
     async def test_connection_maps_econt_auth_failure(self, admin_client, monkeypatch):

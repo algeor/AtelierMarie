@@ -1,9 +1,8 @@
 """FAQ service layer for public and admin-managed FAQ content."""
 
-import sqlite3
 from typing import Any
 
-from app.database import get_db
+from app.database import DbConnection, get_db, require_row
 
 _DT_FMT = "%Y-%m-%d %H:%M:%S"
 
@@ -35,12 +34,12 @@ def _public_locale(locale: str | None) -> str:
     return "bg" if locale == "bg" else "en"
 
 
-def _section_exists(conn: sqlite3.Connection, slug: str) -> bool:
+def _section_exists(conn: DbConnection, slug: str) -> bool:
     row = conn.execute("SELECT 1 FROM faq_sections WHERE slug = %s", (slug,)).fetchone()
     return row is not None
 
 
-def _item_to_admin_dict(row: sqlite3.Row) -> dict:
+def _item_to_admin_dict(row: dict) -> dict:
     return {
         "id": row["id"],
         "section": row["section"],
@@ -55,7 +54,7 @@ def _item_to_admin_dict(row: sqlite3.Row) -> dict:
     }
 
 
-def _section_to_admin_dict(row: sqlite3.Row) -> dict:
+def _section_to_admin_dict(row: dict) -> dict:
     return {
         "slug": row["slug"],
         "title_en": row["title_en"],
@@ -68,7 +67,7 @@ def _section_to_admin_dict(row: sqlite3.Row) -> dict:
     }
 
 
-def _get_admin_item(conn: sqlite3.Connection, item_id: int) -> dict:
+def _get_admin_item(conn: DbConnection, item_id: int) -> dict:
     row = conn.execute("SELECT * FROM faq_items WHERE id = %s", (item_id,)).fetchone()
     if row is None:
         raise FaqItemNotFoundError(f"FAQ item not found: {item_id}")
@@ -163,7 +162,7 @@ def create_item(data: dict) -> dict:
                 "FROM faq_items WHERE section = %s",
                 (section,),
             ).fetchone()
-            sort_order = row["next_order"]
+            sort_order = require_row(row)["next_order"]
         cursor = conn.execute(
             """
             INSERT INTO faq_items (

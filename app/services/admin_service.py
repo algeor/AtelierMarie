@@ -1,10 +1,10 @@
 """Admin service — dashboard statistics and administrative queries."""
 
-from app.database import get_db
+from app.database import get_db, require_row
 
 
 def get_dashboard_stats() -> dict:
-    """Fetch basic dashboard statistics from SQLite.
+    """Fetch basic dashboard statistics from the database.
 
     Returns counts and revenue figures from the orders and products tables.
     All monetary values are in cents.
@@ -60,6 +60,13 @@ def get_dashboard_stats() -> dict:
             WHERE email_status != 'sent'
             """
         ).fetchone()
+
+    product_row = require_row(product_row)
+    order_row = require_row(order_row)
+    today_row = require_row(today_row)
+    week_revenue_row = require_row(week_revenue_row)
+    low_stock_row = require_row(low_stock_row)
+    contact_attention_row = require_row(contact_attention_row)
 
     orders_by_status = {row["status"]: row["count"] for row in status_rows}
     orders_by_payment_status = {row["payment_status"]: row["count"] for row in payment_status_rows}

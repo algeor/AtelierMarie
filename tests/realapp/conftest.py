@@ -5,11 +5,10 @@ run against the same per-worker Postgres database provisioned by the root
 ``tests/conftest.py`` (session-scoped ``worker_database_url``), but build the app
 with the REAL session middleware rather than any fake/test session shim.
 
-What changed from the SQLite version:
+Current shape:
 
-- ``db_path`` is no longer a per-test tmp SQLite file; the worker ``DATABASE_URL``
-  comes from the root conftest and the app opens the psycopg pool via
-  ``init_db(url)`` (the single chokepoint).
+- ``db_path`` is the worker ``DATABASE_URL`` from the root conftest, and the app
+  opens the psycopg pool via ``init_db(url)`` (the single chokepoint).
 - ``_clean_tables`` is no longer a no-op — the root conftest's autouse truncation
   handles per-test isolation, so the local no-op override is removed.
 - Realapp tests exercise the real ``SessionMiddleware``, so they do NOT rely on
@@ -32,7 +31,7 @@ __all__ = ["FakeStorageBackend", "R2_TEST_PUBLIC_BASE", "fake_storage"]
 _REALAPP_DIR = str(Path(__file__).parent)
 
 # Reuse the root harness's admin key so admin_client auth lines up.
-ADMIN_API_KEY = "test-admin-key"
+ADMIN_API_KEY = "test-admin-key"  # pragma: allowlist secret
 
 
 def pytest_collection_modifyitems(items):

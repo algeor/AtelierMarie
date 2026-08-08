@@ -39,14 +39,14 @@ export function BodyRenderer({ body, className = "" }: { body: string | null; cl
   const blocks = bodyBlocks(body);
   if (blocks.length === 0) return null;
   return (
-    <div className={`space-y-4 text-base leading-8 text-soft-brown ${className}`}>
+    <div className={`space-y-4 text-base leading-8 text-muted ${className}`}>
       {blocks.map((block, index) =>
         block.type === "p" ? (
           <p key={`${index}-${block.text}`}>{block.text}</p>
         ) : block.type === "quote" ? (
           <blockquote
             key={`${index}-${block.text}`}
-            className="border-l-2 border-muted-gold pl-5 font-heading text-2xl leading-9 text-charcoal sm:text-3xl sm:leading-10"
+            className="border-l-2 border-accent pl-5 font-heading text-2xl leading-9 text-text sm:text-3xl sm:leading-10"
           >
             &ldquo;{block.text}&rdquo;
           </blockquote>

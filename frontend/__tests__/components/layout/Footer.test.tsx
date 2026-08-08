@@ -10,6 +10,12 @@ vi.mock("@/i18n/navigation", () => ({
   ),
 }));
 
+vi.mock("@/components/auth/LoginButton", () => ({
+  LoginButton: ({ className }: { className?: string }) => (
+    <button type="button" className={className}>Sign In</button>
+  ),
+}));
+
 const INSTAGRAM_URL =
   "https://www.instagram.com/atelier_marie25?igsh=MWQ1YzA4aHF2a3Q4MA==";
 const TIKTOK_URL = "https://www.tiktok.com/@ateliermarie25?_r=1&_t=ZN-98H9buODbdu";

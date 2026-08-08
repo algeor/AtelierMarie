@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120" width="160" height="120" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+  <title>Notebook line drawing</title>
+  <path d="M40 31 H84 C95 31 104 40 104 51 V95 C104 99 101 102 97 102 H52 C45 102 40 97 40 90Z"/>
+  <path d="M50 31 V96 C54 92 60 90 67 90 H104"/>
+  <path d="M62 47 H90"/>
+  <path d="M62 59 H92"/>
+  <path d="M62 71 H86"/>
+  <path d="M104 40 C113 43 120 51 120 62 V101 C114 97 107 95 97 96"/>
+  <path d="M88 31 V58 L94 53 L100 58 V33"/>
+</svg>

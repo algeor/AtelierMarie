@@ -5,8 +5,18 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
 import { renderWithIntl } from "../../test-utils";
 
 vi.mock("@/i18n/navigation", () => ({
-  Link: ({ children, href }: { children: React.ReactNode; href: string }) => (
-    <a href={href}>{children}</a>
+  Link: ({
+    children,
+    href,
+    ...props
+  }: {
+    children: React.ReactNode;
+    href: string;
+    [key: string]: unknown;
+  }) => (
+    <a href={href} {...props}>
+      {children}
+    </a>
   ),
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
   usePathname: () => "/",
@@ -33,6 +43,27 @@ vi.mock("@/contexts/AuthContext", () => ({
   }),
 }));
 
+vi.mock("@/contexts/SavedProductsContext", () => ({
+  useOptionalSavedProducts: () => ({
+    savedProducts: [],
+    savedProductIds: new Set(["candle"]),
+    savedCount: 1,
+    isLoading: false,
+    isSaved: vi.fn(),
+    toggleSaved: vi.fn(),
+    refreshSavedProducts: vi.fn(),
+  }),
+  useSavedProducts: () => ({
+    savedProducts: [],
+    savedProductIds: new Set(["candle"]),
+    savedCount: 1,
+    isLoading: false,
+    isSaved: vi.fn(),
+    toggleSaved: vi.fn(),
+    refreshSavedProducts: vi.fn(),
+  }),
+}));
+
 import { UserMenu } from "@/components/auth/UserMenu";
 
 describe("UserMenu", () => {
@@ -44,7 +75,9 @@ describe("UserMenu", () => {
     renderWithIntl(<UserMenu />);
     const img = document.querySelector("img");
     // next/image proxies external URLs through /_next/image?url=<encoded>&...
-    expect(img?.getAttribute("src")).toContain(encodeURIComponent("https://example.com/avatar.jpg"));
+    expect(img?.getAttribute("src")).toContain(
+      encodeURIComponent("https://example.com/avatar.jpg"),
+    );
   });
 
   it("falls back to initial when avatar image fails to load", () => {
@@ -86,8 +119,16 @@ describe("UserMenu", () => {
 
     await user.click(screen.getByRole("button"));
 
-    expect(screen.getByRole("link", { name: "My Account" })).toHaveAttribute("href", "/account");
-    expect(screen.getByRole("link", { name: "My Orders" })).toHaveAttribute("href", "/orders");
+    expect(
+      screen.getByRole("menuitem", { name: "My Account" }),
+    ).toHaveAttribute("href", "/account");
+    expect(screen.getByRole("menuitem", { name: "My Orders" })).toHaveAttribute(
+      "href",
+      "/orders",
+    );
+    expect(
+      screen.getByRole("menuitem", { name: /Saved Products/ }),
+    ).toHaveAttribute("href", "/account#saved-products");
   });
 
   it("calls logout on Sign Out click", async () => {
@@ -146,8 +187,10 @@ describe("UserMenu with no avatar", () => {
       }),
     }));
 
-    const { UserMenu: UserMenuNoAvatar } = await import("@/components/auth/UserMenu");
-    const { renderWithIntl: renderWithFreshIntl } = await import("../../test-utils");
+    const { UserMenu: UserMenuNoAvatar } =
+      await import("@/components/auth/UserMenu");
+    const { renderWithIntl: renderWithFreshIntl } =
+      await import("../../test-utils");
     const { screen: s } = await import("@testing-library/react");
     renderWithFreshIntl(<UserMenuNoAvatar />);
     expect(s.getByRole("button", { name: "My Account" })).toBeInTheDocument();

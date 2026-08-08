@@ -16,9 +16,9 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-import psycopg
 import structlog
 
+from app.database import DbConnection, require_row
 from app.services.admin_alert_service import create_admin_alert
 from app.services.order_service import (
     OrderData,
@@ -52,7 +52,7 @@ def _format_stripe_return_url(template: str, order: OrderData) -> str:
 
 
 def _upsert_stripe_payment_row(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     order: OrderData,
     *,
     stripe_checkout_session_id: str | None,
@@ -110,7 +110,7 @@ def _upsert_stripe_payment_row(
     )
 
 
-def _stored_checkout_url(conn: psycopg.Connection, order_id: str) -> str | None:
+def _stored_checkout_url(conn: DbConnection, order_id: str) -> str | None:
     row = conn.execute(
         """
         SELECT provider_details
@@ -147,7 +147,7 @@ def _reservation_is_active(reserved_until: str | datetime | None) -> bool:
 
 
 def _payment_id_for_order(
-    conn: psycopg.Connection, order_id: str, provider: str = "stripe"
+    conn: DbConnection, order_id: str, provider: str = "stripe"
 ) -> str | None:
     row = conn.execute(
         """
@@ -162,9 +162,7 @@ def _payment_id_for_order(
     return row["id"] if row else None
 
 
-def _order_id_for_payment_intent(
-    conn: psycopg.Connection, payment_intent_id: str | None
-) -> str | None:
+def _order_id_for_payment_intent(conn: DbConnection, payment_intent_id: str | None) -> str | None:
     if not payment_intent_id:
         return None
 
@@ -189,7 +187,7 @@ def _order_id_for_payment_intent(
 
 
 def _append_stripe_payment_event(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     event_id: str,
     event_type: str,
@@ -310,7 +308,7 @@ def _create_stripe_checkout_session(
 
 
 def _persist_checkout_session(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     order: OrderData,
     session: object,
 ) -> str:
@@ -330,7 +328,7 @@ def _persist_checkout_session(
 
 
 def create_checkout_session(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     order: OrderData,
     success_url: str,
     cancel_url: str,
@@ -355,7 +353,7 @@ def create_checkout_session(
 
 
 async def create_checkout_session_async(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     order: OrderData,
     success_url: str,
     cancel_url: str,
@@ -381,7 +379,7 @@ async def create_checkout_session_async(
 
 
 def create_retry_checkout_session(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     order: OrderData,
     success_url: str,
     cancel_url: str,
@@ -399,7 +397,7 @@ def create_retry_checkout_session(
 
 
 async def create_retry_checkout_session_async(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     order: OrderData,
     success_url: str,
     cancel_url: str,
@@ -464,14 +462,14 @@ def _normalize_refund_row(row: dict) -> dict:
     return refund
 
 
-def _refund_row(conn: psycopg.Connection, refund_id: str) -> dict:
+def _refund_row(conn: DbConnection, refund_id: str) -> dict:
     row = conn.execute("SELECT * FROM payment_refunds WHERE id = %s", (refund_id,)).fetchone()
     if row is None:
         raise StripeRefundActionError("REFUND_NOT_FOUND", "Refund record was not found", 500)
     return _normalize_refund_row(row)
 
 
-def _refunded_or_pending_total(conn: psycopg.Connection, order_id: str) -> int:
+def _refunded_or_pending_total(conn: DbConnection, order_id: str) -> int:
     row = conn.execute(
         """
         SELECT COALESCE(SUM(amount_cents), 0) AS total
@@ -484,7 +482,7 @@ def _refunded_or_pending_total(conn: psycopg.Connection, order_id: str) -> int:
 
 
 def _append_admin_refund_event(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     order_id: str,
     payment_id: str | None,
@@ -513,7 +511,7 @@ def _append_admin_refund_event(
 
 
 async def create_stripe_refund_async(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     *,
     order_id: str,
     amount_cents: int | None,
@@ -702,7 +700,7 @@ async def create_stripe_refund_async(
 
 
 def create_retry_session(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     order_id: str,
     payment_return_token: str,
     success_url: str,
@@ -723,7 +721,7 @@ def create_retry_session(
 
 
 def prepare_retry_session(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     order_id: str,
     payment_return_token: str,
 ) -> tuple[OrderData, str | None]:
@@ -811,7 +809,7 @@ def expire_checkout_session(stripe_checkout_session_id: str | None, stripe_secre
 
 
 def handle_payment_succeeded(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     event_id: str,
     order_id: str,
     payment_intent_id: str | None,
@@ -883,6 +881,7 @@ def handle_payment_succeeded(
             details["ignored_reason"] = "order_not_found"
 
         if can_mark_paid:
+            order_row = require_row(order_row, "order row missing while marking payment paid")
             conn.execute(
                 "UPDATE orders SET payment_status = 'paid', paid_at = COALESCE(paid_at, %s), "
                 "stripe_payment_intent_id = %s "
@@ -985,7 +984,7 @@ def handle_payment_succeeded(
 
 
 def handle_session_expired(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     event_id: str,
     order_id: str,
     stripe_session_id: str,
@@ -1048,7 +1047,7 @@ def handle_session_expired(
 
 
 def handle_payment_failed(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     event_id: str,
     order_id: str | None,
     payment_intent_id: str | None,
@@ -1118,7 +1117,7 @@ def handle_payment_failed(
 
 
 def handle_charge_refunded(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     event_id: str,
     order_id: str | None,
     charge_id: str | None,
@@ -1178,7 +1177,7 @@ def handle_charge_refunded(
 
 
 def handle_refund_updated(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     event_id: str,
     event_type: str,
     provider_refund_id: str | None,
@@ -1237,18 +1236,23 @@ def handle_refund_updated(
                 """,
                 (now, refund["id"]),
             )
-            total_refunded = conn.execute(
-                """
+            total_refunded = require_row(
+                conn.execute(
+                    """
                 SELECT COALESCE(SUM(amount_cents), 0) AS total
                 FROM payment_refunds
                 WHERE order_id = %s AND provider = 'stripe' AND status = 'succeeded'
                 """,
-                (resolved_order_id,),
-            ).fetchone()["total"]
-            order_total = conn.execute(
-                "SELECT total_cents FROM orders WHERE id = %s",
-                (resolved_order_id,),
-            ).fetchone()["total_cents"]
+                    (resolved_order_id,),
+                ).fetchone()
+            )["total"]
+            order_total = require_row(
+                conn.execute(
+                    "SELECT total_cents FROM orders WHERE id = %s",
+                    (resolved_order_id,),
+                ).fetchone(),
+                "order row missing while applying refund update",
+            )["total_cents"]
             new_payment_status = (
                 "refunded" if int(total_refunded) >= int(order_total) else "partially_refunded"
             )
@@ -1329,7 +1333,7 @@ def _payment_status_for_dispute(event_type: str, dispute_status: str | None) -> 
 
 
 def handle_dispute_event(
-    conn: psycopg.Connection,
+    conn: DbConnection,
     event_id: str,
     event_type: str,
     order_id: str | None,

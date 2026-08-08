@@ -61,6 +61,14 @@ const ALL_ENABLED: DeliverySettingsResponse = {
   updated_at: "2026-07-31 12:00:00",
 };
 
+const ALL_COURIERS_DISABLED: DeliverySettingsResponse = {
+  ...ALL_ENABLED,
+  speedy_office_enabled: false,
+  speedy_door_enabled: false,
+  econt_office_enabled: false,
+  econt_door_enabled: false,
+};
+
 // Door already selected, so the place picker is the visible sub-form.
 const ECONT_DOOR: Partial<DeliveryInfo> = {
   method: "door",
@@ -238,5 +246,34 @@ describe("DeliverySection — courier door place picker", () => {
 
     expect(screen.queryByText("Pick up from office")).not.toBeInTheDocument();
     expect(screen.getByText("Door delivery")).toBeInTheDocument();
+  });
+
+  it("shows internal delivery when all courier methods are disabled", async () => {
+    const onChange = renderSection({}, vi.fn(), ALL_COURIERS_DISABLED);
+
+    expect(
+      screen.getByText(/Delivery will be handled by Atelier Marie for €3.50/),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith(
+        expect.objectContaining({ method: "internal", office: null, door: null }),
+      ),
+    );
+
+    renderSection(
+      { method: "internal", internal: {} } as Partial<DeliveryInfo>,
+      vi.fn(),
+      ALL_COURIERS_DISABLED,
+    );
+
+    expect(screen.getByLabelText("City *")).toHaveAttribute("id", "delivery-internal-city");
+    expect(screen.getByLabelText("Postal code *")).toHaveAttribute(
+      "id",
+      "delivery-internal-postal-code",
+    );
+    expect(screen.getByLabelText("Street and number *")).toHaveAttribute(
+      "id",
+      "delivery-internal-street",
+    );
   });
 });

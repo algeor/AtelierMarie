@@ -21,7 +21,7 @@ logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
-_SQLITE_DT_FMT = "%Y-%m-%d %H:%M:%S"
+_CANONICAL_DT_FMT = "%Y-%m-%d %H:%M:%S"
 
 
 @router.get("/login", summary="Start Google OAuth login")
@@ -217,8 +217,8 @@ async def logout(
                 "VALUES (%s, %s, %s, %s)",
                 (
                     new_session_id,
-                    now.strftime(_SQLITE_DT_FMT),
-                    expires_at.strftime(_SQLITE_DT_FMT),
+                    now.strftime(_CANONICAL_DT_FMT),
+                    expires_at.strftime(_CANONICAL_DT_FMT),
                     preferred_locale,
                 ),
             )

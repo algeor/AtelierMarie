@@ -37,11 +37,13 @@ export function ContactForm() {
     else if (name.trim().length > MAX_NAME_LENGTH) next.name = t("nameTooLong");
 
     if (!email.trim()) next.email = t("emailRequired");
-    else if (email.trim().length > MAX_EMAIL_LENGTH) next.email = t("emailTooLong");
+    else if (email.trim().length > MAX_EMAIL_LENGTH)
+      next.email = t("emailTooLong");
     else if (!EMAIL_REGEX.test(email.trim())) next.email = t("emailInvalid");
 
     if (!message.trim()) next.message = t("messageRequired");
-    else if (message.trim().length > MAX_MESSAGE_LENGTH) next.message = t("messageTooLong");
+    else if (message.trim().length > MAX_MESSAGE_LENGTH)
+      next.message = t("messageTooLong");
     return next;
   }, [email, message, name, t]);
 
@@ -84,15 +86,19 @@ export function ContactForm() {
   );
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="rounded-brand border border-champagne-beige bg-warm-ivory p-5 sm:p-6">
+    <form
+      onSubmit={handleSubmit}
+      noValidate
+      className="editorial-soft-panel rounded-brand p-5 sm:p-6"
+    >
       <div aria-live="polite" className="mb-5 min-h-[1px]">
         {isSuccess && (
-          <p className="rounded-brand border border-muted-gold/40 bg-cream px-4 py-3 text-sm text-charcoal">
+          <p className="rounded-brand border border-success/25 bg-success/10 px-4 py-3 text-sm text-success">
             {t("success")}
           </p>
         )}
         {submitError && (
-          <p className="rounded-brand border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <p className="rounded-brand border border-error/20 bg-error/10 px-4 py-3 text-sm text-error">
             {submitError}
           </p>
         )}
@@ -112,8 +118,11 @@ export function ContactForm() {
       </div>
 
       <div className="mb-5">
-        <label htmlFor="contact-name" className="mb-1.5 block text-sm font-medium text-soft-brown">
-          {t("name")} <span className="text-red-700">*</span>
+        <label
+          htmlFor="contact-name"
+          className="mb-1.5 block text-sm font-medium text-muted"
+        >
+          {t("name")} <span className="text-error">*</span>
         </label>
         <input
           id="contact-name"
@@ -124,21 +133,24 @@ export function ContactForm() {
           aria-required="true"
           aria-invalid={errors.name ? "true" : undefined}
           aria-describedby={errors.name ? "contact-name-error" : undefined}
-          className={`w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal placeholder:text-soft-brown/50 focus:outline-none focus:ring-2 focus:ring-soft-brown focus:ring-offset-2 focus:ring-offset-warm-ivory ${
-            errors.name ? "border-red-700" : "border-champagne-beige"
+          className={`w-full rounded-brand border bg-surface/70 px-4 py-3 text-text placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-focus focus:ring-offset-2 focus:ring-offset-page ${
+            errors.name ? "border-error" : "border-border/40"
           }`}
           placeholder={t("namePlaceholder")}
         />
         {errors.name && (
-          <p id="contact-name-error" className="mt-1.5 text-sm text-red-700">
+          <p id="contact-name-error" className="mt-1.5 text-sm text-error">
             {errors.name}
           </p>
         )}
       </div>
 
       <div className="mb-5">
-        <label htmlFor="contact-email" className="mb-1.5 block text-sm font-medium text-soft-brown">
-          {t("email")} <span className="text-red-700">*</span>
+        <label
+          htmlFor="contact-email"
+          className="mb-1.5 block text-sm font-medium text-muted"
+        >
+          {t("email")} <span className="text-error">*</span>
         </label>
         <input
           id="contact-email"
@@ -149,21 +161,24 @@ export function ContactForm() {
           aria-required="true"
           aria-invalid={errors.email ? "true" : undefined}
           aria-describedby={errors.email ? "contact-email-error" : undefined}
-          className={`w-full rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal placeholder:text-soft-brown/50 focus:outline-none focus:ring-2 focus:ring-soft-brown focus:ring-offset-2 focus:ring-offset-warm-ivory ${
-            errors.email ? "border-red-700" : "border-champagne-beige"
+          className={`w-full rounded-brand border bg-surface/70 px-4 py-3 text-text placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-focus focus:ring-offset-2 focus:ring-offset-page ${
+            errors.email ? "border-error" : "border-border/40"
           }`}
           placeholder={t("emailPlaceholder")}
         />
         {errors.email && (
-          <p id="contact-email-error" className="mt-1.5 text-sm text-red-700">
+          <p id="contact-email-error" className="mt-1.5 text-sm text-error">
             {errors.email}
           </p>
         )}
       </div>
 
       <div className="mb-6">
-        <label htmlFor="contact-message" className="mb-1.5 block text-sm font-medium text-soft-brown">
-          {t("message")} <span className="text-red-700">*</span>
+        <label
+          htmlFor="contact-message"
+          className="mb-1.5 block text-sm font-medium text-muted"
+        >
+          {t("message")} <span className="text-error">*</span>
         </label>
         <textarea
           id="contact-message"
@@ -173,35 +188,42 @@ export function ContactForm() {
           onChange={(event) => setMessage(event.target.value)}
           aria-required="true"
           aria-invalid={errors.message ? "true" : undefined}
-          aria-describedby={errors.message ? "contact-message-error" : "contact-message-help"}
-          className={`w-full resize-y rounded-brand border bg-warm-ivory px-4 py-3 text-charcoal placeholder:text-soft-brown/50 focus:outline-none focus:ring-2 focus:ring-soft-brown focus:ring-offset-2 focus:ring-offset-warm-ivory ${
-            errors.message ? "border-red-700" : "border-champagne-beige"
+          aria-describedby={
+            errors.message ? "contact-message-error" : "contact-message-help"
+          }
+          className={`w-full resize-y rounded-brand border bg-surface/70 px-4 py-3 text-text placeholder:text-muted/50 focus:outline-none focus:ring-2 focus:ring-focus focus:ring-offset-2 focus:ring-offset-page ${
+            errors.message ? "border-error" : "border-border/40"
           }`}
           placeholder={t("messagePlaceholder")}
         />
         {errors.message ? (
-          <p id="contact-message-error" className="mt-1.5 text-sm text-red-700">
+          <p id="contact-message-error" className="mt-1.5 text-sm text-error">
             {errors.message}
           </p>
         ) : (
-          <p id="contact-message-help" className="mt-1.5 text-sm text-soft-brown/70">
+          <p id="contact-message-help" className="mt-1.5 text-sm text-muted/70">
             {t("messageHelp")}
           </p>
         )}
       </div>
 
-      <p className="mb-4 text-xs leading-5 text-soft-brown/75">
-        {t("privacyNoticePrefix")} {" "}
+      <p className="mb-4 text-xs leading-5 text-muted/75">
+        {t("privacyNoticePrefix")}{" "}
         <Link
           href={policyPath("privacy")}
-          className="font-medium text-soft-brown underline underline-offset-4 transition-colors hover:text-charcoal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory rounded-brand"
+          className="rounded-brand font-medium text-muted underline underline-offset-4 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
         >
           {t("privacyNoticeLink")}
         </Link>{" "}
         {t("privacyNoticeSuffix")}
       </p>
 
-      <Button type="submit" size="lg" isLoading={isSubmitting} className="w-full sm:w-auto">
+      <Button
+        type="submit"
+        size="lg"
+        isLoading={isSubmitting}
+        className="w-full sm:w-auto"
+      >
         {isSubmitting ? t("submitting") : t("submit")}
       </Button>
     </form>

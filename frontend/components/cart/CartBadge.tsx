@@ -29,8 +29,8 @@ export function CartBadge({ count }: CartBadgeProps) {
     <span
       aria-hidden="true"
       className={cn(
-        "absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center rounded-full",
-        "bg-muted-gold text-charcoal text-xs font-medium px-1",
+        "absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full",
+        "bg-primary px-1 text-xs font-medium text-primary-foreground",
         shouldAnimate && "motion-safe:animate-badge-bounce"
       )}
     >

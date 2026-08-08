@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120" width="160" height="120" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+  <title>Candle line drawing</title>
+  <path d="M47 92 C47 74 48 52 55 45 C61 39 77 39 84 45 C91 52 92 74 92 92"/>
+  <path d="M46 92 C57 98 82 98 94 92"/>
+  <path d="M55 47 C62 55 78 55 85 47"/>
+  <path d="M70 43 C66 35 70 28 76 23 C78 31 86 37 78 45"/>
+  <path d="M60 56 C62 62 67 64 70 58 C74 66 80 63 82 56"/>
+  <path d="M39 94 C51 105 89 105 101 94"/>
+</svg>

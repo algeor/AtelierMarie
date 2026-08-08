@@ -5,13 +5,13 @@ import { Badge } from "@/components/ui/Badge";
 import type { OrderStatus } from "@/lib/types";
 
 const STATUS_STYLES: Record<OrderStatus, string> = {
-  pending: "bg-amber-100 text-amber-800",
-  confirmed: "bg-blue-100 text-blue-800",
-  shipped: "bg-indigo-100 text-indigo-800",
-  delivered: "bg-green-100 text-green-800",
-  return_in_transit: "bg-orange-100 text-orange-800",
-  returned: "bg-slate-100 text-slate-700",
-  cancelled: "bg-red-100 text-red-800",
+  pending: "bg-warning/10 text-warning",
+  confirmed: "bg-accent-soft/40 text-accent",
+  shipped: "bg-primary/15 text-primary-foreground",
+  delivered: "bg-success/10 text-success",
+  return_in_transit: "bg-warning/10 text-warning",
+  returned: "bg-secondary text-secondary-foreground",
+  cancelled: "bg-error/10 text-error",
 };
 
 interface OrderStatusBadgeProps {

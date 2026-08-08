@@ -1,7 +1,6 @@
 """Product video orchestration and async transcode pipeline."""
 
 import concurrent.futures
-import sqlite3
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -9,8 +8,8 @@ from pathlib import Path
 import structlog
 
 from app.config import get_settings
-from app.constants import SQLITE_DATETIME_FORMAT, VIDEO_TRANSCODE_LEASE_SECONDS
-from app.database import get_db
+from app.constants import CANONICAL_DATETIME_FORMAT, VIDEO_TRANSCODE_LEASE_SECONDS
+from app.database import DbConnection, get_db, require_row
 from app.services import object_storage_service, video_service
 
 logger = structlog.get_logger(__name__)
@@ -36,12 +35,12 @@ LEASE_REFRESH_INTERVAL_SECONDS = min(60, max(1, VIDEO_TRANSCODE_LEASE_SECONDS //
 
 
 def _now() -> str:
-    return datetime.now(UTC).strftime(SQLITE_DATETIME_FORMAT)
+    return datetime.now(UTC).strftime(CANONICAL_DATETIME_FORMAT)
 
 
 def _lease_deadline() -> str:
     return (datetime.now(UTC) + timedelta(seconds=VIDEO_TRANSCODE_LEASE_SECONDS)).strftime(
-        SQLITE_DATETIME_FORMAT
+        CANONICAL_DATETIME_FORMAT
     )
 
 
@@ -56,11 +55,11 @@ def _fmt_ts(value: object) -> str | None:
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value.strftime(SQLITE_DATETIME_FORMAT)
+        return value.strftime(CANONICAL_DATETIME_FORMAT)
     return str(value)
 
 
-def _row_to_video(row: sqlite3.Row) -> dict:
+def _row_to_video(row: dict) -> dict:
     return {
         "id": row["id"],
         "product_id": row["product_id"],
@@ -75,19 +74,19 @@ def _row_to_video(row: sqlite3.Row) -> dict:
     }
 
 
-def _public_video(row: sqlite3.Row | None) -> dict | None:
+def _public_video(row: dict | None) -> dict | None:
     if row is None or row["status"] != "ready":
         return None
     return _row_to_video(row)
 
 
-def _ensure_product_exists(conn: sqlite3.Connection, product_id: str) -> None:
+def _ensure_product_exists(conn: DbConnection, product_id: str) -> None:
     row = conn.execute("SELECT 1 FROM products WHERE id = %s", (product_id,)).fetchone()
     if row is None:
         raise ProductNotFoundError(f"Product not found: {product_id}")
 
 
-def _ensure_no_processing_video(conn: sqlite3.Connection, product_id: str) -> None:
+def _ensure_no_processing_video(conn: DbConnection, product_id: str) -> None:
     existing = conn.execute(
         "SELECT status FROM product_videos WHERE product_id = %s",
         (product_id,),
@@ -104,9 +103,7 @@ def validate_upload_target(product_id: str) -> None:
         _ensure_no_processing_video(conn, product_id)
 
 
-def _video_rows_for_products(
-    conn: sqlite3.Connection, product_ids: list[str]
-) -> dict[str, sqlite3.Row]:
+def _video_rows_for_products(conn: DbConnection, product_ids: list[str]) -> dict[str, dict]:
     if not product_ids:
         return {}
     placeholders = ", ".join("%s" for _ in product_ids)
@@ -140,7 +137,7 @@ def attach_video_fields_one(product: dict, *, public_only: bool = True) -> dict:
     return attach_video_fields([product], public_only=public_only)[0]
 
 
-def _primary_thumbnail(conn: sqlite3.Connection, product_id: str) -> str | None:
+def _primary_thumbnail(conn: DbConnection, product_id: str) -> str | None:
     row = conn.execute(
         """
         SELECT thumbnail_url, image_url
@@ -247,7 +244,7 @@ def queue_video_upload_path(
             )
             row = conn.execute("SELECT * FROM product_videos WHERE id = %s", (video_id,)).fetchone()
         video_service.unlink_video_files(*old_files)
-        return _row_to_video(row)
+        return _row_to_video(require_row(row, "product_videos row missing after insert"))
     except Exception:
         video_service.unlink_video_files(str(temp_path))
         raise
@@ -262,7 +259,7 @@ def get_video(product_id: str) -> dict:
         ).fetchone()
     if row is None:
         raise ProductVideoNotFoundError(f"Product video not found: {product_id}")
-    return _row_to_video(row)
+    return _row_to_video(require_row(row, "product_videos row missing after fetch"))
 
 
 def delete_video(product_id: str) -> None:
@@ -304,10 +301,10 @@ def update_sort_order(product_id: str, sort_order: int) -> dict:
         row = conn.execute(
             "SELECT * FROM product_videos WHERE product_id = %s", (product_id,)
         ).fetchone()
-    return _row_to_video(row)
+    return _row_to_video(require_row(row, "product_videos row missing after sort update"))
 
 
-def _staged_output_paths_for_row(row: sqlite3.Row) -> tuple[str, str]:
+def _staged_output_paths_for_row(row: dict) -> tuple[str, str]:
     """Local temp paths where transcode outputs for ``row`` would be staged.
 
     Used to clean up partial ffmpeg outputs of an interrupted/expired transcode.
@@ -318,7 +315,7 @@ def _staged_output_paths_for_row(row: sqlite3.Row) -> tuple[str, str]:
     return (str(video_path), str(poster_path))
 
 
-def _mark_expired_transcodes_failed(conn: sqlite3.Connection) -> tuple[int, list[str | None]]:
+def _mark_expired_transcodes_failed(conn: DbConnection) -> tuple[int, list[str | None]]:
     now = _now()
     expired = conn.execute(
         """
@@ -399,7 +396,7 @@ def _update_failed_if_owned(video_id: str, failure_reason: str) -> bool:
     return cursor.rowcount == 1
 
 
-def _claim_one_queued(conn: sqlite3.Connection) -> sqlite3.Row | None:
+def _claim_one_queued(conn: DbConnection) -> dict | None:
     now = _now()
     live = conn.execute(
         """

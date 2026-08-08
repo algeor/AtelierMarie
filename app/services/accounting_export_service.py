@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import csv
 import json
-import sqlite3
 import uuid
 from datetime import date, datetime
 from hashlib import sha256
@@ -12,7 +11,7 @@ from pathlib import Path
 
 from openpyxl import Workbook
 
-from app.database import get_db
+from app.database import DbConnection, get_db, require_row
 from app.models.accounting import (
     AccountantAcceptanceRequest,
     FinanceExportPackageListResponse,
@@ -53,7 +52,7 @@ def _json_dumps(value: object) -> str:
     return json.dumps(value, indent=2, sort_keys=True, default=_fmt_ts)
 
 
-def _package_from_row(row: sqlite3.Row) -> FinanceExportPackageResponse:
+def _package_from_row(row: dict) -> FinanceExportPackageResponse:
     return FinanceExportPackageResponse(
         id=row["id"],
         period_id=row["period_id"],
@@ -74,7 +73,7 @@ def _package_from_row(row: sqlite3.Row) -> FinanceExportPackageResponse:
     )
 
 
-def _get_package_row(conn: sqlite3.Connection, export_id: str) -> sqlite3.Row:
+def _get_package_row(conn: DbConnection, export_id: str) -> dict:
     row = conn.execute(
         "SELECT * FROM finance_export_packages WHERE id = %s", (export_id,)
     ).fetchone()
@@ -100,9 +99,9 @@ def _hash_file(path: Path) -> str:
 def _cell(value: object) -> object:
     if value is None:
         return ""
-    if isinstance(value, (str, int, float, bool)):
+    if isinstance(value, str | int | float | bool):
         return value
-    if isinstance(value, (datetime, date)):
+    if isinstance(value, datetime | date):
         return _fmt_ts(value)
     return json.dumps(value, ensure_ascii=False, sort_keys=True, default=_fmt_ts)
 
@@ -153,7 +152,7 @@ def _settings_rows() -> list[dict[str, object]]:
     return [{"section": key, "payload_json": value} for key, value in payload.items()]
 
 
-def _exception_rows(conn: sqlite3.Connection, period_id: str) -> list[dict[str, object]]:
+def _exception_rows(conn: DbConnection, period_id: str) -> list[dict[str, object]]:
     rows = conn.execute(
         "SELECT * FROM finance_exceptions WHERE period_id = %s "
         "ORDER BY status, severity, created_at",
@@ -162,14 +161,12 @@ def _exception_rows(conn: sqlite3.Connection, period_id: str) -> list[dict[str, 
     return [{key: row[key] for key in row.keys()} for row in rows]
 
 
-def _summary_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, object]]:
+def _summary_rows(conn: DbConnection, period: dict) -> list[dict[str, object]]:
     summary = _json_loads(period["summary_totals_json"]) or calculate_summary_totals(conn, period)
     return [{"metric": key, "value": value} for key, value in summary.items()]
 
 
-def _source_metadata_rows(
-    period: sqlite3.Row, export_id: str, version: int
-) -> list[dict[str, object]]:
+def _source_metadata_rows(period: dict, export_id: str, version: int) -> list[dict[str, object]]:
     return [
         {
             "export_id": export_id,
@@ -185,19 +182,17 @@ def _source_metadata_rows(
     ]
 
 
-def _inventory_settings(conn: sqlite3.Connection) -> sqlite3.Row | None:
+def _inventory_settings(conn: DbConnection) -> dict | None:
     return conn.execute("SELECT * FROM inventory_settings WHERE id = 'default'").fetchone()
 
 
-def _inventory_label(settings: sqlite3.Row | None) -> str:
+def _inventory_label(settings: dict | None) -> str:
     if settings and settings["valuation_enabled"] and settings["accountant_reviewed"]:
         return "official"
     return "estimate_only"
 
 
-def _material_on_hand_rows(
-    conn: sqlite3.Connection, period: sqlite3.Row
-) -> list[dict[str, object]]:
+def _material_on_hand_rows(conn: DbConnection, period: dict) -> list[dict[str, object]]:
     settings = _inventory_settings(conn)
     rows = conn.execute(
         """
@@ -239,9 +234,7 @@ def _material_on_hand_rows(
     ]
 
 
-def _finished_goods_on_hand_rows(
-    conn: sqlite3.Connection, period: sqlite3.Row
-) -> list[dict[str, object]]:
+def _finished_goods_on_hand_rows(conn: DbConnection, period: dict) -> list[dict[str, object]]:
     settings = _inventory_settings(conn)
     rows = conn.execute(
         """
@@ -293,9 +286,7 @@ def _finished_goods_on_hand_rows(
     ]
 
 
-def _inventory_valuation_rows(
-    conn: sqlite3.Connection, period: sqlite3.Row
-) -> list[dict[str, object]]:
+def _inventory_valuation_rows(conn: DbConnection, period: dict) -> list[dict[str, object]]:
     settings = _inventory_settings(conn)
     rows = conn.execute(
         """
@@ -318,7 +309,7 @@ def _inventory_valuation_rows(
     return [{**{key: row[key] for key in row.keys()}, "export_label": label} for row in rows]
 
 
-def _cogs_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, object]]:
+def _cogs_rows(conn: DbConnection, period: dict) -> list[dict[str, object]]:
     settings = _inventory_settings(conn)
     rows = conn.execute(
         """
@@ -338,9 +329,7 @@ def _cogs_rows(conn: sqlite3.Connection, period: sqlite3.Row) -> list[dict[str, 
     return [{**{key: row[key] for key in row.keys()}, "export_label": label} for row in rows]
 
 
-def _inventory_writeoff_rows(
-    conn: sqlite3.Connection, period: sqlite3.Row
-) -> list[dict[str, object]]:
+def _inventory_writeoff_rows(conn: DbConnection, period: dict) -> list[dict[str, object]]:
     settings = _inventory_settings(conn)
     rows = conn.execute(
         """
@@ -377,7 +366,7 @@ def _inventory_writeoff_rows(
 
 
 def _collect_sheets(
-    conn: sqlite3.Connection, period: sqlite3.Row, export_id: str, version: int
+    conn: DbConnection, period: dict, export_id: str, version: int
 ) -> dict[str, list[dict[str, object]]]:
     sheets: dict[str, list[dict[str, object]]] = {
         "summary": _summary_rows(conn, period),
@@ -437,7 +426,7 @@ def generate_export_package(
             "WHERE period_id = %s",
             (period_id,),
         ).fetchone()
-        version = int(version_row["next_version"])
+        version = int(require_row(version_row)["next_version"])
         package_dir = _private_export_root() / period_id / f"v{version}"
         csv_dir = package_dir / "csv"
         csv_dir.mkdir(parents=True, exist_ok=True)

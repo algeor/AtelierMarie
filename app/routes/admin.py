@@ -6,14 +6,13 @@ import re
 from pathlib import Path
 from typing import Annotated, cast, get_args
 
-import psycopg
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, Response
 
 from app.config import get_settings
 from app.constants import MAX_CSV_ROWS, MAX_CSV_UPLOAD_BYTES, MAX_PRICE_CENTS, MAX_STOCK
-from app.database import IntegrityError, get_db
+from app.database import DbConnection, IntegrityError, get_db
 from app.dependencies.auth import require_admin
 from app.middleware.request_id import request_id_var
 from app.models.accounting import (
@@ -252,6 +251,105 @@ from app.services.video_service import (
 )
 
 router = APIRouter(dependencies=[Depends(require_admin)])
+
+_MAX_ADMIN_LABEL_FILTERS = 50
+_ADMIN_PRODUCT_STATUS_FILTERS = {"all", "active", "inactive"}
+_ADMIN_PRODUCT_MEDIA_FILTERS = {"any", "ready", "missing_image", "has_video", "missing_video"}
+_ADMIN_PRODUCT_STOCK_FILTERS = {"any", "in_stock", "out_of_stock", "low"}
+_ADMIN_PRODUCT_DISCOUNT_FILTERS = {"any", "active", "scheduled", "none"}
+_ADMIN_PRODUCT_INVENTORY_MODE_FILTERS = {"legacy", "fallback", "ledger_managed"}
+_ADMIN_PRODUCT_RECIPE_STATUS_FILTERS = {"active", "missing", "draft", "archived"}
+_ADMIN_PRODUCT_SORTS = {
+    "created_desc",
+    "created_asc",
+    "updated_desc",
+    "updated_asc",
+    "name_asc",
+    "name_desc",
+    "price_asc",
+    "price_desc",
+    "stock_asc",
+    "stock_desc",
+}
+
+
+def _parse_admin_label_filters(labels: str | None, label: list[str] | None) -> list[str] | None:
+    """Merge comma-separated and repeated admin label filters."""
+    slugs: list[str] = []
+    raw_values = [labels] if labels else []
+    if label:
+        raw_values.extend(label)
+
+    for raw_value in raw_values:
+        for raw in raw_value.split(","):
+            slug = raw.strip()
+            if slug and slug not in slugs:
+                slugs.append(slug)
+            if len(slugs) >= _MAX_ADMIN_LABEL_FILTERS:
+                return slugs
+
+    return slugs or None
+
+
+def _validate_admin_product_filter(
+    *, name: str, value: str | None, allowed: set[str]
+) -> JSONResponse | None:
+    if value is None or value in allowed:
+        return None
+    return error_response(
+        422,
+        "INVALID_PRODUCT_FILTER",
+        f"Invalid {name} '{value}'. Must be one of: {', '.join(sorted(allowed))}",
+    )
+
+
+def _admin_products_applied_filters(
+    *,
+    q: str | None,
+    status: str | None,
+    media: str | None,
+    stock: str | None,
+    product_type: str | None,
+    category: str | None,
+    labels: list[str] | None,
+    featured: bool | None,
+    discount: str | None,
+    inventory_mode: str | None,
+    recipe_status: str | None,
+    has_inventory_exceptions: bool | None,
+    low_stock_threshold: int,
+    sort: str | None,
+) -> dict[str, str | int | bool | list[str] | None]:
+    filters: dict[str, str | int | bool | list[str] | None] = {}
+    if q and q.strip():
+        filters["q"] = q.strip()
+    if status and status != "all":
+        filters["status"] = status
+    if media and media != "any":
+        filters["media"] = media
+    if stock and stock != "any":
+        filters["stock"] = stock
+        if stock == "low":
+            filters["low_stock_threshold"] = low_stock_threshold
+    if product_type:
+        filters["product_type"] = product_type
+    if category:
+        filters["category"] = category
+    if labels:
+        filters["label"] = labels
+    if featured is not None:
+        filters["featured"] = featured
+    if discount and discount != "any":
+        filters["discount"] = discount
+    if inventory_mode:
+        filters["inventory_mode"] = inventory_mode
+    if recipe_status:
+        filters["recipe_status"] = recipe_status
+    if has_inventory_exceptions is not None:
+        filters["has_inventory_exceptions"] = has_inventory_exceptions
+    if sort:
+        filters["sort"] = sort
+    return filters
 
 
 def _csv_cell(value: object) -> object:
@@ -1760,21 +1858,96 @@ async def admin_create_product(body: CreateProductRequest) -> ProductAdminRespon
     "/products",
     response_model=ProductAdminListResponse,
     summary="List all products (admin)",
-    description="List all products including inactive ones. Supports pagination.",
+    description=(
+        "List products including inactive ones. Supports search, filters, sorting, and pagination."
+    ),
 )
 async def admin_list_products(
+    q: str | None = Query(default=None, max_length=200, description="Search product id/name/text"),
+    status: str | None = Query(default=None, description="Filter by active status"),
+    media: str | None = Query(default=None, description="Filter by image/video readiness"),
+    stock: str | None = Query(default=None, description="Filter by stock state"),
+    product_type: str | None = Query(default=None, description="Filter by product type slug"),
+    category: str | None = Query(default=None, description="Filter by category/tier slug"),
+    labels: str | None = Query(
+        default=None, description="Comma-separated label slugs (AND semantics)"
+    ),
+    label: list[str] | None = Query(
+        default=None, description="Repeated label slug filter (AND semantics)"
+    ),
+    featured: bool | None = Query(default=None, description="Filter by featured flag"),
+    discount: str | None = Query(default=None, description="Filter by discount state"),
+    inventory_mode: str | None = Query(default=None, description="Filter by inventory mode"),
+    recipe_status: str | None = Query(default=None, description="Filter by recipe status"),
+    has_inventory_exceptions: bool | None = Query(
+        default=None, description="Filter products with open inventory exceptions"
+    ),
+    low_stock_threshold: int = Query(
+        default=product_service.DEFAULT_ADMIN_LOW_STOCK_THRESHOLD,
+        ge=0,
+        le=MAX_STOCK,
+        description="Stock threshold used when stock=low",
+    ),
+    sort: str | None = Query(default=None, description="Sort order"),
     page: int = Query(default=1, ge=1, description="Page number"),
     limit: int = Query(default=20, ge=1, le=100, description="Items per page"),
-) -> ProductAdminListResponse:
+) -> ProductAdminListResponse | JSONResponse:
     """List all products (active and inactive) with pagination."""
     limit = min(limit, 100)
-    products, total = product_service.list_products_admin(page=page, limit=limit)
+    for name, value, allowed in (
+        ("status", status, _ADMIN_PRODUCT_STATUS_FILTERS),
+        ("media", media, _ADMIN_PRODUCT_MEDIA_FILTERS),
+        ("stock", stock, _ADMIN_PRODUCT_STOCK_FILTERS),
+        ("discount", discount, _ADMIN_PRODUCT_DISCOUNT_FILTERS),
+        ("inventory_mode", inventory_mode, _ADMIN_PRODUCT_INVENTORY_MODE_FILTERS),
+        ("recipe_status", recipe_status, _ADMIN_PRODUCT_RECIPE_STATUS_FILTERS),
+        ("sort", sort, _ADMIN_PRODUCT_SORTS),
+    ):
+        invalid = _validate_admin_product_filter(name=name, value=value, allowed=allowed)
+        if invalid is not None:
+            return invalid
+
+    label_list = _parse_admin_label_filters(labels, label)
+    products, total = product_service.list_products_admin(
+        q=q.strip() if q and q.strip() else None,
+        status=cast(product_service.AdminProductStatusFilter | None, status),
+        media=cast(product_service.AdminProductMediaFilter | None, media),
+        stock=cast(product_service.AdminProductStockFilter | None, stock),
+        product_type=product_type,
+        category=category,
+        labels=label_list,
+        featured=featured,
+        discount=cast(product_service.AdminProductDiscountFilter | None, discount),
+        inventory_mode=cast(product_service.AdminProductInventoryModeFilter | None, inventory_mode),
+        recipe_status=cast(product_service.AdminProductRecipeStatusFilter | None, recipe_status),
+        has_inventory_exceptions=has_inventory_exceptions,
+        low_stock_threshold=low_stock_threshold,
+        sort=cast(product_service.AdminProductSort | None, sort),
+        page=page,
+        limit=limit,
+    )
 
     return ProductAdminListResponse(
         products=[ProductAdminResponse(**p) for p in products],
         total=total,
         page=page,
         limit=limit,
+        applied_filters=_admin_products_applied_filters(
+            q=q,
+            status=status,
+            media=media,
+            stock=stock,
+            product_type=product_type,
+            category=category,
+            labels=label_list,
+            featured=featured,
+            discount=discount,
+            inventory_mode=inventory_mode,
+            recipe_status=recipe_status,
+            has_inventory_exceptions=has_inventory_exceptions,
+            low_stock_threshold=low_stock_threshold,
+            sort=sort,
+        ),
     )
 
 
@@ -2570,7 +2743,7 @@ def _return_service_error_response(exc: Exception) -> JSONResponse:
 
 
 def _ensure_return_case_belongs_to_order(
-    conn: psycopg.Connection, *, order_id: str, return_id: str
+    conn: DbConnection, *, order_id: str, return_id: str
 ) -> None:
     case = get_return_case(conn, return_id)
     if case["order_id"] != order_id:

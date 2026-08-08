@@ -2,6 +2,7 @@ import React from "react";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import TermsPage from "@/app/[locale]/terms/page";
+import { getLegalIdentity } from "@/lib/api";
 
 vi.mock("@/i18n/navigation", () => ({
   Link: ({ children, href, className }: { children: React.ReactNode; href: string; className?: string }) => (
@@ -26,6 +27,8 @@ vi.mock("@/lib/api", () => ({
     responsible_party_email: "contacts@theateliermarie.com",
   })),
 }));
+
+const mockedGetLegalIdentity = vi.mocked(getLegalIdentity);
 
 describe("Terms page", () => {
   it("renders English terms content with the returns anchor", async () => {
@@ -73,5 +76,28 @@ describe("Terms page", () => {
     expect(container.querySelector(".overflow-x-auto")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Връщане" })).toHaveClass("min-h-[48px]");
     expect(screen.getAllByRole("link", { name: "Нагоре" })).toHaveLength(9);
+  });
+
+  it("hides empty optional legal identity fields", async () => {
+    mockedGetLegalIdentity.mockResolvedValueOnce({
+      trading_name: "Atelier Marie",
+      legal_name: null,
+      country: "Bulgaria",
+      geographic_address: "1000 Sofia, Bulgaria",
+      contact_email: "contacts@theateliermarie.com",
+      registration_number: null,
+      vat_number: null,
+      responsible_party_name: "Atelier Marie",
+      responsible_party_address: "1000 Sofia, Bulgaria",
+      responsible_party_email: "contacts@theateliermarie.com",
+    });
+
+    const ui = await TermsPage({ params: Promise.resolve({ locale: "en" }) });
+    render(ui);
+
+    expect(screen.queryByText("Legal name")).not.toBeInTheDocument();
+    expect(screen.queryByText("Registration number")).not.toBeInTheDocument();
+    expect(screen.queryByText("VAT status/number")).not.toBeInTheDocument();
+    expect(screen.queryByText(/TODO:/i)).not.toBeInTheDocument();
   });
 });

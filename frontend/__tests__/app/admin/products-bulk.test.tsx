@@ -104,20 +104,20 @@ describe("Admin products list — multi-select + bulk bar (task 9.10)", () => {
 
   it("bulk bar is hidden until a row is selected, then shows the count", async () => {
     await renderPage();
-    await screen.findByText("Alpha");
+    expect((await screen.findAllByText("Alpha")).length).toBeGreaterThan(0);
 
     // No selection → no bulk bar.
     expect(screen.queryByText(/selected/)).not.toBeInTheDocument();
 
     // Select the first product row (aria-label is the product name).
-    fireEvent.click(screen.getByLabelText("Alpha"));
+    fireEvent.click(screen.getAllByLabelText("Alpha")[0]!);
 
     expect(await screen.findByText("1 selected")).toBeInTheDocument();
   });
 
   it("select-all checks every row; toggling again clears the selection", async () => {
     await renderPage();
-    await screen.findByText("Alpha");
+    expect((await screen.findAllByText("Alpha")).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByLabelText("Select all"));
     expect(await screen.findByText("2 selected")).toBeInTheDocument();
@@ -138,7 +138,7 @@ describe("Admin products list — multi-select + bulk bar (task 9.10)", () => {
       ],
     });
     await renderPage();
-    await screen.findByText("Alpha");
+    expect((await screen.findAllByText("Alpha")).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByLabelText("Select all"));
     await screen.findByText("2 selected");

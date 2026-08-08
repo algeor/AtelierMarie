@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import uuid
 from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
-from app.database import IntegrityError, get_db
+from app.database import DbConnection, IntegrityError, get_db, require_row
 from app.models.inventory import (
     COGSLedgerListResponse,
     COGSLedgerResponse,
@@ -179,7 +178,7 @@ def _material_on_hand_expr() -> str:
     """
 
 
-def _reorder_status(row: sqlite3.Row | dict[str, Any]) -> str:
+def _reorder_status(row: dict[str, Any]) -> str:
     if not bool(row["active"]):
         return "inactive"
     threshold = row["reorder_threshold"]
@@ -188,7 +187,7 @@ def _reorder_status(row: sqlite3.Row | dict[str, Any]) -> str:
     return "below_threshold" if float(row["on_hand_quantity"] or 0) <= float(threshold) else "ok"
 
 
-def _material_response_from_row(row: sqlite3.Row) -> MaterialResponse:
+def _material_response_from_row(row: dict) -> MaterialResponse:
     return MaterialResponse(
         id=row["id"],
         sku=row["sku"],
@@ -214,7 +213,7 @@ def _material_response_from_row(row: sqlite3.Row) -> MaterialResponse:
     )
 
 
-def _movement_response_from_row(row: sqlite3.Row) -> InventoryMovementResponse:
+def _movement_response_from_row(row: dict) -> InventoryMovementResponse:
     return InventoryMovementResponse(
         id=row["id"],
         item_type=row["item_type"],
@@ -235,7 +234,7 @@ def _movement_response_from_row(row: sqlite3.Row) -> InventoryMovementResponse:
     )
 
 
-def _exception_response_from_row(row: sqlite3.Row) -> dict[str, object]:
+def _exception_response_from_row(row: dict) -> dict[str, object]:
     return {
         "id": row["id"],
         "exception_type": row["exception_type"],
@@ -250,7 +249,7 @@ def _exception_response_from_row(row: sqlite3.Row) -> dict[str, object]:
     }
 
 
-def _lot_status(row: sqlite3.Row, production_date: date | None, near_expiry_days: int) -> str:
+def _lot_status(row: dict, production_date: date | None, near_expiry_days: int) -> str:
     expiry_value = _s(row["use_by_date"]) or _s(row["expiry_date"])
     if not expiry_value or production_date is None:
         return "unknown"
@@ -269,7 +268,7 @@ def _lot_status(row: sqlite3.Row, production_date: date | None, near_expiry_days
 
 
 def _lot_response_from_row(
-    row: sqlite3.Row,
+    row: dict,
     *,
     production_date: date | None = None,
     near_expiry_days: int = 30,
@@ -294,14 +293,14 @@ def _lot_response_from_row(
     )
 
 
-def _get_material_row(conn: sqlite3.Connection, material_id: str) -> sqlite3.Row:
+def _get_material_row(conn: DbConnection, material_id: str) -> dict:
     row = conn.execute("SELECT * FROM materials WHERE id = %s", (material_id,)).fetchone()
     if row is None:
         raise MaterialNotFoundError(f"Material not found: {material_id}")
     return row
 
 
-def _get_material_with_metrics(conn: sqlite3.Connection, material_id: str) -> sqlite3.Row:
+def _get_material_with_metrics(conn: DbConnection, material_id: str) -> dict:
     row = conn.execute(
         f"""
         SELECT m.*, {_material_on_hand_expr()}
@@ -353,10 +352,12 @@ def list_materials(
             total = len(materials)
             materials = materials[offset : offset + limit]
         else:
-            total = conn.execute(
-                f"SELECT COUNT(*) AS n FROM materials m {where_sql}",  # noqa: S608
-                params,
-            ).fetchone()["n"]
+            total = require_row(
+                conn.execute(
+                    f"SELECT COUNT(*) AS n FROM materials m {where_sql}",  # noqa: S608
+                    params,
+                ).fetchone()
+            )["n"]
     return MaterialListResponse(materials=materials, total=total)
 
 
@@ -497,7 +498,7 @@ def update_material(
         return _material_response_from_row(_get_material_with_metrics(conn, material_id))
 
 
-def _stock_quantity(material: sqlite3.Row, quantity: float, uom: str) -> float:
+def _stock_quantity(material: dict, quantity: float, uom: str) -> float:
     if uom == material["stock_uom"]:
         return quantity
     if uom == material["purchase_uom"] and material["purchase_to_stock_factor"]:
@@ -508,7 +509,7 @@ def _stock_quantity(material: sqlite3.Row, quantity: float, uom: str) -> float:
     raise InventoryValidationError("Receipt unit cannot be converted to the material stock unit")
 
 
-def _receipt_issue_codes(material: sqlite3.Row, data: dict[str, object]) -> list[str]:
+def _receipt_issue_codes(material: dict, data: dict[str, object]) -> list[str]:
     issues: list[str] = []
     if bool(material["evidence_required"]) and not (
         data.get("expense_evidence_id") or data.get("document_reference")
@@ -526,7 +527,7 @@ def _receipt_issue_codes(material: sqlite3.Row, data: dict[str, object]) -> list
 
 
 def _insert_exception(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     *,
     exception_type: str,
     material_id: str,
@@ -746,7 +747,9 @@ def create_material_adjustment(
         row = conn.execute(
             "SELECT * FROM inventory_movements WHERE id = %s", (movement_id,)
         ).fetchone()
-    return _movement_response_from_row(row)
+    return _movement_response_from_row(
+        require_row(row, "inventory movement row missing after insert")
+    )
 
 
 def list_material_lots(
@@ -841,29 +844,29 @@ def list_inventory_movements(
             """,  # noqa: S608
             (*params, limit, offset),
         ).fetchall()
-        total = conn.execute(
-            f"SELECT COUNT(*) AS n FROM inventory_movements {where_sql}",  # noqa: S608
-            params,
-        ).fetchone()["n"]
+        total = require_row(
+            conn.execute(
+                f"SELECT COUNT(*) AS n FROM inventory_movements {where_sql}",  # noqa: S608
+                params,
+            ).fetchone()
+        )["n"]
     return [_movement_response_from_row(row) for row in rows], int(total)
 
 
-def _product_exists(conn: sqlite3.Connection, product_id: str) -> bool:
+def _product_exists(conn: DbConnection, product_id: str) -> bool:
     return (
         conn.execute("SELECT 1 FROM products WHERE id = %s", (product_id,)).fetchone() is not None
     )
 
 
-def _get_recipe_row(conn: sqlite3.Connection, recipe_id: str) -> sqlite3.Row:
+def _get_recipe_row(conn: DbConnection, recipe_id: str) -> dict:
     row = conn.execute("SELECT * FROM recipe_versions WHERE id = %s", (recipe_id,)).fetchone()
     if row is None:
         raise RecipeNotFoundError(f"Recipe not found: {recipe_id}")
     return row
 
 
-def _component_stock_quantity(
-    material: sqlite3.Row, quantity: float | Decimal, uom: str
-) -> Decimal:
+def _component_stock_quantity(material: dict, quantity: float | Decimal, uom: str) -> Decimal:
     qty = _decimal(quantity, "component quantity")
     if uom == material["stock_uom"]:
         return qty
@@ -872,14 +875,14 @@ def _component_stock_quantity(
     raise InventoryValidationError("Recipe component unit cannot convert to material stock unit")
 
 
-def _validate_recipe_component(conn: sqlite3.Connection, component: RecipeComponentRequest) -> None:
+def _validate_recipe_component(conn: DbConnection, component: RecipeComponentRequest) -> None:
     material = _get_material_row(conn, component.material_id)
     if not bool(material["active"]):
         raise InventoryValidationError("Inactive materials cannot be added to a new recipe")
     _component_stock_quantity(material, component.quantity, component.uom)
 
 
-def _component_response_from_row(row: sqlite3.Row) -> RecipeComponentResponse:
+def _component_response_from_row(row: dict) -> RecipeComponentResponse:
     return RecipeComponentResponse(
         id=row["id"],
         recipe_version_id=row["recipe_version_id"],
@@ -900,7 +903,7 @@ def _component_response_from_row(row: sqlite3.Row) -> RecipeComponentResponse:
     )
 
 
-def _snapshot_response_from_row(row: sqlite3.Row | None) -> RecipeCostSnapshotResponse | None:
+def _snapshot_response_from_row(row: dict | None) -> RecipeCostSnapshotResponse | None:
     if row is None:
         return None
     return RecipeCostSnapshotResponse(
@@ -923,7 +926,7 @@ def _snapshot_response_from_row(row: sqlite3.Row | None) -> RecipeCostSnapshotRe
     )
 
 
-def _recipe_components(conn: sqlite3.Connection, recipe_id: str) -> list[RecipeComponentResponse]:
+def _recipe_components(conn: DbConnection, recipe_id: str) -> list[RecipeComponentResponse]:
     rows = conn.execute(
         """
         SELECT rc.*, m.name AS material_name, m.active AS material_active,
@@ -939,8 +942,8 @@ def _recipe_components(conn: sqlite3.Connection, recipe_id: str) -> list[RecipeC
 
 
 def _recipe_diagnostics_for_row(
-    conn: sqlite3.Connection,
-    row: sqlite3.Row,
+    conn: DbConnection,
+    row: dict,
 ) -> list[RecipeDiagnosticResponse]:
     diagnostics: list[RecipeDiagnosticResponse] = []
     component_rows = conn.execute(
@@ -1033,7 +1036,7 @@ def _recipe_diagnostics_for_row(
     return diagnostics
 
 
-def _recipe_response_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> RecipeVersionResponse:
+def _recipe_response_from_row(conn: DbConnection, row: dict) -> RecipeVersionResponse:
     latest_snapshot = conn.execute(
         """
         SELECT * FROM recipe_cost_snapshots
@@ -1067,7 +1070,7 @@ def _recipe_response_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Rec
 
 
 def _replace_recipe_components(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     recipe_id: str,
     components: list[RecipeComponentRequest],
 ) -> None:
@@ -1205,10 +1208,12 @@ def activate_recipe_version(
     """Activate one recipe and archive conflicting active versions for its product."""
     with get_db() as conn:
         row = _get_recipe_row(conn, recipe_id)
-        component_count = conn.execute(
-            "SELECT COUNT(*) AS n FROM recipe_components WHERE recipe_version_id = %s",
-            (recipe_id,),
-        ).fetchone()["n"]
+        component_count = require_row(
+            conn.execute(
+                "SELECT COUNT(*) AS n FROM recipe_components WHERE recipe_version_id = %s",
+                (recipe_id,),
+            ).fetchone()
+        )["n"]
         if component_count == 0:
             raise InventoryValidationError("Cannot activate a recipe without components")
         conn.execute(
@@ -1471,14 +1476,14 @@ def product_recipe_diagnostics(product_id: str) -> RecipeDiagnosticsListResponse
     return RecipeDiagnosticsListResponse(diagnostics=diagnostics)
 
 
-def _get_batch_row(conn: sqlite3.Connection, batch_id: str) -> sqlite3.Row:
+def _get_batch_row(conn: DbConnection, batch_id: str) -> dict:
     row = conn.execute("SELECT * FROM production_batches WHERE id = %s", (batch_id,)).fetchone()
     if row is None:
         raise ProductionBatchNotFoundError(f"Production batch not found: {batch_id}")
     return row
 
 
-def _batch_consumption_response_from_row(row: sqlite3.Row) -> ProductionBatchConsumptionResponse:
+def _batch_consumption_response_from_row(row: dict) -> ProductionBatchConsumptionResponse:
     return ProductionBatchConsumptionResponse(
         id=row["id"],
         production_batch_id=row["production_batch_id"],
@@ -1501,7 +1506,7 @@ def _batch_consumption_response_from_row(row: sqlite3.Row) -> ProductionBatchCon
     )
 
 
-def _batch_output_response_from_row(row: sqlite3.Row) -> ProductionBatchOutputResponse:
+def _batch_output_response_from_row(row: dict) -> ProductionBatchOutputResponse:
     return ProductionBatchOutputResponse(
         id=row["id"],
         production_batch_id=row["production_batch_id"],
@@ -1518,7 +1523,7 @@ def _batch_output_response_from_row(row: sqlite3.Row) -> ProductionBatchOutputRe
     )
 
 
-def _batch_response_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> ProductionBatchResponse:
+def _batch_response_from_row(conn: DbConnection, row: dict) -> ProductionBatchResponse:
     consumption = [
         _batch_consumption_response_from_row(item)
         for item in conn.execute(
@@ -1578,7 +1583,7 @@ def _batch_response_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Prod
     )
 
 
-def _material_on_hand(conn: sqlite3.Connection, material_id: str) -> float:
+def _material_on_hand(conn: DbConnection, material_id: str) -> float:
     row = conn.execute(
         """
         SELECT COALESCE(SUM(quantity_delta), 0) AS quantity
@@ -1587,10 +1592,10 @@ def _material_on_hand(conn: sqlite3.Connection, material_id: str) -> float:
         """,
         (material_id,),
     ).fetchone()
-    return float(row["quantity"] or 0)
+    return float(require_row(row)["quantity"] or 0)
 
 
-def _latest_material_cost(conn: sqlite3.Connection, material_id: str) -> str | None:
+def _latest_material_cost(conn: DbConnection, material_id: str) -> str | None:
     row = conn.execute(
         """
         SELECT unit_cost_amount
@@ -1629,7 +1634,7 @@ def _unit_value_from_total(total_cost_cents: int, quantity: float) -> str:
 
 
 def _expected_consumption_rows(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     recipe_id: str,
     planned_output_quantity: float,
 ) -> list[tuple[str, str, float, str]]:
@@ -1664,7 +1669,7 @@ def _expected_consumption_rows(
 
 
 def _seed_batch_expected_consumption(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     batch_id: str,
     recipe_id: str,
     planned_output_quantity: float,
@@ -1832,7 +1837,7 @@ def cancel_production_batch(
 
 
 def _batch_exception(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     *,
     batch_id: str,
     exception_type: str,
@@ -1889,7 +1894,7 @@ def post_production_batch(
             if not item.batch_consumption_id
         }
         planned_by_material: dict[str, float] = {}
-        actual_lines: list[tuple[sqlite3.Row, float, float, str | None]] = []
+        actual_lines: list[tuple[dict, float, float, str | None]] = []
         for row in consumption_rows:
             actual = actual_by_id.get(row["id"]) or actual_by_material.get(row["material_id"])
             actual_quantity = float(
@@ -2229,7 +2234,9 @@ def correct_production_batch(
         row = conn.execute(
             "SELECT * FROM inventory_movements WHERE id = %s", (movement_id,)
         ).fetchone()
-    return _movement_response_from_row(row)
+    return _movement_response_from_row(
+        require_row(row, "inventory movement row missing after adjustment")
+    )
 
 
 def production_traceability(batch_id: str) -> ProductionTraceabilityResponse:
@@ -2285,7 +2292,7 @@ def _json_loads(value: str | None) -> Any:
         return None
 
 
-def _settings_response_from_row(row: sqlite3.Row) -> InventoryValuationSettingsResponse:
+def _settings_response_from_row(row: dict) -> InventoryValuationSettingsResponse:
     return InventoryValuationSettingsResponse(
         id=row["id"],
         ledger_mode=row["ledger_mode"],
@@ -2309,11 +2316,14 @@ def _settings_response_from_row(row: sqlite3.Row) -> InventoryValuationSettingsR
     )
 
 
-def _ensure_inventory_settings(conn: sqlite3.Connection) -> sqlite3.Row:
+def _ensure_inventory_settings(conn: DbConnection) -> dict:
     conn.execute(
         "INSERT INTO inventory_settings (id) VALUES ('default') ON CONFLICT (id) DO NOTHING"
     )
-    return conn.execute("SELECT * FROM inventory_settings WHERE id = 'default'").fetchone()
+    return require_row(
+        conn.execute("SELECT * FROM inventory_settings WHERE id = 'default'").fetchone(),
+        "inventory_settings row missing after ensure",
+    )
 
 
 def get_inventory_valuation_settings() -> InventoryValuationSettingsResponse:
@@ -2375,7 +2385,7 @@ def update_inventory_valuation_settings(
         return _settings_response_from_row(_ensure_inventory_settings(conn))
 
 
-def _layer_response_from_row(row: sqlite3.Row) -> ValuationLayerResponse:
+def _layer_response_from_row(row: dict) -> ValuationLayerResponse:
     return ValuationLayerResponse(
         id=row["id"],
         movement_id=row["movement_id"],
@@ -2396,7 +2406,7 @@ def _layer_response_from_row(row: sqlite3.Row) -> ValuationLayerResponse:
     )
 
 
-def _cogs_response_from_row(row: sqlite3.Row) -> COGSLedgerResponse:
+def _cogs_response_from_row(row: dict) -> COGSLedgerResponse:
     return COGSLedgerResponse(
         id=row["id"],
         order_id=row["order_id"],
@@ -2419,7 +2429,7 @@ def _cogs_response_from_row(row: sqlite3.Row) -> COGSLedgerResponse:
 
 
 def _weighted_average_before(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     *,
     item_type: str,
     item_id: str,
@@ -2452,7 +2462,7 @@ def _weighted_average_before(
     return (value_cents / Decimal("100")) / quantity
 
 
-def _unit_value_from_layer(row: sqlite3.Row | None) -> str | None:
+def _unit_value_from_layer(row: dict | None) -> str | None:
     if row is None:
         return None
     if row["unit_value_amount"]:
@@ -2469,9 +2479,9 @@ def _unit_value_from_layer(row: sqlite3.Row | None) -> str | None:
 
 
 def _source_layer_for_positive_movement(
-    conn: sqlite3.Connection,
-    movement: sqlite3.Row,
-) -> sqlite3.Row | None:
+    conn: DbConnection,
+    movement: dict,
+) -> dict | None:
     if movement["reversal_of_movement_id"]:
         return _valuation_layer_for_movement(conn, movement["reversal_of_movement_id"])
     if movement["movement_type"] not in {"return_restock", "cancellation_reversal"}:
@@ -2496,7 +2506,7 @@ def _source_layer_for_positive_movement(
 
 
 def _ensure_inventory_exception(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     *,
     exception_type: str,
     message: str,
@@ -2650,9 +2660,12 @@ def record_opening_balance(
             ),
         )
         return _layer_response_from_row(
-            conn.execute(
-                "SELECT * FROM inventory_valuation_layers WHERE id = %s", (layer_id,)
-            ).fetchone()
+            require_row(
+                conn.execute(
+                    "SELECT * FROM inventory_valuation_layers WHERE id = %s", (layer_id,)
+                ).fetchone(),
+                "valuation layer row missing after creation",
+            )
         )
 
 
@@ -2776,9 +2789,12 @@ def generate_valuation_layers() -> ValuationLayerListResponse:
             )
             created.append(
                 _layer_response_from_row(
-                    conn.execute(
-                        "SELECT * FROM inventory_valuation_layers WHERE id = %s", (layer_id,)
-                    ).fetchone()
+                    require_row(
+                        conn.execute(
+                            "SELECT * FROM inventory_valuation_layers WHERE id = %s", (layer_id,)
+                        ).fetchone(),
+                        "valuation layer row missing after generation",
+                    )
                 )
             )
     return ValuationLayerListResponse(layers=created, total=len(created))
@@ -2806,7 +2822,7 @@ def list_valuation_layers(
     return ValuationLayerListResponse(layers=layers, total=len(layers))
 
 
-def _cogs_date_from_order(row: sqlite3.Row, basis: str) -> str:
+def _cogs_date_from_order(row: dict, basis: str) -> str:
     if basis == "payment_date" and row["paid_at"]:
         return _s(row["paid_at"])
     if basis == "shipment_date" and row["status"] in {
@@ -2824,8 +2840,8 @@ def _cogs_date_from_order(row: sqlite3.Row, basis: str) -> str:
 
 
 def _sale_movement_for_order_item(
-    conn: sqlite3.Connection, *, order_id: str, product_id: str
-) -> sqlite3.Row | None:
+    conn: DbConnection, *, order_id: str, product_id: str
+) -> dict | None:
     return conn.execute(
         """
         SELECT *
@@ -2841,9 +2857,7 @@ def _sale_movement_for_order_item(
     ).fetchone()
 
 
-def _valuation_layer_for_movement(
-    conn: sqlite3.Connection, movement_id: str | None
-) -> sqlite3.Row | None:
+def _valuation_layer_for_movement(conn: DbConnection, movement_id: str | None) -> dict | None:
     if movement_id is None:
         return None
     return conn.execute(
@@ -2858,7 +2872,7 @@ def _valuation_layer_for_movement(
     ).fetchone()
 
 
-def _latest_finished_batch_id(conn: sqlite3.Connection, product_id: str) -> str | None:
+def _latest_finished_batch_id(conn: DbConnection, product_id: str) -> str | None:
     row = conn.execute(
         """
         SELECT latest_batch_id
@@ -2957,7 +2971,12 @@ def generate_cogs_rows() -> COGSLedgerListResponse:
             )
             created.append(
                 _cogs_response_from_row(
-                    conn.execute("SELECT * FROM cogs_ledger WHERE id = %s", (cogs_id,)).fetchone()
+                    require_row(
+                        conn.execute(
+                            "SELECT * FROM cogs_ledger WHERE id = %s", (cogs_id,)
+                        ).fetchone(),
+                        "COGS row missing after generation",
+                    )
                 )
             )
 
@@ -3027,7 +3046,12 @@ def generate_cogs_rows() -> COGSLedgerListResponse:
             )
             created.append(
                 _cogs_response_from_row(
-                    conn.execute("SELECT * FROM cogs_ledger WHERE id = %s", (cogs_id,)).fetchone()
+                    require_row(
+                        conn.execute(
+                            "SELECT * FROM cogs_ledger WHERE id = %s", (cogs_id,)
+                        ).fetchone(),
+                        "COGS reversal row missing after generation",
+                    )
                 )
             )
     return COGSLedgerListResponse(rows=created, total=len(created))
@@ -3057,9 +3081,11 @@ def list_cogs_rows(
 def inventory_close_preview(period_start: str, period_end: str) -> InventoryClosePreviewResponse:
     with get_db() as conn:
         settings = _ensure_inventory_settings(conn)
-        exception_count = conn.execute(
-            "SELECT COUNT(*) AS n FROM inventory_exceptions WHERE status = 'open'"
-        ).fetchone()["n"]
+        exception_count = require_row(
+            conn.execute(
+                "SELECT COUNT(*) AS n FROM inventory_exceptions WHERE status = 'open'"
+            ).fetchone()
+        )["n"]
         rows = conn.execute(
             """
             SELECT im.movement_type, vl.quantity, vl.total_value_cents

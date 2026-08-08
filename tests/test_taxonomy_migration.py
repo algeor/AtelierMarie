@@ -1,13 +1,13 @@
 """Taxonomy seed invariants under the Postgres migration (Decision 1).
 
-Historically this file simulated a legacy pre-taxonomy *SQLite* database and
-asserted that ``init_db`` seeded taxonomy, backfilled ``product_labels`` from
-distinct free-text ``category`` values, recorded a mapping, defaulted product
-types, and was idempotent on re-run.
+Historically this file simulated a legacy pre-taxonomy database and asserted
+that ``init_db`` seeded taxonomy, backfilled ``product_labels`` from distinct
+free-text ``category`` values, recorded a mapping, defaulted product types, and
+was idempotent on re-run.
 
-Under the Postgres migration the SQLite dialect is gone and ``init_db`` only
-opens the psycopg pool: it no longer creates schema, seeds, or backfills. The
-schema + structural seed rows are baked into the alembic migration
+Under the Postgres migration ``init_db`` only opens the psycopg pool: it no
+longer creates schema, seeds, or backfills. The schema + structural seed rows
+are baked into the alembic migration
 ``20260802_0001`` and carried into every worker DB by the template clone. The
 legacy free-text ``category`` backfill code path was deliberately removed, so
 the tests that exercised it (``TestLegacyBackfill``, ``TestLegacyValueHygiene``,
@@ -41,6 +41,8 @@ class TestSeedTermsPresent:
             "winter",
             "gift",
             "christmas",
+            "sculptural",
+            "bespoke",
         }.issubset(labels)
 
         # Seed rows carry both locales and are active — the shape downstream

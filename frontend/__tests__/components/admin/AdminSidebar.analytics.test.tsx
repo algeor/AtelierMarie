@@ -18,6 +18,25 @@ vi.mock("@/i18n/navigation", () => ({
   usePathname: () => mockedPathname,
 }));
 
+vi.mock("@/lib/api", () => ({
+  getAdminAbout: vi.fn(async () => ({
+    sections: [{ slug: "hero", heading_en: "Atelier hero" }],
+  })),
+  getAdminFaq: vi.fn(async () => ({
+    sections: [{ slug: "care", title_en: "Candle care" }],
+  })),
+  getAdminTerms: vi.fn(async () => ({
+    sections: [{ slug: "returns", title_en: "Returns", body_en: ["One"] }],
+  })),
+  getAdminPrivacy: vi.fn(async () => ({
+    sections: [{ slug: "controller", title_en: "Controller", body_en: ["One", "Two"] }],
+  })),
+  getAdminCookies: vi.fn(async () => ({
+    cookies: [{ name: "atelier_cookie_consent" }],
+    sections: [{ slug: "controls", title_en: "Cookie controls", body_en: ["One"] }],
+  })),
+}));
+
 describe("AdminSidebar nav", () => {
   beforeEach(() => {
     mockedPathname = "/admin/analytics";
@@ -46,15 +65,20 @@ describe("AdminSidebar nav", () => {
     expect(econt).toHaveAttribute("aria-current", "page");
   });
 
-  it("groups editable pages", () => {
+  it("groups editable pages", async () => {
+    const user = userEvent.setup();
     renderWithIntl(<AdminSidebar />);
 
     expect(screen.getByRole("button", { name: /collapse pages/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Site media" })).toHaveAttribute("href", "/admin/site-media");
     expect(screen.getByRole("link", { name: "Atelier" })).toHaveAttribute("href", "/admin/atelier");
     expect(screen.getByRole("link", { name: "Terms" })).toHaveAttribute("href", "/admin/terms");
     expect(screen.getByRole("link", { name: "Cookies" })).toHaveAttribute("href", "/admin/cookies");
     expect(screen.getByRole("link", { name: "Legal identity" })).toHaveAttribute("href", "/admin/legal");
     expect(screen.getByRole("link", { name: "FAQ" })).toHaveAttribute("href", "/admin/faq");
+
+    await user.click(await screen.findByRole("button", { name: /expand atelier/i }));
+    expect(screen.getByRole("link", { name: /01 · Atelier hero/ })).toHaveAttribute("href", "/admin/atelier?section=hero&part=content");
   });
 
   it("renders the store return button in the admin shell", () => {
@@ -66,13 +90,15 @@ describe("AdminSidebar nav", () => {
 
     const backToStore = screen.getByRole("link", { name: /back to shop/i });
     expect(backToStore).toHaveAttribute("href", "/");
-    expect(screen.getByText("Menu")).toHaveClass("fixed", "left-16", "top-4");
+    expect(screen.getByText("Menu")).toHaveClass("truncate");
     expect(screen.getByText("Atelier Marie")).toHaveClass("italic");
   });
 
-  it("lists stock work directly under Stock and production", () => {
+  it("lists stock work directly under Stock and production", async () => {
+    const user = userEvent.setup();
     renderWithIntl(<AdminSidebar />);
 
+    await user.click(screen.getByRole("button", { name: /expand stock and production/i }));
     expect(screen.getByRole("button", { name: /collapse stock and production/i })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Stock" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Materials" })).toHaveAttribute("href", "/admin/inventory/materials");
@@ -81,6 +107,8 @@ describe("AdminSidebar nav", () => {
   it("collapses and expands inactive groups", async () => {
     const user = userEvent.setup();
     renderWithIntl(<AdminSidebar />);
+
+    expect(screen.getByRole("link", { name: "Atelier" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /collapse pages/i }));
     expect(screen.queryByRole("link", { name: "Atelier" })).not.toBeInTheDocument();

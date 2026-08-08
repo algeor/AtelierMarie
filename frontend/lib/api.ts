@@ -8,6 +8,7 @@ import type { Locale } from "@/i18n/routing";
 import type {
   AdminProductListResponse,
   AdminProductResponse,
+  AdminProductFilters,
   AdminOrderDetailResponse,
   AdminStats,
   AdminTaxonomyTerm,
@@ -82,6 +83,7 @@ import type {
   InspectReturnCaseRequest,
   OfficeResponse,
   OfficeType,
+  CustomerOrderFilters,
   OrderListResponse,
   OrderResponse,
   OrderStatus,
@@ -95,6 +97,9 @@ import type {
   ProductAnalyticsResponse,
   PublicPaymentSettingsResponse,
   ProductResponse,
+  PublicSiteMediaResponse,
+  SavedProductListResponse,
+  SavedProductStatusResponse,
   PrivacyAdminResponse,
   PrivacyPageAdminResponse,
   PrivacyResponse,
@@ -108,6 +113,8 @@ import type {
   ProductImage,
   PatchAboutItemRequest,
   PatchAboutSectionRequest,
+  SiteMediaAdminResponse,
+  SiteMediaAssetAdmin,
   ProductVideo,
   TaxonomyKind,
   TaxonomyResponse,
@@ -209,8 +216,7 @@ import type {
   VatFiscalSettingsResponse,
 } from "./types";
 
-const USE_MOCK =
-  process.env.NEXT_PUBLIC_USE_MOCK_API === "true";
+const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK_API === "true";
 
 /** Lazy-load mock API only when needed (keeps it out of production bundles). */
 function getMock() {
@@ -220,28 +226,68 @@ function getMock() {
 export async function getProducts(
   page = 1,
   limit = 20,
-  locale?: Locale
+  locale?: Locale,
 ): Promise<ProductListResponse> {
   if (USE_MOCK) return (await getMock()).getProducts(page, limit, locale);
-  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+  });
   if (locale) params.set("locale", locale);
   return apiClient.get<ProductListResponse>(`/v1/products?${params}`);
 }
 
 export async function getProduct(
   productId: string,
-  locale?: Locale
+  locale?: Locale,
 ): Promise<ProductResponse> {
   if (USE_MOCK) return (await getMock()).getProduct(productId, locale);
   const params = new URLSearchParams();
   if (locale) params.set("locale", locale);
   const query = params.size > 0 ? `?${params}` : "";
   return apiClient.get<ProductResponse>(
-    `/v1/products/${encodeURIComponent(productId)}${query}`
+    `/v1/products/${encodeURIComponent(productId)}${query}`,
   );
 }
 
-export async function updateLocalePreference(locale: Locale): Promise<{ locale: Locale }> {
+export async function getSavedProducts(
+  locale?: Locale,
+  page = 1,
+  limit = 100,
+): Promise<SavedProductListResponse> {
+  if (USE_MOCK) return (await getMock()).getSavedProducts(locale, page, limit);
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+  });
+  if (locale) params.set("locale", locale);
+  return apiClient.get<SavedProductListResponse>(
+    `/v1/products/saved?${params}`,
+  );
+}
+
+export async function saveProduct(
+  productId: string,
+): Promise<SavedProductStatusResponse> {
+  if (USE_MOCK) return (await getMock()).saveProduct(productId);
+  return apiClient.post<SavedProductStatusResponse>(
+    `/v1/products/${encodeURIComponent(productId)}/saved`,
+    {},
+  );
+}
+
+export async function unsaveProduct(
+  productId: string,
+): Promise<SavedProductStatusResponse> {
+  if (USE_MOCK) return (await getMock()).unsaveProduct(productId);
+  return apiClient.del<SavedProductStatusResponse>(
+    `/v1/products/${encodeURIComponent(productId)}/saved`,
+  );
+}
+
+export async function updateLocalePreference(
+  locale: Locale,
+): Promise<{ locale: Locale }> {
   if (USE_MOCK) return { locale };
   return apiClient.patch<{ locale: Locale }>("/v1/locale", { locale });
 }
@@ -278,133 +324,181 @@ export async function getAdminAbout(): Promise<AboutAdminResponse> {
 
 export async function updateAboutSection(
   slug: string,
-  data: PatchAboutSectionRequest
+  data: PatchAboutSectionRequest,
 ): Promise<AboutSectionAdmin> {
   if (USE_MOCK) return (await getMock()).updateAboutSection(slug, data);
   return apiClient.patch<AboutSectionAdmin>(
     `/v1/admin/about/sections/${encodeURIComponent(slug)}`,
-    data
+    data,
   );
 }
 
 export async function createAboutItem(
   slug: string,
-  data: CreateAboutItemRequest
+  data: CreateAboutItemRequest,
 ): Promise<AboutItemAdmin> {
   if (USE_MOCK) return (await getMock()).createAboutItem(slug, data);
   return apiClient.post<AboutItemAdmin>(
     `/v1/admin/about/sections/${encodeURIComponent(slug)}/items`,
-    data
+    data,
   );
 }
 
 export async function updateAboutItem(
   slug: string,
   itemId: number,
-  data: PatchAboutItemRequest
+  data: PatchAboutItemRequest,
 ): Promise<AboutItemAdmin> {
   if (USE_MOCK) return (await getMock()).updateAboutItem(slug, itemId, data);
   return apiClient.patch<AboutItemAdmin>(
     `/v1/admin/about/sections/${encodeURIComponent(slug)}/items/${itemId}`,
-    data
+    data,
   );
 }
 
-export async function deleteAboutItem(slug: string, itemId: number): Promise<void> {
+export async function deleteAboutItem(
+  slug: string,
+  itemId: number,
+): Promise<void> {
   if (USE_MOCK) return (await getMock()).deleteAboutItem(slug, itemId);
   return apiClient.del<void>(
-    `/v1/admin/about/sections/${encodeURIComponent(slug)}/items/${itemId}`
+    `/v1/admin/about/sections/${encodeURIComponent(slug)}/items/${itemId}`,
   );
 }
 
-export async function reorderAboutSections(slugs: string[]): Promise<AboutSectionAdmin[]> {
+export async function reorderAboutSections(
+  slugs: string[],
+): Promise<AboutSectionAdmin[]> {
   if (USE_MOCK) return (await getMock()).reorderAboutSections(slugs);
-  return apiClient.post<AboutSectionAdmin[]>("/v1/admin/about/sections/reorder", { slugs });
+  return apiClient.post<AboutSectionAdmin[]>(
+    "/v1/admin/about/sections/reorder",
+    { slugs },
+  );
 }
 
 export async function reorderAboutItems(
   slug: string,
-  ids: number[]
+  ids: number[],
 ): Promise<AboutItemAdmin[]> {
   if (USE_MOCK) return (await getMock()).reorderAboutItems(slug, ids);
   return apiClient.post<AboutItemAdmin[]>(
     `/v1/admin/about/sections/${encodeURIComponent(slug)}/items/reorder`,
-    { ids }
+    { ids },
   );
 }
 
 export async function setAboutSectionPublished(
   slug: string,
-  isPublished: boolean
+  isPublished: boolean,
 ): Promise<AboutSectionAdmin> {
-  if (USE_MOCK) return (await getMock()).setAboutSectionPublished(slug, isPublished);
+  if (USE_MOCK)
+    return (await getMock()).setAboutSectionPublished(slug, isPublished);
   return apiClient.patch<AboutSectionAdmin>(
     `/v1/admin/about/sections/${encodeURIComponent(slug)}/publish`,
-    { is_published: isPublished }
+    { is_published: isPublished },
   );
 }
 
 export async function setAboutItemPublished(
   slug: string,
   itemId: number,
-  isPublished: boolean
+  isPublished: boolean,
 ): Promise<AboutItemAdmin> {
-  if (USE_MOCK) return (await getMock()).setAboutItemPublished(slug, itemId, isPublished);
+  if (USE_MOCK)
+    return (await getMock()).setAboutItemPublished(slug, itemId, isPublished);
   return apiClient.patch<AboutItemAdmin>(
     `/v1/admin/about/sections/${encodeURIComponent(slug)}/items/${itemId}/publish`,
-    { is_published: isPublished }
+    { is_published: isPublished },
   );
 }
 
 export async function uploadAboutSectionImage(
   slug: string,
-  file: File
+  file: File,
 ): Promise<AboutSectionAdmin> {
   if (USE_MOCK) return (await getMock()).uploadAboutSectionImage(slug, file);
   const formData = new FormData();
   formData.append("file", file);
   return apiClient.postForm<AboutSectionAdmin>(
     `/v1/admin/about/sections/${encodeURIComponent(slug)}/image`,
-    formData
+    formData,
   );
 }
 
-export async function clearAboutSectionImage(slug: string): Promise<AboutSectionAdmin> {
+export async function clearAboutSectionImage(
+  slug: string,
+): Promise<AboutSectionAdmin> {
   if (USE_MOCK) return (await getMock()).clearAboutSectionImage(slug);
   return apiClient.del<AboutSectionAdmin>(
-    `/v1/admin/about/sections/${encodeURIComponent(slug)}/image`
+    `/v1/admin/about/sections/${encodeURIComponent(slug)}/image`,
   );
 }
 
 export async function uploadAboutItemImage(
   slug: string,
   itemId: number,
-  file: File
+  file: File,
 ): Promise<AboutItemAdmin> {
-  if (USE_MOCK) return (await getMock()).uploadAboutItemImage(slug, itemId, file);
+  if (USE_MOCK)
+    return (await getMock()).uploadAboutItemImage(slug, itemId, file);
   const formData = new FormData();
   formData.append("file", file);
   return apiClient.postForm<AboutItemAdmin>(
     `/v1/admin/about/sections/${encodeURIComponent(slug)}/items/${itemId}/image`,
-    formData
+    formData,
   );
 }
 
-export async function clearAboutItemImage(slug: string, itemId: number): Promise<AboutItemAdmin> {
+export async function clearAboutItemImage(
+  slug: string,
+  itemId: number,
+): Promise<AboutItemAdmin> {
   if (USE_MOCK) return (await getMock()).clearAboutItemImage(slug, itemId);
   return apiClient.del<AboutItemAdmin>(
-    `/v1/admin/about/sections/${encodeURIComponent(slug)}/items/${itemId}/image`
+    `/v1/admin/about/sections/${encodeURIComponent(slug)}/items/${itemId}/image`,
   );
 }
 
-export async function getAdminTaxonomy(kind: TaxonomyKind): Promise<AdminTaxonomyTerm[]> {
+export async function getPublicSiteMedia(): Promise<PublicSiteMediaResponse> {
+  if (USE_MOCK) return (await getMock()).getPublicSiteMedia();
+  return apiClient.get<PublicSiteMediaResponse>("/v1/site-media");
+}
+
+export async function getAdminSiteMedia(): Promise<SiteMediaAdminResponse> {
+  if (USE_MOCK) return (await getMock()).getAdminSiteMedia();
+  return apiClient.get<SiteMediaAdminResponse>("/v1/admin/site-media");
+}
+
+export async function uploadSiteMediaImage(
+  key: string,
+  file: File,
+): Promise<SiteMediaAssetAdmin> {
+  if (USE_MOCK) return (await getMock()).uploadSiteMediaImage(key, file);
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiClient.postForm<SiteMediaAssetAdmin>(
+    `/v1/admin/site-media/assets/${encodeURIComponent(key)}/image`,
+    formData,
+  );
+}
+
+export async function clearSiteMediaImage(key: string): Promise<SiteMediaAssetAdmin> {
+  if (USE_MOCK) return (await getMock()).clearSiteMediaImage(key);
+  return apiClient.del<SiteMediaAssetAdmin>(
+    `/v1/admin/site-media/assets/${encodeURIComponent(key)}/image`,
+  );
+}
+
+export async function getAdminTaxonomy(
+  kind: TaxonomyKind,
+): Promise<AdminTaxonomyTerm[]> {
   if (USE_MOCK) return (await getMock()).getAdminTaxonomy(kind);
   return apiClient.get<AdminTaxonomyTerm[]>(`/v1/admin/taxonomy/${kind}`);
 }
 
 export async function createTaxonomyTerm(
   kind: TaxonomyKind,
-  data: CreateTaxonomyTermRequest
+  data: CreateTaxonomyTermRequest,
 ): Promise<AdminTaxonomyTerm> {
   if (USE_MOCK) return (await getMock()).createTaxonomyTerm(kind, data);
   return apiClient.post<AdminTaxonomyTerm>(`/v1/admin/taxonomy/${kind}`, data);
@@ -413,18 +507,23 @@ export async function createTaxonomyTerm(
 export async function updateTaxonomyTerm(
   kind: TaxonomyKind,
   slug: string,
-  data: UpdateTaxonomyTermRequest
+  data: UpdateTaxonomyTermRequest,
 ): Promise<AdminTaxonomyTerm> {
   if (USE_MOCK) return (await getMock()).updateTaxonomyTerm(kind, slug, data);
   return apiClient.patch<AdminTaxonomyTerm>(
     `/v1/admin/taxonomy/${kind}/${encodeURIComponent(slug)}`,
-    data
+    data,
   );
 }
 
-export async function deleteTaxonomyTerm(kind: TaxonomyKind, slug: string): Promise<void> {
+export async function deleteTaxonomyTerm(
+  kind: TaxonomyKind,
+  slug: string,
+): Promise<void> {
   if (USE_MOCK) return (await getMock()).deleteTaxonomyTerm(kind, slug);
-  return apiClient.del<void>(`/v1/admin/taxonomy/${kind}/${encodeURIComponent(slug)}`);
+  return apiClient.del<void>(
+    `/v1/admin/taxonomy/${kind}/${encodeURIComponent(slug)}`,
+  );
 }
 
 // --- FAQ ---
@@ -443,7 +542,7 @@ export async function getAdminFaq(): Promise<FaqAdminResponse> {
 }
 
 export async function createFaqItem(
-  data: CreateFaqItemRequest
+  data: CreateFaqItemRequest,
 ): Promise<FaqItemAdminResponse> {
   if (USE_MOCK) return (await getMock()).createFaqItem(data);
   return apiClient.post<FaqItemAdminResponse>("/v1/admin/faq", data);
@@ -451,22 +550,24 @@ export async function createFaqItem(
 
 export async function updateFaqItem(
   itemId: number,
-  data: UpdateFaqItemRequest
+  data: UpdateFaqItemRequest,
 ): Promise<FaqItemAdminResponse> {
   if (USE_MOCK) return (await getMock()).updateFaqItem(itemId, data);
   return apiClient.patch<FaqItemAdminResponse>(
     `/v1/admin/faq/items/${encodeURIComponent(String(itemId))}`,
-    data
+    data,
   );
 }
 
 export async function deleteFaqItem(itemId: number): Promise<void> {
   if (USE_MOCK) return (await getMock()).deleteFaqItem(itemId);
-  return apiClient.del<void>(`/v1/admin/faq/items/${encodeURIComponent(String(itemId))}`);
+  return apiClient.del<void>(
+    `/v1/admin/faq/items/${encodeURIComponent(String(itemId))}`,
+  );
 }
 
 export async function reorderFaqItems(
-  data: ReorderFaqItemsRequest
+  data: ReorderFaqItemsRequest,
 ): Promise<FaqAdminResponse> {
   if (USE_MOCK) return (await getMock()).reorderFaqItems(data);
   return apiClient.patch<FaqAdminResponse>("/v1/admin/faq/reorder", data);
@@ -474,12 +575,12 @@ export async function reorderFaqItems(
 
 export async function updateFaqSection(
   slug: string,
-  data: UpdateFaqSectionRequest
+  data: UpdateFaqSectionRequest,
 ): Promise<FaqSectionAdminResponse> {
   if (USE_MOCK) return (await getMock()).updateFaqSection(slug, data);
   return apiClient.patch<FaqSectionAdminResponse>(
     `/v1/admin/faq/sections/${encodeURIComponent(slug)}`,
-    data
+    data,
   );
 }
 
@@ -499,7 +600,7 @@ export async function getAdminTerms(): Promise<TermsAdminResponse> {
 }
 
 export async function updateTermsPage(
-  data: UpdateTermsPageRequest
+  data: UpdateTermsPageRequest,
 ): Promise<TermsPageAdminResponse> {
   if (USE_MOCK) return (await getMock()).updateTermsPage(data);
   return apiClient.patch<TermsPageAdminResponse>("/v1/admin/terms/page", data);
@@ -507,12 +608,12 @@ export async function updateTermsPage(
 
 export async function updateTermsSection(
   slug: string,
-  data: UpdateTermsSectionRequest
+  data: UpdateTermsSectionRequest,
 ): Promise<TermsSectionAdminResponse> {
   if (USE_MOCK) return (await getMock()).updateTermsSection(slug, data);
   return apiClient.patch<TermsSectionAdminResponse>(
     `/v1/admin/terms/sections/${encodeURIComponent(slug)}`,
-    data
+    data,
   );
 }
 
@@ -532,20 +633,23 @@ export async function getAdminPrivacy(): Promise<PrivacyAdminResponse> {
 }
 
 export async function updatePrivacyPage(
-  data: UpdatePrivacyPageRequest
+  data: UpdatePrivacyPageRequest,
 ): Promise<PrivacyPageAdminResponse> {
   if (USE_MOCK) return (await getMock()).updatePrivacyPage(data);
-  return apiClient.patch<PrivacyPageAdminResponse>("/v1/admin/privacy/page", data);
+  return apiClient.patch<PrivacyPageAdminResponse>(
+    "/v1/admin/privacy/page",
+    data,
+  );
 }
 
 export async function updatePrivacySection(
   slug: string,
-  data: UpdatePrivacySectionRequest
+  data: UpdatePrivacySectionRequest,
 ): Promise<PrivacySectionAdminResponse> {
   if (USE_MOCK) return (await getMock()).updatePrivacySection(slug, data);
   return apiClient.patch<PrivacySectionAdminResponse>(
     `/v1/admin/privacy/sections/${encodeURIComponent(slug)}`,
-    data
+    data,
   );
 }
 
@@ -565,31 +669,34 @@ export async function getAdminCookies(): Promise<CookiesAdminResponse> {
 }
 
 export async function updateCookiesPage(
-  data: UpdateCookiesPageRequest
+  data: UpdateCookiesPageRequest,
 ): Promise<CookiesPageAdminResponse> {
   if (USE_MOCK) return (await getMock()).updateCookiesPage(data);
-  return apiClient.patch<CookiesPageAdminResponse>("/v1/admin/cookies/page", data);
+  return apiClient.patch<CookiesPageAdminResponse>(
+    "/v1/admin/cookies/page",
+    data,
+  );
 }
 
 export async function updateCookieInventory(
   name: string,
-  data: UpdateCookieInventoryRequest
+  data: UpdateCookieInventoryRequest,
 ): Promise<CookieInventoryAdminResponse> {
   if (USE_MOCK) return (await getMock()).updateCookieInventory(name, data);
   return apiClient.patch<CookieInventoryAdminResponse>(
     `/v1/admin/cookies/inventory/${encodeURIComponent(name)}`,
-    data
+    data,
   );
 }
 
 export async function updateCookieSection(
   slug: string,
-  data: UpdateCookieSectionRequest
+  data: UpdateCookieSectionRequest,
 ): Promise<CookieSectionAdminResponse> {
   if (USE_MOCK) return (await getMock()).updateCookieSection(slug, data);
   return apiClient.patch<CookieSectionAdminResponse>(
     `/v1/admin/cookies/sections/${encodeURIComponent(slug)}`,
-    data
+    data,
   );
 }
 
@@ -605,7 +712,7 @@ export async function getCart(locale?: Locale): Promise<CartResponse> {
 export async function addToCart(
   productId: string,
   quantity = 1,
-  locale?: Locale
+  locale?: Locale,
 ): Promise<CartResponse> {
   if (USE_MOCK) return (await getMock()).addToCart(productId, quantity);
   return apiClient.post<CartResponse>(`/v1/cart${localeQuery(locale)}`, {
@@ -617,27 +724,27 @@ export async function addToCart(
 export async function updateCartItem(
   productId: string,
   quantity: number,
-  locale?: Locale
+  locale?: Locale,
 ): Promise<CartResponse> {
   if (USE_MOCK) return (await getMock()).updateCartItem(productId, quantity);
   return apiClient.patch<CartResponse>(
     `/v1/cart/${encodeURIComponent(productId)}${localeQuery(locale)}`,
-    { quantity }
+    { quantity },
   );
 }
 
 export async function removeFromCart(
   productId: string,
-  locale?: Locale
+  locale?: Locale,
 ): Promise<CartResponse> {
   if (USE_MOCK) return (await getMock()).removeFromCart(productId);
   return apiClient.del<CartResponse>(
-    `/v1/cart/${encodeURIComponent(productId)}${localeQuery(locale)}`
+    `/v1/cart/${encodeURIComponent(productId)}${localeQuery(locale)}`,
   );
 }
 
 export async function createOrder(
-  data: CreateOrderRequest
+  data: CreateOrderRequest,
 ): Promise<OrderResponse> {
   if (USE_MOCK) return (await getMock()).createOrder(data);
   return apiClient.post<OrderResponse>("/v1/orders", data);
@@ -645,11 +752,11 @@ export async function createOrder(
 
 export async function createStripeRetrySession(
   orderId: string,
-  paymentReturnToken?: string | null
+  paymentReturnToken?: string | null,
 ): Promise<{ stripe_checkout_url: string }> {
   return apiClient.post<{ stripe_checkout_url: string }>(
     `/v1/orders/${encodeURIComponent(orderId)}/stripe-session`,
-    { payment_return_token: paymentReturnToken ?? "" }
+    { payment_return_token: paymentReturnToken ?? "" },
   );
 }
 
@@ -664,9 +771,10 @@ export async function getDeliveryOffices(
   courier: Courier,
   city: string,
   type?: OfficeType,
-  locale?: Locale
+  locale?: Locale,
 ): Promise<OfficeResponse[]> {
-  if (USE_MOCK) return (await getMock()).getDeliveryOffices(courier, city, type);
+  if (USE_MOCK)
+    return (await getMock()).getDeliveryOffices(courier, city, type);
   const params = new URLSearchParams({ courier, city });
   if (type) params.set("type", type);
   if (locale) params.set("locale", locale);
@@ -676,7 +784,7 @@ export async function getDeliveryOffices(
 export async function getDeliveryCities(
   courier: Courier,
   query?: string,
-  locale?: Locale
+  locale?: Locale,
 ): Promise<string[]> {
   if (USE_MOCK) return (await getMock()).getDeliveryCities(courier, query);
   const params = new URLSearchParams({ courier });
@@ -688,7 +796,7 @@ export async function getDeliveryCities(
 export async function getDeliveryPlaces(
   courier: Courier,
   query?: string,
-  locale?: Locale
+  locale?: Locale,
 ): Promise<CityPlace[]> {
   if (USE_MOCK) return (await getMock()).getDeliveryPlaces(courier, query);
   const params = new URLSearchParams({ courier });
@@ -698,7 +806,7 @@ export async function getDeliveryPlaces(
 }
 
 export async function calculateShipping(
-  payload: CalculateShippingRequest
+  payload: CalculateShippingRequest,
 ): Promise<CalculateShippingResponse> {
   if (USE_MOCK) return (await getMock()).calculateShipping(payload);
   return apiClient.calculateShipping(payload);
@@ -720,10 +828,13 @@ export async function getAdminPaymentSettings(): Promise<PaymentSettingsResponse
 }
 
 export async function updateAdminPaymentSettings(
-  data: PaymentSettingsUpdate
+  data: PaymentSettingsUpdate,
 ): Promise<PaymentSettingsResponse> {
   if (USE_MOCK) return (await getMock()).updateAdminPaymentSettings(data);
-  return apiClient.put<PaymentSettingsResponse>("/v1/admin/settings/payments", data);
+  return apiClient.put<PaymentSettingsResponse>(
+    "/v1/admin/settings/payments",
+    data,
+  );
 }
 
 export async function getAdminDeliverySettings(): Promise<DeliverySettingsResponse> {
@@ -732,10 +843,13 @@ export async function getAdminDeliverySettings(): Promise<DeliverySettingsRespon
 }
 
 export async function updateAdminDeliverySettings(
-  data: DeliverySettingsUpdate
+  data: DeliverySettingsUpdate,
 ): Promise<DeliverySettingsResponse> {
   if (USE_MOCK) return (await getMock()).updateAdminDeliverySettings(data);
-  return apiClient.put<DeliverySettingsResponse>("/v1/admin/delivery-settings", data);
+  return apiClient.put<DeliverySettingsResponse>(
+    "/v1/admin/delivery-settings",
+    data,
+  );
 }
 
 export async function getEcontSettings(): Promise<EcontSettingsResponse> {
@@ -744,87 +858,100 @@ export async function getEcontSettings(): Promise<EcontSettingsResponse> {
 }
 
 export async function updateEcontSettings(
-  data: EcontSettingsUpdate
+  data: EcontSettingsUpdate,
 ): Promise<EcontSettingsResponse> {
   if (USE_MOCK) return (await getMock()).updateEcontSettings(data);
-  return apiClient.patch<EcontSettingsResponse>("/v1/admin/econt/settings", data);
+  return apiClient.patch<EcontSettingsResponse>(
+    "/v1/admin/econt/settings",
+    data,
+  );
 }
 
 export async function testEcontConnection(): Promise<EcontConnectionTestResponse> {
   if (USE_MOCK) return (await getMock()).testEcontConnection();
-  return apiClient.post<EcontConnectionTestResponse>("/v1/admin/econt/test-connection");
+  return apiClient.post<EcontConnectionTestResponse>(
+    "/v1/admin/econt/test-connection",
+  );
 }
 
 export async function getEcontOrderReadiness(
-  orderId: string
+  orderId: string,
 ): Promise<EcontOrderFulfillmentResponse> {
   if (USE_MOCK) return (await getMock()).getEcontOrderReadiness(orderId);
   return apiClient.get<EcontOrderFulfillmentResponse>(
-    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/readiness`
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/readiness`,
   );
 }
 
 export async function repairEcontOrder(
   orderId: string,
-  data: EcontOrderRepairRequest
+  data: EcontOrderRepairRequest,
 ): Promise<EcontOrderFulfillmentResponse> {
   if (USE_MOCK) return (await getMock()).repairEcontOrder(orderId, data);
   return apiClient.patch<EcontOrderFulfillmentResponse>(
     `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/repair`,
-    data
+    data,
   );
 }
 
-export async function syncEcontOrder(orderId: string): Promise<EcontFulfillmentActionResponse> {
+export async function syncEcontOrder(
+  orderId: string,
+): Promise<EcontFulfillmentActionResponse> {
   if (USE_MOCK) return (await getMock()).syncEcontOrder(orderId);
   return apiClient.post<EcontFulfillmentActionResponse>(
-    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/sync`
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/sync`,
   );
 }
 
-export async function createEcontLabel(orderId: string): Promise<EcontFulfillmentActionResponse> {
+export async function createEcontLabel(
+  orderId: string,
+): Promise<EcontFulfillmentActionResponse> {
   if (USE_MOCK) return (await getMock()).createEcontLabel(orderId);
   return apiClient.post<EcontFulfillmentActionResponse>(
-    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/label`
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/label`,
   );
 }
 
 export async function createAndShipEcontOrder(
-  orderId: string
+  orderId: string,
 ): Promise<EcontFulfillmentActionResponse> {
   if (USE_MOCK) return (await getMock()).createAndShipEcontOrder(orderId);
   return apiClient.post<EcontFulfillmentActionResponse>(
-    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/ship`
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/ship`,
   );
 }
 
-export async function deleteEcontLabel(orderId: string): Promise<EcontFulfillmentActionResponse> {
+export async function deleteEcontLabel(
+  orderId: string,
+): Promise<EcontFulfillmentActionResponse> {
   if (USE_MOCK) return (await getMock()).deleteEcontLabel(orderId);
   return apiClient.del<EcontFulfillmentActionResponse>(
-    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/label`
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/label`,
   );
 }
 
-export async function refreshEcontTrace(orderId: string): Promise<EcontFulfillmentActionResponse> {
+export async function refreshEcontTrace(
+  orderId: string,
+): Promise<EcontFulfillmentActionResponse> {
   if (USE_MOCK) return (await getMock()).refreshEcontTrace(orderId);
   return apiClient.post<EcontFulfillmentActionResponse>(
-    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/trace`
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/trace`,
   );
 }
 
 export async function recordEcontManualStatus(
   orderId: string,
-  data: EcontManualStatusRequest
+  data: EcontManualStatusRequest,
 ): Promise<EcontFulfillmentActionResponse> {
   if (USE_MOCK) return (await getMock()).recordEcontManualStatus(orderId, data);
   return apiClient.post<EcontFulfillmentActionResponse>(
     `/v1/admin/orders/${encodeURIComponent(orderId)}/econt/manual-status`,
-    data
+    data,
   );
 }
 
 export async function getSpeedyAdminOverview(
-  orderId?: string | null
+  orderId?: string | null,
 ): Promise<SpeedyAdminOverviewResponse> {
   if (USE_MOCK) return (await getMock()).getSpeedyAdminOverview(orderId);
   const params = new URLSearchParams();
@@ -833,54 +960,67 @@ export async function getSpeedyAdminOverview(
   return apiClient.get<SpeedyAdminOverviewResponse>(`/v1/admin/speedy${query}`);
 }
 
-export async function createSpeedyWaybill(orderId: string): Promise<SpeedyActionResponse> {
+export async function createSpeedyWaybill(
+  orderId: string,
+): Promise<SpeedyActionResponse> {
   if (USE_MOCK) return (await getMock()).createSpeedyWaybill(orderId);
   return apiClient.post<SpeedyActionResponse>(
-    `/v1/admin/speedy/orders/${encodeURIComponent(orderId)}/ship`
+    `/v1/admin/speedy/orders/${encodeURIComponent(orderId)}/ship`,
   );
 }
 
-export async function refreshSpeedyTracking(orderId: string): Promise<SpeedyActionResponse> {
+export async function refreshSpeedyTracking(
+  orderId: string,
+): Promise<SpeedyActionResponse> {
   if (USE_MOCK) return (await getMock()).refreshSpeedyTracking(orderId);
   return apiClient.post<SpeedyActionResponse>(
-    `/v1/admin/speedy/orders/${encodeURIComponent(orderId)}/track`
+    `/v1/admin/speedy/orders/${encodeURIComponent(orderId)}/track`,
   );
 }
 
 export async function searchSpeedyShipments(
-  data: SpeedyShipmentSearchRequest
+  data: SpeedyShipmentSearchRequest,
 ): Promise<SpeedyShipmentSearchResponse> {
   if (USE_MOCK) return (await getMock()).searchSpeedyShipments(data);
-  return apiClient.post<SpeedyShipmentSearchResponse>("/v1/admin/speedy/shipments/search", data);
+  return apiClient.post<SpeedyShipmentSearchResponse>(
+    "/v1/admin/speedy/shipments/search",
+    data,
+  );
 }
 
 export async function getSpeedyShipmentInfo(
-  data: SpeedyShipmentInfoRequest
+  data: SpeedyShipmentInfoRequest,
 ): Promise<SpeedyShipmentInfoResponse> {
   if (USE_MOCK) return (await getMock()).getSpeedyShipmentInfo(data);
-  return apiClient.post<SpeedyShipmentInfoResponse>("/v1/admin/speedy/shipments/info", data);
+  return apiClient.post<SpeedyShipmentInfoResponse>(
+    "/v1/admin/speedy/shipments/info",
+    data,
+  );
 }
 
 export async function cancelSpeedyShipment(
   orderId: string,
-  data: SpeedyCancelShipmentRequest = {}
+  data: SpeedyCancelShipmentRequest = {},
 ): Promise<SpeedyActionResponse> {
   if (USE_MOCK) return (await getMock()).cancelSpeedyShipment(orderId, data);
   return apiClient.post<SpeedyActionResponse>(
     `/v1/admin/speedy/orders/${encodeURIComponent(orderId)}/cancel-shipment`,
-    data
+    data,
   );
 }
 
 export async function getSpeedyPickupTerms(
-  data: SpeedyPickupTermsRequest
+  data: SpeedyPickupTermsRequest,
 ): Promise<SpeedyPickupTermsResponse> {
   if (USE_MOCK) return (await getMock()).getSpeedyPickupTerms(data);
-  return apiClient.post<SpeedyPickupTermsResponse>("/v1/admin/speedy/pickup/terms", data);
+  return apiClient.post<SpeedyPickupTermsResponse>(
+    "/v1/admin/speedy/pickup/terms",
+    data,
+  );
 }
 
 export async function requestSpeedyPickup(
-  data: SpeedyPickupRequest
+  data: SpeedyPickupRequest,
 ): Promise<SpeedyPickupResponse> {
   if (USE_MOCK) return (await getMock()).requestSpeedyPickup(data);
   return apiClient.post<SpeedyPickupResponse>("/v1/admin/speedy/pickup", data);
@@ -888,23 +1028,35 @@ export async function requestSpeedyPickup(
 
 export async function getOrders(
   page = 1,
-  limit = 20
+  limit = 20,
+  filters: CustomerOrderFilters = {},
 ): Promise<OrderListResponse> {
-  if (USE_MOCK) return (await getMock()).getOrders(page, limit);
-  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (USE_MOCK) return (await getMock()).getOrders(page, limit, filters);
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+  });
+  if (filters.q?.trim()) params.set("q", filters.q.trim());
+  if (filters.view && filters.view !== "all") params.set("view", filters.view);
+  if (filters.date_range && filters.date_range !== "all") {
+    params.set("date_range", filters.date_range);
+  }
+  if (filters.sort && filters.sort !== "newest")
+    params.set("sort", filters.sort);
   return apiClient.get<OrderListResponse>(`/v1/orders?${params}`);
 }
 
 export async function getOrder(
   orderId: string,
-  paymentReturnToken?: string | null
+  paymentReturnToken?: string | null,
 ): Promise<OrderResponse> {
   if (USE_MOCK) return (await getMock()).getOrder(orderId);
   const params = new URLSearchParams();
-  if (paymentReturnToken) params.set("payment_return_token", paymentReturnToken);
+  if (paymentReturnToken)
+    params.set("payment_return_token", paymentReturnToken);
   const query = params.size > 0 ? `?${params}` : "";
   return apiClient.get<OrderResponse>(
-    `/v1/orders/${encodeURIComponent(orderId)}${query}`
+    `/v1/orders/${encodeURIComponent(orderId)}${query}`,
   );
 }
 
@@ -935,7 +1087,7 @@ export async function logout(): Promise<void> {
 // --- Contact ---
 
 export async function submitContact(
-  data: ContactRequest
+  data: ContactRequest,
 ): Promise<ContactResponse> {
   if (USE_MOCK) return (await getMock()).submitContact(data);
   return apiClient.post<ContactResponse>("/v1/contact", data);
@@ -956,9 +1108,11 @@ export async function getAdminStats(): Promise<AdminStats> {
     orders_today: stats.orders_today ?? stats.orders?.total ?? 0,
     revenue_this_week_cents:
       stats.revenue_this_week_cents ?? stats.orders?.revenue_cents ?? 0,
-    active_product_count: stats.active_product_count ?? stats.products?.active ?? 0,
+    active_product_count:
+      stats.active_product_count ?? stats.products?.active ?? 0,
     low_stock_count: stats.low_stock_count ?? 0,
-    contact_messages_needing_attention: stats.contact_messages_needing_attention ?? 0,
+    contact_messages_needing_attention:
+      stats.contact_messages_needing_attention ?? 0,
     orders: {
       total: stats.orders?.total ?? 0,
       revenue_cents: stats.orders?.revenue_cents ?? 0,
@@ -981,7 +1135,7 @@ function analyticsQuery(startDate?: string, endDate?: string): string {
 
 export async function getAdminAnalyticsSummary(
   startDate?: string,
-  endDate?: string
+  endDate?: string,
 ): Promise<AnalyticsSummaryResponse> {
   if (USE_MOCK) {
     return {
@@ -1010,33 +1164,33 @@ export async function getAdminAnalyticsSummary(
     };
   }
   return apiClient.get<AnalyticsSummaryResponse>(
-    `/v1/admin/analytics/summary${analyticsQuery(startDate, endDate)}`
+    `/v1/admin/analytics/summary${analyticsQuery(startDate, endDate)}`,
   );
 }
 
 export async function getAdminAnalyticsFunnel(
   startDate?: string,
-  endDate?: string
+  endDate?: string,
 ): Promise<AnalyticsFunnelResponse> {
   if (USE_MOCK) return { steps: [] };
   return apiClient.get<AnalyticsFunnelResponse>(
-    `/v1/admin/analytics/funnel${analyticsQuery(startDate, endDate)}`
+    `/v1/admin/analytics/funnel${analyticsQuery(startDate, endDate)}`,
   );
 }
 
 export async function getAdminAnalyticsProducts(
   startDate?: string,
-  endDate?: string
+  endDate?: string,
 ): Promise<ProductAnalyticsResponse> {
   if (USE_MOCK) return { products: [] };
   return apiClient.get<ProductAnalyticsResponse>(
-    `/v1/admin/analytics/products${analyticsQuery(startDate, endDate)}`
+    `/v1/admin/analytics/products${analyticsQuery(startDate, endDate)}`,
   );
 }
 
 export async function getAdminAnalyticsCheckout(
   startDate?: string,
-  endDate?: string
+  endDate?: string,
 ): Promise<CheckoutAnalyticsResponse> {
   if (USE_MOCK) {
     return {
@@ -1050,122 +1204,186 @@ export async function getAdminAnalyticsCheckout(
     };
   }
   return apiClient.get<CheckoutAnalyticsResponse>(
-    `/v1/admin/analytics/checkout${analyticsQuery(startDate, endDate)}`
+    `/v1/admin/analytics/checkout${analyticsQuery(startDate, endDate)}`,
   );
 }
 
-export function getAdminAnalyticsExportUrl(startDate?: string, endDate?: string): string {
+export function getAdminAnalyticsExportUrl(
+  startDate?: string,
+  endDate?: string,
+): string {
   return `${apiClient.BASE_URL}/v1/admin/analytics/export.csv${analyticsQuery(startDate, endDate)}`;
 }
 
 export async function getAdminProducts(
   page = 1,
-  limit = 20
+  limit = 20,
+  filters: AdminProductFilters = {},
 ): Promise<AdminProductListResponse> {
-  if (USE_MOCK) return (await getMock()).getAdminProducts(page, limit);
-  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-  return apiClient.get<AdminProductListResponse>(`/v1/admin/products?${params}`);
+  if (USE_MOCK) return (await getMock()).getAdminProducts(page, limit, filters);
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+  });
+  if (filters.q?.trim()) params.set("q", filters.q.trim());
+  if (filters.status && filters.status !== "all")
+    params.set("status", filters.status);
+  if (filters.media && filters.media !== "any")
+    params.set("media", filters.media);
+  if (filters.stock && filters.stock !== "any")
+    params.set("stock", filters.stock);
+  if (filters.product_type) params.set("product_type", filters.product_type);
+  if (filters.category) params.set("category", filters.category);
+  for (const label of filters.label ?? []) {
+    if (label) params.append("label", label);
+  }
+  if (filters.featured !== null && filters.featured !== undefined) {
+    params.set("featured", String(filters.featured));
+  }
+  if (filters.discount && filters.discount !== "any")
+    params.set("discount", filters.discount);
+  if (filters.inventory_mode)
+    params.set("inventory_mode", filters.inventory_mode);
+  if (filters.recipe_status) params.set("recipe_status", filters.recipe_status);
+  if (
+    filters.has_inventory_exceptions !== null &&
+    filters.has_inventory_exceptions !== undefined
+  ) {
+    params.set(
+      "has_inventory_exceptions",
+      String(filters.has_inventory_exceptions),
+    );
+  }
+  if (filters.stock === "low" && filters.low_stock_threshold !== undefined) {
+    params.set("low_stock_threshold", String(filters.low_stock_threshold));
+  }
+  if (filters.sort) params.set("sort", filters.sort);
+  return apiClient.get<AdminProductListResponse>(
+    `/v1/admin/products?${params}`,
+  );
 }
 
-export async function getAdminProduct(productId: string): Promise<AdminProductResponse> {
+export async function getAdminProduct(
+  productId: string,
+): Promise<AdminProductResponse> {
   if (USE_MOCK) return (await getMock()).getAdminProduct(productId);
-  return apiClient.get<AdminProductResponse>(`/v1/admin/products/${encodeURIComponent(productId)}`);
+  return apiClient.get<AdminProductResponse>(
+    `/v1/admin/products/${encodeURIComponent(productId)}`,
+  );
 }
 
-export async function createProduct(data: CreateProductRequest): Promise<AdminProductResponse> {
+export async function createProduct(
+  data: CreateProductRequest,
+): Promise<AdminProductResponse> {
   if (USE_MOCK) return (await getMock()).createProduct(data);
   return apiClient.post<AdminProductResponse>("/v1/admin/products", data);
 }
 
 export async function updateProduct(
   productId: string,
-  data: UpdateProductRequest
+  data: UpdateProductRequest,
 ): Promise<AdminProductResponse> {
   if (USE_MOCK) return (await getMock()).updateProduct(productId, data);
   return apiClient.patch<AdminProductResponse>(
     `/v1/admin/products/${encodeURIComponent(productId)}`,
-    data
+    data,
+  );
+}
+
+export async function deleteProduct(
+  productId: string,
+): Promise<AdminProductResponse> {
+  if (USE_MOCK) return (await getMock()).deleteProduct(productId);
+  return apiClient.del<AdminProductResponse>(
+    `/v1/admin/products/${encodeURIComponent(productId)}`,
   );
 }
 
 export async function uploadProductImage(
   productId: string,
-  file: File
+  file: File,
 ): Promise<ImageUploadResponse> {
   if (USE_MOCK) return (await getMock()).uploadProductImage(productId, file);
   const formData = new FormData();
   formData.append("file", file);
   return apiClient.postForm<ImageUploadResponse>(
     `/v1/admin/products/${encodeURIComponent(productId)}/images`,
-    formData
+    formData,
   );
 }
 
 export async function deleteProductImage(
   productId: string,
-  imageId: string
+  imageId: string,
 ): Promise<void> {
   if (USE_MOCK) return (await getMock()).deleteProductImage(productId, imageId);
   return apiClient.del<void>(
-    `/v1/admin/products/${encodeURIComponent(productId)}/images/${encodeURIComponent(imageId)}`
+    `/v1/admin/products/${encodeURIComponent(productId)}/images/${encodeURIComponent(imageId)}`,
   );
 }
 
 export async function reorderProductImages(
   productId: string,
-  orderedIds: string[]
+  orderedIds: string[],
 ): Promise<ProductImage[]> {
-  if (USE_MOCK) return (await getMock()).reorderProductImages(productId, orderedIds);
+  if (USE_MOCK)
+    return (await getMock()).reorderProductImages(productId, orderedIds);
   return apiClient.patch<ProductImage[]>(
     `/v1/admin/products/${encodeURIComponent(productId)}/images/reorder`,
-    { ordered_ids: orderedIds }
+    { ordered_ids: orderedIds },
   );
 }
 
 export async function setPrimaryProductImage(
   productId: string,
-  imageId: string
+  imageId: string,
 ): Promise<ProductImage> {
-  if (USE_MOCK) return (await getMock()).setPrimaryProductImage(productId, imageId);
+  if (USE_MOCK)
+    return (await getMock()).setPrimaryProductImage(productId, imageId);
   return apiClient.patch<ProductImage>(
     `/v1/admin/products/${encodeURIComponent(productId)}/images/${encodeURIComponent(imageId)}/primary`,
-    {}
+    {},
   );
 }
 
 export async function uploadProductVideo(
   productId: string,
-  file: File
+  file: File,
 ): Promise<VideoUploadResponse> {
   if (USE_MOCK) return (await getMock()).uploadProductVideo(productId, file);
   const formData = new FormData();
   formData.append("file", file);
   return apiClient.postForm<VideoUploadResponse>(
     `/v1/admin/products/${encodeURIComponent(productId)}/video`,
-    formData
+    formData,
   );
 }
 
-export async function getProductVideo(productId: string): Promise<ProductVideo> {
+export async function getProductVideo(
+  productId: string,
+): Promise<ProductVideo> {
   if (USE_MOCK) return (await getMock()).getProductVideo(productId);
   return apiClient.get<ProductVideo>(
-    `/v1/admin/products/${encodeURIComponent(productId)}/video`
+    `/v1/admin/products/${encodeURIComponent(productId)}/video`,
   );
 }
 
 export async function deleteProductVideo(productId: string): Promise<void> {
   if (USE_MOCK) return (await getMock()).deleteProductVideo(productId);
-  return apiClient.del<void>(`/v1/admin/products/${encodeURIComponent(productId)}/video`);
+  return apiClient.del<void>(
+    `/v1/admin/products/${encodeURIComponent(productId)}/video`,
+  );
 }
 
 export async function updateProductVideoSortOrder(
   productId: string,
-  sortOrder: number
+  sortOrder: number,
 ): Promise<ProductVideo> {
-  if (USE_MOCK) return (await getMock()).updateProductVideoSortOrder(productId, sortOrder);
+  if (USE_MOCK)
+    return (await getMock()).updateProductVideoSortOrder(productId, sortOrder);
   return apiClient.patch<ProductVideo>(
     `/v1/admin/products/${encodeURIComponent(productId)}/video`,
-    { sort_order: sortOrder }
+    { sort_order: sortOrder },
   );
 }
 
@@ -1176,7 +1394,7 @@ export async function getAdminOrders(
   paymentStatus?: PaymentStatus | "",
   paymentMethod?: PaymentMethod | "",
   accountingFilter?: AdminOrderAccountingFilter | "",
-  financePeriodId?: string
+  financePeriodId?: string,
 ): Promise<OrderListResponse> {
   if (USE_MOCK) {
     return (await getMock()).getAdminOrders(
@@ -1186,10 +1404,13 @@ export async function getAdminOrders(
       paymentStatus,
       paymentMethod,
       accountingFilter,
-      financePeriodId
+      financePeriodId,
     );
   }
-  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+  });
   if (status) params.set("status", status);
   if (paymentStatus) params.set("payment_status", paymentStatus);
   if (paymentMethod) params.set("payment_method", paymentMethod);
@@ -1198,74 +1419,120 @@ export async function getAdminOrders(
   return apiClient.get<OrderListResponse>(`/v1/admin/orders?${params}`);
 }
 
-export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailResponse> {
+export async function getAdminOrder(
+  orderId: string,
+): Promise<AdminOrderDetailResponse> {
   if (USE_MOCK) return (await getMock()).getAdminOrder(orderId);
   return apiClient.get<AdminOrderDetailResponse>(
-    `/v1/admin/orders/${encodeURIComponent(orderId)}`
+    `/v1/admin/orders/${encodeURIComponent(orderId)}`,
   );
 }
 
 // --- Admin Inventory ---
 
-export async function listMaterials(filters: {
-  active?: boolean;
-  category?: string;
-  needsReorder?: boolean;
-  limit?: number;
-  offset?: number;
-} = {}): Promise<MaterialListResponse> {
+export async function listMaterials(
+  filters: {
+    active?: boolean;
+    category?: string;
+    needsReorder?: boolean;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<MaterialListResponse> {
   const params = new URLSearchParams();
-  if (filters.active !== undefined) params.set("active", String(filters.active));
+  if (filters.active !== undefined)
+    params.set("active", String(filters.active));
   if (filters.category) params.set("category", filters.category);
   if (filters.needsReorder) params.set("needs_reorder", "true");
   if (filters.limit) params.set("limit", String(filters.limit));
   if (filters.offset) params.set("offset", String(filters.offset));
   const query = params.size > 0 ? `?${params}` : "";
-  return apiClient.get<MaterialListResponse>(`/v1/admin/inventory/materials${query}`);
+  return apiClient.get<MaterialListResponse>(
+    `/v1/admin/inventory/materials${query}`,
+  );
 }
 
-export async function getMaterial(materialId: string): Promise<MaterialDetailResponse> {
-  return apiClient.get<MaterialDetailResponse>(`/v1/admin/inventory/materials/${encodeURIComponent(materialId)}`);
+export async function getMaterial(
+  materialId: string,
+): Promise<MaterialDetailResponse> {
+  return apiClient.get<MaterialDetailResponse>(
+    `/v1/admin/inventory/materials/${encodeURIComponent(materialId)}`,
+  );
 }
 
-export async function createMaterial(data: MaterialRequest): Promise<MaterialResponse> {
-  return apiClient.post<MaterialResponse>("/v1/admin/inventory/materials", data);
+export async function createMaterial(
+  data: MaterialRequest,
+): Promise<MaterialResponse> {
+  return apiClient.post<MaterialResponse>(
+    "/v1/admin/inventory/materials",
+    data,
+  );
 }
 
-export async function updateMaterial(materialId: string, data: MaterialUpdateRequest): Promise<MaterialResponse> {
-  return apiClient.patch<MaterialResponse>(`/v1/admin/inventory/materials/${encodeURIComponent(materialId)}`, data);
+export async function updateMaterial(
+  materialId: string,
+  data: MaterialUpdateRequest,
+): Promise<MaterialResponse> {
+  return apiClient.patch<MaterialResponse>(
+    `/v1/admin/inventory/materials/${encodeURIComponent(materialId)}`,
+    data,
+  );
 }
 
-export async function createMaterialReceipt(materialId: string, data: MaterialReceiptRequest): Promise<MaterialReceiptResponse> {
-  return apiClient.post<MaterialReceiptResponse>(`/v1/admin/inventory/materials/${encodeURIComponent(materialId)}/receipts`, data);
+export async function createMaterialReceipt(
+  materialId: string,
+  data: MaterialReceiptRequest,
+): Promise<MaterialReceiptResponse> {
+  return apiClient.post<MaterialReceiptResponse>(
+    `/v1/admin/inventory/materials/${encodeURIComponent(materialId)}/receipts`,
+    data,
+  );
 }
 
-export async function createMaterialAdjustment(materialId: string, data: MaterialAdjustmentRequest): Promise<InventoryMovementResponse> {
-  return apiClient.post<InventoryMovementResponse>(`/v1/admin/inventory/materials/${encodeURIComponent(materialId)}/adjustments`, data);
+export async function createMaterialAdjustment(
+  materialId: string,
+  data: MaterialAdjustmentRequest,
+): Promise<InventoryMovementResponse> {
+  return apiClient.post<InventoryMovementResponse>(
+    `/v1/admin/inventory/materials/${encodeURIComponent(materialId)}/adjustments`,
+    data,
+  );
 }
 
-export async function listMaterialLots(materialId: string, productionDate?: string): Promise<MaterialLotListResponse> {
+export async function listMaterialLots(
+  materialId: string,
+  productionDate?: string,
+): Promise<MaterialLotListResponse> {
   const params = new URLSearchParams();
   if (productionDate) params.set("production_date", productionDate);
   const query = params.size > 0 ? `?${params}` : "";
-  return apiClient.get<MaterialLotListResponse>(`/v1/admin/inventory/materials/${encodeURIComponent(materialId)}/lots${query}`);
+  return apiClient.get<MaterialLotListResponse>(
+    `/v1/admin/inventory/materials/${encodeURIComponent(materialId)}/lots${query}`,
+  );
 }
 
-export async function listMaterialMovements(materialId: string, limit = 100): Promise<InventoryMovementListResponse> {
+export async function listMaterialMovements(
+  materialId: string,
+  limit = 100,
+): Promise<InventoryMovementListResponse> {
   const params = new URLSearchParams({ limit: String(limit) });
-  return apiClient.get<InventoryMovementListResponse>(`/v1/admin/inventory/materials/${encodeURIComponent(materialId)}/movements?${params}`);
+  return apiClient.get<InventoryMovementListResponse>(
+    `/v1/admin/inventory/materials/${encodeURIComponent(materialId)}/movements?${params}`,
+  );
 }
 
-export async function listInventoryMovements(filters: {
-  itemType?: "material" | "finished_good";
-  itemId?: string;
-  sourceType?: string;
-  sourceId?: string;
-  orderId?: string;
-  movementType?: string;
-  limit?: number;
-  offset?: number;
-} = {}): Promise<InventoryMovementListResponse> {
+export async function listInventoryMovements(
+  filters: {
+    itemType?: "material" | "finished_good";
+    itemId?: string;
+    sourceType?: string;
+    sourceId?: string;
+    orderId?: string;
+    movementType?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<InventoryMovementListResponse> {
   const params = new URLSearchParams();
   if (filters.itemType) params.set("item_type", filters.itemType);
   if (filters.itemId) params.set("item_id", filters.itemId);
@@ -1276,133 +1543,256 @@ export async function listInventoryMovements(filters: {
   if (filters.limit) params.set("limit", String(filters.limit));
   if (filters.offset) params.set("offset", String(filters.offset));
   const query = params.size > 0 ? `?${params}` : "";
-  return apiClient.get<InventoryMovementListResponse>(`/v1/admin/inventory/movements${query}`);
+  return apiClient.get<InventoryMovementListResponse>(
+    `/v1/admin/inventory/movements${query}`,
+  );
 }
 
-export async function listRecipes(filters: { productId?: string; status?: string } = {}): Promise<RecipeVersionListResponse> {
+export async function listRecipes(
+  filters: { productId?: string; status?: string } = {},
+): Promise<RecipeVersionListResponse> {
   const params = new URLSearchParams();
   if (filters.productId) params.set("product_id", filters.productId);
   if (filters.status) params.set("status", filters.status);
   const query = params.size > 0 ? `?${params}` : "";
-  return apiClient.get<RecipeVersionListResponse>(`/v1/admin/inventory/recipes${query}`);
+  return apiClient.get<RecipeVersionListResponse>(
+    `/v1/admin/inventory/recipes${query}`,
+  );
 }
 
-export async function getRecipe(recipeId: string): Promise<RecipeVersionResponse> {
-  return apiClient.get<RecipeVersionResponse>(`/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}`);
+export async function getRecipe(
+  recipeId: string,
+): Promise<RecipeVersionResponse> {
+  return apiClient.get<RecipeVersionResponse>(
+    `/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}`,
+  );
 }
 
-export async function createRecipe(data: RecipeVersionRequest): Promise<RecipeVersionResponse> {
-  return apiClient.post<RecipeVersionResponse>("/v1/admin/inventory/recipes", data);
+export async function createRecipe(
+  data: RecipeVersionRequest,
+): Promise<RecipeVersionResponse> {
+  return apiClient.post<RecipeVersionResponse>(
+    "/v1/admin/inventory/recipes",
+    data,
+  );
 }
 
-export async function updateRecipe(recipeId: string, data: RecipeVersionUpdateRequest): Promise<RecipeVersionResponse> {
-  return apiClient.patch<RecipeVersionResponse>(`/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}`, data);
+export async function updateRecipe(
+  recipeId: string,
+  data: RecipeVersionUpdateRequest,
+): Promise<RecipeVersionResponse> {
+  return apiClient.patch<RecipeVersionResponse>(
+    `/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}`,
+    data,
+  );
 }
 
-export async function activateRecipe(recipeId: string): Promise<RecipeVersionResponse> {
-  return apiClient.post<RecipeVersionResponse>(`/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}/activate`, {});
+export async function activateRecipe(
+  recipeId: string,
+): Promise<RecipeVersionResponse> {
+  return apiClient.post<RecipeVersionResponse>(
+    `/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}/activate`,
+    {},
+  );
 }
 
-export async function archiveRecipe(recipeId: string): Promise<RecipeVersionResponse> {
-  return apiClient.post<RecipeVersionResponse>(`/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}/archive`, {});
+export async function archiveRecipe(
+  recipeId: string,
+): Promise<RecipeVersionResponse> {
+  return apiClient.post<RecipeVersionResponse>(
+    `/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}/archive`,
+    {},
+  );
 }
 
-export async function createRecipeCostSnapshot(recipeId: string, data: RecipeCostSnapshotRequest): Promise<RecipeCostSnapshotResponse> {
-  return apiClient.post<RecipeCostSnapshotResponse>(`/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}/cost-snapshots`, data);
+export async function createRecipeCostSnapshot(
+  recipeId: string,
+  data: RecipeCostSnapshotRequest,
+): Promise<RecipeCostSnapshotResponse> {
+  return apiClient.post<RecipeCostSnapshotResponse>(
+    `/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}/cost-snapshots`,
+    data,
+  );
 }
 
-export async function reviewRecipe(recipeId: string, data: RecipeReviewRequest): Promise<RecipeVersionResponse> {
-  return apiClient.post<RecipeVersionResponse>(`/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}/review`, data);
+export async function reviewRecipe(
+  recipeId: string,
+  data: RecipeReviewRequest,
+): Promise<RecipeVersionResponse> {
+  return apiClient.post<RecipeVersionResponse>(
+    `/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}/review`,
+    data,
+  );
 }
 
-export async function getRecipeDiagnostics(recipeId: string): Promise<RecipeDiagnosticsListResponse> {
-  return apiClient.get<RecipeDiagnosticsListResponse>(`/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}/diagnostics`);
+export async function getRecipeDiagnostics(
+  recipeId: string,
+): Promise<RecipeDiagnosticsListResponse> {
+  return apiClient.get<RecipeDiagnosticsListResponse>(
+    `/v1/admin/inventory/recipes/${encodeURIComponent(recipeId)}/diagnostics`,
+  );
 }
 
-export async function listProductionBatches(filters: { productId?: string; status?: string } = {}): Promise<ProductionBatchListResponse> {
+export async function listProductionBatches(
+  filters: { productId?: string; status?: string } = {},
+): Promise<ProductionBatchListResponse> {
   const params = new URLSearchParams();
   if (filters.productId) params.set("product_id", filters.productId);
   if (filters.status) params.set("status", filters.status);
   const query = params.size > 0 ? `?${params}` : "";
-  return apiClient.get<ProductionBatchListResponse>(`/v1/admin/inventory/batches${query}`);
+  return apiClient.get<ProductionBatchListResponse>(
+    `/v1/admin/inventory/batches${query}`,
+  );
 }
 
-export async function getProductionBatch(batchId: string): Promise<ProductionBatchResponse> {
-  return apiClient.get<ProductionBatchResponse>(`/v1/admin/inventory/batches/${encodeURIComponent(batchId)}`);
+export async function getProductionBatch(
+  batchId: string,
+): Promise<ProductionBatchResponse> {
+  return apiClient.get<ProductionBatchResponse>(
+    `/v1/admin/inventory/batches/${encodeURIComponent(batchId)}`,
+  );
 }
 
-export async function createProductionBatch(data: ProductionBatchRequest): Promise<ProductionBatchResponse> {
-  return apiClient.post<ProductionBatchResponse>("/v1/admin/inventory/batches", data);
+export async function createProductionBatch(
+  data: ProductionBatchRequest,
+): Promise<ProductionBatchResponse> {
+  return apiClient.post<ProductionBatchResponse>(
+    "/v1/admin/inventory/batches",
+    data,
+  );
 }
 
-export async function updateProductionBatch(batchId: string, data: ProductionBatchUpdateRequest): Promise<ProductionBatchResponse> {
-  return apiClient.patch<ProductionBatchResponse>(`/v1/admin/inventory/batches/${encodeURIComponent(batchId)}`, data);
+export async function updateProductionBatch(
+  batchId: string,
+  data: ProductionBatchUpdateRequest,
+): Promise<ProductionBatchResponse> {
+  return apiClient.patch<ProductionBatchResponse>(
+    `/v1/admin/inventory/batches/${encodeURIComponent(batchId)}`,
+    data,
+  );
 }
 
-export async function postProductionBatch(batchId: string, data: ProductionBatchPostRequest): Promise<ProductionBatchResponse> {
-  return apiClient.post<ProductionBatchResponse>(`/v1/admin/inventory/batches/${encodeURIComponent(batchId)}/post`, data);
+export async function postProductionBatch(
+  batchId: string,
+  data: ProductionBatchPostRequest,
+): Promise<ProductionBatchResponse> {
+  return apiClient.post<ProductionBatchResponse>(
+    `/v1/admin/inventory/batches/${encodeURIComponent(batchId)}/post`,
+    data,
+  );
 }
 
-export async function cancelProductionBatch(batchId: string): Promise<ProductionBatchResponse> {
-  return apiClient.post<ProductionBatchResponse>(`/v1/admin/inventory/batches/${encodeURIComponent(batchId)}/cancel`, {});
+export async function cancelProductionBatch(
+  batchId: string,
+): Promise<ProductionBatchResponse> {
+  return apiClient.post<ProductionBatchResponse>(
+    `/v1/admin/inventory/batches/${encodeURIComponent(batchId)}/cancel`,
+    {},
+  );
 }
 
-export async function correctProductionBatch(batchId: string, data: ProductionBatchCorrectionRequest): Promise<InventoryMovementResponse> {
-  return apiClient.post<InventoryMovementResponse>(`/v1/admin/inventory/batches/${encodeURIComponent(batchId)}/correct`, data);
+export async function correctProductionBatch(
+  batchId: string,
+  data: ProductionBatchCorrectionRequest,
+): Promise<InventoryMovementResponse> {
+  return apiClient.post<InventoryMovementResponse>(
+    `/v1/admin/inventory/batches/${encodeURIComponent(batchId)}/correct`,
+    data,
+  );
 }
 
-export async function getProductionTraceability(batchId: string): Promise<ProductionTraceabilityResponse> {
-  return apiClient.get<ProductionTraceabilityResponse>(`/v1/admin/inventory/batches/${encodeURIComponent(batchId)}/traceability`);
+export async function getProductionTraceability(
+  batchId: string,
+): Promise<ProductionTraceabilityResponse> {
+  return apiClient.get<ProductionTraceabilityResponse>(
+    `/v1/admin/inventory/batches/${encodeURIComponent(batchId)}/traceability`,
+  );
 }
 
 export async function getInventoryValuationSettings(): Promise<InventoryValuationSettingsResponse> {
-  return apiClient.get<InventoryValuationSettingsResponse>("/v1/admin/inventory/valuation/settings");
+  return apiClient.get<InventoryValuationSettingsResponse>(
+    "/v1/admin/inventory/valuation/settings",
+  );
 }
 
-export async function updateInventoryValuationSettings(data: InventoryValuationSettingsRequest): Promise<InventoryValuationSettingsResponse> {
-  return apiClient.put<InventoryValuationSettingsResponse>("/v1/admin/inventory/valuation/settings", data);
+export async function updateInventoryValuationSettings(
+  data: InventoryValuationSettingsRequest,
+): Promise<InventoryValuationSettingsResponse> {
+  return apiClient.put<InventoryValuationSettingsResponse>(
+    "/v1/admin/inventory/valuation/settings",
+    data,
+  );
 }
 
-export async function recordOpeningBalance(data: OpeningBalanceRequest): Promise<ValuationLayerResponse | null> {
-  return apiClient.post<ValuationLayerResponse | null>("/v1/admin/inventory/valuation/opening-balances", data);
+export async function recordOpeningBalance(
+  data: OpeningBalanceRequest,
+): Promise<ValuationLayerResponse | null> {
+  return apiClient.post<ValuationLayerResponse | null>(
+    "/v1/admin/inventory/valuation/opening-balances",
+    data,
+  );
 }
 
 export async function generateValuationLayers(): Promise<ValuationLayerListResponse> {
-  return apiClient.post<ValuationLayerListResponse>("/v1/admin/inventory/valuation/layers/generate", {});
+  return apiClient.post<ValuationLayerListResponse>(
+    "/v1/admin/inventory/valuation/layers/generate",
+    {},
+  );
 }
 
-export async function listValuationLayers(filters: { itemType?: "material" | "finished_good"; itemId?: string } = {}): Promise<ValuationLayerListResponse> {
+export async function listValuationLayers(
+  filters: { itemType?: "material" | "finished_good"; itemId?: string } = {},
+): Promise<ValuationLayerListResponse> {
   const params = new URLSearchParams();
   if (filters.itemType) params.set("item_type", filters.itemType);
   if (filters.itemId) params.set("item_id", filters.itemId);
   const query = params.size > 0 ? `?${params}` : "";
-  return apiClient.get<ValuationLayerListResponse>(`/v1/admin/inventory/valuation/layers${query}`);
+  return apiClient.get<ValuationLayerListResponse>(
+    `/v1/admin/inventory/valuation/layers${query}`,
+  );
 }
 
 export async function generateCogsRows(): Promise<CogsLedgerListResponse> {
-  return apiClient.post<CogsLedgerListResponse>("/v1/admin/inventory/valuation/cogs/generate", {});
+  return apiClient.post<CogsLedgerListResponse>(
+    "/v1/admin/inventory/valuation/cogs/generate",
+    {},
+  );
 }
 
-export async function listCogsRows(filters: { productId?: string; orderId?: string } = {}): Promise<CogsLedgerListResponse> {
+export async function listCogsRows(
+  filters: { productId?: string; orderId?: string } = {},
+): Promise<CogsLedgerListResponse> {
   const params = new URLSearchParams();
   if (filters.productId) params.set("product_id", filters.productId);
   if (filters.orderId) params.set("order_id", filters.orderId);
   const query = params.size > 0 ? `?${params}` : "";
-  return apiClient.get<CogsLedgerListResponse>(`/v1/admin/inventory/valuation/cogs${query}`);
+  return apiClient.get<CogsLedgerListResponse>(
+    `/v1/admin/inventory/valuation/cogs${query}`,
+  );
 }
 
-export async function getInventoryClosePreview(periodStart: string, periodEnd: string): Promise<InventoryClosePreviewResponse> {
-  const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
-  return apiClient.get<InventoryClosePreviewResponse>(`/v1/admin/inventory/valuation/close-preview?${params}`);
+export async function getInventoryClosePreview(
+  periodStart: string,
+  periodEnd: string,
+): Promise<InventoryClosePreviewResponse> {
+  const params = new URLSearchParams({
+    period_start: periodStart,
+    period_end: periodEnd,
+  });
+  return apiClient.get<InventoryClosePreviewResponse>(
+    `/v1/admin/inventory/valuation/close-preview?${params}`,
+  );
 }
 
-export async function listInventoryExceptions(filters: {
-  targetType?: string;
-  targetId?: string;
-  sourceType?: string;
-  sourceId?: string;
-  orderId?: string;
-} = {}): Promise<InventoryExceptionResponse[]> {
+export async function listInventoryExceptions(
+  filters: {
+    targetType?: string;
+    targetId?: string;
+    sourceType?: string;
+    sourceId?: string;
+    orderId?: string;
+  } = {},
+): Promise<InventoryExceptionResponse[]> {
   const params = new URLSearchParams();
   if (filters.targetType) params.set("target_type", filters.targetType);
   if (filters.targetId) params.set("target_id", filters.targetId);
@@ -1410,414 +1800,505 @@ export async function listInventoryExceptions(filters: {
   if (filters.sourceId) params.set("source_id", filters.sourceId);
   if (filters.orderId) params.set("order_id", filters.orderId);
   const query = params.size > 0 ? `?${params}` : "";
-  return apiClient.get<InventoryExceptionResponse[]>(`/v1/admin/inventory/valuation/exceptions${query}`);
+  return apiClient.get<InventoryExceptionResponse[]>(
+    `/v1/admin/inventory/valuation/exceptions${query}`,
+  );
 }
 
 // --- Accounting & Finance Hub ---
 
 export async function getAccountingConfig(): Promise<AccountingConfigurationResponse> {
   if (USE_MOCK) return (await getMock()).getAccountingConfig();
-  return apiClient.get<AccountingConfigurationResponse>("/v1/admin/accounting/config");
+  return apiClient.get<AccountingConfigurationResponse>(
+    "/v1/admin/accounting/config",
+  );
 }
 
 export async function createSellerLegalProfile(
-  data: SellerLegalProfileRequest
+  data: SellerLegalProfileRequest,
 ): Promise<SellerLegalProfileResponse> {
   if (USE_MOCK) return (await getMock()).createSellerLegalProfile(data);
-  return apiClient.post<SellerLegalProfileResponse>("/v1/admin/accounting/config/seller-profile", data);
+  return apiClient.post<SellerLegalProfileResponse>(
+    "/v1/admin/accounting/config/seller-profile",
+    data,
+  );
 }
 
 export async function createVatFiscalSettings(
-  data: VatFiscalSettingsRequest
+  data: VatFiscalSettingsRequest,
 ): Promise<VatFiscalSettingsResponse> {
   if (USE_MOCK) return (await getMock()).createVatFiscalSettings(data);
-  return apiClient.post<VatFiscalSettingsResponse>("/v1/admin/accounting/config/vat-fiscal", data);
+  return apiClient.post<VatFiscalSettingsResponse>(
+    "/v1/admin/accounting/config/vat-fiscal",
+    data,
+  );
 }
 
 export async function upsertAccountingCategoryMapping(
   mappingKey: string,
-  data: CategoryMappingRequest
+  data: CategoryMappingRequest,
 ): Promise<CategoryMappingResponse> {
-  if (USE_MOCK) return (await getMock()).upsertAccountingCategoryMapping(mappingKey, data);
+  if (USE_MOCK)
+    return (await getMock()).upsertAccountingCategoryMapping(mappingKey, data);
   return apiClient.put<CategoryMappingResponse>(
     `/v1/admin/accounting/config/category-mappings/${encodeURIComponent(mappingKey)}`,
-    data
+    data,
   );
 }
 
 export async function updateAccountingExportSchema(
-  data: ExportSchemaSettingsRequest
+  data: ExportSchemaSettingsRequest,
 ): Promise<ExportSchemaSettingsResponse> {
   if (USE_MOCK) return (await getMock()).updateAccountingExportSchema(data);
-  return apiClient.put<ExportSchemaSettingsResponse>("/v1/admin/accounting/config/export-schema", data);
+  return apiClient.put<ExportSchemaSettingsResponse>(
+    "/v1/admin/accounting/config/export-schema",
+    data,
+  );
 }
 
 export async function updateExpenseEvidenceSettings(
-  data: ExpenseEvidenceSettingsRequest
+  data: ExpenseEvidenceSettingsRequest,
 ): Promise<ExpenseEvidenceSettingsResponse> {
   if (USE_MOCK) return (await getMock()).updateExpenseEvidenceSettings(data);
-  return apiClient.put<ExpenseEvidenceSettingsResponse>("/v1/admin/accounting/config/expense-settings", data);
+  return apiClient.put<ExpenseEvidenceSettingsResponse>(
+    "/v1/admin/accounting/config/expense-settings",
+    data,
+  );
 }
 
 export async function updateProductCostSettings(
-  data: ProductCostSettingsRequest
+  data: ProductCostSettingsRequest,
 ): Promise<ProductCostSettingsResponse> {
   if (USE_MOCK) return (await getMock()).updateProductCostSettings(data);
-  return apiClient.put<ProductCostSettingsResponse>("/v1/admin/accounting/config/product-cost-settings", data);
+  return apiClient.put<ProductCostSettingsResponse>(
+    "/v1/admin/accounting/config/product-cost-settings",
+    data,
+  );
 }
 
-export async function listFinancePeriods(status?: string): Promise<FinancePeriodListResponse> {
+export async function listFinancePeriods(
+  status?: string,
+): Promise<FinancePeriodListResponse> {
   if (USE_MOCK) return (await getMock()).listFinancePeriods(status);
   const params = new URLSearchParams();
   if (status) params.set("status", status);
   const query = params.size > 0 ? `?${params}` : "";
-  return apiClient.get<FinancePeriodListResponse>(`/v1/admin/accounting/periods${query}`);
-}
-
-export async function createFinancePeriod(
-  data: FinancePeriodCreateRequest
-): Promise<FinancePeriodResponse> {
-  if (USE_MOCK) return (await getMock()).createFinancePeriod(data);
-  return apiClient.post<FinancePeriodResponse>("/v1/admin/accounting/periods", data);
-}
-
-export async function reviewFinancePeriod(periodId: string): Promise<FinancePeriodResponse> {
-  if (USE_MOCK) return (await getMock()).reviewFinancePeriod(periodId);
-  return apiClient.post<FinancePeriodResponse>(
-    `/v1/admin/accounting/periods/${encodeURIComponent(periodId)}/review`
+  return apiClient.get<FinancePeriodListResponse>(
+    `/v1/admin/accounting/periods${query}`,
   );
 }
 
-export async function closeFinancePeriod(periodId: string): Promise<FinancePeriodResponse> {
+export async function createFinancePeriod(
+  data: FinancePeriodCreateRequest,
+): Promise<FinancePeriodResponse> {
+  if (USE_MOCK) return (await getMock()).createFinancePeriod(data);
+  return apiClient.post<FinancePeriodResponse>(
+    "/v1/admin/accounting/periods",
+    data,
+  );
+}
+
+export async function reviewFinancePeriod(
+  periodId: string,
+): Promise<FinancePeriodResponse> {
+  if (USE_MOCK) return (await getMock()).reviewFinancePeriod(periodId);
+  return apiClient.post<FinancePeriodResponse>(
+    `/v1/admin/accounting/periods/${encodeURIComponent(periodId)}/review`,
+  );
+}
+
+export async function closeFinancePeriod(
+  periodId: string,
+): Promise<FinancePeriodResponse> {
   if (USE_MOCK) return (await getMock()).closeFinancePeriod(periodId);
   return apiClient.post<FinancePeriodResponse>(
-    `/v1/admin/accounting/periods/${encodeURIComponent(periodId)}/close`
+    `/v1/admin/accounting/periods/${encodeURIComponent(periodId)}/close`,
   );
 }
 
 export async function reopenFinancePeriod(
   periodId: string,
-  data: FinancePeriodActionRequest
+  data: FinancePeriodActionRequest,
 ): Promise<FinancePeriodResponse> {
   if (USE_MOCK) return (await getMock()).reopenFinancePeriod(periodId, data);
   return apiClient.post<FinancePeriodResponse>(
     `/v1/admin/accounting/periods/${encodeURIComponent(periodId)}/reopen`,
-    data
+    data,
   );
 }
 
 export async function acceptFinancePeriod(
   periodId: string,
-  data: FinancePeriodActionRequest
+  data: FinancePeriodActionRequest,
 ): Promise<FinancePeriodResponse> {
   if (USE_MOCK) return (await getMock()).acceptFinancePeriod(periodId, data);
   return apiClient.post<FinancePeriodResponse>(
     `/v1/admin/accounting/periods/${encodeURIComponent(periodId)}/accept`,
-    data
+    data,
   );
 }
 
 export async function listFinanceExceptions(
   periodId: string,
-  status?: FinanceExceptionStatus | ""
+  status?: FinanceExceptionStatus | "",
 ): Promise<FinanceExceptionListResponse> {
-  if (USE_MOCK) return (await getMock()).listFinanceExceptions(periodId, status);
+  if (USE_MOCK)
+    return (await getMock()).listFinanceExceptions(periodId, status);
   const params = new URLSearchParams();
   if (status) params.set("status", status);
   const query = params.size > 0 ? `?${params}` : "";
   return apiClient.get<FinanceExceptionListResponse>(
-    `/v1/admin/accounting/periods/${encodeURIComponent(periodId)}/exceptions${query}`
+    `/v1/admin/accounting/periods/${encodeURIComponent(periodId)}/exceptions${query}`,
   );
 }
 
 export async function resolveFinanceException(
   exceptionId: string,
-  data: FinanceExceptionActionRequest
+  data: FinanceExceptionActionRequest,
 ): Promise<FinanceExceptionResponse> {
-  if (USE_MOCK) return (await getMock()).resolveFinanceException(exceptionId, data);
+  if (USE_MOCK)
+    return (await getMock()).resolveFinanceException(exceptionId, data);
   return apiClient.post<FinanceExceptionResponse>(
     `/v1/admin/accounting/exceptions/${encodeURIComponent(exceptionId)}/resolve`,
-    data
+    data,
   );
 }
 
 export async function waiveFinanceException(
   exceptionId: string,
-  data: FinanceExceptionActionRequest
+  data: FinanceExceptionActionRequest,
 ): Promise<FinanceExceptionResponse> {
-  if (USE_MOCK) return (await getMock()).waiveFinanceException(exceptionId, data);
+  if (USE_MOCK)
+    return (await getMock()).waiveFinanceException(exceptionId, data);
   return apiClient.post<FinanceExceptionResponse>(
     `/v1/admin/accounting/exceptions/${encodeURIComponent(exceptionId)}/waive`,
-    data
+    data,
   );
 }
 
 export async function getAccountingLedger(
   periodId: string,
   ledger: AccountingLedgerName,
-  options: { dateBasis?: string; page?: number; limit?: number } = {}
+  options: { dateBasis?: string; page?: number; limit?: number } = {},
 ): Promise<AccountingLedgerResponse> {
-  if (USE_MOCK) return (await getMock()).getAccountingLedger(periodId, ledger, options);
+  if (USE_MOCK)
+    return (await getMock()).getAccountingLedger(periodId, ledger, options);
   const params = new URLSearchParams({
     page: String(options.page ?? 1),
     limit: String(options.limit ?? 100),
   });
   if (options.dateBasis) params.set("date_basis", options.dateBasis);
   return apiClient.get<AccountingLedgerResponse>(
-    `/v1/admin/accounting/periods/${encodeURIComponent(periodId)}/ledgers/${encodeURIComponent(ledger)}?${params}`
+    `/v1/admin/accounting/periods/${encodeURIComponent(periodId)}/ledgers/${encodeURIComponent(ledger)}?${params}`,
   );
 }
 
-export function getAccountingExportDownloadUrl(exportId: string, file = "xlsx"): string {
+export function getAccountingExportDownloadUrl(
+  exportId: string,
+  file = "xlsx",
+): string {
   const params = new URLSearchParams({ file });
   return `${apiClient.BASE_URL}/v1/admin/accounting/exports/${encodeURIComponent(exportId)}/download?${params}`;
 }
 
-export async function listAccountingDocuments(filters: {
-  orderId?: string;
-  refundId?: string;
-  periodId?: string;
-} = {}): Promise<AccountingDocumentListResponse> {
+export async function listAccountingDocuments(
+  filters: {
+    orderId?: string;
+    refundId?: string;
+    periodId?: string;
+  } = {},
+): Promise<AccountingDocumentListResponse> {
   if (USE_MOCK) return (await getMock()).listAccountingDocuments(filters);
   const params = new URLSearchParams();
   if (filters.orderId) params.set("order_id", filters.orderId);
   if (filters.refundId) params.set("refund_id", filters.refundId);
   if (filters.periodId) params.set("period_id", filters.periodId);
   const query = params.size > 0 ? `?${params}` : "";
-  return apiClient.get<AccountingDocumentListResponse>(`/v1/admin/accounting/documents${query}`);
+  return apiClient.get<AccountingDocumentListResponse>(
+    `/v1/admin/accounting/documents${query}`,
+  );
 }
 
-export async function listOrderAccountingDocuments(orderId: string): Promise<AccountingDocumentListResponse> {
+export async function listOrderAccountingDocuments(
+  orderId: string,
+): Promise<AccountingDocumentListResponse> {
   if (USE_MOCK) return (await getMock()).listOrderAccountingDocuments(orderId);
   return apiClient.get<AccountingDocumentListResponse>(
-    `/v1/admin/accounting/orders/${encodeURIComponent(orderId)}/documents`
+    `/v1/admin/accounting/orders/${encodeURIComponent(orderId)}/documents`,
   );
 }
 
 export async function createAccountingDocument(
-  data: AccountingDocumentRequest
+  data: AccountingDocumentRequest,
 ): Promise<AccountingDocumentResponse> {
   if (USE_MOCK) return (await getMock()).createAccountingDocument(data);
-  return apiClient.post<AccountingDocumentResponse>("/v1/admin/accounting/documents", data);
+  return apiClient.post<AccountingDocumentResponse>(
+    "/v1/admin/accounting/documents",
+    data,
+  );
 }
 
 export async function updateAccountingDocument(
   documentId: string,
-  data: AccountingDocumentRequest
+  data: AccountingDocumentRequest,
 ): Promise<AccountingDocumentResponse> {
-  if (USE_MOCK) return (await getMock()).updateAccountingDocument(documentId, data);
+  if (USE_MOCK)
+    return (await getMock()).updateAccountingDocument(documentId, data);
   return apiClient.put<AccountingDocumentResponse>(
     `/v1/admin/accounting/documents/${encodeURIComponent(documentId)}`,
-    data
+    data,
   );
 }
 
-export async function listExpenseEvidence(filters: {
-  categoryKey?: string;
-  reviewStatus?: string;
-} = {}): Promise<ExpenseEvidenceListResponse> {
+export async function listExpenseEvidence(
+  filters: {
+    categoryKey?: string;
+    reviewStatus?: string;
+  } = {},
+): Promise<ExpenseEvidenceListResponse> {
   if (USE_MOCK) return (await getMock()).listExpenseEvidence(filters);
   const params = new URLSearchParams();
   if (filters.categoryKey) params.set("category_key", filters.categoryKey);
   if (filters.reviewStatus) params.set("review_status", filters.reviewStatus);
   const query = params.size > 0 ? `?${params}` : "";
-  return apiClient.get<ExpenseEvidenceListResponse>(`/v1/admin/accounting/expenses${query}`);
+  return apiClient.get<ExpenseEvidenceListResponse>(
+    `/v1/admin/accounting/expenses${query}`,
+  );
 }
 
 export async function createExpenseEvidence(
-  data: ExpenseEvidenceRequest
+  data: ExpenseEvidenceRequest,
 ): Promise<ExpenseEvidenceResponse> {
   if (USE_MOCK) return (await getMock()).createExpenseEvidence(data);
-  return apiClient.post<ExpenseEvidenceResponse>("/v1/admin/accounting/expenses", data);
+  return apiClient.post<ExpenseEvidenceResponse>(
+    "/v1/admin/accounting/expenses",
+    data,
+  );
 }
 
 export async function updateExpenseEvidence(
   expenseId: string,
-  data: ExpenseEvidenceRequest
+  data: ExpenseEvidenceRequest,
 ): Promise<ExpenseEvidenceResponse> {
   if (USE_MOCK) return (await getMock()).updateExpenseEvidence(expenseId, data);
   return apiClient.put<ExpenseEvidenceResponse>(
     `/v1/admin/accounting/expenses/${encodeURIComponent(expenseId)}`,
-    data
+    data,
   );
 }
 
 export async function updateExpensePaymentStatus(
   expenseId: string,
-  data: ExpensePaymentStatusRequest
+  data: ExpensePaymentStatusRequest,
 ): Promise<ExpenseEvidenceResponse> {
-  if (USE_MOCK) return (await getMock()).updateExpensePaymentStatus(expenseId, data);
+  if (USE_MOCK)
+    return (await getMock()).updateExpensePaymentStatus(expenseId, data);
   return apiClient.patch<ExpenseEvidenceResponse>(
     `/v1/admin/accounting/expenses/${encodeURIComponent(expenseId)}/payment-status`,
-    data
+    data,
   );
 }
 
-export async function listProductCosts(productId?: string): Promise<ProductCostVersionListResponse> {
+export async function listProductCosts(
+  productId?: string,
+): Promise<ProductCostVersionListResponse> {
   if (USE_MOCK) return (await getMock()).listProductCosts(productId);
   const params = new URLSearchParams();
   if (productId) params.set("product_id", productId);
   const query = params.size > 0 ? `?${params}` : "";
-  return apiClient.get<ProductCostVersionListResponse>(`/v1/admin/accounting/product-costs${query}`);
+  return apiClient.get<ProductCostVersionListResponse>(
+    `/v1/admin/accounting/product-costs${query}`,
+  );
 }
 
 export async function createProductCost(
-  data: ProductCostVersionRequest
+  data: ProductCostVersionRequest,
 ): Promise<ProductCostVersionResponse> {
   if (USE_MOCK) return (await getMock()).createProductCost(data);
-  return apiClient.post<ProductCostVersionResponse>("/v1/admin/accounting/product-costs", data);
+  return apiClient.post<ProductCostVersionResponse>(
+    "/v1/admin/accounting/product-costs",
+    data,
+  );
 }
 
 export async function updateProductCost(
   costVersionId: string,
-  data: ProductCostVersionRequest
+  data: ProductCostVersionRequest,
 ): Promise<ProductCostVersionResponse> {
   if (USE_MOCK) return (await getMock()).updateProductCost(costVersionId, data);
   return apiClient.put<ProductCostVersionResponse>(
     `/v1/admin/accounting/product-costs/${encodeURIComponent(costVersionId)}`,
-    data
+    data,
   );
 }
 
-export async function getMissingProductCosts(periodId: string): Promise<MissingProductCostDiagnosticsResponse> {
+export async function getMissingProductCosts(
+  periodId: string,
+): Promise<MissingProductCostDiagnosticsResponse> {
   if (USE_MOCK) return (await getMock()).getMissingProductCosts(periodId);
   const params = new URLSearchParams({ period_id: periodId });
-  return apiClient.get<MissingProductCostDiagnosticsResponse>(`/v1/admin/accounting/product-costs/missing?${params}`);
+  return apiClient.get<MissingProductCostDiagnosticsResponse>(
+    `/v1/admin/accounting/product-costs/missing?${params}`,
+  );
 }
 
-export async function listAccountingExports(periodId?: string): Promise<FinanceExportPackageListResponse> {
+export async function listAccountingExports(
+  periodId?: string,
+): Promise<FinanceExportPackageListResponse> {
   if (USE_MOCK) return (await getMock()).listAccountingExports(periodId);
   const params = new URLSearchParams();
   if (periodId) params.set("period_id", periodId);
   const query = params.size > 0 ? `?${params}` : "";
-  return apiClient.get<FinanceExportPackageListResponse>(`/v1/admin/accounting/exports${query}`);
+  return apiClient.get<FinanceExportPackageListResponse>(
+    `/v1/admin/accounting/exports${query}`,
+  );
 }
 
-export async function generateAccountingExport(periodId: string): Promise<FinanceExportPackageResponse> {
+export async function generateAccountingExport(
+  periodId: string,
+): Promise<FinanceExportPackageResponse> {
   if (USE_MOCK) return (await getMock()).generateAccountingExport(periodId);
   return apiClient.post<FinanceExportPackageResponse>(
-    `/v1/admin/accounting/periods/${encodeURIComponent(periodId)}/exports`
+    `/v1/admin/accounting/periods/${encodeURIComponent(periodId)}/exports`,
   );
 }
 
 export async function acceptAccountingExport(
   exportId: string,
-  data: AccountantAcceptanceRequest
+  data: AccountantAcceptanceRequest,
 ): Promise<FinanceExportPackageResponse> {
   if (USE_MOCK) return (await getMock()).acceptAccountingExport(exportId, data);
   return apiClient.post<FinanceExportPackageResponse>(
     `/v1/admin/accounting/exports/${encodeURIComponent(exportId)}/accept`,
-    data
+    data,
   );
 }
 
 export async function getStripePayoutImportStatus(): Promise<StripePayoutImportStatusResponse> {
   if (USE_MOCK) return (await getMock()).getStripePayoutImportStatus();
-  return apiClient.get<StripePayoutImportStatusResponse>("/v1/admin/accounting/stripe/import-status");
+  return apiClient.get<StripePayoutImportStatusResponse>(
+    "/v1/admin/accounting/stripe/import-status",
+  );
 }
 
-export async function syncStripeBalanceTransactions(limit = 100): Promise<StripeBalanceImportResponse> {
+export async function syncStripeBalanceTransactions(
+  limit = 100,
+): Promise<StripeBalanceImportResponse> {
   if (USE_MOCK) return (await getMock()).syncStripeBalanceTransactions(limit);
   const params = new URLSearchParams({ limit: String(limit) });
-  return apiClient.post<StripeBalanceImportResponse>(`/v1/admin/accounting/stripe/sync?${params}`);
+  return apiClient.post<StripeBalanceImportResponse>(
+    `/v1/admin/accounting/stripe/sync?${params}`,
+  );
 }
 
-export async function importStripeBalanceCsv(file: File): Promise<StripeBalanceImportResponse> {
+export async function importStripeBalanceCsv(
+  file: File,
+): Promise<StripeBalanceImportResponse> {
   if (USE_MOCK) return (await getMock()).importStripeBalanceCsv(file);
   const formData = new FormData();
   formData.append("file", file);
-  return apiClient.postForm<StripeBalanceImportResponse>("/v1/admin/accounting/stripe/manual-import", formData);
+  return apiClient.postForm<StripeBalanceImportResponse>(
+    "/v1/admin/accounting/stripe/manual-import",
+    formData,
+  );
 }
 
 export async function applyManualPaymentAction(
   orderId: string,
   action: ManualPaymentAction,
   note: string,
-  callbackOutcome?: CallbackOutcome | null
+  callbackOutcome?: CallbackOutcome | null,
 ): Promise<OrderResponse> {
   if (USE_MOCK) {
-    return (await getMock()).applyManualPaymentAction(orderId, action, note, callbackOutcome);
+    return (await getMock()).applyManualPaymentAction(
+      orderId,
+      action,
+      note,
+      callbackOutcome,
+    );
   }
   return apiClient.post<OrderResponse>(
     `/v1/admin/orders/${encodeURIComponent(orderId)}/payment-actions`,
-    { action, note, callback_outcome: callbackOutcome ?? undefined }
+    { action, note, callback_outcome: callbackOutcome ?? undefined },
   );
 }
 
 export async function createReturnCase(
   orderId: string,
-  data: CreateReturnCaseRequest
+  data: CreateReturnCaseRequest,
 ): Promise<ReturnCaseResponse> {
   if (USE_MOCK) return (await getMock()).createReturnCase(orderId, data);
   return apiClient.post<ReturnCaseResponse>(
     `/v1/admin/orders/${encodeURIComponent(orderId)}/returns`,
-    data
+    data,
   );
 }
 
 export async function receiveReturnCase(
   orderId: string,
-  returnId: string
+  returnId: string,
 ): Promise<ReturnCaseResponse> {
   if (USE_MOCK) return (await getMock()).receiveReturnCase(orderId, returnId);
   return apiClient.post<ReturnCaseResponse>(
-    `/v1/admin/orders/${encodeURIComponent(orderId)}/returns/${encodeURIComponent(returnId)}/receive`
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/returns/${encodeURIComponent(returnId)}/receive`,
   );
 }
 
 export async function inspectReturnCase(
   orderId: string,
   returnId: string,
-  data: InspectReturnCaseRequest
+  data: InspectReturnCaseRequest,
 ): Promise<ReturnCaseResponse> {
-  if (USE_MOCK) return (await getMock()).inspectReturnCase(orderId, returnId, data);
+  if (USE_MOCK)
+    return (await getMock()).inspectReturnCase(orderId, returnId, data);
   return apiClient.patch<ReturnCaseResponse>(
     `/v1/admin/orders/${encodeURIComponent(orderId)}/returns/${encodeURIComponent(returnId)}/inspect`,
-    data
+    data,
   );
 }
 
 export async function closeReturnCase(
   orderId: string,
-  returnId: string
+  returnId: string,
 ): Promise<ReturnCaseResponse> {
   if (USE_MOCK) return (await getMock()).closeReturnCase(orderId, returnId);
   return apiClient.post<ReturnCaseResponse>(
-    `/v1/admin/orders/${encodeURIComponent(orderId)}/returns/${encodeURIComponent(returnId)}/close`
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/returns/${encodeURIComponent(returnId)}/close`,
   );
 }
 
 export async function updateReturnAccounting(
   orderId: string,
   returnId: string,
-  data: UpdateReturnAccountingRequest
+  data: UpdateReturnAccountingRequest,
 ): Promise<ReturnCaseResponse> {
-  if (USE_MOCK) return (await getMock()).updateReturnAccounting(orderId, returnId, data);
+  if (USE_MOCK)
+    return (await getMock()).updateReturnAccounting(orderId, returnId, data);
   return apiClient.patch<ReturnCaseResponse>(
     `/v1/admin/orders/${encodeURIComponent(orderId)}/returns/${encodeURIComponent(returnId)}/accounting`,
-    data
+    data,
   );
 }
 
 export async function createStripeRefund(
   orderId: string,
-  data: CreateStripeRefundRequest
+  data: CreateStripeRefundRequest,
 ): Promise<PaymentRefundResponse> {
   if (USE_MOCK) return (await getMock()).createStripeRefund(orderId, data);
   return apiClient.post<PaymentRefundResponse>(
     `/v1/admin/orders/${encodeURIComponent(orderId)}/refunds`,
-    data
+    data,
   );
 }
 
 export async function recordCodSettlement(
   orderId: string,
-  data: RecordCodSettlementRequest
+  data: RecordCodSettlementRequest,
 ): Promise<CodSettlementResponse> {
   if (USE_MOCK) return (await getMock()).recordCodSettlement(orderId, data);
   return apiClient.post<CodSettlementResponse>(
     `/v1/admin/orders/${encodeURIComponent(orderId)}/cod-settlement`,
-    data
+    data,
   );
 }
 
@@ -1828,12 +2309,13 @@ export async function updateOrderStatus(
     tracking_number?: string;
     tracking_carrier?: string;
     tracking_url?: string;
-  }
+  },
 ): Promise<OrderResponse> {
-  if (USE_MOCK) return (await getMock()).updateOrderStatus(orderId, status, tracking);
+  if (USE_MOCK)
+    return (await getMock()).updateOrderStatus(orderId, status, tracking);
   return apiClient.patch<OrderResponse>(
     `/v1/admin/orders/${encodeURIComponent(orderId)}/status`,
-    { status, ...tracking }
+    { status, ...tracking },
   );
 }
 
@@ -1844,61 +2326,69 @@ export async function getCampaigns(): Promise<CampaignListResponse> {
   return apiClient.get<CampaignListResponse>("/v1/admin/promotions/campaigns");
 }
 
-export async function getCampaign(campaignId: string): Promise<CampaignResponse> {
+export async function getCampaign(
+  campaignId: string,
+): Promise<CampaignResponse> {
   if (USE_MOCK) return (await getMock()).getCampaign(campaignId);
   return apiClient.get<CampaignResponse>(
-    `/v1/admin/promotions/campaigns/${encodeURIComponent(campaignId)}`
+    `/v1/admin/promotions/campaigns/${encodeURIComponent(campaignId)}`,
   );
 }
 
 export async function createCampaign(
-  data: CampaignCreateRequest
+  data: CampaignCreateRequest,
 ): Promise<CampaignResponse> {
   if (USE_MOCK) return (await getMock()).createCampaign(data);
-  return apiClient.post<CampaignResponse>("/v1/admin/promotions/campaigns", data);
+  return apiClient.post<CampaignResponse>(
+    "/v1/admin/promotions/campaigns",
+    data,
+  );
 }
 
 export async function updateCampaign(
   campaignId: string,
-  data: CampaignUpdateRequest
+  data: CampaignUpdateRequest,
 ): Promise<CampaignResponse> {
   if (USE_MOCK) return (await getMock()).updateCampaign(campaignId, data);
   return apiClient.patch<CampaignResponse>(
     `/v1/admin/promotions/campaigns/${encodeURIComponent(campaignId)}`,
-    data
+    data,
   );
 }
 
 export async function deleteCampaign(campaignId: string): Promise<void> {
   if (USE_MOCK) return (await getMock()).deleteCampaign(campaignId);
   return apiClient.del<void>(
-    `/v1/admin/promotions/campaigns/${encodeURIComponent(campaignId)}`
+    `/v1/admin/promotions/campaigns/${encodeURIComponent(campaignId)}`,
   );
 }
 
 export async function applyCampaign(
-  campaignId: string
+  campaignId: string,
 ): Promise<BulkDiscountResponse> {
   if (USE_MOCK) return (await getMock()).applyCampaign(campaignId);
   return apiClient.post<BulkDiscountResponse>(
-    `/v1/admin/promotions/campaigns/${encodeURIComponent(campaignId)}/apply`
+    `/v1/admin/promotions/campaigns/${encodeURIComponent(campaignId)}/apply`,
   );
 }
 
 export async function removeCampaign(
-  campaignId: string
+  campaignId: string,
 ): Promise<BulkDiscountResponse> {
   if (USE_MOCK) return (await getMock()).removeCampaign(campaignId);
   return apiClient.post<BulkDiscountResponse>(
-    `/v1/admin/promotions/campaigns/${encodeURIComponent(campaignId)}/remove`
+    `/v1/admin/promotions/campaigns/${encodeURIComponent(campaignId)}/remove`,
   );
 }
 
 export async function bulkDiscount(
-  data: BulkDiscountRequest
+  data: BulkDiscountRequest,
 ): Promise<BulkDiscountResponse> {
   if (USE_MOCK) return (await getMock()).bulkDiscount(data);
-  return apiClient.patch<BulkDiscountResponse>("/v1/admin/products/bulk-discount", data);
+  return apiClient.patch<BulkDiscountResponse>(
+    "/v1/admin/products/bulk-discount",
+    data,
+  );
 }
 
 export async function getAdminBanner(): Promise<BannerAdminResponse> {
@@ -1907,18 +2397,21 @@ export async function getAdminBanner(): Promise<BannerAdminResponse> {
 }
 
 export async function updateBanner(
-  data: BannerUpdateRequest
+  data: BannerUpdateRequest,
 ): Promise<BannerAdminResponse> {
   if (USE_MOCK) return (await getMock()).updateBanner(data);
-  return apiClient.put<BannerAdminResponse>("/v1/admin/promotions/banner", data);
+  return apiClient.put<BannerAdminResponse>(
+    "/v1/admin/promotions/banner",
+    data,
+  );
 }
 
 export async function getPublicBanner(
-  locale: Locale = "en"
+  locale: Locale = "en",
 ): Promise<PublicBannerResponse> {
   if (USE_MOCK) return (await getMock()).getPublicBanner(locale);
   return apiClient.get<PublicBannerResponse>(
-    `/v1/promotions/banner?locale=${encodeURIComponent(locale)}`
+    `/v1/promotions/banner?locale=${encodeURIComponent(locale)}`,
   );
 }
 
@@ -1926,14 +2419,14 @@ export async function getPublicBanner(
 
 export async function toggleReaction(
   productId: string,
-  body: ReactionToggleRequest
+  body: ReactionToggleRequest,
 ): Promise<ReactionToggleResponse> {
   if (USE_MOCK) return (await getMock()).toggleReaction(productId, body);
   return apiClient.toggleReaction(productId, body);
 }
 
 export async function getReactions(
-  productId: string
+  productId: string,
 ): Promise<ReactionCountsResponse> {
   if (USE_MOCK) return (await getMock()).getReactions(productId);
   return apiClient.getReactions(productId);
@@ -1943,7 +2436,7 @@ export async function getReactions(
 
 export async function postComment(
   productId: string,
-  body: CommentCreateRequest
+  body: CommentCreateRequest,
 ): Promise<CommentResponse> {
   if (USE_MOCK) return (await getMock()).postComment(productId, body);
   return apiClient.postComment(productId, body);
@@ -1953,8 +2446,9 @@ export async function getComments(
   productId: string,
   sort: CommentSort = "newest",
   page: number = 1,
-  limit: number = 20
+  limit: number = 20,
 ): Promise<CommentListResponse> {
-  if (USE_MOCK) return (await getMock()).getComments(productId, sort, page, limit);
+  if (USE_MOCK)
+    return (await getMock()).getComments(productId, sort, page, limit);
   return apiClient.getComments(productId, sort, page, limit);
 }

@@ -2,7 +2,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 
 export default function HomeLoading() {
   return (
-    <>
+    <main className="bg-page text-text">
       {/* Hero skeleton */}
       <div className="w-full py-24 md:py-32 lg:py-40 px-4 flex flex-col items-center gap-6">
         <Skeleton className="h-12 w-96 max-w-full" />
@@ -23,6 +23,6 @@ export default function HomeLoading() {
           ))}
         </div>
       </div>
-    </>
+    </main>
   );
 }

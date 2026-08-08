@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from typing import Any
 
+from app.database import DbConnection
 
-def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+
+def _row_to_dict(row: dict) -> dict[str, Any]:
     return {key: row[key] for key in row.keys()}
 
 
-def _latest_econt_cod_evidence(conn: sqlite3.Connection, order_id: str) -> dict[str, Any]:
+def _latest_econt_cod_evidence(conn: DbConnection, order_id: str) -> dict[str, Any]:
     rows = conn.execute(
         """
         SELECT id, action, response_json, created_at
@@ -56,7 +57,7 @@ def _latest_econt_cod_evidence(conn: sqlite3.Connection, order_id: str) -> dict[
     }
 
 
-def stripe_refund_reconciliation_rows(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+def stripe_refund_reconciliation_rows(conn: DbConnection) -> list[dict[str, Any]]:
     """Return Stripe refund rows with order references for reconciliation."""
     rows = conn.execute(
         """
@@ -87,7 +88,7 @@ def stripe_refund_reconciliation_rows(conn: sqlite3.Connection) -> list[dict[str
     return [_row_to_dict(row) for row in rows]
 
 
-def cod_settlement_rows(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+def cod_settlement_rows(conn: DbConnection) -> list[dict[str, Any]]:
     """Return COD orders needing settlement reconciliation or already settled."""
     rows = conn.execute(
         """
@@ -129,7 +130,7 @@ def cod_settlement_rows(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     return report_rows
 
 
-def courier_fee_claim_rows(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+def courier_fee_claim_rows(conn: DbConnection) -> list[dict[str, Any]]:
     """Return courier return fees and manual claim records."""
     rows = conn.execute(
         """
@@ -161,7 +162,7 @@ def courier_fee_claim_rows(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     return [_row_to_dict(row) for row in rows]
 
 
-def return_reason_rows(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+def return_reason_rows(conn: DbConnection) -> list[dict[str, Any]]:
     """Return aggregate counts and amounts by return reason/source/status."""
     rows = conn.execute(
         """
@@ -189,7 +190,7 @@ def return_reason_rows(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     return [_row_to_dict(row) for row in rows]
 
 
-def inventory_adjustment_rows(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+def inventory_adjustment_rows(conn: DbConnection) -> list[dict[str, Any]]:
     """Return inventory adjustments created by return inspection/restock decisions."""
     rows = conn.execute(
         """
