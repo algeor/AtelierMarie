@@ -1,14 +1,26 @@
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
 
 from alembic import context
-from app.config import get_settings
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
-database_url = get_settings().database_url
+
+# Resolve the database URL WITHOUT importing the app's full Settings. Running a
+# migration must not require unrelated production secrets (ADMIN_API_KEY,
+# JWT_SECRET, ...) that Settings validation would demand in environment=production
+# — otherwise `alembic upgrade head` in a minimal migration/CI context refuses to
+# run. Prefer the URL injected by programmatic callers / the test harness via
+# config.attributes, then fall back to the DATABASE_URL env var (CLI usage).
+database_url = config.attributes.get("database_url") or os.environ.get("DATABASE_URL")
+if not database_url:
+    raise RuntimeError(
+        "DATABASE_URL is not set. Provide it via the DATABASE_URL environment "
+        "variable or config.attributes['database_url'] before running migrations."
+    )
 
 if database_url.startswith("postgresql://"):
     database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
