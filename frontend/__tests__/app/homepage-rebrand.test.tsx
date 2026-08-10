@@ -2,8 +2,8 @@ import React from "react";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import enMessages from "@/messages/en.json";
-import type { ProductResponse } from "@/lib/types";
-import { getProducts, getPublicSiteMedia } from "@/lib/api";
+import type { HomeSection, ProductResponse } from "@/lib/types";
+import { getHome, getProducts, getPublicSiteMedia } from "@/lib/api";
 import HomePage from "@/app/[locale]/page";
 
 vi.mock("@/i18n/navigation", () => ({
@@ -13,6 +13,7 @@ vi.mock("@/i18n/navigation", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({
+  getHome: vi.fn(),
   getProducts: vi.fn(),
   getPublicSiteMedia: vi.fn(),
 }));
@@ -71,7 +72,22 @@ function product(overrides: Partial<ProductResponse>): ProductResponse {
 }
 
 const mockedGetProducts = vi.mocked(getProducts);
+const mockedGetHome = vi.mocked(getHome);
 const mockedGetPublicSiteMedia = vi.mocked(getPublicSiteMedia);
+
+function section(overrides: Partial<HomeSection>): HomeSection {
+  return {
+    slug: "hero",
+    type: "hero",
+    heading: "Atelier Marie",
+    subheading: "Hand-poured",
+    body: "Soft candles.",
+    cta: { label: "Shop Collection", href: "/products" },
+    image: null,
+    items: [],
+    ...overrides,
+  };
+}
 
 describe("homepage rebrand", () => {
   beforeEach(() => {
@@ -80,6 +96,8 @@ describe("homepage rebrand", () => {
       assets: {
         home_hero: null,
         home_hero_fallback: "/rebrand/error-candle.webp",
+        home_text_image_fallback: "/rebrand/error-candle.webp",
+        home_collections_fallback: "/rebrand/error-candle.webp",
         atelier_hero_fallback: "/rebrand/error-candle.webp",
         atelier_story_fallback: "/rebrand/error-candle.webp",
         atelier_atelier_fallback: "/rebrand/error-candle.webp",
@@ -88,6 +106,19 @@ describe("homepage rebrand", () => {
         error_page_image: "/rebrand/error-candle.webp",
         page_background: "/rebrand/watercolor-page-bg.webp",
       },
+    });
+    mockedGetHome.mockResolvedValue({
+      sections: [
+        section({ slug: "hero", type: "hero" }),
+        section({
+          slug: "categories",
+          type: "category_links",
+          heading: "Choose a handmade category",
+          subheading: "Shop by mood",
+          body: "Discover our current handmade collections.",
+          cta: null,
+        }),
+      ],
     });
   });
 

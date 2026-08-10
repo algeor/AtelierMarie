@@ -106,6 +106,8 @@ _SEED_TABLES: frozenset[str] = frozenset(
         "econt_settings",
         "about_sections",
         "about_items",
+        "home_sections",
+        "home_items",
     }
 )
 

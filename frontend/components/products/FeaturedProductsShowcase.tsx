@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { AddToCartButton } from "@/components/cart/AddToCartButton";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
-import type { ProductResponse } from "@/lib/types";
+import type { HomeSection, ProductResponse } from "@/lib/types";
 import { PriceDisplay } from "./PriceDisplay";
 import { ProductImage } from "./ProductImage";
 import {
@@ -16,13 +16,14 @@ import {
 
 interface FeaturedProductsShowcaseProps {
   products: ProductResponse[];
+  section?: HomeSection | null;
 }
 
 function productDescriptor(product: ProductResponse) {
   return product.category_name || product.product_type_name || product.labels[0]?.name || "Atelier Marie";
 }
 
-export function FeaturedProductsShowcase({ products }: FeaturedProductsShowcaseProps) {
+export function FeaturedProductsShowcase({ products, section }: FeaturedProductsShowcaseProps) {
   const t = useTranslations("home");
   const featuredProducts = products.slice(0, 3);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -59,13 +60,13 @@ export function FeaturedProductsShowcase({ products }: FeaturedProductsShowcaseP
       <div className="relative z-10 mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="landing-scroll-reveal mb-10 max-w-2xl lg:mb-0">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-            {t("featuredEyebrow")}
+            {section?.subheading ?? t("featuredEyebrow")}
           </p>
           <h2 id="featured-products-title" className="mt-3 font-heading text-3xl text-text sm:text-4xl lg:text-5xl">
-            {t("featured")}
+            {section?.heading ?? t("featured")}
           </h2>
           <p className="mt-4 max-w-xl text-base leading-7 text-muted">
-            {t("featuredIntro")}
+            {section?.body ?? t("featuredIntro")}
           </p>
         </div>
 

@@ -1,19 +1,21 @@
 import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import { BrandMark } from "@/components/rebrand";
-import type { ProductResponse, SiteMediaMap } from "@/lib/types";
+import type { HomeSection, ProductResponse, SiteMediaMap } from "@/lib/types";
 import { ProductImage } from "./ProductImage";
 
 interface HeroSectionProps {
   product?: ProductResponse | null;
   siteMedia?: SiteMediaMap | null;
+  section?: HomeSection | null;
 }
 
-export async function HeroSection({ product, siteMedia }: HeroSectionProps) {
+export async function HeroSection({ product, siteMedia, section }: HeroSectionProps) {
   const t = await getTranslations("home");
   const heroOverride = siteMedia?.home_hero ?? null;
-  const heroImage = heroOverride ?? product?.video?.poster_url ?? product?.primary_image_url ?? siteMedia?.home_hero_fallback ?? "/rebrand/error-candle.webp";
-  const heroImageName = heroOverride ? t("heroMediaFallback") : (product?.name ?? t("heroMediaFallback"));
+  const heroImage = section?.image ?? heroOverride ?? product?.video?.poster_url ?? product?.primary_image_url ?? siteMedia?.home_hero_fallback ?? "/rebrand/error-candle.webp";
+  const heroImageName = section?.image || heroOverride ? t("heroMediaFallback") : (product?.name ?? t("heroMediaFallback"));
+  const cta = section?.cta ?? { label: t("shopCollection"), href: "/products" };
 
   return (
     <section
@@ -36,24 +38,32 @@ export async function HeroSection({ product, siteMedia }: HeroSectionProps) {
             className="mb-4 h-16 w-24 text-accent md:h-20 md:w-28"
           />
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted md:text-sm">
-            {t("heroEyebrow")}
+            {section?.subheading ?? t("heroEyebrow")}
           </p>
           <h1 className="mt-4 max-w-3xl font-heading text-5xl leading-none text-text sm:text-6xl lg:text-7xl">
-            {t("heroTitle")}
+            {section?.heading ?? t("heroTitle")}
           </h1>
           <p className="mt-5 max-w-xl text-base leading-7 text-muted sm:text-lg">
-            {t("heroSubtitle")}
+            {section?.body ?? t("heroSubtitle")}
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
             <Link
-              href="/products"
+              href={normalizeInternalHref(cta.href)}
               className="inline-flex min-h-[48px] items-center justify-center rounded-brand bg-accent px-6 py-3 text-base font-semibold text-accent-foreground shadow-lg shadow-accent/25 transition-colors duration-fast hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
             >
-              {t("shopCollection")}
+              {cta.label}
             </Link>
           </div>
         </div>
       </div>
     </section>
   );
+}
+
+function normalizeInternalHref(href: string) {
+  const trimmed = href.trim();
+  if (/^[a-z][a-z\d+.-]*:/i.test(trimmed) || /^[/#.]/.test(trimmed)) {
+    return trimmed;
+  }
+  return `/${trimmed}`;
 }

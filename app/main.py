@@ -33,6 +33,7 @@ from app.routes import (
     cookies,
     delivery,
     faq,
+    home,
     inventory,
     legal,
     locale,
@@ -530,6 +531,8 @@ def create_app() -> FastAPI:
     )
     application.include_router(about.public_router, prefix="/v1/about", tags=["about"])
     application.include_router(about.admin_router, prefix="/v1/admin/about", tags=["admin-about"])
+    application.include_router(home.public_router, prefix="/v1/home", tags=["home"])
+    application.include_router(home.admin_router, prefix="/v1/admin/home", tags=["admin-home"])
     application.include_router(taxonomy.public_router, prefix="/v1/taxonomy", tags=["taxonomy"])
     application.include_router(taxonomy.admin_router, prefix="/v1/admin/taxonomy", tags=["admin"])
     application.include_router(faq.public_router, prefix="/v1/faq", tags=["faq"])

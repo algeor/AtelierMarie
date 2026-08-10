@@ -7,6 +7,8 @@ from pydantic import BaseModel
 SiteMediaKey = Literal[
     "home_hero",
     "home_hero_fallback",
+    "home_text_image_fallback",
+    "home_collections_fallback",
     "atelier_hero_fallback",
     "atelier_story_fallback",
     "atelier_atelier_fallback",
