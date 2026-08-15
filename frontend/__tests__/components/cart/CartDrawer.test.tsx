@@ -129,7 +129,7 @@ describe("CartDrawer", () => {
     expect(removeItem).toHaveBeenCalledWith("old-candle");
   });
 
-  it("caps quantity increments at available stock", () => {
+  it("allows crafted-later quantities beyond current stock until the per-item limit", () => {
     mockUseCart.mockReturnValue({
       ...baseCartState,
       isDrawerOpen: true,
@@ -156,7 +156,7 @@ describe("CartDrawer", () => {
       item_count: 5,
     });
     renderWithIntl(<CartDrawer />);
-    expect(screen.getByRole("button", { name: "Increase quantity" })).toBeDisabled();
-    expect(screen.getByText("Only 5 available")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Increase quantity" })).toBeEnabled();
+    expect(screen.queryByText("Only 5 available")).not.toBeInTheDocument();
   });
 });

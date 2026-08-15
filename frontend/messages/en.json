@@ -2317,6 +2317,15 @@
     "currentImage": "Current image: {url}",
     "selectedFile": "Selected: {name}",
     "selectedFiles": "{count} file(s) selected",
+    "imageImport": {
+      "title": "Import existing image URLs",
+      "description": "Register already-generated image variants without re-uploading the source file.",
+      "imageUrl": "Main image URL",
+      "thumbnailUrl": "Thumbnail URL",
+      "zoomUrl": "Zoom URL (optional)",
+      "savedImmediately": "Imported images are saved immediately and then appear in the gallery controls above.",
+      "action": "Import existing image"
+    },
     "largeImageTitle": "Large image",
     "largeImageWarning": "This image is large ({size} MB). Large files can slow your store. Add it anyway?",
     "cropTitle": "Adjust image",
@@ -2373,6 +2382,7 @@
     },
     "errors": {
       "saveProduct": "Failed to save product",
+      "importImage": "Failed to import image",
       "loadStats": "Failed to load stats",
       "loadOrders": "Failed to load orders",
       "updateOrderStatus": "Failed to update order status",
@@ -2987,6 +2997,7 @@
     "image_dimensions_too_large": "The image dimensions are too large",
     "image_processing_failed": "Image processing failed. Please try another file",
     "image_not_found": "Product image not found",
+    "invalid_image_url": "The image URL must be an absolute /static path or a full http(s) URL",
     "invalid_image_order": "Invalid image order",
     "CAMPAIGN_STATE": "This campaign is live. Remove its discount before editing the discount or target, then re-apply.",
     "BULK_TARGET_LIMIT_EXCEEDED": "This target matches too many products (limit is 500). Narrow the filter or selection.",

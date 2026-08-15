@@ -134,8 +134,11 @@ def test_cogs_generation_and_close_preview(valuation_db):
     )
     valuation_db.execute(
         """
-        INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity)
-        VALUES ('order-value', 'prod-value', 'Value Candle', 2500, 2)
+        INSERT INTO order_items (
+            order_id, product_id, product_name, price_cents,
+            quantity, allocated_quantity, backordered_quantity
+        )
+        VALUES ('order-value', 'prod-value', 'Value Candle', 2500, 2, 2, 0)
         """
     )
     valuation_db.commit()

@@ -136,6 +136,20 @@ def test_add_existing_image_url_stores_null_zoom(_product):
     assert product["images"][0]["zoom_url"] is None
 
 
+def test_add_existing_image_variants_preserves_supplied_thumbnail_and_zoom(_product):
+    result = product_image_service.add_existing_image_variants(
+        "gallery-product",
+        "/static/products/imported-main.webp",
+        "/static/products/imported-thumb.webp",
+        "/static/products/imported-zoom.webp",
+    )
+
+    assert result is not None
+    assert result["image_url"] == "/static/products/imported-main.webp"
+    assert result["thumbnail_url"] == "/static/products/imported-thumb.webp"
+    assert result["zoom_url"] == "/static/products/imported-zoom.webp"
+
+
 def test_delete_image_with_null_zoom_url_does_not_crash(_product):
     result = product_image_service.add_existing_image_url(
         "gallery-product", "/static/products/externally-sourced.webp"

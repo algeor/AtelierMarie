@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.database import get_db
 
 # Reusable structured-delivery block for /v1/orders POSTs. Kept as a module-
@@ -114,7 +114,7 @@ async def admin_order_client(app, order_session_id) -> AsyncClient:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         c.cookies.set(settings.session_cookie_name, order_session_id)
-        c.headers["Authorization"] = "Bearer test-admin-key"
+        c.headers["Authorization"] = f"Bearer {settings.admin_api_key}"
         yield c
 
 
@@ -431,8 +431,8 @@ class TestCreateOrder:
         assert resp.status_code == 400
         assert resp.json()["error"]["code"] == "EMPTY_CART"
 
-    async def test_checkout_insufficient_stock_409(self, app, db_path):
-        """Insufficient stock returns 409."""
+    async def test_checkout_short_stock_creates_awaiting_production_order(self, app, db_path):
+        """Short stock is accepted and the remainder is backordered for production."""
         sid = str(uuid.uuid4())
         now = datetime.now(UTC)
         with get_db() as conn:
@@ -446,21 +446,40 @@ class TestCreateOrder:
                 "VALUES (%s, 'midnight-amber', 6)",
                 (sid,),
             )
+        _set_payment_settings(card_payments_enabled=True)
 
         settings = get_settings()
         transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as c:
-            c.cookies.set(settings.session_cookie_name, sid)
-            resp = await c.post(
-                "/v1/orders",
-                json={
-                    "customer_email": "t@t.com",
-                    "customer_name": "Test Buyer",
-                    "delivery": DELIVERY_OFFICE_ECONT,
-                },
-            )
-        assert resp.status_code == 409
-        assert resp.json()["error"]["code"] == "INSUFFICIENT_STOCK"
+        with patch(
+            "app.routes.orders.get_settings",
+            return_value=Settings(
+                stripe_secret_key="sk_test_short_stock",
+                stripe_webhook_secret="whsec_short_stock",
+                stripe_success_url="https://shop.example/success/{order_id}",
+                stripe_cancel_url="https://shop.example/cancel/{order_id}",
+            ),
+        ):
+            async with AsyncClient(transport=transport, base_url="http://test") as c:
+                c.cookies.set(settings.session_cookie_name, sid)
+                resp = await c.post(
+                    "/v1/orders",
+                    json={
+                        "customer_email": "t@t.com",
+                        "customer_name": "Test Buyer",
+                        "delivery": DELIVERY_OFFICE_ECONT,
+                        "payment_method": "card",
+                    },
+                )
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["fulfillment_status"] == "awaiting_production"
+        with get_db() as conn:
+            item = conn.execute(
+                "SELECT allocated_quantity, backordered_quantity FROM order_items WHERE order_id = %s",
+                (body["id"],),
+            ).fetchone()
+        assert item["allocated_quantity"] == 5
+        assert item["backordered_quantity"] == 1
 
     # 7.4: POST returns 422 for invalid email, overly long fields
     async def test_invalid_email_422(self, order_client):

@@ -12,7 +12,7 @@ import { AdminInfoPopover } from "@/components/admin/AdminInfoPopover";
 import { AdminTranslationGapButton, MissingBgLabel, isMissingTranslation, type AdminTranslationGap } from "@/components/admin/AdminTranslationGaps";
 import { ApiError } from "@/lib/api-client";
 import { resolveMediaUrl } from "@/lib/media";
-import { getAdminTaxonomy } from "@/lib/api";
+import { getAdminTaxonomy, importProductImage } from "@/lib/api";
 import { cn, formatPrice } from "@/lib/utils";
 import type { AdminProductResponse, AdminTaxonomyTerm, ProductImage } from "@/lib/types";
 import { useLocalizedError } from "@/lib/useLocalizedError";
@@ -117,6 +117,11 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
   // through the existing size-warning/commit flow.
   const [cropQueue, setCropQueue] = useState<File[]>([]);
   const [croppedFiles, setCroppedFiles] = useState<File[]>([]);
+  const [importImageUrl, setImportImageUrl] = useState("");
+  const [importThumbnailUrl, setImportThumbnailUrl] = useState("");
+  const [importZoomUrl, setImportZoomUrl] = useState("");
+  const [importError, setImportError] = useState<string | null>(null);
+  const [isImportingImage, setIsImportingImage] = useState(false);
   const largeImageDialogRef = useRef<HTMLDivElement>(null);
   const largeImageCancelRef = useRef<HTMLButtonElement>(null);
 
@@ -413,6 +418,34 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
 
   function setPrimaryImage(imageId: string) {
     syncImages(images.map((image) => ({ ...image, is_primary: image.id === imageId })));
+  }
+
+  async function handleImportExistingImage() {
+    if (!product) return;
+    if (images.length + formData.image_files.length >= 6) {
+      setImportError(t("validation.maxImages"));
+      return;
+    }
+
+    setImportError(null);
+    setIsImportingImage(true);
+    try {
+      const image = await importProductImage(product.id, {
+        image_url: importImageUrl,
+        thumbnail_url: importThumbnailUrl,
+        zoom_url: importZoomUrl.trim() || null,
+      });
+      syncImages([...images, image]);
+      setImportImageUrl("");
+      setImportThumbnailUrl("");
+      setImportZoomUrl("");
+    } catch (err) {
+      setImportError(
+        err instanceof ApiError ? getLocalizedError(err.code) : t("errors.importImage")
+      );
+    } finally {
+      setIsImportingImage(false);
+    }
   }
 
   function commitFiles(files: File[]) {
@@ -933,6 +966,51 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
             <p className="mt-1.5 text-xs text-soft-brown/70">
               {t("selectedFiles", { count: formData.image_files.length })}
             </p>
+          )}
+          {product && (
+            <div className="rounded-brand border border-champagne-beige bg-warm-ivory p-4">
+              <div className="space-y-2">
+                <p className="font-medium text-charcoal">{t("imageImport.title")}</p>
+                <p className="text-sm text-soft-brown">{t("imageImport.description")}</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Input
+                    label={t("imageImport.imageUrl")}
+                    value={importImageUrl}
+                    onChange={(e) => setImportImageUrl(e.target.value)}
+                    placeholder="/static/products/example.webp"
+                  />
+                  <Input
+                    label={t("imageImport.thumbnailUrl")}
+                    value={importThumbnailUrl}
+                    onChange={(e) => setImportThumbnailUrl(e.target.value)}
+                    placeholder="/static/products/example_thumb.webp"
+                  />
+                  <div className="sm:col-span-2">
+                    <Input
+                      label={t("imageImport.zoomUrl")}
+                      value={importZoomUrl}
+                      onChange={(e) => setImportZoomUrl(e.target.value)}
+                      placeholder="/static/products/example_zoom.webp"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-soft-brown/70">{t("imageImport.savedImmediately")}</p>
+                {importError && <p className="text-sm text-red-700">{importError}</p>}
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => void handleImportExistingImage()}
+                  disabled={
+                    images.length + formData.image_files.length >= 6 ||
+                    !importImageUrl.trim() ||
+                    !importThumbnailUrl.trim()
+                  }
+                  isLoading={isImportingImage}
+                >
+                  {t("imageImport.action")}
+                </Button>
+              </div>
+            </div>
           )}
           {cropQueue.length > 0 && cropQueue[0] && (
             <ImageCropEditor

@@ -26,8 +26,11 @@ def _seed_product_and_order(db: psycopg.Connection, app, *, product_id: str, ord
     )
     db.execute(
         """
-        INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity)
-        VALUES (%s, %s, %s, 1000, 1)
+        INSERT INTO order_items (
+            order_id, product_id, product_name, price_cents,
+            quantity, allocated_quantity, backordered_quantity
+        )
+        VALUES (%s, %s, %s, 1000, 1, 1, 0)
         """,
         (order_id, product_id, product_id.replace("-", " ").title()),
     )

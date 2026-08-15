@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { usePathname, useRouter } from "@/i18n/navigation";
 import type { Locale } from "@/i18n/routing";
@@ -27,6 +28,7 @@ export function LanguageToggle() {
   const currentLocale = useLocale() as Locale;
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -80,7 +82,9 @@ export function LanguageToggle() {
     document.cookie = `NEXT_LOCALE=${target};path=/;max-age=${60 * 60 * 24 * 365};SameSite=Lax`;
 
     // Navigate to the same page in the other locale
-    router.replace(pathname, { locale: target });
+    const query = searchParams.toString();
+    const href = query ? `${pathname}?${query}` : pathname;
+    router.replace(href, { locale: target });
 
     updateLocalePreference(target).catch(() => {
       // Non-critical — best effort

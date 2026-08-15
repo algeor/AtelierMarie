@@ -399,6 +399,85 @@ class TestImageUploadRoute:
         assert row["is_primary"] == 1
 
 
+class TestImageImportRoute:
+    """Register pre-generated image variants without re-uploading the source file."""
+
+    @pytest.fixture()
+    def _product(self, db, app):
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO products (id, name_en, price_cents, stock, is_active) "
+                "VALUES (%s, %s, %s, %s, 1)",
+                ("test-candle-import", "Test Candle", 2500, 10),
+            )
+
+    @pytest.mark.asyncio
+    async def test_import_happy_path(self, admin_client: AsyncClient, _product):
+        response = await admin_client.post(
+            "/v1/admin/products/test-candle-import/images/import",
+            json={
+                "image_url": "/static/products/imported-main.webp",
+                "thumbnail_url": "/static/products/imported-thumb.webp",
+                "zoom_url": "/static/products/imported-zoom.webp",
+            },
+        )
+
+        assert response.status_code == 201
+        body = response.json()
+        assert body["image_url"] == "/static/products/imported-main.webp"
+        assert body["thumbnail_url"] == "/static/products/imported-thumb.webp"
+        assert body["zoom_url"] == "/static/products/imported-zoom.webp"
+        assert body["is_primary"] is True
+
+    @pytest.mark.asyncio
+    async def test_import_product_not_found(self, admin_client: AsyncClient):
+        response = await admin_client.post(
+            "/v1/admin/products/nonexistent-product/images/import",
+            json={
+                "image_url": "/static/products/imported-main.webp",
+                "thumbnail_url": "/static/products/imported-thumb.webp",
+            },
+        )
+
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_import_invalid_url(self, admin_client: AsyncClient, _product):
+        response = await admin_client.post(
+            "/v1/admin/products/test-candle-import/images/import",
+            json={
+                "image_url": "relative/path.webp",
+                "thumbnail_url": "/static/products/imported-thumb.webp",
+            },
+        )
+
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_import_inserts_product_image_row(self, admin_client: AsyncClient, _product):
+        await admin_client.post(
+            "/v1/admin/products/test-candle-import/images/import",
+            json={
+                "image_url": "/static/products/imported-main.webp",
+                "thumbnail_url": "/static/products/imported-thumb.webp",
+                "zoom_url": "/static/products/imported-zoom.webp",
+            },
+        )
+
+        with get_db() as conn:
+            row = conn.execute(
+                (
+                    "SELECT image_url, thumbnail_url, zoom_url, is_primary "
+                    "FROM product_images WHERE product_id = %s"
+                ),
+                ("test-candle-import",),
+            ).fetchone()
+        assert row["image_url"] == "/static/products/imported-main.webp"
+        assert row["thumbnail_url"] == "/static/products/imported-thumb.webp"
+        assert row["zoom_url"] == "/static/products/imported-zoom.webp"
+        assert row["is_primary"] == 1
+
+
 # --- Test overwrite ---
 
 

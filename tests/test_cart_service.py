@@ -161,31 +161,27 @@ class TestAddItem:
             add_item(cart_db, SESSION_ID, "winter-pine", 1)
 
 
-# --- 8.4 Test add_item stock validation ---
+# --- 8.4 Test add_item crafted-later behavior ---
 
 
-class TestAddItemStock:
-    """Tests for stock validation in add_item."""
+class TestAddItemCraftedLater:
+    """Active products stay orderable even when cart quantity exceeds stock."""
 
     def test_sufficient_stock(self, cart_db: psycopg.Connection):
         """Adding within stock limits succeeds."""
         result = add_item(cart_db, SESSION_ID, "lavender-dream", 5)
         assert result.cart.items[0].quantity == 5
 
-    def test_insufficient_stock_new_add(self, cart_db: psycopg.Connection):
-        """Requesting more than stock raises InsufficientStockError."""
-        with pytest.raises(InsufficientStockError) as exc_info:
-            add_item(cart_db, SESSION_ID, "rose-garden", 6)  # stock=5
-        assert exc_info.value.available == 5
-        assert exc_info.value.requested == 6
+    def test_add_above_stock_succeeds_for_active_products(self, cart_db: psycopg.Connection):
+        """Short stock is handled at checkout as backorder allocation, not in-cart."""
+        result = add_item(cart_db, SESSION_ID, "rose-garden", 6)  # stock=5
+        assert result.cart.items[0].quantity == 6
 
-    def test_insufficient_stock_with_existing_qty(self, cart_db: psycopg.Connection):
-        """Existing qty 3 + add 4 = 7 > stock 5 → fail."""
+    def test_existing_quantity_can_grow_past_stock(self, cart_db: psycopg.Connection):
+        """Existing qty 3 + add 4 = 7 remains valid for crafted-later checkout."""
         add_item(cart_db, SESSION_ID, "rose-garden", 3)
-        with pytest.raises(InsufficientStockError) as exc_info:
-            add_item(cart_db, SESSION_ID, "rose-garden", 4)
-        assert exc_info.value.requested == 7  # 3 + 4
-        assert exc_info.value.available == 5
+        cart = add_item(cart_db, SESSION_ID, "rose-garden", 4).cart
+        assert cart.items[0].quantity == 7
 
 
 # --- 8.5 Test add_item quantity limits ---
@@ -262,13 +258,11 @@ class TestUpdateQuantity:
         cart = update_quantity(cart_db, SESSION_ID, "lavender-dream", 0)
         assert len(cart.items) == 0
 
-    def test_update_exceeds_stock(self, cart_db: psycopg.Connection):
-        """Update to quantity exceeding stock raises InsufficientStockError."""
+    def test_update_exceeds_stock_stays_allowed_for_active_products(self, cart_db: psycopg.Connection):
+        """Updating above stock keeps the item eligible for crafted-later fulfillment."""
         add_item(cart_db, SESSION_ID, "rose-garden", 2)
-        with pytest.raises(InsufficientStockError) as exc_info:
-            update_quantity(cart_db, SESSION_ID, "rose-garden", 8)  # stock=5
-        assert exc_info.value.available == 5
-        assert exc_info.value.requested == 8
+        cart = update_quantity(cart_db, SESSION_ID, "rose-garden", 8)  # stock=5
+        assert cart.items[0].quantity == 8
 
     def test_update_exceeds_per_item_limit(self, cart_db: psycopg.Connection):
         """Update to quantity exceeding per-item limit raises QuantityLimitError."""

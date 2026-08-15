@@ -55,15 +55,21 @@ def order_id(conn) -> str:
     )
     conn.execute(
         """
-        INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity)
-        VALUES (%s, 'candle-a', 'Candle A', 2000, 2)
+        INSERT INTO order_items (
+            order_id, product_id, product_name, price_cents,
+            quantity, allocated_quantity, backordered_quantity
+        )
+        VALUES (%s, 'candle-a', 'Candle A', 2000, 2, 2, 0)
         """,
         (order_id,),
     )
     conn.execute(
         """
-        INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity)
-        VALUES (%s, 'candle-b', 'Candle B', 1500, 1)
+        INSERT INTO order_items (
+            order_id, product_id, product_name, price_cents,
+            quantity, allocated_quantity, backordered_quantity
+        )
+        VALUES (%s, 'candle-b', 'Candle B', 1500, 1, 1, 0)
         """,
         (order_id,),
     )

@@ -139,4 +139,22 @@ describe("ProductGallery", () => {
     );
     expect(zoomImg).toBeTruthy();
   });
+
+  it("falls back to a placeholder when a thumbnail fails to load", () => {
+    const { container } = renderWithIntl(
+      <ProductGallery
+        name="Lavender Dreams"
+        images={[image, secondImage]}
+        primaryImageUrl={image.image_url}
+      />
+    );
+
+    const thumbnail = container.querySelector('.grid img[src*="lavender_thumb.webp"]');
+    expect(thumbnail).toBeTruthy();
+
+    fireEvent.error(thumbnail!);
+
+    expect(screen.getAllByText("Lavender Dreams").length).toBeGreaterThan(0);
+    expect(container.querySelector('.grid img[src*="lavender_thumb.webp"]')).toBeNull();
+  });
 });

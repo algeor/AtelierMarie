@@ -109,9 +109,9 @@ def _make_order(
         ),
     )
     conn.execute(
-        "INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity) "
-        "VALUES (%s, %s, %s, %s, %s)",
-        (order_id, "lavender-dream", "Lavender Dream", 2500, 2),
+        "INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity, allocated_quantity, backordered_quantity) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        (order_id, "lavender-dream", "Lavender Dream", 2500, 2, 2, 0),
     )
     return order_id
 

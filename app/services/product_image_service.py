@@ -284,10 +284,27 @@ def add_existing_image_url(product_id: str, image_url: str) -> dict | None:
 
     Returns None when the product already has the configured maximum images.
     """
-    if not image_url.startswith(("http://", "https://", "/")):
-        raise ValueError("image_url must be http(s) or an absolute relative path")
-    image_id = uuid.uuid4().hex
+    image_url = _normalize_existing_image_url("image_url", image_url)
     thumbnail_url = _derive_thumbnail_url(image_url)
+    return add_existing_image_variants(product_id, image_url, thumbnail_url, None)
+
+
+def add_existing_image_variants(
+    product_id: str,
+    image_url: str,
+    thumbnail_url: str,
+    zoom_url: str | None,
+) -> dict | None:
+    """Append already-generated image variant URLs to a product gallery.
+
+    Returns None when the product already has the configured maximum images.
+    """
+    image_url = _normalize_existing_image_url("image_url", image_url)
+    thumbnail_url = _normalize_existing_image_url("thumbnail_url", thumbnail_url)
+    if zoom_url is not None:
+        zoom_url = _normalize_existing_image_url("zoom_url", zoom_url)
+
+    image_id = uuid.uuid4().hex
     with get_db() as conn:
         _ensure_product_exists(conn, product_id)
         current = conn.execute(
@@ -314,7 +331,7 @@ def add_existing_image_url(product_id: str, image_url: str) -> dict | None:
                 product_id,
                 image_url,
                 thumbnail_url,
-                None,
+                zoom_url,
                 int(current["max_order"]) + 1,
                 is_primary,
             ),
@@ -334,6 +351,13 @@ def _ensure_product_exists(conn: DbConnection, product_id: str) -> None:
     row = conn.execute("SELECT 1 FROM products WHERE id = %s", (product_id,)).fetchone()
     if row is None:
         raise ProductNotFoundError(f"Product not found: {product_id}")
+
+
+def _normalize_existing_image_url(field_name: str, image_url: str) -> str:
+    stripped = image_url.strip()
+    if not stripped.startswith(("http://", "https://", "/")):
+        raise ValueError(f"{field_name} must be http(s) or an absolute relative path")
+    return stripped
 
 
 def _derive_thumbnail_url(image_url: str) -> str:

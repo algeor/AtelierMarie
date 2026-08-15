@@ -61,8 +61,11 @@ def _seed_order(
     )
     db.execute(
         """
-        INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity)
-        VALUES (%s, 'accounting-order-product', 'Accounting Candle', 2500, 1)
+        INSERT INTO order_items (
+            order_id, product_id, product_name, price_cents,
+            quantity, allocated_quantity, backordered_quantity
+        )
+        VALUES (%s, 'accounting-order-product', 'Accounting Candle', 2500, 1, 1, 0)
         """,
         (order_id,),
     )

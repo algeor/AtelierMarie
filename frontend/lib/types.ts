@@ -2989,6 +2989,12 @@ export interface UpdateProductRequest {
   discount_ends_at?: string | null;
 }
 
+export interface ProductImageImportRequest {
+  image_url: string;
+  thumbnail_url: string;
+  zoom_url?: string | null;
+}
+
 export type ImageUploadResponse = ProductImage;
 export type VideoUploadResponse = ProductVideo;
 

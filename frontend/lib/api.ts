@@ -101,6 +101,7 @@ import type {
   ProductListQuery,
   ProductListResponse,
   ProductAnalyticsResponse,
+  ProductImageImportRequest,
   PublicPaymentSettingsResponse,
   ProductResponse,
   PublicSiteMediaResponse,
@@ -1211,7 +1212,9 @@ export async function getCurrentUser(): Promise<UserResponse | null> {
     // Only treat auth failures as "not logged in" — re-throw network errors
     if (
       error instanceof apiClient.ApiError &&
-      (error.code === "UNAUTHORIZED" || error.code === "FORBIDDEN")
+      (error.code === "NOT_AUTHENTICATED" ||
+        error.code === "UNAUTHORIZED" ||
+        error.code === "FORBIDDEN")
     ) {
       return null;
     }
@@ -1452,6 +1455,17 @@ export async function uploadProductImage(
   return apiClient.postForm<ImageUploadResponse>(
     `/v1/admin/products/${encodeURIComponent(productId)}/images`,
     formData,
+  );
+}
+
+export async function importProductImage(
+  productId: string,
+  body: ProductImageImportRequest,
+): Promise<ImageUploadResponse> {
+  if (USE_MOCK) return (await getMock()).importProductImage(productId, body);
+  return apiClient.post<ImageUploadResponse>(
+    `/v1/admin/products/${encodeURIComponent(productId)}/images/import`,
+    body,
   );
 }
 

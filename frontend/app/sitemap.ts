@@ -9,7 +9,10 @@ const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://ateliermarie.com";
  */
 const STATIC_ROUTES = [
   "",
+  "/atelier",
   "/products",
+  "/faq",
+  "/contact",
   "/checkout",
   "/orders",
   "/account",

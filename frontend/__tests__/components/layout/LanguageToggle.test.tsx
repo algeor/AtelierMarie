@@ -14,6 +14,7 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
 
 const mockReplace = vi.fn();
 const mockPathname = "/products";
+let mockSearchParams = new URLSearchParams();
 
 vi.mock("next-intl", () => ({
   useLocale: vi.fn(() => "en"),
@@ -32,6 +33,10 @@ vi.mock("@/i18n/navigation", () => ({
   usePathname: () => mockPathname,
 }));
 
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => mockSearchParams,
+}));
+
 import { useLocale } from "next-intl";
 import { LanguageToggle } from "@/components/layout/LanguageToggle";
 
@@ -44,6 +49,7 @@ function openMenu() {
 describe("LanguageToggle", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSearchParams = new URLSearchParams();
     // Reset cookie
     Object.defineProperty(document, "cookie", {
       writable: true,
@@ -132,6 +138,21 @@ describe("LanguageToggle", () => {
         screen.getByRole("menuitem", { name: /превключи на български/i })
       );
       expect(mockReplace).toHaveBeenCalledWith(mockPathname, { locale: "bg" });
+    });
+
+    it("preserves the current query string when switching locale", () => {
+      mockSearchParams = new URLSearchParams("page=2&category=candles&token=abc123");
+      render(<LanguageToggle />);
+      openMenu();
+
+      fireEvent.click(
+        screen.getByRole("menuitem", { name: /превключи на български/i })
+      );
+
+      expect(mockReplace).toHaveBeenCalledWith(
+        "/products?page=2&category=candles&token=abc123",
+        { locale: "bg" }
+      );
     });
 
     it("sets the NEXT_LOCALE cookie", () => {

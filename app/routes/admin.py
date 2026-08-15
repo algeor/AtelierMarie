@@ -108,6 +108,7 @@ from app.models.products import (
     ProductAdminListResponse,
     ProductAdminResponse,
     ProductImage,
+    ProductImageImportRequest,
     ProductVideo,
     ReorderProductImagesRequest,
     UpdateProductRequest,
@@ -3759,6 +3760,48 @@ async def admin_append_product_image(
             422,
             "image_processing_failed",
             "Image could not be processed. The file may be corrupted.",
+        )
+    return ProductImage(**image)
+
+
+@router.post(
+    "/products/{product_id}/images/import",
+    response_model=ProductImage,
+    status_code=201,
+    summary="Import existing product image variants",
+    description=(
+        "Register already-generated main/thumbnail/zoom image URLs as one product gallery "
+        "entry without reprocessing the file. Useful for admin backfills and imported assets."
+    ),
+    responses={
+        201: {"description": "Image variants imported successfully"},
+        404: {"description": "Product not found"},
+        409: {"description": "Product already has the maximum number of images"},
+        422: {"description": "Invalid image URL"},
+    },
+)
+async def admin_import_product_image(
+    product_id: str,
+    body: ProductImageImportRequest,
+) -> ProductImage | JSONResponse:
+    """Register already-generated image variants for a product gallery entry."""
+    try:
+        image = product_image_service.add_existing_image_variants(
+            product_id,
+            body.image_url,
+            body.thumbnail_url,
+            body.zoom_url,
+        )
+    except product_image_service.ProductNotFoundError:
+        return error_response(404, "product_not_found", "Product not found")
+    except ValueError as exc:
+        return error_response(422, "invalid_image_url", str(exc))
+
+    if image is None:
+        return error_response(
+            409,
+            "max_product_images",
+            "Product already has the maximum number of images",
         )
     return ProductImage(**image)
 

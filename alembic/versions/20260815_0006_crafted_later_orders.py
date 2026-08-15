@@ -27,14 +27,39 @@ def upgrade() -> None:
 
         ALTER TABLE order_items
             ADD COLUMN allocated_quantity INTEGER,
-            ADD COLUMN backordered_quantity INTEGER NOT NULL DEFAULT 0;
+            ADD COLUMN backordered_quantity INTEGER;
 
         UPDATE order_items
-        SET allocated_quantity = quantity
-        WHERE allocated_quantity IS NULL;
+        SET allocated_quantity = quantity,
+            backordered_quantity = 0
+        WHERE allocated_quantity IS NULL OR backordered_quantity IS NULL;
+
+        CREATE OR REPLACE FUNCTION set_order_item_fulfillment_defaults()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS $$
+        BEGIN
+            IF NEW.allocated_quantity IS NULL AND NEW.backordered_quantity IS NULL THEN
+                NEW.allocated_quantity := NEW.quantity;
+                NEW.backordered_quantity := 0;
+            ELSIF NEW.allocated_quantity IS NULL THEN
+                NEW.allocated_quantity := NEW.quantity - NEW.backordered_quantity;
+            ELSIF NEW.backordered_quantity IS NULL THEN
+                NEW.backordered_quantity := NEW.quantity - NEW.allocated_quantity;
+            END IF;
+
+            RETURN NEW;
+        END;
+        $$;
+
+        CREATE TRIGGER order_items_fulfillment_defaults
+        BEFORE INSERT OR UPDATE ON order_items
+        FOR EACH ROW
+        EXECUTE FUNCTION set_order_item_fulfillment_defaults();
 
         ALTER TABLE order_items
-            ALTER COLUMN allocated_quantity SET NOT NULL;
+            ALTER COLUMN allocated_quantity SET NOT NULL,
+            ALTER COLUMN backordered_quantity SET NOT NULL;
 
         ALTER TABLE order_items
             ADD CONSTRAINT order_items_allocated_quantity_nonnegative
@@ -51,6 +76,9 @@ def downgrade() -> None:
     """Downgrade schema."""
     op.execute(
         """
+        DROP TRIGGER IF EXISTS order_items_fulfillment_defaults ON order_items;
+        DROP FUNCTION IF EXISTS set_order_item_fulfillment_defaults();
+
         ALTER TABLE order_items
             DROP CONSTRAINT IF EXISTS order_items_fulfillment_quantity_sum_check,
             DROP CONSTRAINT IF EXISTS order_items_backordered_quantity_nonnegative,

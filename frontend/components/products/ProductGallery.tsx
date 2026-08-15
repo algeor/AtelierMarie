@@ -28,6 +28,38 @@ type GalleryItem =
   | { kind: "image"; id: string; image: ProductImageModel }
   | { kind: "video"; id: string; video: ProductVideo };
 
+function GalleryThumbnail({
+  label,
+  imageUrl,
+}: {
+  label: string;
+  imageUrl: string | null;
+}) {
+  const [hasError, setHasError] = useState(false);
+
+  if (!imageUrl || hasError) {
+    return (
+      <span
+        aria-hidden="true"
+        className="flex h-full w-full items-center justify-center bg-brand-gradient px-2 text-center font-heading text-xs text-charcoal/80"
+      >
+        {label}
+      </span>
+    );
+  }
+
+  return (
+    <Image
+      src={imageUrl}
+      alt=""
+      fill
+      sizes="96px"
+      className="object-cover"
+      onError={() => setHasError(true)}
+    />
+  );
+}
+
 export function ProductGallery({
   name,
   images,
@@ -219,17 +251,7 @@ export function ProductGallery({
                   isSelected ? "border-text/70" : "border-border/30",
                 )}
               >
-                {thumbnailUrl ? (
-                  <Image
-                    src={thumbnailUrl}
-                    alt=""
-                    fill
-                    sizes="96px"
-                    className="object-cover"
-                  />
-                ) : (
-                  <span className="sr-only">{name}</span>
-                )}
+                <GalleryThumbnail label={name} imageUrl={thumbnailUrl} />
                 {item.kind === "video" && (
                   <span className="absolute inset-0 flex items-center justify-center bg-text/10">
                     <span className="h-7 w-7 rounded-full bg-page/90 after:ml-[11px] after:mt-[7px] after:block after:h-0 after:w-0 after:border-y-[7px] after:border-l-[10px] after:border-y-transparent after:border-l-text" />

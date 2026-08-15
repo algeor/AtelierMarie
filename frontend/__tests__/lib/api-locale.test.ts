@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getAdminStats, getProduct, getProducts, updateLocalePreference } from "@/lib/api";
+import { ApiError } from "@/lib/api-client";
+import { getAdminStats, getCurrentUser, getProduct, getProducts, updateLocalePreference } from "@/lib/api";
 
 function jsonResponse(body: unknown) {
   return new Response(JSON.stringify(body), {
@@ -65,6 +66,39 @@ describe("API locale contracts", () => {
       })
     );
   });
+
+  it("treats NOT_AUTHENTICATED as anonymous for auth hydration", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: { code: "NOT_AUTHENTICATED", message: "User not found", details: null },
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    );
+
+    await expect(getCurrentUser()).resolves.toBeNull();
+  });
+
+  it("still rethrows non-auth API failures from auth hydration", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: { code: "RATE_LIMITED", message: "Slow down", details: null },
+        }),
+        {
+          status: 429,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    );
+
+    await expect(getCurrentUser()).rejects.toBeInstanceOf(ApiError);
+  });
+
   it("normalizes nested backend admin stats", async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(
       jsonResponse({

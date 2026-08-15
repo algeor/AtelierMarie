@@ -45,7 +45,7 @@ def test_public_home_reconstructs_r2_image_urls(db, fake_storage):
             (section_image_id,),
         )
         item_id = conn.execute(
-            "SELECT id FROM home_items WHERE section = 'trust' ORDER BY sort_order LIMIT 1"
+            "SELECT id FROM home_items WHERE section = 'trust' AND is_published = 1 ORDER BY sort_order LIMIT 1"
         ).fetchone()["id"]
         conn.execute("UPDATE home_items SET image_id = %s WHERE id = %s", (item_image_id, item_id))
 

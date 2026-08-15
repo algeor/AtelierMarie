@@ -54,8 +54,11 @@ def _seed_paid_order(db: psycopg.Connection, app, *, seller_id: int, vat_id: int
     )
     db.execute(
         """
-        INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity)
-        VALUES ('export-order', 'export-candle', 'Export Candle', 1000, 1)
+        INSERT INTO order_items (
+            order_id, product_id, product_name, price_cents,
+            quantity, allocated_quantity, backordered_quantity
+        )
+        VALUES ('export-order', 'export-candle', 'Export Candle', 1000, 1, 1, 0)
         """
     )
     db.execute(

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useLocale } from "next-intl";
 import { useAdmin } from "@/contexts/AdminContext";
 import enMessages from "@/messages/en.json";
 import bgMessages from "@/messages/bg.json";
@@ -9,8 +10,7 @@ import bgMessages from "@/messages/bg.json";
 export function AdminGuard({ children }: { children: React.ReactNode }) {
   const { isAdmin, isLoading } = useAdmin();
   const router = useRouter();
-  const params = useParams<{ locale?: string }>();
-  const locale = params?.locale === "bg" ? "bg" : "en";
+  const locale = useLocale() === "bg" ? "bg" : "en";
   const loadingMessage = locale === "bg" ? bgMessages.common.loading : enMessages.common.loading;
 
   useEffect(() => {

@@ -4147,6 +4147,40 @@ export async function uploadProductImage(
   return image;
 }
 
+export async function importProductImage(
+  productId: string,
+  body: { image_url: string; thumbnail_url: string; zoom_url?: string | null },
+): Promise<ImageUploadResponse> {
+  await delay();
+  const product = MOCK_PRODUCTS.find((p) => p.id === productId);
+  if (!product)
+    mockError("product_not_found", `Product ${productId} not found`);
+  if (product.images.length >= 6) {
+    mockError(
+      "max_product_images",
+      "Product already has the maximum number of images",
+    );
+  }
+  for (const [field, value] of Object.entries(body)) {
+    if (value != null && !/^https?:\/\/|^\//.test(value)) {
+      mockError("invalid_image_url", `${field} must be http(s) or an absolute relative path`);
+    }
+  }
+  const image: ProductImage = {
+    id: `${productId}-${Date.now()}`,
+    image_url: body.image_url,
+    thumbnail_url: body.thumbnail_url,
+    zoom_url: body.zoom_url ?? null,
+    sort_order: product.images.length,
+    is_primary: product.images.length === 0,
+  };
+  product.images.push(image);
+  product.primary_image_url = primaryImageUrl(product.images);
+  product.primary_thumbnail_url = primaryThumbnailUrl(product.images);
+  product.updated_at = new Date().toISOString();
+  return image;
+}
+
 export async function deleteProductImage(
   productId: string,
   imageId: string,

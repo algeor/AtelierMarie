@@ -96,10 +96,13 @@ def _insert_order(
     )
     db.execute(
         """
-        INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity)
-        VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO order_items (
+            order_id, product_id, product_name, price_cents,
+            quantity, allocated_quantity, backordered_quantity
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, 0)
         """,
-        (order_id, product_id, product_name, price_cents, quantity),
+        (order_id, product_id, product_name, price_cents, quantity, quantity),
     )
     db.commit()
 

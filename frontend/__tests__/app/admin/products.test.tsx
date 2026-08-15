@@ -29,6 +29,7 @@ vi.mock("@/lib/api", () => ({
   deleteProduct: vi.fn(),
   createProduct: vi.fn(),
   uploadProductImage: vi.fn(),
+  importProductImage: vi.fn(),
   deleteProductImage: vi.fn(),
   deleteProductVideo: vi.fn(),
   getProductVideo: vi.fn(),
@@ -46,6 +47,7 @@ import {
   updateProduct,
   deleteProduct,
   createProduct,
+  importProductImage,
 } from "@/lib/api";
 import type {
   AdminProductListResponse,
@@ -61,6 +63,7 @@ const mockedGetAdminTaxonomy = vi.mocked(getAdminTaxonomy);
 const mockedUpdateProduct = vi.mocked(updateProduct);
 const mockedDeleteProduct = vi.mocked(deleteProduct);
 const mockedCreateProduct = vi.mocked(createProduct);
+const mockedImportProductImage = vi.mocked(importProductImage);
 
 const ADMIN_USER: UserResponse = {
   id: "user-001",
@@ -407,6 +410,7 @@ describe("Admin Product Form Validation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockedGetCurrentUser.mockResolvedValue(ADMIN_USER);
+    mockTaxonomy();
   });
 
   it("shows validation errors for empty required fields", async () => {
@@ -612,6 +616,54 @@ describe("Admin Product Form Validation", () => {
     await waitFor(() => {
       expect(screen.getByDisplayValue("Lavender Dreams")).toBeInTheDocument();
       expect(screen.getByDisplayValue("32.00")).toBeInTheDocument();
+    });
+  });
+
+  it("imports an existing image URL from the edit form", async () => {
+    mockedGetAdminProduct.mockResolvedValue(MOCK_PRODUCT_WITH_IMAGE);
+    mockedImportProductImage.mockResolvedValue({
+      id: "image-2",
+      image_url: "/static/products/imported-main.webp",
+      thumbnail_url: "/static/products/imported-thumb.webp",
+      zoom_url: "/static/products/imported-zoom.webp",
+      sort_order: 1,
+      is_primary: false,
+    });
+
+    const { AdminProvider } = await import("@/contexts/AdminContext");
+    const { AdminGuard } = await import("@/components/admin/AdminGuard");
+    const EditProductPage = (await import("@/app/[locale]/admin/products/[id]/edit/page")).default;
+
+    renderWithIntl(
+      <AdminProvider>
+        <AdminGuard>
+          <EditProductPage />
+        </AdminGuard>
+      </AdminProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("Lavender Dreams")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Main image URL"), {
+      target: { value: "/static/products/imported-main.webp" },
+    });
+    fireEvent.change(screen.getByLabelText("Thumbnail URL"), {
+      target: { value: "/static/products/imported-thumb.webp" },
+    });
+    fireEvent.change(screen.getByLabelText("Zoom URL (optional)"), {
+      target: { value: "/static/products/imported-zoom.webp" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Import existing image" }));
+
+    await waitFor(() => {
+      expect(mockedImportProductImage).toHaveBeenCalledWith("lavender-dreams-300ml", {
+        image_url: "/static/products/imported-main.webp",
+        thumbnail_url: "/static/products/imported-thumb.webp",
+        zoom_url: "/static/products/imported-zoom.webp",
+      });
     });
   });
 

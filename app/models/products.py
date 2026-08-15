@@ -203,6 +203,37 @@ class ReorderProductImagesRequest(BaseModel):
     ordered_ids: list[str] = Field(..., min_length=0, max_length=6)
 
 
+class ProductImageImportRequest(BaseModel):
+    """Input for registering already-generated image variant URLs."""
+
+    image_url: str = Field(..., min_length=1, max_length=MAX_IMAGE_URL_LENGTH)
+    thumbnail_url: str = Field(..., min_length=1, max_length=MAX_IMAGE_URL_LENGTH)
+    zoom_url: str | None = Field(default=None, max_length=MAX_IMAGE_URL_LENGTH)
+
+    @field_validator("image_url", "thumbnail_url", "zoom_url", mode="before")
+    @classmethod
+    def strip_and_reject_blank_urls(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            return v
+        stripped = v.strip()
+        if not stripped:
+            msg = "must not be blank"
+            raise ValueError(msg)
+        return stripped
+
+    @field_validator("image_url", "thumbnail_url", "zoom_url")
+    @classmethod
+    def validate_media_urls(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if not v.startswith(("http://", "https://", "/")):
+            msg = "must be http(s) or an absolute relative path"
+            raise ValueError(msg)
+        return v
+
+
 class CreateProductRequest(BaseModel):
     """Input for creating a new product."""
 
