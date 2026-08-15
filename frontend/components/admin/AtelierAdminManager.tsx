@@ -14,6 +14,7 @@ import {
   createAboutItem,
   deleteAboutItem,
   getAdminAbout,
+  getTaxonomy,
   reorderAboutItems,
   reorderAboutSections,
   setAboutItemPublished,
@@ -24,9 +25,10 @@ import {
   uploadAboutSectionImage,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { AboutItemAdmin, AboutSectionAdmin, CreateAboutItemRequest } from "@/lib/types";
+import type { AboutItemAdmin, AboutSectionAdmin, CreateAboutItemRequest, TaxonomyResponse, TaxonomyTerm } from "@/lib/types";
 
 type EditorTab = "content" | "items" | "settings";
+type ProductFilterKind = "product_type" | "category" | "labels";
 
 const EMPTY_ITEM: CreateAboutItemRequest = {
   title_en: "",
@@ -71,6 +73,7 @@ export function AtelierAdminManager() {
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
   const [addingItemForSlug, setAddingItemForSlug] = useState<string | null>(null);
   const [newItems, setNewItems] = useState<Record<string, CreateAboutItemRequest>>({});
+  const [taxonomy, setTaxonomy] = useState<TaxonomyResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [saveNotice, setSaveNotice] = useState<{ id: number; message: string } | null>(null);
@@ -84,6 +87,20 @@ export function AtelierAdminManager() {
 
   useEffect(() => {
     refresh().catch(() => setError("Could not load atelier content."));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getTaxonomy()
+      .then((data) => {
+        if (!cancelled) setTaxonomy(data);
+      })
+      .catch(() => {
+        if (!cancelled) setTaxonomy(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -363,6 +380,7 @@ export function AtelierAdminManager() {
                   editingItemId={editingItemId}
                   addingItemForSlug={addingItemForSlug}
                   newItem={newItems[selectedSection.slug] ?? EMPTY_ITEM}
+                  taxonomy={taxonomy}
                   busyKey={busyKey}
                   onEditItem={setEditingItemId}
                   onAddItem={() => setAddingItemForSlug(selectedSection.slug)}
@@ -382,7 +400,7 @@ export function AtelierAdminManager() {
                       title_bg: newItem.title_bg || null,
                       text_en: newItem.text_en || null,
                       text_bg: newItem.text_bg || null,
-                      link_href: newItem.link_href || null,
+                      link_href: selectedSection.type === "collections" ? newItem.link_href || null : null,
                     });
                     setNewItems((current) => ({ ...current, [selectedSection.slug]: { ...EMPTY_ITEM } }));
                     setAddingItemForSlug(null);
@@ -591,12 +609,13 @@ function ContentTab({ section, draft, busyKey, onSectionChange, onSave, onUpload
   );
 }
 
-function ItemsTab({ section, draft, editingItemId, addingItemForSlug, newItem, busyKey, onEditItem, onAddItem, onCancelAdd, onItemChange, onNewItemChange, onMoveItem, onToggleItem, onDeleteItem, onSaveItem, onUploadItemImage, onClearItemImage, onCreateItem }: {
+function ItemsTab({ section, draft, editingItemId, addingItemForSlug, newItem, taxonomy, busyKey, onEditItem, onAddItem, onCancelAdd, onItemChange, onNewItemChange, onMoveItem, onToggleItem, onDeleteItem, onSaveItem, onUploadItemImage, onClearItemImage, onCreateItem }: {
   section: AboutSectionAdmin;
   draft: AboutSectionAdmin;
   editingItemId: number | null;
   addingItemForSlug: string | null;
   newItem: CreateAboutItemRequest;
+  taxonomy: TaxonomyResponse | null;
   busyKey: string | null;
   onEditItem: (itemId: number | null) => void;
   onAddItem: () => void;
@@ -655,7 +674,7 @@ function ItemsTab({ section, draft, editingItemId, addingItemForSlug, newItem, b
 
               {editing ? (
                 <div className="mt-4 space-y-4 border-t border-champagne-beige pt-4">
-                  <ItemFields sectionSlug={section.slug} item={item} onChange={(field, value) => onItemChange(section.slug, item.id, field, value)} />
+                  <ItemFields sectionSlug={section.slug} sectionType={draft.type} item={item} taxonomy={taxonomy} onChange={(field, value) => onItemChange(section.slug, item.id, field, value)} />
                   <div className="flex flex-wrap items-center gap-3">
                     <Button type="button" isLoading={busyKey === `item-save-${item.id}`} onClick={() => onSaveItem(item)}>Save item</Button>
                     <ImageControl image={item.image} onUpload={(file) => onUploadItemImage(item, file)} onClear={() => onClearItemImage(item)} />
@@ -678,7 +697,11 @@ function ItemsTab({ section, draft, editingItemId, addingItemForSlug, newItem, b
             <Field label="Title BG" value={newItem.title_bg ?? ""} onChange={(value) => onNewItemChange({ title_bg: value })} />
             <Area label="Text EN" value={newItem.text_en ?? ""} onChange={(value) => onNewItemChange({ text_en: value })} />
             <Area label="Text BG" value={newItem.text_bg ?? ""} onChange={(value) => onNewItemChange({ text_bg: value })} />
-            <Field label="Link href" value={newItem.link_href ?? ""} onChange={(value) => onNewItemChange({ link_href: value })} />
+            {draft.type === "collections" ? (
+              <div className="lg:col-span-2">
+                <CollectionLinkFields linkHref={newItem.link_href ?? ""} taxonomy={taxonomy} onChange={(value) => onNewItemChange({ link_href: value })} />
+              </div>
+            ) : null}
           </div>
           <Button type="button" className="mt-3" disabled={!newItem.title_en.trim()} onClick={onCreateItem}>Create {labels.singular}</Button>
         </div>
@@ -739,7 +762,13 @@ function LanguagePanel({ title, detail, children }: { title: string; detail: str
   );
 }
 
-function ItemFields({ sectionSlug, item, onChange }: { sectionSlug: string; item: AboutItemAdmin; onChange: (field: keyof AboutItemAdmin, value: string | boolean | null) => void }) {
+function ItemFields({ sectionSlug, sectionType, item, taxonomy, onChange }: {
+  sectionSlug: string;
+  sectionType: AboutSectionAdmin["type"];
+  item: AboutItemAdmin;
+  taxonomy: TaxonomyResponse | null;
+  onChange: (field: keyof AboutItemAdmin, value: string | boolean | null) => void;
+}) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <LanguagePanel title="English" detail="Item text shown to customers">
@@ -750,11 +779,131 @@ function ItemFields({ sectionSlug, item, onChange }: { sectionSlug: string; item
         <Field id={aboutItemFieldId(sectionSlug, item.id, "title-bg")} label={<>Title<MissingBgLabel show={isMissingTranslation(item.title_en, item.title_bg)} /></>} value={item.title_bg ?? ""} onChange={(value) => onChange("title_bg", value || null)} />
         <Area id={aboutItemFieldId(sectionSlug, item.id, "text-bg")} label={<>Text<MissingBgLabel show={isMissingTranslation(item.text_en, item.text_bg)} /></>} value={item.text_bg ?? ""} onChange={(value) => onChange("text_bg", value || null)} />
       </LanguagePanel>
-      <div className="lg:col-span-2">
-        <Field label="Link href" value={item.link_href ?? ""} onChange={(value) => onChange("link_href", value || null)} />
-      </div>
+      {sectionType === "collections" ? (
+        <div className="lg:col-span-2">
+          <CollectionLinkFields linkHref={item.link_href ?? ""} taxonomy={taxonomy} onChange={(value) => onChange("link_href", value || null)} />
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function CollectionLinkFields({ linkHref, taxonomy, onChange }: { linkHref: string; taxonomy: TaxonomyResponse | null; onChange: (value: string) => void }) {
+  const selectedTarget = selectedProductFilterValue(linkHref, taxonomy);
+  const notice = collectionLinkNotice(linkHref, taxonomy);
+
+  return (
+    <div className="space-y-3">
+      {taxonomy ? (
+        <label className="block text-sm font-medium text-charcoal">
+          Product filter target
+          <select
+            className="mt-1 w-full rounded-brand border border-champagne-beige bg-admin-surface px-3 py-2 text-sm text-charcoal focus:border-muted-gold focus:outline-none focus:ring-2 focus:ring-muted-gold/20"
+            value={selectedTarget}
+            onChange={(event) => {
+              const href = hrefForProductFilterValue(event.target.value);
+              if (href) onChange(href);
+            }}
+          >
+            <option value="">Custom link</option>
+            <TaxonomyOptionGroup label="Product types" kind="product_type" terms={taxonomy.product_types} />
+            <TaxonomyOptionGroup label="Categories" kind="category" terms={taxonomy.categories} />
+            <TaxonomyOptionGroup label="Labels" kind="labels" terms={taxonomy.labels} />
+          </select>
+        </label>
+      ) : null}
+      {notice ? <p className="rounded-brand border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">{notice}</p> : null}
+      <Field label="Link href" value={linkHref} onChange={onChange} />
+    </div>
+  );
+}
+
+function TaxonomyOptionGroup({ label, kind, terms }: { label: string; kind: ProductFilterKind; terms: TaxonomyTerm[] }) {
+  if (terms.length === 0) return null;
+  return (
+    <optgroup label={label}>
+      {terms.map((term) => (
+        <option key={`${kind}:${term.slug}`} value={`${kind}:${term.slug}`}>
+          {term.name}
+        </option>
+      ))}
+    </optgroup>
+  );
+}
+
+function hrefForProductFilterValue(value: string) {
+  const [kind, slug] = value.split(":") as [ProductFilterKind | undefined, string | undefined];
+  if (!kind || !slug) return "";
+  if (kind === "product_type") return `/products?type=${encodeURIComponent(slug)}`;
+  if (kind === "category") return `/products?category=${encodeURIComponent(slug)}`;
+  return `/products?labels=${encodeURIComponent(slug)}`;
+}
+
+function selectedProductFilterValue(linkHref: string, taxonomy: TaxonomyResponse | null) {
+  if (!taxonomy) return "";
+  const parsed = parseProductFilterHref(linkHref);
+  if (!parsed || parsed.slugs.length !== 1) return "";
+  const slug = parsed.slugs[0]!;
+  if (parsed.kind === "product_type" && termExists(taxonomy.product_types, slug)) return `product_type:${slug}`;
+  if (parsed.kind === "category" && termExists(taxonomy.categories, slug)) return `category:${slug}`;
+  if (parsed.kind === "labels" && termExists(taxonomy.labels, slug)) return `labels:${slug}`;
+  return "";
+}
+
+function collectionLinkNotice(linkHref: string, taxonomy: TaxonomyResponse | null) {
+  if (!taxonomy || !linkHref.trim()) return null;
+  const parsed = parseProductFilterHref(linkHref);
+  if (!parsed) return null;
+  const [firstSlug] = parsed.slugs;
+  if (!firstSlug) return null;
+
+  if (parsed.kind === "category" && !termExists(taxonomy.categories, firstSlug)) {
+    if (termExists(taxonomy.labels, firstSlug)) {
+      return `${firstSlug} is a product label. Use /products?labels=${firstSlug} so customers see that collection.`;
+    }
+    return `${firstSlug} is not an active product category.`;
+  }
+
+  if (parsed.kind === "labels") {
+    const missing = parsed.slugs.filter((slug) => !termExists(taxonomy.labels, slug));
+    return missing.length ? `${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} not active product labels.` : null;
+  }
+
+  if (parsed.kind === "product_type" && !termExists(taxonomy.product_types, firstSlug)) {
+    return `${firstSlug} is not an active product type.`;
+  }
+
+  return null;
+}
+
+function parseProductFilterHref(linkHref: string): { kind: ProductFilterKind; slugs: string[] } | null {
+  const trimmed = linkHref.trim();
+  if (!trimmed || /^[a-z][a-z\d+.-]*:/i.test(trimmed)) return null;
+
+  try {
+    const url = new URL(trimmed, "https://atelier.local");
+    if (!url.pathname.endsWith("/products")) return null;
+
+    const labels = [
+      ...url.searchParams.getAll("label"),
+      ...(url.searchParams.get("labels")?.split(",") ?? []),
+    ].map((slug) => slug.trim()).filter(Boolean);
+    if (labels.length) return { kind: "labels", slugs: Array.from(new Set(labels)) };
+
+    const category = url.searchParams.get("category")?.trim();
+    if (category) return { kind: "category", slugs: [category] };
+
+    const productType = (url.searchParams.get("type") ?? url.searchParams.get("product_type"))?.trim();
+    if (productType) return { kind: "product_type", slugs: [productType] };
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function termExists(terms: TaxonomyTerm[], slug: string) {
+  return terms.some((term) => term.slug === slug);
 }
 
 function Detail({ term, value }: { term: string; value: string }) {

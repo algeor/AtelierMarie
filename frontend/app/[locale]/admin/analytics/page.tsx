@@ -207,12 +207,15 @@ export default function AdminAnalyticsPage() {
               <div className="mt-4 overflow-x-auto">
                 <table className="min-w-full text-left text-sm">
                   <thead className="text-soft-brown">
-                    <tr><th className="py-2 pr-4">{t("product")}</th><th className="py-2 pr-4">{t("views")}</th><th className="py-2 pr-4">{t("adds")}</th><th className="py-2 pr-4">{t("purchases")}</th><th className="py-2 pr-4">{t("revenue")}</th><th className="py-2">{t("conversion")}</th></tr>
+                    <tr><th className="py-2 pr-4">{t("product")}</th><th className="py-2 pr-4">{t("impressions")}</th><th className="py-2 pr-4">{t("clicks")}</th><th className="py-2 pr-4">{t("ctr")}</th><th className="py-2 pr-4">{t("views")}</th><th className="py-2 pr-4">{t("adds")}</th><th className="py-2 pr-4">{t("purchases")}</th><th className="py-2 pr-4">{t("revenue")}</th><th className="py-2">{t("conversion")}</th></tr>
                   </thead>
                   <tbody className="divide-y divide-champagne-beige">
                     {(products?.products ?? []).map((product) => (
                       <tr key={product.product_id}>
                         <td className="py-2 pr-4 font-medium text-charcoal">{product.product_name || product.product_id}</td>
+                        <td className="py-2 pr-4 text-charcoal">{product.impressions}</td>
+                        <td className="py-2 pr-4 text-charcoal">{product.clicks}</td>
+                        <td className="py-2 pr-4 text-charcoal">{product.click_through_rate}%</td>
                         <td className="py-2 pr-4 text-charcoal">{product.views}</td>
                         <td className="py-2 pr-4 text-charcoal">{product.add_to_cart}</td>
                         <td className="py-2 pr-4 text-charcoal">{product.purchases}</td>

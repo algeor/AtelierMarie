@@ -40,11 +40,13 @@ def test_seeded_assets_include_defaults_and_public_urls(site_media_static_path):
     )
 
 
-def test_upload_and_clear_asset_image(site_media_static_path):
+def test_upload_and_clear_asset_image(site_media_static_path, fake_storage):
     uploaded = site_media_service.set_asset_image("home_hero", _make_jpeg())
 
     assert uploaded["image_id"]
-    assert uploaded["image_url"].startswith("/static/products/site-media-home-hero_")
+    assert uploaded["image_url"].startswith(
+        "https://cdn.test.example/products/site-media-home-hero_"
+    )
     assert site_media_service.get_public_assets()["assets"]["home_hero"] == uploaded["image_url"]
 
     with get_db() as conn:

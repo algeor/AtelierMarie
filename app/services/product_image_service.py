@@ -12,6 +12,7 @@ import structlog
 
 from app.config import get_settings
 from app.database import DbConnection, get_db, require_row
+from app.services import object_storage_service
 from app.services.image_service import process_image, validate_image_file
 
 logger = structlog.get_logger(__name__)
@@ -197,6 +198,32 @@ def delete_image(product_id: str, image_id: str) -> None:
     _unlink_image_files(row["image_url"], row["thumbnail_url"], row["zoom_url"])
 
 
+def delete_images_for_product(product_id: str) -> None:
+    """Delete every image row for a product and its backing objects.
+
+    Called from product deactivation (soft-delete). Deleting the objects while
+    leaving ``product_images`` rows in place would let a later reactivation
+    (``is_active=True``) point at media that no longer exists. So the rows are
+    deleted in the same operation, keeping rows and objects consistent — the
+    same contract video already uses (``delete_video_if_exists`` removes the
+    row). Object removal is best-effort (failures are swallowed/logged inside
+    ``_unlink_image_files``); this helper never raises.
+    """
+    with get_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT image_url, thumbnail_url, zoom_url
+            FROM product_images
+            WHERE product_id = %s
+            """,
+            (product_id,),
+        ).fetchall()
+        conn.execute("DELETE FROM product_images WHERE product_id = %s", (product_id,))
+
+    for row in rows:
+        _unlink_image_files(row["image_url"], row["thumbnail_url"], row["zoom_url"])
+
+
 def reorder_images(product_id: str, ordered_ids: list[str]) -> list[dict]:
     """Update image sort order without changing the primary image."""
     with get_db() as conn:
@@ -319,18 +346,56 @@ def _derive_thumbnail_url(image_url: str) -> str:
     return urlunsplit((split.scheme, split.netloc, thumb_path, split.query, split.fragment))
 
 
+def _r2_object_key(url: str) -> str | None:
+    """Return the R2 object key for a stored URL, or None if it is not ours.
+
+    A URL is considered an R2 object when it starts with the configured public
+    base. Legacy ``/static/...`` paths and external absolute URLs (e.g.
+    CSV-imported) are not R2 objects and return None.
+    """
+    base = get_settings().r2_public_base_url
+    if not base:
+        return None
+    prefix = base.rstrip("/") + "/"
+    if not url.startswith(prefix):
+        return None
+    key = url[len(prefix) :]
+    return key or None
+
+
 def _unlink_image_files(*urls: str | None) -> None:
+    """Best-effort removal of image variant objects.
+
+    Handles the three URL shapes that can coexist during the migration:
+      - R2 public URLs -> delete the object from R2 (best-effort)
+      - legacy ``/static/...`` paths -> unlink the file from local disk
+      - external absolute URLs -> skip (not owned by us)
+    """
     settings = get_settings()
     static_root = Path(settings.static_file_path).resolve()
     for url in urls:
-        if not url or not url.startswith("/static/"):
+        if not url:
             continue
-        relative = url.removeprefix("/static/").lstrip("/")
-        path = (static_root / relative).resolve()
-        try:
-            path.relative_to(static_root)
-            path.unlink(missing_ok=True)
-        except OSError as exc:
-            logger.warning("product_image_unlink_failed", path=str(path), error=str(exc))
-        except ValueError:
-            logger.warning("product_image_unlink_rejected", path=str(path))
+
+        key = _r2_object_key(url)
+        if key is not None:
+            try:
+                object_storage_service.delete_object(key)
+            except object_storage_service.MediaStorageError as exc:
+                logger.warning("product_image_r2_delete_failed", key=key, error=str(exc))
+            continue
+
+        if url.startswith("/static/"):
+            relative = url.removeprefix("/static/").lstrip("/")
+            path = (static_root / relative).resolve()
+            try:
+                path.relative_to(static_root)
+                path.unlink(missing_ok=True)
+            except OSError as exc:
+                logger.warning("product_image_unlink_failed", path=str(path), error=str(exc))
+            except ValueError:
+                logger.warning("product_image_unlink_rejected", path=str(path))
+            continue
+
+        # External absolute URL (e.g. CSV-imported) — not ours to delete.
+        logger.debug("product_image_delete_skipped_external", url=url)

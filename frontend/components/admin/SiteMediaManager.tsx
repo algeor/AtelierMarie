@@ -3,22 +3,26 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import Image from "next/image";
 import { ImageCropEditor } from "@/components/admin/ImageCropEditor";
+import { AdminTranslationGapButton, MissingBgLabel, isMissingTranslation, type AdminTranslationGap } from "@/components/admin/AdminTranslationGaps";
 import { SaveConfirmation } from "@/components/admin/SaveConfirmation";
 import { Button } from "@/components/ui/Button";
 import { DeleteIconButton } from "@/components/ui/DeleteIconButton";
 import {
   clearAboutItemImage,
   clearAboutSectionImage,
+  clearHomeSectionImage,
   clearSiteMediaImage,
   getAdminAbout,
+  getAdminHome,
   getAdminSiteMedia,
   updateAboutItem,
   uploadAboutItemImage,
   uploadAboutSectionImage,
+  uploadHomeSectionImage,
   uploadSiteMediaImage,
 } from "@/lib/api";
 import { resolveMediaUrl } from "@/lib/media";
-import type { AboutItemAdmin, AboutSectionAdmin, SiteMediaAssetAdmin } from "@/lib/types";
+import type { AboutItemAdmin, AboutSectionAdmin, HomeSectionAdmin, SiteMediaAssetAdmin } from "@/lib/types";
 
 const ABOUT_FALLBACK_KEYS: Partial<Record<string, SiteMediaAssetAdmin["key"]>> = {
   hero: "atelier_hero_fallback",
@@ -26,6 +30,11 @@ const ABOUT_FALLBACK_KEYS: Partial<Record<string, SiteMediaAssetAdmin["key"]>> =
   atelier: "atelier_atelier_fallback",
   collections: "atelier_collections_fallback",
   process: "atelier_process_fallback",
+};
+
+const HOME_FALLBACK_KEYS: Partial<Record<string, SiteMediaAssetAdmin["key"]>> = {
+  hero: "home_hero_fallback",
+  collections: "home_collections_fallback",
 };
 
 const IMAGE_SECTION_TYPES = new Set(["hero", "text_image", "collections"]);
@@ -41,15 +50,17 @@ type CollectionItemTextDraft = {
 export function SiteMediaManager() {
   const [assets, setAssets] = useState<SiteMediaAssetAdmin[]>([]);
   const [aboutSections, setAboutSections] = useState<AboutSectionAdmin[]>([]);
+  const [homeSections, setHomeSections] = useState<HomeSectionAdmin[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [saveNotice, setSaveNotice] = useState<{ id: number; message: string } | null>(null);
   const saveNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function refresh() {
-    const [siteMedia, about] = await Promise.all([getAdminSiteMedia(), getAdminAbout()]);
+    const [siteMedia, about, home] = await Promise.all([getAdminSiteMedia(), getAdminAbout(), getAdminHome()]);
     setAssets(siteMedia.assets);
     setAboutSections(about.sections);
+    setHomeSections(home.sections);
   }
 
   useEffect(() => {
@@ -109,12 +120,28 @@ export function SiteMediaManager() {
           />
         ))}
 
+        {homeSections.filter((section) => IMAGE_SECTION_TYPES.has(section.type)).map((section) => {
+          const fallbackUrl = fallbackUrlForHomeSection(section, assets);
+          return (
+            <AboutSectionMediaCard
+              key={`home-section-${section.slug}`}
+              section={section}
+              scope="home"
+              fallbackUrl={fallbackUrl}
+              busy={busyKey === `home-section-${section.slug}`}
+              onUpload={(file) => run(`home-section-${section.slug}`, () => uploadHomeSectionImage(section.slug, file))}
+              onClear={() => run(`home-section-${section.slug}`, () => clearHomeSectionImage(section.slug))}
+            />
+          );
+        })}
+
         {aboutSections.filter((section) => IMAGE_SECTION_TYPES.has(section.type)).map((section) => {
           const fallbackUrl = fallbackUrlForAboutSection(section, assets);
           return (
             <AboutSectionMediaCard
               key={`about-section-${section.slug}`}
               section={section}
+              scope="atelier"
               fallbackUrl={fallbackUrl}
               busy={busyKey === `about-section-${section.slug}`}
               onUpload={(file) => run(`about-section-${section.slug}`, () => uploadAboutSectionImage(section.slug, file))}
@@ -260,12 +287,14 @@ function MediaAssetCard({
 
 function AboutSectionMediaCard({
   section,
+  scope,
   fallbackUrl,
   busy,
   onUpload,
   onClear,
 }: {
-  section: AboutSectionAdmin;
+  section: AboutSectionAdmin | HomeSectionAdmin;
+  scope: "atelier" | "home";
   fallbackUrl: string | null;
   busy: boolean;
   onUpload: (file: File) => void;
@@ -276,8 +305,8 @@ function AboutSectionMediaCard({
   const [showPagePreview, setShowPagePreview] = useState(false);
   const [cropFile, setCropFile] = useState<File | null>(null);
   const label = `${section.heading_en} image`;
-  const description = descriptionForAboutSection(section);
-  const cropAspect = cropAspectForAboutSection(section);
+  const description = descriptionForSection(section, scope);
+  const cropAspect = cropAspectForSection(section);
 
   return (
     <article className="rounded-brand border border-champagne-beige bg-cream p-4 shadow-sm">
@@ -295,7 +324,7 @@ function AboutSectionMediaCard({
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
               <h2 className="font-heading text-xl text-charcoal">{label}</h2>
-              <p className="mt-1 font-mono text-xs text-soft-brown">atelier/{section.slug} · {section.type}</p>
+              <p className="mt-1 font-mono text-xs text-soft-brown">{scope}/{section.slug} · {section.type}</p>
             </div>
             <span className="rounded-brand bg-warm-ivory px-2 py-1 text-xs font-medium text-soft-brown">
               {isCustom ? "Custom" : fallbackUrl ? "Uses fallback" : "Empty"}
@@ -325,7 +354,7 @@ function AboutSectionMediaCard({
           </div>
         </div>
       </div>
-      {showPagePreview ? <AboutSectionContextPreview section={section} imageUrl={imageUrl} /> : null}
+      {showPagePreview ? <SectionContextPreview section={section} scope={scope} imageUrl={imageUrl} /> : null}
       {cropFile ? (
         <ImageCropEditor
           file={cropFile}
@@ -367,6 +396,7 @@ function AboutItemMediaCard({
   const [draft, setDraft] = useState<CollectionItemTextDraft>(() => textDraftFromItem(item));
   const label = `Collection card: ${item.title_en}`;
   const titleIsEmpty = draft.title_en.trim().length === 0;
+  const translationGaps = siteMediaItemTranslationGaps(section.slug, item.id, draft);
 
   useEffect(() => {
     setDraft(textDraftFromItem(item));
@@ -393,6 +423,7 @@ function AboutItemMediaCard({
             <span className="rounded-brand bg-warm-ivory px-2 py-1 text-xs font-medium text-soft-brown">
               {isCustom ? "Custom" : fallbackUrl ? "Uses fallback" : "Empty"}
             </span>
+            <AdminTranslationGapButton gaps={translationGaps} label={`${label} translation gaps`} />
           </div>
           <p className="mt-3 text-sm leading-6 text-soft-brown">
             Displayed on this collection card. When empty, it uses the shared collection image or fallback.
@@ -404,7 +435,9 @@ function AboutItemMediaCard({
               onChange={(value) => setDraft((current) => ({ ...current, title_en: value }))}
             />
             <TextField
+              id={siteMediaItemFieldId(section.slug, item.id, "title-bg")}
               label="Name BG"
+              missing={isMissingTranslation(draft.title_en, draft.title_bg)}
               value={draft.title_bg ?? ""}
               onChange={(value) => setDraft((current) => ({ ...current, title_bg: value || null }))}
             />
@@ -414,7 +447,9 @@ function AboutItemMediaCard({
               onChange={(value) => setDraft((current) => ({ ...current, text_en: value || null }))}
             />
             <TextArea
+              id={siteMediaItemFieldId(section.slug, item.id, "text-bg")}
               label="Description BG"
+              missing={isMissingTranslation(draft.text_en, draft.text_bg)}
               value={draft.text_bg ?? ""}
               onChange={(value) => setDraft((current) => ({ ...current, text_bg: value || null }))}
             />
@@ -494,11 +529,26 @@ function normalizeTextDraft(draft: CollectionItemTextDraft): CollectionItemTextD
   };
 }
 
-function TextField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function siteMediaItemTranslationGaps(sectionSlug: string, itemId: number, draft: CollectionItemTextDraft): AdminTranslationGap[] {
+  const fields: Array<[string, string, string | null | undefined, string | null | undefined]> = [
+    ["title-bg", "Collection card > Name BG", draft.title_en, draft.title_bg],
+    ["text-bg", "Collection card > Description BG", draft.text_en, draft.text_bg],
+  ];
+  return fields
+    .filter(([, , en, bg]) => isMissingTranslation(en, bg))
+    .map(([field, label]) => ({ id: `site-media-${sectionSlug}-${itemId}-${field}`, label, fieldId: siteMediaItemFieldId(sectionSlug, itemId, field) }));
+}
+
+function siteMediaItemFieldId(sectionSlug: string, itemId: number, field: string) {
+  return `site-media-${sectionSlug}-item-${itemId}-${field}`;
+}
+
+function TextField({ id, label, missing = false, value, onChange }: { id?: string; label: string; missing?: boolean; value: string; onChange: (value: string) => void }) {
   return (
     <label className="block text-sm font-medium text-charcoal">
-      {label}
+      {label}<MissingBgLabel show={missing} />
       <input
+        id={id}
         className="mt-1 w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm text-charcoal focus:border-muted-gold focus:outline-none"
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -507,11 +557,12 @@ function TextField({ label, value, onChange }: { label: string; value: string; o
   );
 }
 
-function TextArea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function TextArea({ id, label, missing = false, value, onChange }: { id?: string; label: string; missing?: boolean; value: string; onChange: (value: string) => void }) {
   return (
     <label className="block text-sm font-medium text-charcoal lg:col-span-2">
-      {label}
+      {label}<MissingBgLabel show={missing} />
       <textarea
+        id={id}
         className="mt-1 min-h-24 w-full rounded-brand border border-champagne-beige bg-warm-ivory px-3 py-2 text-sm leading-6 text-charcoal focus:border-muted-gold focus:outline-none"
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -526,13 +577,28 @@ function fallbackUrlForAboutSection(section: AboutSectionAdmin, assets: SiteMedi
   return assets.find((asset) => asset.key === fallbackKey)?.effective_url ?? null;
 }
 
-function cropAspectForAboutSection(section: AboutSectionAdmin) {
+function fallbackUrlForHomeSection(section: HomeSectionAdmin, assets: SiteMediaAssetAdmin[]) {
+  const fallbackKey = HOME_FALLBACK_KEYS[section.slug] ?? (section.type === "text_image" ? "home_text_image_fallback" : undefined);
+  if (!fallbackKey) return null;
+  return assets.find((asset) => asset.key === fallbackKey)?.effective_url ?? null;
+}
+
+function cropAspectForSection(section: AboutSectionAdmin | HomeSectionAdmin) {
   if (section.type === "hero") return 16 / 9;
   if (section.type === "collections") return 4 / 3;
   return 4 / 5;
 }
 
-function descriptionForAboutSection(section: AboutSectionAdmin) {
+function descriptionForSection(section: AboutSectionAdmin | HomeSectionAdmin, scope: "atelier" | "home") {
+  if (scope === "home") {
+    if (section.type === "hero") {
+      return "Displayed as the main homepage hero image. When empty, it uses the homepage hero media or fallback.";
+    }
+    if (section.type === "collections") {
+      return "Used as the shared homepage collection-card image when an individual card has no image.";
+    }
+    return "Displayed in this homepage image-and-text section. When empty, it uses the homepage story fallback.";
+  }
   if (section.type === "hero") {
     return "Displayed as the main Atelier hero image. When empty, it uses the Atelier hero fallback.";
   }
@@ -546,9 +612,11 @@ function cropAspectForSiteMedia(key: SiteMediaAssetAdmin["key"]) {
   switch (key) {
     case "home_hero":
     case "home_hero_fallback":
+    case "home_text_image_fallback":
     case "atelier_hero_fallback":
     case "page_background":
       return 16 / 9;
+    case "home_collections_fallback":
     case "atelier_collections_fallback":
       return 4 / 3;
     default:
@@ -567,7 +635,8 @@ function PageContextPreview({ asset, imageUrl }: { asset: SiteMediaAssetAdmin; i
   return <AtelierTextImagePreview imageUrl={imageUrl} />;
 }
 
-function AboutSectionContextPreview({ section, imageUrl }: { section: AboutSectionAdmin; imageUrl: string | null }) {
+function SectionContextPreview({ section, scope, imageUrl }: { section: AboutSectionAdmin | HomeSectionAdmin; scope: "atelier" | "home"; imageUrl: string | null }) {
+  if (scope === "home" && section.type === "hero") return <HomeHeroPreview imageUrl={imageUrl} />;
   if (section.type === "hero") return <AtelierHeroPreview imageUrl={imageUrl} />;
   if (section.type === "collections") return <AtelierCollectionsPreview imageUrl={imageUrl} />;
   return <AtelierTextImagePreview imageUrl={imageUrl} />;

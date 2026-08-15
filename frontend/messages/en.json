@@ -378,6 +378,8 @@
     "sortPriceAsc": "Price: low to high",
     "sortPriceDesc": "Price: high to low",
     "sortName": "Name: A–Z",
+    "resultsSummary": "Showing {shown} of {total} {total, plural, one {product} other {products}}",
+    "paginationLabel": "Product pages",
     "resultsCount": "{count, plural, =0 {No products} one {# product} other {# products}}",
     "noMatch": "No products match your filters.",
     "discountBadge": "−{percent}%",
@@ -445,6 +447,27 @@
     "unavailableReason": "No longer available: {reason}",
     "amountToFreeShipping": "Add {amount} more for free shipping",
     "freeShippingUnlocked": "Free shipping unlocked"
+  },
+  "purchaseAssurance": {
+    "label": "Purchase reassurance",
+    "items": {
+      "craft": {
+        "title": "Made with care.",
+        "text": "Crafting time is shown on each product before checkout."
+      },
+      "delivery": {
+        "title": "Delivery is clear.",
+        "text": "Courier options and shipping price are calculated before you place the order."
+      },
+      "returns": {
+        "title": "Support is available.",
+        "text": "Questions, returns, and damaged-item issues can be handled through the support flow."
+      },
+      "payment": {
+        "title": "No payment surprises.",
+        "text": "Available payment methods are shown before final confirmation."
+      }
+    }
   },
   "checkout": {
     "title": "Checkout",
@@ -1194,6 +1217,24 @@
             { "term": "Override", "meaning": "Uploaded image that replaces the default behavior." }
           ]
         },
+        "home": {
+          "title": "Homepage",
+          "purpose": "Edit public homepage sections, images, ordering, visibility, and translations.",
+          "steps": [
+            "Edit the section copy.",
+            "Use Site media for reusable fallback images.",
+            "Hide unfinished sections before publishing."
+          ],
+          "watch": [
+            "Featured products still come from product feature flags.",
+            "Dynamic categories still render only when matching active products exist."
+          ],
+          "glossary": [
+            { "term": "Section", "meaning": "One block in the homepage flow." },
+            { "term": "Published", "meaning": "Visible to customers." },
+            { "term": "Site media", "meaning": "Reusable image slots used as fallbacks." }
+          ]
+        },
         "atelier": {
           "title": "Atelier",
           "purpose": "Edit the public page about the Atelier Marie story and process.",
@@ -1364,6 +1405,9 @@
       "productsTitle": "Product analytics",
       "empty": "No analytics events in this date range.",
       "product": "Product",
+      "impressions": "Impressions",
+      "clicks": "Clicks",
+      "ctr": "CTR",
       "views": "Views",
       "adds": "Add-to-cart",
       "purchases": "Purchases",
@@ -1374,6 +1418,8 @@
       "deliveryMethods": "Delivery methods",
       "paymentMethods": "Payment methods",
       "events": {
+        "product_impression": "Product impression",
+        "product_click": "Product click",
         "product_view": "Product view",
         "listing_filter": "Listing filter",
         "add_to_cart": "Add to cart",
@@ -1828,6 +1874,7 @@
     "deliveryNav": "Delivery",
     "paymentSettingsNav": "Payments",
     "siteMediaNav": "Site media",
+    "homeNav": "Homepage",
     "atelierNav": "Atelier",
     "termsNav": "Terms",
     "privacyNav": "Privacy",
@@ -2955,7 +3002,7 @@
   },
   "cookieConsent": {
     "title": "Cookie preferences",
-    "body": "We use necessary cookies for cart, checkout, security, and language. With your consent, we also use first-party analytics to measure product views, cart, checkout, delivery, payment handoff, and purchase confirmation. Analytics is not sent to a third-party analytics provider.",
+    "body": "We use necessary cookies for cart, checkout, security, and language. With your consent, we also use first-party analytics to measure product impressions, clicks, views, cart, checkout, delivery, payment handoff, and purchase confirmation. Analytics is not sent to a third-party analytics provider.",
     "accept": "Accept analytics",
     "necessary": "Necessary only",
     "policyLink": "Read the Cookie Policy",
@@ -3094,7 +3141,7 @@
         "id": "analytics",
         "title": "Optional first-party analytics",
         "body": [
-          "If you accept analytics, the store sends minimal first-party events such as product view, filter use, add to cart, cart open, checkout start, delivery selection, order submission, payment redirect, and purchase confirmation.",
+          "If you accept analytics, the store sends minimal first-party events such as product impression, product click, product view, filter use, add to cart, cart open, checkout start, delivery selection, order submission, payment redirect, and purchase confirmation.",
           "Analytics events stay on the Atelier Marie backend and are not sent to a third-party analytics provider. They are linked to the existing session cookie as a pseudonymous session key. They do not include email, phone, name, address, order notes, card details, advertising pixels, cross-site tracking, session replay, heatmaps, or profiling. Owner/legal review is required before production analytics is enabled."
         ]
       },

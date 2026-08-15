@@ -15,7 +15,9 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
 import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -31,7 +33,10 @@ const FRONTEND_DIR = path.join(REPO_ROOT, "frontend");
 const DEFAULT_POSTGRES_URL = "postgresql://atelier:atelier@localhost:5432/atelier_marie"; // pragma: allowlist secret
 const BASE_DATABASE_URL =
   process.env.CHROME_SMOKE_DATABASE_URL || process.env.DATABASE_URL || DEFAULT_POSTGRES_URL;
-const ROUTES = (process.env.CHROME_SMOKE_ROUTES || "/en,/en/products,/en/checkout,/en/orders,/en/admin/orders")
+const ROUTES = (
+  process.env.CHROME_SMOKE_ROUTES ||
+  "/en,/en/products,/en/products/lavender-dream,/en/checkout,/en/orders,/en/admin/orders"
+)
   .split(",")
   .map((route) => route.trim())
   .filter(Boolean);
@@ -402,7 +407,9 @@ async function startManagedServers() {
         stdio: ["ignore", "pipe", "pipe"],
         env: {
           ...process.env,
+          API_INTERNAL_URL: BACKEND_URL,
           NEXT_PUBLIC_API_URL: BACKEND_URL,
+          NEXT_PUBLIC_MEDIA_URL: BACKEND_URL,
           NEXT_PUBLIC_USE_MOCK_API: "false",
         },
       }
@@ -941,6 +948,7 @@ async function main() {
     ]);
 
     const routeErrors = [];
+    const networkRequests = new Map();
     client.on("Runtime.exceptionThrown", (params) => {
       const details = params.exceptionDetails;
       const exception = details?.exception;
@@ -959,8 +967,15 @@ async function main() {
         routeErrors.push(`http ${response.status}: ${response.url}`);
       }
     });
-    client.on("Network.loadingFailed", ({ errorText, canceled, type }) => {
-      if (!canceled) routeErrors.push(`network failed (${type}): ${errorText}`);
+    client.on("Network.requestWillBeSent", ({ requestId, request, type }) => {
+      if (requestId && request?.url) networkRequests.set(requestId, { url: request.url, type });
+    });
+    client.on("Network.loadingFailed", ({ requestId, errorText, canceled, type }) => {
+      if (canceled) return;
+      const request = networkRequests.get(requestId);
+      routeErrors.push(
+        `network failed (${request?.type || type}): ${errorText} ${request?.url || ""}`.trim()
+      );
     });
 
     const smokeRoutes = managed
@@ -975,12 +990,23 @@ async function main() {
       await loaded;
       await sleep(750);
       const { result } = await client.send("Runtime.evaluate", {
-        expression: `(() => ({ title: document.title, textLength: document.body.innerText.trim().length, path: location.pathname }))()`,
+        expression: `(() => {
+          const text = document.body.innerText.trim();
+          return {
+            title: document.title,
+            textLength: text.length,
+            path: location.pathname,
+            isNotFound: /not found/i.test(document.title) || /^(Product|Page) Not Found/i.test(text),
+          };
+        })()`,
         returnByValue: true,
       });
       const value = result?.value ?? {};
       if (!value.textLength || value.textLength < 20) {
         routeErrors.push(`blank or tiny page body at ${url}`);
+      }
+      if (value.isNotFound) {
+        routeErrors.push(`not-found page rendered at ${url}`);
       }
       if (routeErrors.length) {
         throw new Error(`Chrome smoke failed for ${url}\n${routeErrors.join("\n")}`);

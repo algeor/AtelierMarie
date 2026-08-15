@@ -126,6 +126,16 @@ class Settings(BaseSettings):
     # Static files
     static_file_path: str = "./static"
 
+    # Object storage (Cloudflare R2, S3-compatible) for product media.
+    # Empty defaults keep the app bootable without R2 configured; only media
+    # write/delete paths fail (with a clear config error) when unset. The R2
+    # client is constructed only in app/services/object_storage_service.py.
+    r2_bucket: str = ""
+    r2_endpoint_url: str = ""
+    r2_access_key_id: str = ""
+    r2_secret_access_key: str = ""
+    r2_public_base_url: str = ""
+
     # Product video processing
     ffmpeg_path: str = "ffmpeg"
     ffprobe_path: str = "ffprobe"

@@ -1070,6 +1070,10 @@ def deactivate_product(product_id: str) -> dict:
             raise NotFoundError(f"Product not found: {product_id}")
 
     product_video_service.delete_video_if_exists(product_id)
+    # Soft-delete removes the product's images entirely (rows + backing objects),
+    # not just the objects: leaving rows while deleting objects would let a later
+    # reactivation point at media that no longer exists.
+    product_image_service.delete_images_for_product(product_id)
 
     with get_db() as conn:
         conn.execute(

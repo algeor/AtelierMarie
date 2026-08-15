@@ -24,15 +24,18 @@ secrets/
 
 # Development
 .coverage
+.pytest_cache/
 dev/
 
 # Logs (dev-server output, e.g. frontend/ds-dev.log)
 *.log
 
 # AI agents
-.agents
-.claude
-.codex
+.agents/
+AGENTS.md
+
+.claude/
+.codex/
 
 # Runtime-generated accounting exports (not source of record)
 data/exports/

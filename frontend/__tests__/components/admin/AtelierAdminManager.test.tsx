@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithIntl } from "../../test-utils";
 import { AtelierAdminManager } from "@/components/admin/AtelierAdminManager";
-import type { AboutAdminResponse, AboutItemAdmin, AboutSectionAdmin } from "@/lib/types";
+import type { AboutAdminResponse, AboutItemAdmin, AboutSectionAdmin, TaxonomyResponse } from "@/lib/types";
 
 vi.mock("@/i18n/navigation", () => ({
   Link: ({ children, href, className }: { children: React.ReactNode; href: string; className?: string }) => (
@@ -17,6 +17,7 @@ vi.mock("@/lib/api", () => ({
   createAboutItem: vi.fn(),
   deleteAboutItem: vi.fn(),
   getAdminAbout: vi.fn(),
+  getTaxonomy: vi.fn(),
   reorderAboutItems: vi.fn(),
   reorderAboutSections: vi.fn(),
   setAboutItemPublished: vi.fn(),
@@ -27,7 +28,7 @@ vi.mock("@/lib/api", () => ({
   uploadAboutSectionImage: vi.fn(),
 }));
 
-import { getAdminAbout, updateAboutSection } from "@/lib/api";
+import { getAdminAbout, getTaxonomy, updateAboutSection } from "@/lib/api";
 
 const NOW = "2026-01-01T00:00:00Z";
 
@@ -93,17 +94,50 @@ function makeAbout(): AboutAdminResponse {
         sort_order: 1,
         items: [makeItem()],
       }),
+      makeSection({
+        slug: "collections",
+        type: "collections",
+        heading_en: "Our Collections",
+        heading_bg: "Нашите колекции",
+        subheading_en: "Designed to Suit Every Space and Story",
+        subheading_bg: "Създадени да подхождат на всяко пространство и история",
+        body_en: null,
+        body_bg: null,
+        cta_label_en: null,
+        cta_label_bg: null,
+        cta_href: null,
+        sort_order: 2,
+        items: [
+          makeItem({
+            id: 20,
+            section: "collections",
+            title_en: "Floral Collection",
+            title_bg: "Флорална колекция",
+            text_en: "Romantic designs inspired by nature.",
+            text_bg: "Романтични дизайни, вдъхновени от природата.",
+            link_href: "/products?category=floral",
+          }),
+        ],
+      }),
     ],
   };
 }
 
+const TAXONOMY: TaxonomyResponse = {
+  product_types: [{ slug: "candles", name: "Candles", sort_order: 0 }],
+  categories: [{ slug: "small", name: "Small", sort_order: 0 }],
+  labels: [{ slug: "floral", name: "Floral", sort_order: 0 }],
+};
+
 const mockedGetAdminAbout = vi.mocked(getAdminAbout);
+const mockedGetTaxonomy = vi.mocked(getTaxonomy);
 const mockedUpdateAboutSection = vi.mocked(updateAboutSection);
 
 describe("AtelierAdminManager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockedGetAdminAbout.mockImplementation(async () => makeAbout());
+    mockedGetTaxonomy.mockResolvedValue(TAXONOMY);
     mockedUpdateAboutSection.mockImplementation(async (_slug, data) => ({
       ...makeAbout().sections[0]!,
       ...data,
@@ -115,7 +149,7 @@ describe("AtelierAdminManager", () => {
 
     expect(await screen.findByRole("heading", { name: "Atelier story" })).toBeInTheDocument();
     expect(screen.getByText("Page sections")).toBeInTheDocument();
-    expect(screen.getByText("2 total")).toBeInTheDocument();
+    expect(screen.getByText("3 total")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /What Makes Our Candles Different/ }));
     expect(screen.queryByRole("button", { name: "Save item" })).not.toBeInTheDocument();
@@ -129,7 +163,27 @@ describe("AtelierAdminManager", () => {
     fireEvent.click(within(itemCard!).getByRole("button", { name: "Edit" }));
 
     expect(screen.getByRole("button", { name: "Save item" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Link href")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Link href")).not.toBeInTheDocument();
+  });
+
+  it("uses real taxonomy filters for collection item links", async () => {
+    renderWithIntl(<AtelierAdminManager />);
+    await screen.findByRole("heading", { name: "Atelier story" });
+
+    fireEvent.click(screen.getByRole("button", { name: /Our Collections/ }));
+    fireEvent.click(screen.getByRole("tab", { name: "Items" }));
+
+    const itemCard = screen.getByText("Floral Collection").closest("article");
+    expect(itemCard).not.toBeNull();
+    fireEvent.click(within(itemCard!).getByRole("button", { name: "Edit" }));
+
+    expect(screen.getByText(/floral is a product label/i)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Product filter target"), {
+      target: { value: "labels:floral" },
+    });
+
+    expect(screen.getByLabelText("Link href")).toHaveValue("/products?labels=floral");
   });
 
   it("saves the selected section content through the existing admin API", async () => {

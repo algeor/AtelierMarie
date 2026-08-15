@@ -73,7 +73,7 @@ docker compose down
 
 The backend listens on `127.0.0.1:8001` and the frontend on `127.0.0.1:3000`. Frontend `NEXT_PUBLIC_*` values are baked in at build time, so re-run the build step after changing them.
 
-See [`deploy/docker-deployment.md`](deploy/docker-deployment.md) for the full VPS deployment guide (host Nginx config, persistent volumes, backups, and updates).
+See [`deploy/docker-deployment.md`](technical_documentation/deploy/docker-deployment.md) for the full VPS deployment guide (host Nginx config, persistent volumes, backups, and updates).
 
 ## Environment Variables
 

@@ -26,6 +26,18 @@ AboutSectionType = Literal[
     "hero", "text_image", "text_band", "cards", "timeline", "collections", "cta_band"
 ]
 
+HomeSectionType = Literal[
+    "hero",
+    "featured_products",
+    "text_image",
+    "text_band",
+    "cards",
+    "timeline",
+    "collections",
+    "category_links",
+    "cta_band",
+]
+
 ABOUT_SECTION_TYPES: tuple[str, ...] = (
     "hero",
     "text_image",
@@ -33,6 +45,18 @@ ABOUT_SECTION_TYPES: tuple[str, ...] = (
     "cards",
     "timeline",
     "collections",
+    "cta_band",
+)
+
+HOME_SECTION_TYPES: tuple[str, ...] = (
+    "hero",
+    "featured_products",
+    "text_image",
+    "text_band",
+    "cards",
+    "timeline",
+    "collections",
+    "category_links",
     "cta_band",
 )
 

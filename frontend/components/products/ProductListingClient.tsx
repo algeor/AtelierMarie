@@ -1,8 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import type {
+  ProductListQuery,
+  ProductListSort,
   ProductResponse,
   TaxonomyResponse,
   TaxonomyTerm,
@@ -15,131 +25,222 @@ import { ProductCard } from "./ProductCard";
 interface ProductListingClientProps {
   products: ProductResponse[];
   taxonomy: TaxonomyResponse;
+  total: number;
+  page: number;
+  limit: number;
+  filters: ProductListQuery;
 }
 
 interface ProductTypeSection {
   type: TaxonomyTerm;
   categories: TaxonomyTerm[];
-  productCount: number;
 }
 
+interface ListingState {
+  productType: string | null;
+  category: string | null;
+  labels: string[];
+  inStockOnly: boolean;
+  search: string;
+  sort: ProductListSort | "";
+}
+
+const DEFAULT_PRODUCT_LIMIT = 24;
+
 /**
- * Storefront product listing with a drawer-based taxonomy menu. Product types
- * are top-level menu items; each expands to the categories used by that type.
+ * Storefront product listing with a drawer-based taxonomy menu. The route owns
+ * result filtering; this client only updates query params and renders the
+ * server-returned product page.
  */
 export function ProductListingClient({
   products,
   taxonomy,
+  total,
+  page,
+  limit,
+  filters,
 }: ProductListingClientProps) {
   const t = useTranslations("products");
-  const [productType, setProductType] = useState<string | null>(null);
-  const [category, setCategory] = useState<string | null>(null);
-  const [labels, setLabels] = useState<string[]>([]);
-  const [inStockOnly, setInStockOnly] = useState(false);
-  const [search, setSearch] = useState("");
-  const [sort, setSort] = useState("");
+  const tCommon = useTranslations("common");
+  const router = useRouter();
+  const pathname = usePathname();
+  const [isPending, startTransition] = useTransition();
+  const [productType, setProductType] = useState<string | null>(
+    filters.product_type ?? null,
+  );
+  const [category, setCategory] = useState<string | null>(
+    filters.category ?? null,
+  );
+  const [labels, setLabels] = useState<string[]>(filters.labels ?? []);
+  const [inStockOnly, setInStockOnly] = useState(filters.in_stock ?? false);
+  const [search, setSearch] = useState(filters.q ?? "");
+  const [sort, setSort] = useState<ProductListSort | "">(filters.sort ?? "");
   const [menuOpen, setMenuOpen] = useState(false);
   const [expandedProductType, setExpandedProductType] = useState<string | null>(
-    null,
+    filters.product_type ?? taxonomy.product_types[0]?.slug ?? null,
   );
-  // Gate URL writes until after we've hydrated state from the URL, so the
-  // initial write can't clobber incoming query params.
-  const [hydrated, setHydrated] = useState(false);
 
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
   const returnFocusRef = useRef<Element | null>(null);
   const lastFilterSignatureRef = useRef("");
 
-  // Hydrate filter state from the URL once on mount (shareable/bookmarkable
-  // filtered views). Done in an effect (not a useState initializer) to avoid a
-  // server/client hydration mismatch.
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const pt = params.get("type") ?? params.get("product_type");
-    const cat = params.get("category");
-    const lbls = params.get("labels");
-    if (pt) {
-      setProductType(pt);
-      setExpandedProductType(pt);
-    } else if (productTypeSections[0]) {
-      // Expand the first section that actually has products, not the first raw
-      // product type (which may have zero and would leave nothing expanded).
-      setExpandedProductType(productTypeSections[0].type.slug);
-    }
-    if (cat) setCategory(cat);
-    if (lbls) setLabels(lbls.split(",").filter(Boolean));
-    if (params.get("in_stock") === "1") setInStockOnly(true);
-    const q = params.get("q");
-    const srt = params.get("sort");
-    if (q) setSearch(q);
-    if (srt) setSort(srt);
-    setHydrated(true);
-    // Mount-only: intentionally reads the initial-render section list once.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const currentListingState = useMemo<ListingState>(
+    () => ({ productType, category, labels, inStockOnly, search, sort }),
+    [category, inStockOnly, labels, productType, search, sort],
+  );
 
-  // Reflect active filters back into the URL without triggering navigation.
+  const committedDiscoveryFilters = useMemo(() => {
+    const parts = [
+      filters.product_type ? `type:${filters.product_type}` : null,
+      filters.category ? `category:${filters.category}` : null,
+      ...(filters.labels ?? []).map((label) => `label:${label}`),
+      filters.in_stock ? "availability:in_stock" : null,
+    ].filter(Boolean);
+    return parts.length > 0 ? parts.join("|") : undefined;
+  }, [filters.category, filters.in_stock, filters.labels, filters.product_type]);
+
   useEffect(() => {
-    if (!hydrated) return;
-    const params = new URLSearchParams();
-    if (productType) params.set("type", productType);
-    if (category) params.set("category", category);
-    if (labels.length) params.set("labels", labels.join(","));
-    if (inStockOnly) params.set("in_stock", "1");
-    if (search.trim()) params.set("q", search.trim());
-    if (sort) params.set("sort", sort);
-    const qs = params.toString();
-    window.history.replaceState(
-      null,
-      "",
-      qs ? `?${qs}` : window.location.pathname,
+    const nextProductType = filters.product_type ?? null;
+    setProductType(nextProductType);
+    setCategory(filters.category ?? null);
+    setLabels(filters.labels ?? []);
+    setInStockOnly(filters.in_stock ?? false);
+    setSearch(filters.q ?? "");
+    setSort(filters.sort ?? "");
+    setExpandedProductType(
+      nextProductType ?? taxonomy.product_types[0]?.slug ?? null,
     );
-  }, [hydrated, productType, category, labels, inStockOnly, search, sort]);
+  }, [
+    filters.category,
+    filters.in_stock,
+    filters.labels,
+    filters.product_type,
+    filters.q,
+    filters.sort,
+    taxonomy.product_types,
+  ]);
+
+  const navigateToListing = useCallback(
+    (next: ListingState, nextPage = 1) => {
+      const params = new URLSearchParams();
+      if (next.productType) params.set("type", next.productType);
+      if (next.category) params.set("category", next.category);
+      if (next.labels.length) params.set("labels", next.labels.join(","));
+      if (next.inStockOnly) params.set("in_stock", "1");
+      if (next.search.trim()) params.set("q", next.search.trim());
+      if (next.sort) params.set("sort", next.sort);
+      if (nextPage > 1) params.set("page", String(nextPage));
+      if (limit !== DEFAULT_PRODUCT_LIMIT) params.set("limit", String(limit));
+
+      const qs = params.toString();
+      const href = `${pathname}${qs ? `?${qs}` : ""}`;
+      startTransition(() => {
+        router.replace(href, { scroll: false });
+      });
+    },
+    [limit, pathname, router],
+  );
+
+  const commitListingState = useCallback(
+    (next: ListingState, nextPage = 1) => {
+      setProductType(next.productType);
+      setCategory(next.category);
+      setLabels(next.labels);
+      setInStockOnly(next.inStockOnly);
+      setSearch(next.search);
+      setSort(next.sort);
+      navigateToListing(next, nextPage);
+    },
+    [navigateToListing],
+  );
+
+  const commitPatch = useCallback(
+    (patch: Partial<ListingState>, nextPage = 1) => {
+      commitListingState({ ...currentListingState, ...patch }, nextPage);
+    },
+    [commitListingState, currentListingState],
+  );
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (search.trim() === (filters.q ?? "")) return;
+    const handle = window.setTimeout(() => {
+      commitListingState(currentListingState, 1);
+    }, 350);
+    return () => window.clearTimeout(handle);
+  }, [commitListingState, currentListingState, filters.q, search]);
+
+  useEffect(() => {
+    const analyticsProductType = filters.product_type ?? null;
+    const analyticsCategory = filters.category ?? null;
+    const analyticsLabels = filters.labels ?? [];
+    const analyticsInStockOnly = filters.in_stock ?? false;
+    const analyticsSort = filters.sort ?? "";
     const signature = JSON.stringify({
-      productType,
-      category,
-      labels,
-      inStockOnly,
-      sort,
+      productType: analyticsProductType,
+      category: analyticsCategory,
+      labels: analyticsLabels,
+      inStockOnly: analyticsInStockOnly,
+      sort: analyticsSort,
+      shown: products.length,
+      total,
     });
     if (signature === lastFilterSignatureRef.current) return;
     lastFilterSignatureRef.current = signature;
 
-    if (productType) {
+    const commonProperties = {
+      listing_context: "products",
+      active_filters: committedDiscoveryFilters,
+      sort: analyticsSort || undefined,
+      result_count: products.length,
+      total_count: total,
+    };
+
+    if (analyticsProductType) {
       trackAnalytics("listing_filter", {
+        ...commonProperties,
         filter_name: "product_type",
-        filter_value: productType,
+        filter_value: analyticsProductType,
       });
     }
-    if (category) {
+    if (analyticsCategory) {
       trackAnalytics("listing_filter", {
+        ...commonProperties,
         filter_name: "category",
-        filter_value: category,
+        filter_value: analyticsCategory,
       });
     }
-    for (const label of labels) {
+    for (const label of analyticsLabels) {
       trackAnalytics("listing_filter", {
+        ...commonProperties,
         filter_name: "label",
         filter_value: label,
       });
     }
-    if (inStockOnly) {
+    if (analyticsInStockOnly) {
       trackAnalytics("listing_filter", {
+        ...commonProperties,
         filter_name: "availability",
         filter_value: "in_stock",
       });
     }
-    if (sort) {
+    if (analyticsSort) {
       trackAnalytics("listing_filter", {
+        ...commonProperties,
         filter_name: "sort",
-        filter_value: sort,
+        filter_value: analyticsSort,
       });
     }
-  }, [category, hydrated, inStockOnly, labels, productType, sort]);
+  }, [
+    committedDiscoveryFilters,
+    filters.category,
+    filters.in_stock,
+    filters.labels,
+    filters.product_type,
+    filters.sort,
+    products.length,
+    total,
+  ]);
 
   // Close on Escape, lock body scroll, and move focus into the drawer on open /
   // restore it to the trigger on close (modal-dialog behavior, mirroring CartDrawer).
@@ -202,116 +303,13 @@ export function ProductListingClient({
   );
 
   const productTypeSections = useMemo<ProductTypeSection[]>(() => {
-    return taxonomy.product_types
-      .map((type) => {
-        const typeProducts = products.filter(
-          (product) => product.product_type === type.slug,
-        );
-        const usedCategorySlugs = new Set(
-          typeProducts
-            .filter((product) => product.category !== null)
-            .map((product) => product.category as string),
-        );
+    return taxonomy.product_types.map((type) => ({
+      type,
+      categories: taxonomy.categories,
+    }));
+  }, [taxonomy.categories, taxonomy.product_types]);
 
-        return {
-          type,
-          categories: taxonomy.categories.filter((term) =>
-            usedCategorySlugs.has(term.slug),
-          ),
-          productCount: typeProducts.length,
-        };
-      })
-      .filter((section) => section.productCount > 0);
-  }, [products, taxonomy]);
-
-  const visibleLabels = useMemo(() => {
-    const usedLabelSlugs = new Set(
-      products.flatMap((product) => product.labels.map((label) => label.slug)),
-    );
-    return taxonomy.labels.filter((term) => usedLabelSlugs.has(term.slug));
-  }, [products, taxonomy.labels]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-
-    const validProductTypes = new Set(
-      productTypeSections.map((section) => section.type.slug),
-    );
-    const validLabels = new Set(taxonomy.labels.map((term) => term.slug));
-    const scopedProducts = productType
-      ? products.filter((product) => product.product_type === productType)
-      : products;
-    const validCategories = new Set(
-      scopedProducts
-        .filter((product) => product.category !== null)
-        .map((product) => product.category as string),
-    );
-
-    if (productType && !validProductTypes.has(productType)) {
-      setProductType(null);
-      setCategory(null);
-    } else if (category && !validCategories.has(category)) {
-      setCategory(null);
-    }
-
-    const nextLabels = labels.filter((label) => validLabels.has(label));
-    if (nextLabels.length !== labels.length) {
-      setLabels(nextLabels);
-    }
-  }, [
-    category,
-    hydrated,
-    labels,
-    productType,
-    productTypeSections,
-    products,
-    taxonomy.labels,
-  ]);
-
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    const matched = products.filter((p) => {
-      if (productType && p.product_type !== productType) return false;
-      if (category && p.category !== category) return false;
-      if (
-        labels.length &&
-        !labels.every((l) => p.labels.some((pl) => pl.slug === l))
-      ) {
-        return false;
-      }
-      if (inStockOnly && p.stock <= 0) return false;
-      if (
-        query &&
-        !`${p.name} ${p.description ?? ""}`.toLowerCase().includes(query)
-      ) {
-        return false;
-      }
-      return true;
-    });
-
-    const sorted = [...matched];
-    switch (sort) {
-      case "price_asc":
-        sorted.sort(
-          (a, b) => a.effective_price_cents - b.effective_price_cents,
-        );
-        break;
-      case "price_desc":
-        sorted.sort(
-          (a, b) => b.effective_price_cents - a.effective_price_cents,
-        );
-        break;
-      case "name":
-        sorted.sort((a, b) => a.name.localeCompare(b.name));
-        break;
-      case "newest":
-        sorted.sort((a, b) => b.created_at.localeCompare(a.created_at));
-        break;
-      default:
-        break;
-    }
-    return sorted;
-  }, [products, productType, category, labels, inStockOnly, search, sort]);
+  const visibleLabels = taxonomy.labels;
 
   const sortOptions = [
     { value: "", labelKey: "sortRelevance" },
@@ -322,16 +320,15 @@ export function ProductListingClient({
   ] as const;
 
   function toggleLabel(slug: string) {
-    setLabels((prev) =>
-      prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug],
-    );
+    const nextLabels = labels.includes(slug)
+      ? labels.filter((s) => s !== slug)
+      : [...labels, slug];
+    commitPatch({ labels: nextLabels });
   }
 
   function selectProductType(slug: string) {
-    setProductType((current) =>
-      current === slug && category === null ? null : slug,
-    );
-    setCategory(null);
+    const nextProductType = productType === slug && category === null ? null : slug;
+    commitPatch({ productType: nextProductType, category: null });
     setExpandedProductType(slug);
   }
 
@@ -339,18 +336,23 @@ export function ProductListingClient({
     typeSlug: string,
     categorySlug: string | null,
   ) {
-    setProductType(typeSlug);
-    setCategory(categorySlug);
+    commitPatch({ productType: typeSlug, category: categorySlug });
     setExpandedProductType(typeSlug);
     setMenuOpen(false);
   }
 
   function clearAll() {
-    setProductType(null);
-    setCategory(null);
-    setLabels([]);
-    setInStockOnly(false);
-    setSearch("");
+    commitListingState(
+      {
+        ...currentListingState,
+        productType: null,
+        category: null,
+        labels: [],
+        inStockOnly: false,
+        search: "",
+      },
+      1,
+    );
   }
 
   const hasActiveFilters =
@@ -372,14 +374,14 @@ export function ProductListingClient({
     chips.push({
       key: `type:${productType}`,
       label: nameByKind.type.get(productType) ?? productType,
-      onRemove: () => setProductType(null),
+      onRemove: () => commitPatch({ productType: null, category: null }),
     });
   }
   if (category) {
     chips.push({
       key: `cat:${category}`,
       label: nameByKind.category.get(category) ?? category,
-      onRemove: () => setCategory(null),
+      onRemove: () => commitPatch({ category: null }),
     });
   }
   for (const slug of labels) {
@@ -393,8 +395,19 @@ export function ProductListingClient({
     chips.push({
       key: "q",
       label: `“${search.trim()}”`,
-      onRemove: () => setSearch(""),
+      onRemove: () => commitPatch({ search: "" }),
     });
+  }
+
+  const pageCount = Math.max(1, Math.ceil(total / limit));
+  const canGoPrevious = page > 1;
+  const canGoNext = page < pageCount;
+
+  function goToPage(nextPage: number) {
+    commitListingState(
+      currentListingState,
+      Math.min(Math.max(nextPage, 1), pageCount),
+    );
   }
 
   const menuPanel = (
@@ -450,7 +463,9 @@ export function ProductListingClient({
             <select
               id="product-sort"
               value={sort}
-              onChange={(e) => setSort(e.target.value)}
+              onChange={(e) =>
+                commitPatch({ sort: e.target.value as ProductListSort | "" })
+              }
               className="w-full rounded-brand border border-border/35 bg-page/70 px-3 py-2 text-sm text-text focus:border-focus focus:outline-none focus:ring-1 focus:ring-focus"
             >
               {sortOptions.map((opt) => (
@@ -476,11 +491,10 @@ export function ProductListingClient({
           )}
         >
           <span>{t("allProducts")}</span>
-          <span className="text-xs text-muted">{products.length}</span>
         </button>
 
         <div className="space-y-2" aria-label={t("filterProductType")}>
-          {productTypeSections.map(({ type, categories, productCount }) => {
+          {productTypeSections.map(({ type, categories }) => {
             const expanded = expandedProductType === type.slug;
             const activeType = productType === type.slug;
             const panelId = `product-menu-${type.slug}`;
@@ -504,7 +518,6 @@ export function ProductListingClient({
                 >
                   <span>{type.name}</span>
                   <span className="inline-flex items-center gap-2 text-xs font-normal text-muted">
-                    {productCount}
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
                       fill="none"
@@ -609,7 +622,7 @@ export function ProductListingClient({
             <input
               type="checkbox"
               checked={inStockOnly}
-              onChange={(e) => setInStockOnly(e.target.checked)}
+              onChange={(e) => commitPatch({ inStockOnly: e.target.checked })}
               className="h-4 w-4 rounded border-border/50 text-primary focus:ring-focus"
             />
             {t("inStockOnly")}
@@ -708,15 +721,28 @@ export function ProductListingClient({
             </div>
           )}
 
-          {/* Screen-reader result count */}
-          <div aria-live="polite" role="status" className="sr-only">
-            {t("resultsCount", { count: filtered.length })}
+          <div
+            aria-live="polite"
+            aria-busy={isPending}
+            role="status"
+            className="mb-6 text-sm text-muted"
+          >
+            {t("resultsSummary", { shown: products.length, total })}
           </div>
 
-          {filtered.length > 0 ? (
+          {products.length > 0 ? (
             <ProductGrid>
-              {filtered.map((product) => (
-                <ProductCard key={product.id} product={product} />
+              {products.map((product, index) => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  index={(page - 1) * limit + index}
+                  listingContext="products"
+                  activeFilters={committedDiscoveryFilters}
+                  sort={filters.sort}
+                  resultCount={products.length}
+                  totalCount={total}
+                />
               ))}
             </ProductGrid>
           ) : (
@@ -725,6 +751,33 @@ export function ProductListingClient({
                 {hasActiveFilters ? t("noMatch") : t("noProducts")}
               </p>
             </div>
+          )}
+
+          {pageCount > 1 && (
+            <nav
+              aria-label={t("paginationLabel")}
+              className="mt-10 flex items-center justify-center gap-4"
+            >
+              <button
+                type="button"
+                disabled={!canGoPrevious || isPending}
+                onClick={() => goToPage(page - 1)}
+                className="rounded-brand border border-border/35 px-4 py-2 text-sm font-medium text-text disabled:cursor-not-allowed disabled:opacity-45 enabled:hover:bg-surface/60"
+              >
+                {tCommon("previous")}
+              </button>
+              <span className="text-sm text-muted">
+                {tCommon("page", { current: page, total: pageCount })}
+              </span>
+              <button
+                type="button"
+                disabled={!canGoNext || isPending}
+                onClick={() => goToPage(page + 1)}
+                className="rounded-brand border border-border/35 px-4 py-2 text-sm font-medium text-text disabled:cursor-not-allowed disabled:opacity-45 enabled:hover:bg-surface/60"
+              >
+                {tCommon("next")}
+              </button>
+            </nav>
           )}
         </div>
       </div>

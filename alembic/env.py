@@ -1,15 +1,48 @@
+import os
 from logging.config import fileConfig
+from pathlib import Path
 
 from sqlalchemy import engine_from_config, pool
 
 from alembic import context
-from app.config import get_settings
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
-settings = get_settings()
-database_url = settings.migration_database_url or settings.database_url
+
+# Resolve the database URL WITHOUT importing the app's full Settings. Running a
+# migration must not require unrelated production secrets (ADMIN_API_KEY,
+# JWT_SECRET, ...) that Settings validation would demand in environment=production
+# — otherwise `alembic upgrade head` in a minimal migration/CI context refuses to
+# run. Prefer the URL injected by programmatic callers / the test harness via
+# config.attributes, then a dedicated migration URL (env var or file-backed
+# secret, mirroring Settings.migration_database_url), then the DATABASE_URL env
+# var (or its file-backed secret) for plain CLI usage.
+def _resolve_migration_database_url() -> str | None:
+    from_attributes = config.attributes.get("database_url")
+    if from_attributes:
+        return from_attributes
+    for env_var, file_env_var in (
+        ("MIGRATION_DATABASE_URL", "MIGRATION_DATABASE_URL_FILE"),
+        ("DATABASE_URL", "DATABASE_URL_FILE"),
+    ):
+        value = os.environ.get(env_var)
+        if value:
+            return value
+        file_path = os.environ.get(file_env_var)
+        if file_path:
+            return Path(file_path).read_text(encoding="utf-8").strip()
+    return None
+
+
+database_url = _resolve_migration_database_url()
+if not database_url:
+    raise RuntimeError(
+        "No migration database URL is set. Provide it via config.attributes"
+        "['database_url'], the MIGRATION_DATABASE_URL / DATABASE_URL environment "
+        "variable, or their *_FILE file-backed secret variants before running "
+        "migrations."
+    )
 
 if database_url.startswith("postgresql://"):
     database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)

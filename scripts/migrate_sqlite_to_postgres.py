@@ -33,9 +33,48 @@ DATETIME_PG_TYPES = {
 }
 _EPOCH_RE = re.compile(r"^-?\d+(\.\d+)?$")
 
+# Numeric datetime values are only treated as epoch-seconds when they fall in a
+# sane range: ~1973 (1e8) to ~2100 (4.1e9). This excludes both YYYYMMDD-style
+# integers (e.g. 20260802 ≈ 2e7, below the floor) and 13-digit epoch-millis
+# (≈1.7e12, above the ceiling) that would otherwise be misread — or, for millis,
+# overflow datetime.fromtimestamp.
+_EPOCH_SECONDS_MIN = 100_000_000  # 1973-03-03
+_EPOCH_SECONDS_MAX = 4_100_000_000  # 2099-12-xx
+
 SKIP_SQLITE_PREFIXES = ("sqlite_", "products_fts_")
 SKIP_SQLITE_TABLES = {"products_fts_en", "products_fts_bg", "schema_migrations"}
 SKIP_POSTGRES_TABLES = {"alembic_version"}
+
+# Tables the initial Alembic migration seeds with canonical rows (taxonomy,
+# legal/cookies pages, FAQ, delivery/Econt/inventory settings, about content).
+# After `alembic upgrade head` these are non-empty, so the default-mode
+# "target must be empty" guard must ignore them — otherwise the documented
+# happy-path (run Alembic, then this script) always aborts. Inserts use
+# ON CONFLICT DO NOTHING so seeded rows are preserved and only non-conflicting
+# legacy rows are added; use --truncate to fully replace seeds with legacy data.
+# Mirrors the seed-table allowlist in the test harness (tests/conftest.py).
+SEEDED_POSTGRES_TABLES = frozenset(
+    {
+        "product_types",
+        "product_categories",
+        "product_labels",
+        "faq_sections",
+        "faq_items",
+        "terms_page",
+        "terms_sections",
+        "privacy_page",
+        "privacy_sections",
+        "cookies_page",
+        "cookies_inventory",
+        "cookies_sections",
+        "site_banners",
+        "delivery_settings",
+        "econt_settings",
+        "inventory_settings",
+        "about_sections",
+        "about_items",
+    }
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -152,10 +191,20 @@ def coerce_datetime_value(value: Any) -> Any:
     if isinstance(value, bool):  # bool is an int subclass — never an epoch
         return value
     if isinstance(value, int | float):
-        return datetime.fromtimestamp(value, tz=UTC)
-    if isinstance(value, str) and _EPOCH_RE.match(value):
-        return datetime.fromtimestamp(float(value), tz=UTC)
-    return value
+        numeric: float | None = float(value)
+    elif isinstance(value, str) and _EPOCH_RE.match(value):
+        numeric = float(value)
+    else:
+        return value
+    # Only coerce values in a plausible epoch-seconds range; anything else is
+    # left for Postgres to parse (naive ISO strings) or reject with a clear error
+    # rather than being silently mapped to a wrong instant.
+    if numeric is None or not (_EPOCH_SECONDS_MIN <= abs(numeric) <= _EPOCH_SECONDS_MAX):
+        return value
+    try:
+        return datetime.fromtimestamp(numeric, tz=UTC)
+    except (ValueError, OverflowError, OSError):
+        return value
 
 
 def postgres_count(conn: psycopg.Connection, table: str) -> int:
@@ -214,16 +263,26 @@ def dependency_order(tables: set[str], child_to_parents: dict[str, set[str]]) ->
 
 
 def truncate_tables(conn: psycopg.Connection, tables: list[str]) -> None:
-    if not tables:
+    # Never truncate Alembic-seeded tables: several hold required config
+    # singletons (e.g. inventory_settings id=1). If the legacy SQLite has the
+    # table but no rows, truncating would leave the app with no config row and
+    # nothing to repopulate it. Their inserts are conflict-tolerant, so legacy
+    # rows still merge in while the seeded rows survive.
+    targets = [table for table in tables if table not in SEEDED_POSTGRES_TABLES]
+    if not targets:
         return
     query = sql.SQL("TRUNCATE {} RESTART IDENTITY CASCADE").format(
-        sql.SQL(", ").join(sql.Identifier(table) for table in tables)
+        sql.SQL(", ").join(sql.Identifier(table) for table in targets)
     )
     conn.execute(query)
 
 
 def assert_target_empty(conn: psycopg.Connection, tables: list[str]) -> None:
-    non_empty = [(table, postgres_count(conn, table)) for table in tables]
+    # Alembic-seeded tables are legitimately non-empty after `alembic upgrade
+    # head`; excluding them lets the default flow run. Their inserts are
+    # conflict-tolerant (see copy_table), so seeds are preserved.
+    checked = [table for table in tables if table not in SEEDED_POSTGRES_TABLES]
+    non_empty = [(table, postgres_count(conn, table)) for table in checked]
     non_empty = [(table, count) for table, count in non_empty if count > 0]
     if non_empty:
         details = ", ".join(f"{table}={count}" for table, count in non_empty[:20])
@@ -250,7 +309,7 @@ def copy_table(
     if not rows:
         return 0
 
-    insert_query = sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(
+    insert_query = sql.SQL("INSERT INTO {} ({}) VALUES ({}) ON CONFLICT DO NOTHING").format(
         sql.Identifier(table),
         sql.SQL(", ").join(sql.Identifier(column) for column in columns),
         sql.SQL(", ").join(sql.Placeholder() for _ in columns),

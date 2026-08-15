@@ -90,6 +90,17 @@ export interface ProductResponse {
   updated_at: string;
 }
 
+export type ProductListSort = "price_asc" | "price_desc" | "name" | "newest";
+
+export interface ProductListQuery {
+  product_type?: string;
+  category?: string;
+  labels?: string[];
+  q?: string;
+  sort?: ProductListSort;
+  in_stock?: boolean;
+}
+
 export interface ProductListResponse {
   products: ProductResponse[];
   total: number;
@@ -131,6 +142,17 @@ export type AboutSectionType =
   | "cards"
   | "timeline"
   | "collections"
+  | "cta_band";
+
+export type HomeSectionType =
+  | "hero"
+  | "featured_products"
+  | "text_image"
+  | "text_band"
+  | "cards"
+  | "timeline"
+  | "collections"
+  | "category_links"
   | "cta_band";
 
 export interface AboutCta {
@@ -202,11 +224,82 @@ export interface AboutAdminResponse {
   sections: AboutSectionAdmin[];
 }
 
+export interface HomeCta {
+  label: string;
+  href: string;
+}
+
+export interface HomeItem {
+  id: number;
+  title: string;
+  text: string | null;
+  image: string | null;
+  link: string | null;
+}
+
+export interface HomeSection {
+  slug: string;
+  type: HomeSectionType;
+  heading: string;
+  subheading: string | null;
+  body: string | null;
+  cta: HomeCta | null;
+  image: string | null;
+  items: HomeItem[];
+}
+
+export interface HomePublicResponse {
+  sections: HomeSection[];
+}
+
+export interface HomeItemAdmin {
+  id: number;
+  section: string;
+  title_en: string;
+  title_bg: string | null;
+  text_en: string | null;
+  text_bg: string | null;
+  image_id: string | null;
+  image: string | null;
+  link_href: string | null;
+  sort_order: number;
+  is_published: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HomeSectionAdmin {
+  slug: string;
+  type: HomeSectionType;
+  heading_en: string;
+  heading_bg: string | null;
+  subheading_en: string | null;
+  subheading_bg: string | null;
+  body_en: string | null;
+  body_bg: string | null;
+  cta_label_en: string | null;
+  cta_label_bg: string | null;
+  cta_href: string | null;
+  image_id: string | null;
+  image: string | null;
+  sort_order: number;
+  is_published: boolean;
+  created_at: string;
+  updated_at: string;
+  items: HomeItemAdmin[];
+}
+
+export interface HomeAdminResponse {
+  sections: HomeSectionAdmin[];
+}
+
 // --- Site Media ---
 
 export type SiteMediaKey =
   | "home_hero"
   | "home_hero_fallback"
+  | "home_text_image_fallback"
+  | "home_collections_fallback"
   | "atelier_hero_fallback"
   | "atelier_story_fallback"
   | "atelier_atelier_fallback"
@@ -263,6 +356,32 @@ export interface CreateAboutItemRequest {
 }
 
 export type PatchAboutItemRequest = Partial<CreateAboutItemRequest>;
+
+export type PatchHomeSectionRequest = Partial<
+  Pick<
+    HomeSectionAdmin,
+    | "heading_en"
+    | "heading_bg"
+    | "subheading_en"
+    | "subheading_bg"
+    | "body_en"
+    | "body_bg"
+    | "cta_label_en"
+    | "cta_label_bg"
+    | "cta_href"
+  >
+>;
+
+export interface CreateHomeItemRequest {
+  title_en: string;
+  title_bg?: string | null;
+  text_en?: string | null;
+  text_bg?: string | null;
+  link_href?: string | null;
+  is_published?: boolean;
+}
+
+export type PatchHomeItemRequest = Partial<CreateHomeItemRequest>;
 
 // --- FAQ ---
 
@@ -2590,6 +2709,8 @@ export interface CreateOrderRequest {
 // --- Analytics ---
 
 export type AnalyticsEventType =
+  | "product_impression"
+  | "product_click"
   | "product_view"
   | "listing_filter"
   | "add_to_cart"
@@ -2641,10 +2762,13 @@ export interface AnalyticsFunnelResponse {
 export interface ProductAnalyticsRow {
   product_id: string;
   product_name: string | null;
+  impressions: number;
+  clicks: number;
   views: number;
   add_to_cart: number;
   purchases: number;
   revenue_cents: number;
+  click_through_rate: number;
   conversion_rate: number;
 }
 

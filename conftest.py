@@ -103,10 +103,11 @@ _SEED_TABLES: frozenset[str] = frozenset(
         "cookies_inventory",
         "cookies_sections",
         "site_banners",
-        "delivery_settings",
         "econt_settings",
         "about_sections",
         "about_items",
+        "home_sections",
+        "home_items",
     }
 )
 
@@ -129,6 +130,20 @@ _INVENTORY_SETTINGS_RESEED = (
 )
 
 _NEVER_TRUNCATE: frozenset[str] = _SEED_TABLES | {"alembic_version"}
+
+# ``delivery_settings`` holds a seeded ``default`` singleton (all couriers and
+# payment methods enabled), but tests mutate it (e.g. disabling couriers to
+# exercise the internal-delivery fallback). Because seed-table rows are never
+# truncated, that mutation would leak across tests on the same worker and make
+# courier checkouts fail with ``DeliveryMethodUnavailableError``. Per Decision 15,
+# such a mutated singleton moves into the volatile set AND gets an explicit
+# per-table re-seed after truncation, matching the migration default.
+_DELIVERY_SETTINGS_RESEED = (
+    "INSERT INTO delivery_settings "
+    "(id, speedy_office_enabled, speedy_door_enabled, econt_office_enabled, "
+    "econt_door_enabled, cod_enabled, card_enabled, bank_transfer_enabled) "
+    "VALUES ('default', 1, 1, 1, 1, 1, 1, 1) ON CONFLICT DO NOTHING"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -597,6 +612,7 @@ def _clean_tables(
             )
         _insert_fake_session(conn)
         conn.execute(_INVENTORY_SETTINGS_RESEED)
+        conn.execute(_DELIVERY_SETTINGS_RESEED)
     yield
 
 

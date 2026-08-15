@@ -4,7 +4,16 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { renderWithIntl } from "../../test-utils";
 import { ProductListingClient } from "@/components/products/ProductListingClient";
-import type { ProductResponse, TaxonomyResponse } from "@/lib/types";
+import type { ProductListQuery, ProductResponse, TaxonomyResponse } from "@/lib/types";
+
+const { mockReplace } = vi.hoisted(() => ({
+  mockReplace: vi.fn(),
+}));
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/en/products",
+  useRouter: () => ({ replace: mockReplace }),
+}));
 
 vi.mock("@/i18n/navigation", () => ({
   Link: ({ children, href, className }: { children: React.ReactNode; href: string; className?: string }) => (
@@ -90,14 +99,36 @@ const products = [
   }),
 ];
 
+function renderListing(options: {
+  products?: ProductResponse[];
+  listingTaxonomy?: TaxonomyResponse;
+  total?: number;
+  page?: number;
+  limit?: number;
+  filters?: ProductListQuery;
+} = {}) {
+  const listingProducts = options.products ?? products;
+  return renderWithIntl(
+    <ProductListingClient
+      products={listingProducts}
+      taxonomy={options.listingTaxonomy ?? taxonomy}
+      total={options.total ?? listingProducts.length}
+      page={options.page ?? 1}
+      limit={options.limit ?? 24}
+      filters={options.filters ?? {}}
+    />,
+  );
+}
+
 describe("ProductListingClient taxonomy menu", () => {
   beforeEach(() => {
+    mockReplace.mockClear();
     window.history.replaceState(null, "", "/en/products");
   });
 
   it("opens a hamburger product menu with product types and nested categories", async () => {
     const user = userEvent.setup();
-    renderWithIntl(<ProductListingClient products={products} taxonomy={taxonomy} />);
+    renderListing();
 
     await user.click(screen.getByRole("button", { name: "Open product menu" }));
 
@@ -106,16 +137,16 @@ describe("ProductListingClient taxonomy menu", () => {
     expect(within(menu).getByRole("button", { name: /Boxes/ })).toBeInTheDocument();
     expect(within(menu).getByRole("button", { name: "Small" })).toBeInTheDocument();
     expect(within(menu).getByRole("button", { name: "Medium" })).toBeInTheDocument();
-    expect(within(menu).queryByRole("button", { name: "Premium" })).not.toBeInTheDocument();
+    expect(within(menu).getByRole("button", { name: "Premium" })).toBeInTheDocument();
 
     await user.click(within(menu).getByRole("button", { name: /Boxes/ }));
 
     expect(within(menu).getByRole("button", { name: "Premium" })).toBeInTheDocument();
   });
 
-  it("filters by product type and category from the menu", async () => {
+  it("navigates when filtering by product type and category from the menu", async () => {
     const user = userEvent.setup();
-    renderWithIntl(<ProductListingClient products={products} taxonomy={taxonomy} />);
+    renderListing();
 
     await user.click(screen.getByRole("button", { name: "Open product menu" }));
     const menu = screen.getByLabelText("Product menu");
@@ -123,46 +154,46 @@ describe("ProductListingClient taxonomy menu", () => {
     await user.click(within(menu).getByRole("button", { name: "Premium" }));
 
     expect(screen.queryByLabelText("Product menu")).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Premium Gift Box" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Small Candle" })).not.toBeInTheDocument();
+    expect(mockReplace).toHaveBeenLastCalledWith(
+      "/en/products?type=boxes&category=premium",
+      { scroll: false },
+    );
     expect(screen.getByRole("button", { name: /Boxes/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Premium/ })).toBeInTheDocument();
   });
 
-  it("sorts by effective sale price", async () => {
-    window.history.replaceState(null, "", "/en/products?sort=price_asc");
-    renderWithIntl(
-      <ProductListingClient
-        products={[
-          product({
-            id: "sale-candle",
-            name: "Sale Candle",
-            price_cents: 5000,
-            effective_price_cents: 1000,
-            discount_percent: 80,
-            discount_active: true,
-          }),
-          product({
-            id: "plain-candle",
-            name: "Plain Candle",
-            price_cents: 2000,
-            effective_price_cents: 2000,
-          }),
-        ]}
-        taxonomy={taxonomy}
-      />
-    );
+  it("renders the server-ordered products for the current sort", async () => {
+    renderListing({
+      products: [
+        product({
+          id: "plain-candle",
+          name: "Plain Candle",
+          price_cents: 2000,
+          effective_price_cents: 2000,
+        }),
+        product({
+          id: "sale-candle",
+          name: "Sale Candle",
+          price_cents: 5000,
+          effective_price_cents: 1000,
+          discount_percent: 80,
+          discount_active: true,
+        }),
+      ],
+      filters: { sort: "price_asc" },
+    });
 
     await waitFor(() => {
       const names = screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent);
-      expect(names).toEqual(["Sale Candle", "Plain Candle"]);
+      expect(names).toEqual(["Plain Candle", "Sale Candle"]);
     });
   });
 
-  it("hydrates supported product type and category filters from the URL", async () => {
-    window.history.replaceState(null, "", "/en/products?type=boxes&category=premium");
-
-    renderWithIntl(<ProductListingClient products={products} taxonomy={taxonomy} />);
+  it("hydrates supported product type and category filters from server props", async () => {
+    renderListing({
+      products: [products[2]!],
+      filters: { product_type: "boxes", category: "premium" },
+    });
 
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Premium Gift Box" })).toBeInTheDocument();
@@ -174,26 +205,17 @@ describe("ProductListingClient taxonomy menu", () => {
     expect(screen.getByRole("button", { name: /Premium/ })).toBeInTheDocument();
   });
 
-  it("hydrates supported label filters from the URL", async () => {
-    window.history.replaceState(null, "", "/en/products?labels=floral");
-
-    renderWithIntl(
-      <ProductListingClient
-        products={[
-          product({
-            id: "floral-candle",
-            name: "Floral Candle",
-            labels: [{ slug: "floral", name: "Floral" }],
-          }),
-          product({
-            id: "plain-candle",
-            name: "Plain Candle",
-            labels: [{ slug: "sculptural", name: "Sculptural" }],
-          }),
-        ]}
-        taxonomy={taxonomy}
-      />
-    );
+  it("hydrates supported label filters from server props", async () => {
+    renderListing({
+      products: [
+        product({
+          id: "floral-candle",
+          name: "Floral Candle",
+          labels: [{ slug: "floral", name: "Floral" }],
+        }),
+      ],
+      filters: { labels: ["floral"] },
+    });
 
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Floral Candle" })).toBeInTheDocument();
@@ -203,15 +225,14 @@ describe("ProductListingClient taxonomy menu", () => {
     expect(screen.getByRole("button", { name: /Floral/ })).toBeInTheDocument();
   });
 
-  it("falls back to all products for unsupported URL filters", async () => {
-    window.history.replaceState(null, "", "/en/products?type=missing&category=ghost");
+  it("navigates pagination through the URL", async () => {
+    const user = userEvent.setup();
+    renderListing({ total: 30, page: 1, limit: 24 });
 
-    renderWithIntl(<ProductListingClient products={products} taxonomy={taxonomy} />);
+    await user.click(screen.getByRole("button", { name: "Next" }));
 
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "Small Candle" })).toBeInTheDocument();
-      expect(screen.getByRole("heading", { name: "Medium Candle" })).toBeInTheDocument();
-      expect(screen.getByRole("heading", { name: "Premium Gift Box" })).toBeInTheDocument();
+    expect(mockReplace).toHaveBeenLastCalledWith("/en/products?page=2", {
+      scroll: false,
     });
   });
 });

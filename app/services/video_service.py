@@ -19,6 +19,7 @@ from app.constants import (
     VIDEO_TRANSCODE_ARGS,
 )
 from app.models.common import PRODUCT_ID_PATTERN
+from app.services import object_storage_service
 
 logger = structlog.get_logger(__name__)
 
@@ -95,29 +96,44 @@ def validate_video_id(video_id: str) -> None:
     _validate_video_id(video_id)
 
 
-def _static_products_dir(static_path: str | None = None) -> Path:
+def _temp_output_dir(temp_path: str | None = None) -> Path:
+    """Local staging directory for ffmpeg transcode outputs.
+
+    Transcoded MP4 and poster are written here (a real filesystem ffmpeg can
+    read/write) and then uploaded to R2; they are unlinked once the object store
+    holds the durable copy. This is the same approved root raw uploads stage in,
+    so :func:`unlink_video_files` can clean up either.
+    """
     settings = get_settings()
-    base = Path(static_path or settings.static_file_path).resolve()
-    products_dir = (base / "products").resolve()
-    products_dir.mkdir(parents=True, exist_ok=True)
-    return products_dir
+    base = Path(temp_path or settings.video_upload_temp_path).resolve()
+    base.mkdir(parents=True, exist_ok=True)
+    return base
 
 
 def _output_paths(
-    product_id: str, video_id: str, static_path: str | None = None
+    product_id: str, video_id: str, temp_path: str | None = None
 ) -> tuple[Path, Path]:
     _validate_product_id(product_id)
     _validate_video_id(video_id)
-    products_dir = _static_products_dir(static_path)
+    output_dir = _temp_output_dir(temp_path)
     stem = f"{product_id}_{video_id}"
-    video_path = (products_dir / f"{stem}_video.mp4").resolve()
-    poster_path = (products_dir / f"{stem}_poster.webp").resolve()
+    video_path = (output_dir / f"{stem}_video.mp4").resolve()
+    poster_path = (output_dir / f"{stem}_poster.webp").resolve()
     try:
-        video_path.relative_to(products_dir)
-        poster_path.relative_to(products_dir)
+        video_path.relative_to(output_dir)
+        poster_path.relative_to(output_dir)
     except ValueError as exc:
         raise VideoProcessingError("Path traversal detected") from exc
     return video_path, poster_path
+
+
+def output_paths(product_id: str, video_id: str) -> tuple[Path, Path]:
+    """Local staged (MP4, poster) output paths for a product video.
+
+    Public wrapper over :func:`_output_paths` for orchestration code that needs
+    to locate/clean up staged transcode outputs.
+    """
+    return _output_paths(product_id, video_id)
 
 
 def _command_prefix() -> list[str]:
@@ -219,7 +235,11 @@ def validate_video_upload(source_path: str | Path, product_id: str) -> dict:
 
 
 def transcode(source_path: str | Path, product_id: str, video_id: str) -> dict:
-    """Transcode a validated source into normalized browser-compatible MP4."""
+    """Transcode a validated source into normalized browser-compatible MP4.
+
+    Writes the output to the local temp staging dir and returns its filesystem
+    path. The caller (``drain_video_transcodes``) uploads the bytes to R2.
+    """
     settings = get_settings()
     ffmpeg = _resolve_binary(settings.ffmpeg_path, "ffmpeg")
     source = Path(source_path).resolve()
@@ -248,11 +268,15 @@ def transcode(source_path: str | Path, product_id: str, video_id: str) -> dict:
     if result.returncode != 0:
         output_path.unlink(missing_ok=True)
         raise VideoProcessingError(f"transcode failed: {_stderr_tail(result)}")
-    return {"video_url": f"/static/products/{output_path.name}"}
+    return {"video_path": str(output_path)}
 
 
 def extract_poster(source_path: str | Path, product_id: str, video_id: str) -> dict:
-    """Extract a WebP poster frame from a video file."""
+    """Extract a WebP poster frame from a video file.
+
+    Writes the poster to the local temp staging dir and returns its filesystem
+    path. The caller uploads the bytes to R2.
+    """
     settings = get_settings()
     ffmpeg = _resolve_binary(settings.ffmpeg_path, "ffmpeg")
     source = Path(source_path).resolve()
@@ -290,11 +314,45 @@ def extract_poster(source_path: str | Path, product_id: str, video_id: str) -> d
     if result.returncode != 0:
         poster_path.unlink(missing_ok=True)
         raise VideoProcessingError(f"poster extraction failed: {_stderr_tail(result)}")
-    return {"poster_url": f"/static/products/{poster_path.name}"}
+    return {"poster_path": str(poster_path)}
+
+
+def _delete_r2_object_from_url(url: str) -> bool:
+    """Best-effort delete of an R2 object addressed by its stored public URL.
+
+    Returns ``True`` when the URL is under the configured R2 public base (the
+    delete was attempted), ``False`` when it is not (caller should try the disk
+    / skip paths). A missing object is treated as success by the storage layer;
+    any storage/config error is logged and swallowed (best-effort cleanup).
+    """
+    settings = get_settings()
+    base = settings.r2_public_base_url
+    if not base:
+        return False
+    prefix = base.rstrip("/") + "/"
+    if not url.startswith(prefix):
+        return False
+    key = url[len(prefix) :].lstrip("/")
+    try:
+        object_storage_service.delete_object(key)
+    except object_storage_service.MediaStorageError as exc:
+        logger.warning("product_video_r2_delete_failed", key=key, error=str(exc))
+    return True
 
 
 def unlink_video_files(*urls_or_paths: str | None) -> None:
-    """Best-effort removal of video, poster, or temp files under approved roots."""
+    """Best-effort removal of video/poster objects and local temp originals.
+
+    Handles the three URL/path shapes that may coexist during the R2 migration:
+
+    - R2 public URLs -> derive the object key and issue a best-effort DeleteObject.
+    - Legacy ``/static/...`` URLs -> unlink from the local static root.
+    - Local temp paths (raw uploads, staged transcode outputs) -> unlink from the
+      approved temp roots.
+
+    External absolute URLs (e.g. CSV-imported ``http(s)://`` under a different
+    host) are skipped. All failures are logged, never raised.
+    """
     settings = get_settings()
     static_root = Path(settings.static_file_path).resolve()
     temp_root = Path(settings.video_upload_temp_path).resolve()
@@ -302,9 +360,14 @@ def unlink_video_files(*urls_or_paths: str | None) -> None:
     for item in urls_or_paths:
         if not item:
             continue
+        if _delete_r2_object_from_url(item):
+            continue
         if item.startswith("/static/"):
             path = (static_root / item.removeprefix("/static/").lstrip("/")).resolve()
             root = static_root
+        elif item.startswith(("http://", "https://")):
+            # External absolute URL not under our R2 base — nothing to unlink.
+            continue
         else:
             path = Path(item).resolve()
             root = temp_root

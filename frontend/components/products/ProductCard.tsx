@@ -1,19 +1,57 @@
+"use client";
+
+import { useMemo, useRef } from "react";
 import { Link } from "@/i18n/navigation";
 import { ProductImage } from "./ProductImage";
 import { PriceDisplay } from "./PriceDisplay";
 import { SaveProductButton } from "./SaveProductButton";
 import { AddToCartButton } from "@/components/cart/AddToCartButton";
 import type { ProductResponse } from "@/lib/types";
+import {
+  trackProductClick,
+  useProductImpression,
+  type ProductDiscoveryContext,
+} from "./productAnalytics";
 
 interface ProductCardProps {
   product: ProductResponse;
+  index?: number;
+  listingContext?: string;
+  activeFilters?: string;
+  sort?: string;
+  resultCount?: number;
+  totalCount?: number;
 }
 
-export function ProductCard({ product }: ProductCardProps) {
+export function ProductCard({
+  product,
+  index,
+  listingContext,
+  activeFilters,
+  sort,
+  resultCount,
+  totalCount,
+}: ProductCardProps) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const discoveryContext = useMemo<ProductDiscoveryContext>(
+    () => ({
+      index,
+      listingContext,
+      activeFilters,
+      sort,
+      resultCount,
+      totalCount,
+    }),
+    [activeFilters, index, listingContext, resultCount, sort, totalCount],
+  );
+
+  useProductImpression(cardRef, product, discoveryContext);
+
   return (
-    <div className="group relative">
+    <div ref={cardRef} className="group relative">
       <Link
         href={`/products/${product.id}`}
+        onClick={() => trackProductClick(product, discoveryContext, "card")}
         className="block rounded-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-soft-brown focus-visible:ring-offset-2 focus-visible:ring-offset-warm-ivory"
       >
         <div className="motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-brand motion-safe:group-hover:-translate-y-1 motion-safe:group-focus-within:-translate-y-1">

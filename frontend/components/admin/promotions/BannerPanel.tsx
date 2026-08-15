@@ -7,6 +7,7 @@ import { ApiError } from "@/lib/api-client";
 import { useLocalizedError } from "@/lib/useLocalizedError";
 import { localInputToUtcIso, storedUtcToLocalInput } from "@/lib/datetime";
 import { SaveConfirmation } from "@/components/admin/SaveConfirmation";
+import { AdminTranslationGapButton, MissingBgLabel, isMissingTranslation, type AdminTranslationGap } from "@/components/admin/AdminTranslationGaps";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import type { BannerUpdateRequest } from "@/lib/types";
@@ -30,6 +31,7 @@ export function BannerPanel() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const translationGaps = bannerTranslationGaps(messageEn, messageBg, linkLabelEn, linkLabelBg);
 
   const load = useCallback(async () => {
     try {
@@ -113,6 +115,14 @@ export function BannerPanel() {
       )}
       {success && <SaveConfirmation message={t("promotions.bannerSaved")} />}
 
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-brand border border-champagne-beige bg-warm-ivory px-4 py-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-gold">Translation gaps</p>
+          <p className="mt-0.5 text-sm text-soft-brown">Bulgarian banner fields missing while English is filled.</p>
+        </div>
+        <AdminTranslationGapButton gaps={translationGaps} label="Banner translation gaps" />
+      </div>
+
       {/* Live preview */}
       <div>
         <p className="mb-1.5 text-sm font-medium text-soft-brown">{t("promotions.preview")}</p>
@@ -143,7 +153,8 @@ export function BannerPanel() {
         maxLength={500}
       />
       <Input
-        label={`${t("promotions.messageBg")} (${t("optional")})`}
+        id="banner-message-bg"
+        label={<>{`${t("promotions.messageBg")} (${t("optional")})`}<MissingBgLabel show={isMissingTranslation(messageEn, messageBg)} /></>}
         value={messageBg}
         onChange={(e) => setMessageBg(e.target.value)}
         maxLength={500}
@@ -157,7 +168,8 @@ export function BannerPanel() {
           maxLength={100}
         />
         <Input
-          label={`${t("promotions.linkLabelBg")} (${t("optional")})`}
+          id="banner-link-label-bg"
+          label={<>{`${t("promotions.linkLabelBg")} (${t("optional")})`}<MissingBgLabel show={isMissingTranslation(linkLabelEn, linkLabelBg)} /></>}
           value={linkLabelBg}
           onChange={(e) => setLinkLabelBg(e.target.value)}
           maxLength={100}
@@ -203,4 +215,14 @@ export function BannerPanel() {
       </Button>
     </form>
   );
+}
+
+function bannerTranslationGaps(messageEn: string, messageBg: string, linkLabelEn: string, linkLabelBg: string): AdminTranslationGap[] {
+  const fields: Array<[string, string, string, string]> = [
+    ["banner-message-bg", "Banner > Message BG", messageEn, messageBg],
+    ["banner-link-label-bg", "Banner > Link label BG", linkLabelEn, linkLabelBg],
+  ];
+  return fields
+    .filter(([, , en, bg]) => isMissingTranslation(en, bg))
+    .map(([fieldId, label]) => ({ id: fieldId, label, fieldId }));
 }

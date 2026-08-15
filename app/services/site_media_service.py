@@ -9,6 +9,7 @@ import structlog
 
 from app.config import get_settings
 from app.database import DbConnection, get_db, require_row
+from app.services import object_storage_service
 from app.services.image_service import process_image, validate_image_file
 
 logger = structlog.get_logger(__name__)
@@ -48,6 +49,22 @@ SLOTS: tuple[SiteMediaSlot, ...] = (
         description="Used only when there is no direct hero image and no usable product image.",
         default_url="/rebrand/error-candle.webp",
         sort_order=20,
+    ),
+    SiteMediaSlot(
+        key="home_text_image_fallback",
+        owner_slug="site-media-home-text-image",
+        label="Homepage story fallback",
+        description="Fallback image for editable homepage image-and-text sections.",
+        default_url="/rebrand/error-candle.webp",
+        sort_order=25,
+    ),
+    SiteMediaSlot(
+        key="home_collections_fallback",
+        owner_slug="site-media-home-collections",
+        label="Homepage collections fallback",
+        description="Fallback image for editable homepage collection cards.",
+        default_url="/rebrand/error-candle.webp",
+        sort_order=27,
     ),
     SiteMediaSlot(
         key="atelier_hero_fallback",
@@ -231,19 +248,53 @@ def clear_asset_image(key: str) -> dict:
     return _row_to_admin(require_row(row, "site_media asset row missing after clear"), slot)
 
 
+def _r2_object_key(url: str) -> str | None:
+    """Return the R2 object key for a stored URL, or None if it is not ours.
+
+    A URL is an R2 object when it starts with the configured public base. Legacy
+    ``/static/...`` paths and external absolute URLs are not R2 objects.
+    """
+    base = get_settings().r2_public_base_url
+    if not base:
+        return None
+    prefix = base.rstrip("/") + "/"
+    if not url.startswith(prefix):
+        return None
+    key = url[len(prefix) :]
+    return key or None
+
+
 def _unlink_image_files(*urls: str | None) -> None:
+    """Best-effort removal of image variant objects.
+
+    Handles the URL shapes that can coexist during the R2 migration:
+      - R2 public URLs -> delete the object from R2 (best-effort)
+      - legacy ``/static/...`` paths -> unlink the file from local disk
+      - external absolute URLs -> skip (not owned by us)
+    """
     static_root = Path(get_settings().static_file_path).resolve()
     for url in urls:
-        if not url or not url.startswith("/static/"):
+        if not url:
             continue
-        relative = url.removeprefix("/static/")
-        path = (static_root / relative).resolve()
-        try:
-            path.relative_to(static_root)
-        except ValueError:
-            logger.warning("site_media_unlink_rejected", path=str(path))
+
+        key = _r2_object_key(url)
+        if key is not None:
+            try:
+                object_storage_service.delete_object(key)
+            except object_storage_service.MediaStorageError as exc:
+                logger.warning("site_media_r2_delete_failed", key=key, error=str(exc))
             continue
-        try:
-            path.unlink(missing_ok=True)
-        except OSError as exc:
-            logger.warning("site_media_unlink_failed", path=str(path), error=str(exc))
+
+        if url.startswith("/static/"):
+            relative = url.removeprefix("/static/").lstrip("/")
+            path = (static_root / relative).resolve()
+            try:
+                path.relative_to(static_root)
+                path.unlink(missing_ok=True)
+            except ValueError:
+                logger.warning("site_media_unlink_rejected", path=str(path))
+            except OSError as exc:
+                logger.warning("site_media_unlink_failed", path=str(path), error=str(exc))
+            continue
+
+        logger.debug("site_media_delete_skipped_external", url=url)

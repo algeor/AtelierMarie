@@ -586,8 +586,8 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
           )}
         </div>
         <div className="relative">
-          <AdminFieldLabel htmlFor="description_bg" info={t("fieldHelp.descriptionBg")}>
-            {t("descriptionBg")}<MissingBgLabel show={isMissingTranslation(formData.description_en, formData.description_bg)} />
+          <AdminFieldLabel htmlFor="description_bg" info={t("fieldHelp.descriptionBg")} extra={<MissingBgLabel show={isMissingTranslation(formData.description_en, formData.description_bg)} />}>
+            {t("descriptionBg")}
           </AdminFieldLabel>
           <textarea
             id="description_bg"
@@ -627,8 +627,8 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
             {errors.safety_warnings_en && <p className="mt-1.5 text-sm text-red-700">{errors.safety_warnings_en}</p>}
           </div>
           <div>
-            <AdminFieldLabel htmlFor="safety_warnings_bg" info={t("fieldHelp.safetyWarnings")}>
-              {t("safetyWarningsBg")}<MissingBgLabel show={isMissingTranslation(formData.safety_warnings_en, formData.safety_warnings_bg)} />
+            <AdminFieldLabel htmlFor="safety_warnings_bg" info={t("fieldHelp.safetyWarnings")} extra={<MissingBgLabel show={isMissingTranslation(formData.safety_warnings_en, formData.safety_warnings_bg)} />}>
+              {t("safetyWarningsBg")}
             </AdminFieldLabel>
             <textarea
               id="safety_warnings_bg"
@@ -657,8 +657,8 @@ export function ProductForm({ product, onSubmit, submitLabel }: ProductFormProps
             {errors.care_instructions_en && <p className="mt-1.5 text-sm text-red-700">{errors.care_instructions_en}</p>}
           </div>
           <div>
-            <AdminFieldLabel htmlFor="care_instructions_bg" info={t("fieldHelp.careInstructions")}>
-              {t("careInstructionsBg")}<MissingBgLabel show={isMissingTranslation(formData.care_instructions_en, formData.care_instructions_bg)} />
+            <AdminFieldLabel htmlFor="care_instructions_bg" info={t("fieldHelp.careInstructions")} extra={<MissingBgLabel show={isMissingTranslation(formData.care_instructions_en, formData.care_instructions_bg)} />}>
+              {t("careInstructionsBg")}
             </AdminFieldLabel>
             <textarea
               id="care_instructions_bg"

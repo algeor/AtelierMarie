@@ -1,15 +1,22 @@
 """Image service — validation, processing, and storage for product images.
 
 Handles magic-byte validation, Pillow-based resize/conversion, EXIF stripping,
-and path-traversal prevention. All images are stored as WebP.
+and object-key traversal prevention. All processed images are stored as WebP
+objects in R2 via :mod:`app.services.object_storage_service`; this module
+performs no local disk writes.
 """
 
+import io
 import re
-from pathlib import Path
+import warnings
 
+import structlog
 from PIL import Image, ImageOps
 
-from app.config import get_settings
+from app.services import object_storage_service
+
+logger = structlog.get_logger(__name__)
+
 
 # Pixel flood protection — set at MODULE LEVEL before any image processing
 MAX_IMAGE_PIXELS = 25_000_000
@@ -34,6 +41,9 @@ _PNG_MAGIC = b"\x89\x50\x4e\x47"
 # Product ID slug format
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*[a-z0-9]$")
 _IMAGE_ID_RE = re.compile(r"^[a-f0-9]{32}$")
+
+# WebP object content type for R2 uploads.
+_WEBP_CONTENT_TYPE = "image/webp"
 
 
 # --- Exceptions ---
@@ -79,7 +89,7 @@ def validate_image_file(file_bytes: bytes, product_id: str) -> None:
         FileTooLargeError: If file exceeds 25MB.
         InvalidImageTypeError: If magic bytes don't match JPEG or PNG.
     """
-    # Validate product_id slug format first (before any file path construction)
+    # Validate product_id slug format first (before any object-key construction)
     if not product_id or not _SLUG_RE.match(product_id):
         raise InvalidProductIdError(
             f"Product ID must match slug format (lowercase alphanumeric + hyphens): {product_id!r}"
@@ -97,35 +107,49 @@ def validate_image_file(file_bytes: bytes, product_id: str) -> None:
 
 
 def validate_image_id(image_id: str) -> None:
-    """Validate the per-image UUID hex used in file names."""
+    """Validate the per-image UUID hex used in object keys."""
     if not image_id or not _IMAGE_ID_RE.match(image_id):
         raise InvalidImageIdError(f"Image ID must be a UUID hex string: {image_id!r}")
+
+
+def _encode_webp(img: Image.Image, max_size: tuple[int, int], quality: int) -> bytes:
+    """Return WebP-encoded bytes of a bounded, downscaled copy of ``img``."""
+    variant = img.copy()
+    variant.thumbnail(max_size, _RESAMPLE_LANCZOS)
+    buffer = io.BytesIO()
+    variant.save(buffer, format="WEBP", quality=quality)
+    return buffer.getvalue()
 
 
 def process_image(
     file_bytes: bytes,
     product_id: str,
-    static_path: str | None = None,
+    static_path: str | None = None,  # noqa: ARG001 - retained for signature compat; unused post-R2
     image_id: str | None = None,
 ) -> dict:
     """Process an image: validate with Pillow, strip EXIF, resize, save as WebP.
 
-    Creates main, thumbnail, and zoom derivatives.
+    Creates main, thumbnail, and zoom derivatives and uploads each to R2 with
+    ``ContentType: image/webp``. Uploads happen before any DB write by the
+    caller, so a failed upload leaves no dangling row.
 
     Args:
         file_bytes: Raw file bytes (already validated by validate_image_file).
         product_id: Product slug (already validated).
-        static_path: Override for static file directory (defaults to settings).
-        image_id: Optional UUID hex. When supplied, filenames are unique per image.
+        static_path: Deprecated/unused. Retained only for call-site
+            compatibility during the R2 migration; media no longer touches disk.
+        image_id: Optional UUID hex. When supplied, keys are unique per image.
 
     Returns:
-        Dict with image_url, thumbnail_url, and zoom_url (relative paths for serving).
+        Dict with image_url, thumbnail_url, and zoom_url — absolute R2 public URLs.
 
     Raises:
         ImageProcessingError: If the image is corrupted or dimensions exceed limits.
+        object_storage_service.MediaStorageError: If an R2 upload fails or R2 is
+            unconfigured.
     """
     # Defensive validation for direct service callers. The upload route also
-    # validates before reading paths, but this function constructs paths too.
+    # validates before use, but this function derives object keys too.
     if not product_id or not _SLUG_RE.match(product_id):
         raise InvalidProductIdError(
             f"Product ID must match slug format (lowercase alphanumeric + hyphens): {product_id!r}"
@@ -133,32 +157,16 @@ def process_image(
     if image_id is not None:
         validate_image_id(image_id)
 
-    if static_path is None:
-        settings = get_settings()
-        static_path = settings.static_file_path
-
-    # Resolve output directory and verify path safety
-    base_dir = (Path(static_path).resolve() / "products").resolve()
-    base_dir.mkdir(parents=True, exist_ok=True)
-
     filename_stem = f"{product_id}_{image_id}" if image_id else product_id
-    main_path = (base_dir / f"{filename_stem}.webp").resolve()
-    thumb_path = (base_dir / f"{filename_stem}_thumb.webp").resolve()
-    zoom_path = (base_dir / f"{filename_stem}_zoom.webp").resolve()
 
-    # Path traversal prevention: ensure resolved paths are under base_dir
-    try:
-        main_path.relative_to(base_dir)
-        thumb_path.relative_to(base_dir)
-        zoom_path.relative_to(base_dir)
-    except ValueError as e:
-        raise ImageProcessingError("Path traversal detected") from e
+    # Derive object keys up front. The stem-based helper re-validates that the
+    # derived key stays under the products/ prefix (traversal guard).
+    main_key = object_storage_service.object_key_for_stem(filename_stem, ".webp")
+    thumb_key = object_storage_service.object_key_for_stem(filename_stem, "_thumb.webp")
+    zoom_key = object_storage_service.object_key_for_stem(filename_stem, "_zoom.webp")
 
     # Open and verify with Pillow
     try:
-        import io
-        import warnings
-
         img: Image.Image = Image.open(io.BytesIO(file_bytes))
         img.verify()  # Verify it's a valid image (doesn't load pixel data)
 
@@ -199,23 +207,41 @@ def process_image(
         background.paste(img, mask=img.split()[3])
         img = background
 
-    # Create main image (thumbnail mode preserves aspect ratio, no upscale)
-    main_img = img.copy()
-    main_img.thumbnail(_MAIN_MAX_SIZE, _RESAMPLE_LANCZOS)
-    main_img.save(str(main_path), format="WEBP", quality=_MAIN_QUALITY)
+    # Encode all three WebP variants in memory (no disk writes).
+    main_bytes = _encode_webp(img, _MAIN_MAX_SIZE, _MAIN_QUALITY)
+    thumb_bytes = _encode_webp(img, _THUMB_MAX_SIZE, _THUMB_QUALITY)
+    # The zoom derivative is still a bounded, EXIF-stripped re-encode — never
+    # the byte-for-byte uploaded original.
+    zoom_bytes = _encode_webp(img, _ZOOM_MAX_SIZE, _ZOOM_QUALITY)
 
-    # Create thumbnail
-    thumb_img = img.copy()
-    thumb_img.thumbnail(_THUMB_MAX_SIZE, _RESAMPLE_LANCZOS)
-    thumb_img.save(str(thumb_path), format="WEBP", quality=_THUMB_QUALITY)
-
-    # Create zoom image. It is still a bounded, EXIF-stripped derivative.
-    zoom_img = img.copy()
-    zoom_img.thumbnail(_ZOOM_MAX_SIZE, _RESAMPLE_LANCZOS)
-    zoom_img.save(str(zoom_path), format="WEBP", quality=_ZOOM_QUALITY)
+    # Upload all variants to R2. Any botocore/config failure surfaces as a
+    # MediaStorageError (raised by the storage service), so the caller does not
+    # write a DB row referencing an object that failed to upload. The variants
+    # are uploaded sequentially, so a failure on the 2nd/3rd upload would leave
+    # the earlier objects orphaned in the bucket (no DB row references them).
+    # Compensate by best-effort deleting the keys written so far before
+    # re-raising, so a partial failure leaves nothing behind.
+    uploaded_keys: list[str] = []
+    try:
+        image_url = object_storage_service.upload_bytes(main_key, main_bytes, _WEBP_CONTENT_TYPE)
+        uploaded_keys.append(main_key)
+        thumbnail_url = object_storage_service.upload_bytes(
+            thumb_key, thumb_bytes, _WEBP_CONTENT_TYPE
+        )
+        uploaded_keys.append(thumb_key)
+        zoom_url = object_storage_service.upload_bytes(zoom_key, zoom_bytes, _WEBP_CONTENT_TYPE)
+    except object_storage_service.MediaStorageError:
+        for key in uploaded_keys:
+            try:
+                object_storage_service.delete_object(key)
+            except object_storage_service.MediaStorageError as cleanup_exc:
+                logger.warning(
+                    "image_upload_orphan_cleanup_failed", key=key, error=str(cleanup_exc)
+                )
+        raise
 
     return {
-        "image_url": f"/static/products/{filename_stem}.webp",
-        "thumbnail_url": f"/static/products/{filename_stem}_thumb.webp",
-        "zoom_url": f"/static/products/{filename_stem}_zoom.webp",
+        "image_url": image_url,
+        "thumbnail_url": thumbnail_url,
+        "zoom_url": zoom_url,
     }

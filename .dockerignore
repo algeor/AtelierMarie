@@ -1,11 +1,14 @@
 .git
 .github
+.gitignore
+.claude
 .pytest_cache
 .ruff_cache
 .mypy_cache
 .next
 .next-build
 .next-dev
+.editorconfig
 __pycache__
 *.py[cod]
 .venv
@@ -29,3 +32,9 @@ analytics-data
 video-temp
 video-temp/**
 *.log
+tests
+technical_documentation/docs
+qa-artifacts
+openspec
+README.md
+Makefile

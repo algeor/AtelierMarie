@@ -35,6 +35,16 @@ def test_public_read_filters_unpublished_sections_and_items(db):
     assert all(item["title"] != "Design" for item in process["items"])
 
 
+def test_collection_links_use_product_label_filters(db):
+    sections = about_service.get_public_about()["sections"]
+    collections = next(section for section in sections if section["slug"] == "collections")
+
+    links = {item["title"]: item["link"] for item in collections["items"]}
+    assert links["Floral Collection"] == "/products?labels=floral"
+    assert links["Sculptural Collection"] == "/products?labels=sculptural"
+    assert links["Bespoke Collection"] == "/products?labels=bespoke"
+
+
 def test_reorder_sections_validates_submitted_set(db):
     with pytest.raises(AboutReorderError):
         about_service.reorder_sections(["hero", "story"])

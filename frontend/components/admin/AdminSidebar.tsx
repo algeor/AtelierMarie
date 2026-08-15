@@ -194,6 +194,7 @@ const NAV_GROUPS: NavGroup[] = [
     icon: <PagesIcon />,
     items: [
       { labelKey: "siteMediaNav", href: "/admin/site-media", icon: <PagesIcon /> },
+      { labelKey: "homeNav", href: "/admin/home", icon: <PagesIcon /> },
       { labelKey: "atelierNav", href: "/admin/atelier", icon: <PagesIcon /> },
       { labelKey: "termsNav", href: "/admin/terms", icon: <PagesIcon /> },
       { labelKey: "privacyNav", href: "/admin/privacy", icon: <PagesIcon /> },

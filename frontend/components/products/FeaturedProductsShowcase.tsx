@@ -1,23 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { AddToCartButton } from "@/components/cart/AddToCartButton";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
-import type { ProductResponse } from "@/lib/types";
+import type { HomeSection, ProductResponse } from "@/lib/types";
 import { PriceDisplay } from "./PriceDisplay";
 import { ProductImage } from "./ProductImage";
+import {
+  trackProductClick,
+  useProductImpression,
+  type ProductDiscoveryContext,
+} from "./productAnalytics";
 
 interface FeaturedProductsShowcaseProps {
   products: ProductResponse[];
+  section?: HomeSection | null;
 }
 
 function productDescriptor(product: ProductResponse) {
   return product.category_name || product.product_type_name || product.labels[0]?.name || "Atelier Marie";
 }
 
-export function FeaturedProductsShowcase({ products }: FeaturedProductsShowcaseProps) {
+export function FeaturedProductsShowcase({ products, section }: FeaturedProductsShowcaseProps) {
   const t = useTranslations("home");
   const featuredProducts = products.slice(0, 3);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -54,13 +60,13 @@ export function FeaturedProductsShowcase({ products }: FeaturedProductsShowcaseP
       <div className="relative z-10 mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="landing-scroll-reveal mb-10 max-w-2xl lg:mb-0">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-            {t("featuredEyebrow")}
+            {section?.subheading ?? t("featuredEyebrow")}
           </p>
           <h2 id="featured-products-title" className="mt-3 font-heading text-3xl text-text sm:text-4xl lg:text-5xl">
-            {t("featured")}
+            {section?.heading ?? t("featured")}
           </h2>
           <p className="mt-4 max-w-xl text-base leading-7 text-muted">
-            {t("featuredIntro")}
+            {section?.body ?? t("featuredIntro")}
           </p>
         </div>
 
@@ -77,6 +83,7 @@ export function FeaturedProductsShowcase({ products }: FeaturedProductsShowcaseP
                   <FeaturedProductCard
                     product={product}
                     index={index}
+                    totalCount={featuredProducts.length}
                     active={isActive}
                     className="mx-auto w-full max-w-[24rem] lg:max-w-5xl"
                     onActivate={() => chooseProduct(index, false)}
@@ -147,12 +154,14 @@ export function FeaturedProductsShowcase({ products }: FeaturedProductsShowcaseP
 function FeaturedProductCard({
   product,
   index,
+  totalCount,
   active,
   className,
   onActivate,
 }: {
   product: ProductResponse;
   index: number;
+  totalCount: number;
   active: boolean;
   className?: string;
   onActivate: () => void;
@@ -160,9 +169,22 @@ function FeaturedProductCard({
   const t = useTranslations("home");
   const descriptor = productDescriptor(product);
   const inactiveTabIndex = active ? undefined : -1;
+  const cardRef = useRef<HTMLElement>(null);
+  const discoveryContext = useMemo<ProductDiscoveryContext>(
+    () => ({
+      index,
+      listingContext: "featured_products",
+      resultCount: totalCount,
+      totalCount,
+    }),
+    [index, totalCount],
+  );
+
+  useProductImpression(cardRef, product, discoveryContext);
 
   return (
     <article
+      ref={cardRef}
       className={cn(
         "featured-preview-card landing-scroll-reveal group relative",
         active && "featured-preview-card--active",
@@ -177,6 +199,7 @@ function FeaturedProductCard({
       <Link
         href={`/products/${product.id}`}
         tabIndex={inactiveTabIndex}
+        onClick={() => trackProductClick(product, discoveryContext, "featured_image")}
         className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
       >
         <ProductImage
@@ -192,6 +215,7 @@ function FeaturedProductCard({
         <Link
           href={`/products/${product.id}`}
           tabIndex={inactiveTabIndex}
+          onClick={() => trackProductClick(product, discoveryContext, "featured_title")}
           className="mt-1.5 block font-heading text-xl leading-tight text-text transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
         >
           {product.name}
@@ -210,6 +234,7 @@ function FeaturedProductCard({
           <Link
             href={`/products/${product.id}`}
             tabIndex={inactiveTabIndex}
+            onClick={() => trackProductClick(product, discoveryContext, "featured_cta")}
             className="inline-flex min-h-[42px] items-center justify-center rounded-brand border border-border/70 bg-surface-elevated/80 px-4 py-2 text-sm font-semibold text-text transition-colors hover:bg-page focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page min-[420px]:shrink-0"
           >
             {t("viewProduct")}
