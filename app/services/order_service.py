@@ -113,6 +113,8 @@ VALID_TRANSITIONS: dict[str, set[str]] = {
     "cancelled": set(),
 }
 
+FULFILLMENT_READY_ALLOWED_STATUSES = frozenset({"pending", "confirmed"})
+
 ADMIN_REVIEW_FILTERS = frozenset(
     {
         "abandoned_payment",
@@ -371,6 +373,26 @@ def _sale_issue_movement(
         """,
         (order_id, product_id, _order_item_key(order_id, product_id)),
     ).fetchone()
+
+
+def _sale_issue_movements(
+    conn: DbConnection,
+    *,
+    order_id: str,
+    product_id: str,
+) -> list[dict]:
+    return conn.execute(
+        """
+        SELECT *
+        FROM inventory_movements
+        WHERE order_id = %s
+          AND product_id = %s
+          AND order_item_key = %s
+          AND movement_type = 'sale_issue'
+        ORDER BY occurred_at DESC, created_at DESC, id DESC
+        """,
+        (order_id, product_id, _order_item_key(order_id, product_id)),
+    ).fetchall()
 
 
 def _accounting_admin_fields(
@@ -729,6 +751,17 @@ class OrderNotReadyError(OrderServiceError):
     def __init__(self, order_id: str) -> None:
         self.order_id = order_id
         super().__init__("Order cannot ship until all items are ready")
+
+
+class InvalidFulfillmentTransitionError(OrderServiceError):
+    """Raised when fulfillment-ready is requested for an ineligible order state."""
+
+    def __init__(self, order_id: str, status: str) -> None:
+        self.order_id = order_id
+        self.status = status
+        super().__init__(
+            "Only pending or confirmed orders can be marked ready for shipment"
+        )
 
 
 class OrderNotFoundError(OrderServiceError):
@@ -1737,10 +1770,10 @@ def get_order_inventory_context(conn: DbConnection, order_id: str) -> dict[str, 
             stock_issue_status = "legacy"
         elif cancellation is not None:
             stock_issue_status = "reversed"
+        elif backordered_quantity > 0:
+            stock_issue_status = "awaiting_production"
         elif sale_issue is not None:
             stock_issue_status = "issued"
-        elif allocated_quantity == 0 and backordered_quantity > 0:
-            stock_issue_status = "awaiting_production"
         else:
             stock_issue_status = "missing"
             missing_movement_count += 1
@@ -1803,11 +1836,14 @@ def mark_order_fulfillment_ready(
     """Allocate outstanding quantities and mark an order ready for shipment."""
     with conn.transaction():
         order_row = conn.execute(
-            "SELECT id, fulfillment_status, updated_at FROM orders WHERE id = %s FOR UPDATE",
+            "SELECT id, status, fulfillment_status, updated_at FROM orders WHERE id = %s FOR UPDATE",
             (order_id,),
         ).fetchone()
         if not order_row:
             raise OrderNotFoundError(order_id)
+
+        if order_row["status"] not in FULFILLMENT_READY_ALLOWED_STATUSES:
+            raise InvalidFulfillmentTransitionError(order_id, order_row["status"])
 
         if order_row["fulfillment_status"] == "ready":
             order = _fetch_order_with_items(conn, order_id)
@@ -2522,8 +2558,8 @@ def update_status(
                 continue
             if _is_ledger_managed_mode(_product_inventory_mode(conn, product_id)):
                 key = _order_item_key(order_id, product_id)
-                issue = _sale_issue_movement(conn, order_id=order_id, product_id=product_id)
-                if issue is None:
+                issues = _sale_issue_movements(conn, order_id=order_id, product_id=product_id)
+                if not issues:
                     _insert_inventory_exception(
                         conn,
                         exception_type="missing_sale_issue_movement",
@@ -2535,29 +2571,38 @@ def update_status(
                         source_type="order_item",
                         source_id=key,
                     )
-                _record_finished_good_movement(
-                    conn,
-                    product_id=product_id,
-                    movement_type="cancellation_reversal",
-                    quantity_delta=allocated_quantity,
-                    source_type="order_cancellation",
-                    source_id=order_id,
-                    order_id=order_id,
-                    order_item_key=key,
-                    reason="order_cancelled",
-                    notes="Cancellation stock reversal",
-                    reversal_of_movement_id=(
-                        issue["id"]
-                        if issue and abs(float(issue["quantity_delta"])) == allocated_quantity
-                        else None
-                    ),
-                    review_state=(
-                        "reviewed"
-                        if issue and abs(float(issue["quantity_delta"])) == allocated_quantity
-                        else "unreviewed"
-                    ),
-                    metadata={"inventory_mode": _LEDGER_MANAGED_MODE},
-                )
+                    _record_finished_good_movement(
+                        conn,
+                        product_id=product_id,
+                        movement_type="cancellation_reversal",
+                        quantity_delta=allocated_quantity,
+                        source_type="order_cancellation",
+                        source_id=order_id,
+                        order_id=order_id,
+                        order_item_key=key,
+                        reason="order_cancelled",
+                        notes="Cancellation stock reversal",
+                        review_state="unreviewed",
+                        metadata={"inventory_mode": _LEDGER_MANAGED_MODE},
+                    )
+                    continue
+
+                for issue in issues:
+                    _record_finished_good_movement(
+                        conn,
+                        product_id=product_id,
+                        movement_type="cancellation_reversal",
+                        quantity_delta=abs(float(issue["quantity_delta"])),
+                        source_type="order_cancellation",
+                        source_id=order_id,
+                        order_id=order_id,
+                        order_item_key=key,
+                        reason="order_cancelled",
+                        notes="Cancellation stock reversal",
+                        reversal_of_movement_id=issue["id"],
+                        review_state="reviewed",
+                        metadata={"inventory_mode": _LEDGER_MANAGED_MODE},
+                    )
             else:
                 cursor = conn.execute(
                     "UPDATE products SET stock = stock + %s WHERE id = %s",
@@ -2569,6 +2614,11 @@ def update_status(
                         product_id=product_id,
                         order_id=order_id,
                     )
+
+        conn.execute(
+            "UPDATE orders SET fulfillment_status = 'ready' WHERE id = %s",
+            (order_id,),
+        )
 
     # Log admin action
     logger.info(

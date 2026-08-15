@@ -10,6 +10,7 @@ from app.models.delivery import DeliveryInfo, DeliveryOffice
 from app.services.order_service import (
     EmptyCartError,
     InvalidDeliveryOfficeError,
+    InvalidFulfillmentTransitionError,
     InvalidStateTransitionError,
     OrderNotFoundError,
     PaymentReviewRequiredError,
@@ -18,6 +19,7 @@ from app.services.order_service import (
     checkout,
     get_order,
     list_orders,
+    mark_order_fulfillment_ready,
     update_status,
     update_status_async,
 )
@@ -852,6 +854,30 @@ class TestInvalidTransitions:
 class TestCancellationRestoresStock:
     """6.3, 6.4, 6.5: Cancellation restores stock."""
 
+    def test_cancelled_crafted_later_order_clears_fulfillment_waiting_state(
+        self, conn, session_a, products, delivery
+    ):
+        conn.execute(
+            "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (%s, %s, %s)",
+            (session_a, "midnight-amber", 6),
+        )
+        conn.commit()
+
+        order = checkout(
+            conn=conn,
+            session_id=session_a,
+            customer_email="buyer@example.com",
+            delivery=delivery,
+        )
+
+        assert order["fulfillment_status"] == "awaiting_production"
+
+        cancelled = update_status(conn=conn, order_id=order["id"], new_status="cancelled")
+        conn.commit()
+
+        assert cancelled["status"] == "cancelled"
+        assert cancelled["fulfillment_status"] == "ready"
+
     def test_cancel_from_pending_restores_stock(self, conn, session_a, products):
         order_id = _create_order_with_status(
             conn,
@@ -996,11 +1022,34 @@ class TestDoubleCancellation:
         with pytest.raises(InvalidStateTransitionError):
             update_status(conn=conn, order_id=order_id, new_status="cancelled")
 
+
+class TestFulfillmentTransitions:
+    """6.7: Crafted-later orders only move to ready from active order states."""
+
+    def test_mark_ready_rejects_cancelled_order(self, conn, session_a, products, delivery):
+        conn.execute(
+            "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (%s, %s, %s)",
+            (session_a, "midnight-amber", 6),
+        )
+        conn.commit()
+
+        order = checkout(
+            conn=conn,
+            session_id=session_a,
+            customer_email="buyer@example.com",
+            delivery=delivery,
+        )
+        update_status(conn=conn, order_id=order["id"], new_status="cancelled")
+        conn.commit()
+
+        with pytest.raises(InvalidFulfillmentTransitionError):
+            mark_order_fulfillment_ready(conn, order["id"])
+
         # Stock not double-incremented
         stock_after_attempt = conn.execute(
-            "SELECT stock FROM products WHERE id = 'lavender-dream'"
+            "SELECT stock FROM products WHERE id = 'midnight-amber'"
         ).fetchone()["stock"]
-        assert stock_after_attempt == 10
+        assert stock_after_attempt == 5
 
 
 class TestCheckoutSetsUserId:

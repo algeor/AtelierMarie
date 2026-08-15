@@ -187,6 +187,7 @@ from app.services.order_service import (
     ADMIN_ACCOUNTING_FILTERS,
     ADMIN_REVIEW_FILTERS,
     InsufficientStockError,
+    InvalidFulfillmentTransitionError,
     InvalidStateTransitionError,
     ManualPaymentActionError,
     OrderNotFoundError,
@@ -2997,6 +2998,8 @@ def admin_mark_order_fulfillment_ready(
             )
         except OrderNotFoundError:
             return error_response(404, "ORDER_NOT_FOUND", "Order not found")
+        except InvalidFulfillmentTransitionError as exc:
+            return error_response(422, "INVALID_TRANSITION", str(exc))
         except InsufficientStockError as exc:
             return error_response(
                 422,

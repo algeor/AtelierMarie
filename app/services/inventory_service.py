@@ -2988,8 +2988,17 @@ def generate_cogs_rows() -> COGSLedgerListResponse:
                    c.total_cost_cents, c.valuation_method
             FROM inventory_movements im
             JOIN cogs_ledger c
-              ON c.order_id = im.order_id
-             AND c.product_id = im.product_id
+              ON (
+                    (
+                        im.movement_type = 'cancellation_reversal'
+                    AND c.source_movement_id = im.reversal_of_movement_id
+                    )
+                 OR (
+                        im.movement_type = 'return_restock'
+                    AND c.order_id = im.order_id
+                    AND c.product_id = im.product_id
+                    )
+              )
              AND c.review_state != 'reversed'
             LEFT JOIN cogs_ledger reversal
               ON reversal.reversal_cogs_id = c.id

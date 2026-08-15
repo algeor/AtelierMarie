@@ -11,7 +11,12 @@ import pytest
 from app.models.delivery import DeliveryInfo, DeliveryOffice
 from app.models.inventory import InventoryValuationSettingsRequest, OpeningBalanceRequest
 from app.services import inventory_service, product_service
-from app.services.order_service import checkout, get_order_inventory_context, update_status
+from app.services.order_service import (
+    checkout,
+    get_order_inventory_context,
+    mark_order_fulfillment_ready,
+    update_status,
+)
 from app.services.product_service import LedgerManagedStockEditError
 from app.services.return_service import create_return_case, inspect_return_case, receive_return_case
 
@@ -164,6 +169,35 @@ def test_cancellation_reverses_ledger_sale_issue_movement(ledger_conn):
         ]
         == 10
     )
+
+
+def test_cancellation_reverses_each_sale_issue_after_fulfillment_ready(ledger_conn):
+    session_id = _session(ledger_conn)
+    _seed_product(ledger_conn, "ledger-candle", stock=2, ledger_managed=True)
+    _add_cart_item(ledger_conn, session_id, "ledger-candle", 3)
+
+    order = checkout(
+        conn=ledger_conn,
+        session_id=session_id,
+        customer_email="buyer@example.com",
+        customer_name="Buyer",
+        delivery=_delivery(),
+    )
+
+    ledger_conn.execute("UPDATE products SET stock = 1 WHERE id = 'ledger-candle'")
+    ledger_conn.commit()
+    mark_order_fulfillment_ready(ledger_conn, order["id"])
+    update_status(ledger_conn, order["id"], "cancelled")
+
+    rows = _movement_rows(ledger_conn, "ledger-candle")
+    sale_issues = [row for row in rows if row["movement_type"] == "sale_issue"]
+    reversals = [row for row in rows if row["movement_type"] == "cancellation_reversal"]
+
+    assert [row["quantity_delta"] for row in sale_issues] == [-2.0, -1.0]
+    assert [row["quantity_delta"] for row in reversals] == [1.0, 2.0]
+    assert {row["reversal_of_movement_id"] for row in reversals} == {
+        row["id"] for row in sale_issues
+    }
 
 
 def test_return_inspection_creates_ledger_restock_and_write_off_movements(ledger_conn):
@@ -368,3 +402,25 @@ def test_admin_order_inventory_context_and_product_stock_edit_blocking(ledger_co
     product = product_service.update_product("ledger-candle", {"name_en": "Ledger Candle Updated"})
     assert product["stock"] == 9
     assert product["ledger_managed"] is True
+
+
+def test_inventory_context_flags_partial_backorders_as_awaiting_production(ledger_conn):
+    session_id = _session(ledger_conn)
+    _seed_product(ledger_conn, "ledger-candle", stock=2, ledger_managed=True)
+    _add_cart_item(ledger_conn, session_id, "ledger-candle", 3)
+
+    order = checkout(
+        conn=ledger_conn,
+        session_id=session_id,
+        customer_email="buyer@example.com",
+        customer_name="Buyer",
+        delivery=_delivery(),
+    )
+
+    context = get_order_inventory_context(ledger_conn, order["id"])
+    item_context = context["items"]["ledger-candle"]
+
+    assert order["fulfillment_status"] == "awaiting_production"
+    assert item_context["allocated_quantity"] == 2
+    assert item_context["backordered_quantity"] == 1
+    assert item_context["stock_issue_status"] == "awaiting_production"

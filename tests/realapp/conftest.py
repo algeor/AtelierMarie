@@ -73,8 +73,12 @@ def app(worker_database_url: str):
 @pytest.fixture()
 async def admin_client(app) -> AsyncGenerator[AsyncClient, None]:
     """Async HTTP client with admin Bearer auth (realapp/real middleware)."""
+    import os
+
     from app.config import get_settings
 
+    os.environ["ADMIN_API_KEY"] = ADMIN_API_KEY
+    get_settings.cache_clear()
     settings = get_settings()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:

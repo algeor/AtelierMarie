@@ -110,6 +110,12 @@ async def order_client(app, order_session_id) -> AsyncClient:
 @pytest.fixture()
 async def admin_order_client(app, order_session_id) -> AsyncClient:
     """Client with admin auth header and session cookie."""
+    import os
+
+    from tests.realapp.conftest import ADMIN_API_KEY
+
+    os.environ["ADMIN_API_KEY"] = ADMIN_API_KEY
+    get_settings.cache_clear()
     settings = get_settings()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
