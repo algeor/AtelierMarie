@@ -120,6 +120,20 @@ Store it in the systemd unit's `Environment=` or an EnvironmentFile — never
 commit it. Rotate on any suspected leak. Comparison uses `hmac.compare_digest`
 in `app/dependencies/auth.py`, so length variations do not leak via timing.
 
+## Database credentials
+
+For Docker production, prefer `compose.secrets.yml` plus files under
+`/opt/atelier-marie/secrets/` over plaintext database passwords in
+`.env.docker`. The backend supports `DATABASE_URL_FILE`, and Alembic supports
+`MIGRATION_DATABASE_URL_FILE` for a separate migration role. Managed or external
+Postgres URLs must include `sslmode=require` or stronger.
+
+The same file-backed pattern is available for required runtime secrets such as
+`JWT_SECRET_FILE` and `ADMIN_API_KEY_FILE`, plus optional provider secrets for
+Google, ZeptoMail, Stripe, Speedy, and Econt. Keep `.env.docker` focused on
+non-secret settings and rotate file-backed secrets by replacing the file then
+restarting the affected service.
+
 ## First-party analytics production gate
 
 Analytics is disabled by default and must stay disabled until the consent popup,

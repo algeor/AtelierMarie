@@ -25,6 +25,7 @@ def _settings(**overrides) -> Settings:
         "email_from_address": "orders@theateliermarie.com",
         "email_from_name": "Atelier Marie",
         # Satisfy production validation when a test flips environment=production.
+        "database_url": "postgresql://atelier:strong-db-password@localhost:5432/atelier_marie",
         "jwt_secret": "x" * 40,
         "admin_api_key": "y" * 40,
     }

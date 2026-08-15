@@ -20,6 +20,7 @@ frontend/.next-dev/
 !.env.example
 !.env.docker.example
 !frontend/.env.local.example
+secrets/
 
 # Development
 .coverage

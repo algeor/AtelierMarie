@@ -1232,7 +1232,8 @@ class TestPaymentSecurityEdges:
     def test_production_rejects_stripe_test_key_for_card_enable(self):
         settings = Settings(
             environment="production",
-            jwt_secret="a-real-production-secret-key",
+            database_url="postgresql://atelier:strong-db-password@localhost:5432/atelier_marie",
+            jwt_secret="a-real-production-secret-key-32-plus-chars",
             admin_api_key="a-long-enough-production-api-key-here",
             stripe_secret_key="sk_test_not_live",
             stripe_webhook_secret="whsec_test",

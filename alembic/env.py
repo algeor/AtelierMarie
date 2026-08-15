@@ -8,7 +8,8 @@ from app.config import get_settings
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
-database_url = get_settings().database_url
+settings = get_settings()
+database_url = settings.migration_database_url or settings.database_url
 
 if database_url.startswith("postgresql://"):
     database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)

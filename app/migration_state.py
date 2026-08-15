@@ -19,7 +19,11 @@ class MigrationStateError(RuntimeError):
 
 
 def sqlalchemy_url(database_url: str) -> str:
-    """Return a SQLAlchemy URL that uses psycopg v3 for Postgres connections."""
+    """Return a SQLAlchemy URL that uses psycopg v3 for Postgres connections.
+
+    The password is preserved: this value is passed to create_engine() to open a
+    real connection. Use masked_sqlalchemy_url() for anything that gets logged.
+    """
     url = make_url(database_url)
     if url.drivername in {"postgresql", "postgres"}:
         url = url.set(drivername="postgresql+psycopg")
@@ -27,6 +31,11 @@ def sqlalchemy_url(database_url: str) -> str:
         msg = "DATABASE_URL must be a Postgres URL. SQLite is no longer supported."
         raise MigrationStateError(msg)
     return url.render_as_string(hide_password=False)
+
+
+def masked_sqlalchemy_url(database_url: str) -> str:
+    """Return the SQLAlchemy URL with the password masked, for logging only."""
+    return make_url(sqlalchemy_url(database_url)).render_as_string(hide_password=True)
 
 
 def alembic_config() -> Config:

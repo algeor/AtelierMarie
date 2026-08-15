@@ -28,6 +28,24 @@ def conn(db):
     return db
 
 
+@pytest.fixture(autouse=True)
+def _reset_delivery_settings(db):
+    """Reset the ``delivery_settings`` singleton between tests.
+
+    ``delivery_settings`` is a migration-seed table (never truncated by the root
+    ``_clean_tables``), but ``TestFreeShipping`` disables couriers via
+    ``_disable_courier_delivery`` and that state would otherwise leak into
+    ``TestRangeValidation``, whose econt office checkouts then fail with
+    ``DeliveryMethodUnavailableError``. Deleting the row lets the service
+    re-create it with all-enabled defaults on the next read (Decision 15).
+    """
+    db.execute("DELETE FROM delivery_settings")
+    db.commit()
+    yield
+    db.execute("DELETE FROM delivery_settings")
+    db.commit()
+
+
 @pytest.fixture()
 def session_id(conn):
     sid = str(uuid.uuid4())
