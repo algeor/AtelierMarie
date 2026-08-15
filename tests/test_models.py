@@ -480,7 +480,8 @@ class TestProductionConfigValidation:
 
         s = Settings(
             environment="production",
-            jwt_secret="a-real-production-secret-key",
+            database_url="postgresql://atelier:strong-db-password@localhost:5432/atelier_marie",
+            jwt_secret="a-real-production-secret-key-32-plus-chars",
             admin_api_key="a-long-enough-production-api-key-here",
             google_client_id="123456.apps.googleusercontent.com",
             google_client_secret="GOCSPX-secret",
@@ -512,7 +513,8 @@ class TestProductionConfigValidation:
 
         s = Settings(
             environment="production",
-            jwt_secret="a-real-production-secret-key",
+            database_url="postgresql://atelier:strong-db-password@localhost:5432/atelier_marie",
+            jwt_secret="a-real-production-secret-key-32-plus-chars",
             admin_api_key="a-long-enough-production-api-key-here",
             google_client_id="",
             google_client_secret="",

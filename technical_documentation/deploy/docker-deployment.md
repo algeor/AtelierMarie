@@ -71,13 +71,92 @@ Generate secrets with:
 openssl rand -base64 48
 ```
 
-## Build And Start
+## Database Secret Files
 
-Compose reads `.env.docker` for the backend container, and Compose variable
-interpolation also uses `.env.docker` when passed with `--env-file`.
+For production, keep database credentials out of `.env.docker`. Use the
+`compose.secrets.yml` overlay and root-owned secret files instead:
 
 ```bash
-docker compose --env-file .env.docker up -d --build
+sudo mkdir -p /opt/atelier-marie/secrets
+sudo sh -c 'openssl rand -base64 48 > /opt/atelier-marie/secrets/postgres_password'
+sudo sh -c 'openssl rand -base64 48 > /opt/atelier-marie/secrets/jwt_secret'
+sudo sh -c 'openssl rand -base64 32 > /opt/atelier-marie/secrets/admin_api_key'
+sudo sh -c 'printf "%s" "postgresql://atelier:POSTGRES_PASSWORD@postgres:5432/atelier_marie" > /opt/atelier-marie/secrets/database_url'
+sudo sh -c 'printf "%s" "postgresql://atelier:POSTGRES_PASSWORD@postgres:5432/atelier_marie" > /opt/atelier-marie/secrets/migration_database_url'
+sudo chmod 600 /opt/atelier-marie/secrets/*
+```
+
+The `database_url` secret is used by the running backend. The
+`migration_database_url` secret is used only by the one-shot migration service.
+For first bootstrap against the bundled Postgres container, both URLs can use
+the Compose-created `atelier` role and the generated `postgres_password`. After
+you create least-privilege roles, replace those two URL files with the app and
+migrator role URLs.
+
+The `compose.secrets.yml` overlay also mounts `jwt_secret` and `admin_api_key`
+for both `backend` and `migrate`, so `.env.docker` does not need to contain live
+auth/admin credentials.
+
+For managed or external Postgres, include TLS in both URLs:
+
+```text
+postgresql://atelier_app:...@db.example.com:5432/atelier_marie?sslmode=require
+```
+
+Use `sslmode=verify-full&sslrootcert=/path/to/ca.crt` when the provider exposes
+a CA bundle. The backend refuses external production database URLs without an
+`sslmode` query parameter.
+
+Prefer separate roles:
+
+- `atelier_migrator`: owns schema migrations and can run DDL.
+- `atelier_app`: runtime role for the backend; grant only the table/sequence
+  privileges the application needs.
+
+After migrations create or update schema, re-apply runtime grants, for example:
+
+```sql
+GRANT CONNECT ON DATABASE atelier_marie TO atelier_app;
+GRANT USAGE ON SCHEMA public TO atelier_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO atelier_app;
+GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO atelier_app;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO atelier_app;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO atelier_app;
+```
+
+Optional provider secrets can use the same pattern when the integration is
+enabled. Mount the file into the backend container and set the matching `*_FILE`
+environment variable:
+
+| Secret | File variable |
+|--------|---------------|
+| Google OAuth client secret | `GOOGLE_CLIENT_SECRET_FILE` |
+| ZeptoMail API token | `EMAIL_API_KEY_FILE` |
+| ZeptoMail webhook key | `ZEPTOMAIL_WEBHOOK_AUTH_KEY_FILE` |
+| Stripe secret key | `STRIPE_SECRET_KEY_FILE` |
+| Stripe webhook secret | `STRIPE_WEBHOOK_SECRET_FILE` |
+| Speedy API password | `SPEEDY_API_PASSWORD_FILE` |
+| Econt API password | `ECONT_API_PASSWORD_FILE` |
+| Econt Delivery private key | `ECONT_DELIVERY_PRIVATE_KEY_FILE` |
+| Econt secret encryption key | `ECONT_SECRET_ENCRYPTION_KEY_FILE` |
+
+Rotate a file-backed secret by writing the new value to a temporary file,
+renaming it over the old file, fixing permissions, and restarting the affected
+container. Rotating `JWT_SECRET` logs users out; rotating `ADMIN_API_KEY`
+requires updating any automation that calls admin endpoints. Rotate Stripe and
+webhook secrets in the provider dashboard first, then update the file and
+restart the backend.
+
+## Build And Start
+
+Compose reads `.env.docker` for non-secret config, and Compose variable
+interpolation also uses `.env.docker` when passed with `--env-file`. For a
+production launch with database secret files, include the secrets overlay:
+
+```bash
+docker compose --env-file .env.docker -f compose.yml -f compose.secrets.yml up -d --build
 ```
 
 Check health:

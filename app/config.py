@@ -1,8 +1,9 @@
 """Application configuration via environment variables."""
 
-import os
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
+from urllib.parse import parse_qs, urlparse
 
 import structlog
 from pydantic import EmailStr, Field, SecretStr, model_validator
@@ -17,6 +18,56 @@ from app.constants import (
 _logger = structlog.get_logger(__name__)
 
 _DEV_JWT_SECRET = "dev-secret-do-not-use-in-production"  # noqa: S105
+_LOCAL_DB_HOSTS = {"postgres", "localhost", "127.0.0.1", "::1"}
+_INSECURE_DB_PASSWORDS = {"", "atelier", "postgres", "password", "changeme", "change-me"}
+_INSECURE_SECRET_VALUES = {
+    "",
+    "change-me",
+    "changeme",
+    "change-me-in-production",
+    "replace-me",
+    "replace-with-a-long-random-secret",
+    "replace-with-at-least-32-characters",
+}
+_SECRET_FILE_FIELDS = (
+    ("database_url", "database_url_file"),
+    ("migration_database_url", "migration_database_url_file"),
+    ("jwt_secret", "jwt_secret_file"),
+    ("google_client_secret", "google_client_secret_file"),
+    ("admin_api_key", "admin_api_key_file"),
+    ("email_api_key", "email_api_key_file"),
+    ("zeptomail_webhook_auth_key", "zeptomail_webhook_auth_key_file"),
+    ("stripe_secret_key", "stripe_secret_key_file"),
+    ("stripe_webhook_secret", "stripe_webhook_secret_file"),
+    ("speedy_api_password", "speedy_api_password_file"),
+    ("econt_api_password", "econt_api_password_file"),
+    ("econt_delivery_private_key", "econt_delivery_private_key_file"),
+    ("econt_secret_encryption_key", "econt_secret_encryption_key_file"),
+)
+
+
+def _read_secret_file(path: str) -> str:
+    """Read a single-value secret file, trimming only surrounding whitespace."""
+    return Path(path).read_text(encoding="utf-8").strip()
+
+
+def _database_host(url: str) -> str:
+    parsed = urlparse(url)
+    return parsed.hostname or ""
+
+
+def _database_password(url: str) -> str:
+    return urlparse(url).password or ""
+
+
+def _database_sslmode(url: str) -> str:
+    query = parse_qs(urlparse(url).query)
+    return (query.get("sslmode") or [""])[0]
+
+
+def _is_external_database(url: str) -> bool:
+    host = _database_host(url)
+    return bool(host and host not in _LOCAL_DB_HOSTS)
 
 
 class Settings(BaseSettings):
@@ -25,6 +76,9 @@ class Settings(BaseSettings):
     # Core
     environment: str = "development"
     database_url: str = "postgresql://atelier:atelier@localhost:5432/atelier_marie"
+    database_url_file: str = ""
+    migration_database_url: str = ""
+    migration_database_url_file: str = ""
 
     # Database concurrency (design Decision 14). The psycopg pool and the Starlette
     # threadpool are sized together: threadpool >= pool so a threadpooled DB handler
@@ -39,20 +93,24 @@ class Settings(BaseSettings):
 
     # Auth
     jwt_secret: str = _DEV_JWT_SECRET
+    jwt_secret_file: str = ""
     jwt_algorithm: str = "HS256"
     jwt_expiry_hours: int = 168  # 7 days
     jwt_cookie_name: str = "atelier_auth"
     google_client_id: str = ""
     google_client_secret: str = ""
+    google_client_secret_file: str = ""
     google_redirect_uri: str = ""
     frontend_url: str = "http://localhost:3000"
 
     # Admin
     admin_api_key: str = ""
+    admin_api_key_file: str = ""
 
     # Email notifications
     email_provider: Literal["console", "zeptomail"] = "console"
     email_api_key: SecretStr = SecretStr("")  # ZeptoMail Send Mail token
+    email_api_key_file: str = ""
     email_from_address: EmailStr = "orders@theateliermarie.com"  # root-domain alias
     email_from_name: str = "Atelier Marie"
     email_reply_to: EmailStr = "contacts@theateliermarie.com"  # Zoho human mailbox
@@ -60,6 +118,7 @@ class Settings(BaseSettings):
     contact_message_retention_days: int = Field(default=365, ge=1)
     # ZeptoMail webhook signing key (bounce/complaint endpoint — follow-up)
     zeptomail_webhook_auth_key: SecretStr = SecretStr("")
+    zeptomail_webhook_auth_key_file: str = ""
 
     # CORS
     cors_origins: list[str] = ["http://localhost:3000"]
@@ -109,7 +168,9 @@ class Settings(BaseSettings):
 
     # Stripe (payment-integration)
     stripe_secret_key: str = ""
+    stripe_secret_key_file: str = ""
     stripe_webhook_secret: str = ""
+    stripe_webhook_secret_file: str = ""
     stripe_publishable_key: str = ""
     stripe_success_url: str = ""
     stripe_cancel_url: str = ""
@@ -136,6 +197,7 @@ class Settings(BaseSettings):
     # logged warning, never a startup failure (design Risks table).
     speedy_api_username: str = ""
     speedy_api_password: SecretStr = SecretStr("")
+    speedy_api_password_file: str = ""
     # Speedy REST base URL - endpoints (/calculate, /shipment, /track, /print)
     # derive from it, so demo/prod is an env change (design Decision 1).
     speedy_base_url: str = "https://api.speedy.bg/v1"
@@ -147,6 +209,7 @@ class Settings(BaseSettings):
     speedy_client_id: str = ""
     econt_api_username: str = ""
     econt_api_password: SecretStr = SecretStr("")
+    econt_api_password_file: str = ""
     econt_sender_office_id: str = ""
     econt_calculate_url: str = (
         "https://ee.econt.com/services/Shipments/LabelService.createLabel.json"
@@ -165,10 +228,12 @@ class Settings(BaseSettings):
     # credentials above: fulfillment uses Econt Delivery shop id + private code.
     econt_delivery_base_url: str = ""
     econt_delivery_private_key: SecretStr = SecretStr("")
+    econt_delivery_private_key_file: str = ""
     econt_delivery_shop_id: str = ""
     econt_office_locator_url: str = ""
     econt_office_locator_origins: list[str] = []
     econt_secret_encryption_key: SecretStr = SecretStr("")
+    econt_secret_encryption_key_file: str = ""
 
     # Courier status polling. The poller is async-only and uses provider clients
     # directly; no worker-thread offload is used for courier HTTP calls.
@@ -181,6 +246,19 @@ class Settings(BaseSettings):
     courier_polling_max_backoff_seconds: int = Field(default=3_600, ge=60, le=86_400)
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
+
+    @model_validator(mode="before")
+    @classmethod
+    def load_secret_files(cls, values: object) -> object:
+        """Allow production secrets to be supplied as mounted files."""
+        if not isinstance(values, dict):
+            return values
+        data = dict(values)
+        for target, file_key in _SECRET_FILE_FIELDS:
+            file_path = data.get(file_key)
+            if file_path:
+                data[target] = _read_secret_file(str(file_path))
+        return data
 
     @model_validator(mode="after")
     def validate_production_config(self) -> "Settings":
@@ -197,23 +275,63 @@ class Settings(BaseSettings):
                 "handler never waits on a missing worker thread, only on a busy connection."
             )
             raise ValueError(msg)
-        if self.environment == "production" and not os.getenv("DATABASE_URL"):
+        if self.environment == "production" and not (self.database_url or self.database_url_file):
             msg = "DATABASE_URL must be set in production."
             raise ValueError(msg)
-        if self.jwt_secret == _DEV_JWT_SECRET and self.environment not in (
-            "development",
-            "test",
+        if self.migration_database_url and not self.migration_database_url.startswith(
+            ("postgresql://", "postgres://")
+        ):
+            msg = "MIGRATION_DATABASE_URL must be a Postgres connection URL."
+            raise ValueError(msg)
+        if self.environment == "production":
+            password = _database_password(self.database_url)
+            if password.lower() in _INSECURE_DB_PASSWORDS:
+                msg = "DATABASE_URL must not use a default or weak database password in production."
+                raise ValueError(msg)
+            if _is_external_database(self.database_url) and not _database_sslmode(
+                self.database_url
+            ):
+                msg = "External production DATABASE_URL must include sslmode=require or stronger."
+                raise ValueError(msg)
+            if self.migration_database_url:
+                migration_password = _database_password(self.migration_database_url)
+                if migration_password.lower() in _INSECURE_DB_PASSWORDS:
+                    msg = (
+                        "MIGRATION_DATABASE_URL must not use a default or weak database password "
+                        "in production."
+                    )
+                    raise ValueError(msg)
+                if _is_external_database(self.migration_database_url) and not _database_sslmode(
+                    self.migration_database_url
+                ):
+                    msg = (
+                        "External production MIGRATION_DATABASE_URL must include "
+                        "sslmode=require or stronger."
+                    )
+                    raise ValueError(msg)
+        if self.environment not in ("development", "test") and (
+            self.jwt_secret == _DEV_JWT_SECRET
+            or self.jwt_secret.lower() in _INSECURE_SECRET_VALUES
+            or self.jwt_secret.lower().startswith("replace-with")
+            or len(self.jwt_secret) < 32
         ):
             msg = (
-                "JWT_SECRET must be set to a secure value in production. "
-                "Do not use the development default."
+                "JWT_SECRET must be set to a secure value of at least 32 characters "
+                "outside development/test. Do not use the development default."
             )
             raise ValueError(msg)
         if self.environment == "production" and not self.admin_api_key:
             msg = "ADMIN_API_KEY must be set in production."
             raise ValueError(msg)
-        if self.environment == "production" and len(self.admin_api_key) < 32:
-            msg = "ADMIN_API_KEY must be at least 32 characters in production."
+        if self.environment == "production" and (
+            len(self.admin_api_key) < 32
+            or self.admin_api_key.lower() in _INSECURE_SECRET_VALUES
+            or self.admin_api_key.lower().startswith("replace-with")
+        ):
+            msg = (
+                "ADMIN_API_KEY must be a real secure value of at least 32 characters "
+                "in production."
+            )
             raise ValueError(msg)
         if self.environment == "production" and "*" in self.cors_origins:
             msg = "CORS wildcard '*' is not allowed in production."

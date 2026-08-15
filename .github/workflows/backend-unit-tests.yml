@@ -7,6 +7,8 @@ on:
     paths:
       - 'app/**'
       - 'tests/**'
+      - 'alembic/**'
+      - 'conftest.py'
       - 'Makefile'
       - 'pyproject.toml'
       - '.github/workflows/backend-unit-tests.yml'
@@ -22,6 +24,24 @@ jobs:
   unit:
     name: Backend Unit Tests
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: atelier_marie
+          POSTGRES_USER: atelier
+          POSTGRES_PASSWORD: atelier
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U atelier -d atelier_marie"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://atelier:atelier@localhost:5432/atelier_marie
 
     steps:
       - name: Check out repository
@@ -41,6 +61,24 @@ jobs:
   integration:
     name: Backend Integration Tests
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: atelier_marie
+          POSTGRES_USER: atelier
+          POSTGRES_PASSWORD: atelier
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U atelier -d atelier_marie"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://atelier:atelier@localhost:5432/atelier_marie
 
     steps:
       - name: Check out repository

@@ -1,5 +1,6 @@
 import os
 from logging.config import fileConfig
+from pathlib import Path
 
 from sqlalchemy import engine_from_config, pool
 
@@ -14,12 +15,33 @@ config = context.config
 # JWT_SECRET, ...) that Settings validation would demand in environment=production
 # — otherwise `alembic upgrade head` in a minimal migration/CI context refuses to
 # run. Prefer the URL injected by programmatic callers / the test harness via
-# config.attributes, then fall back to the DATABASE_URL env var (CLI usage).
-database_url = config.attributes.get("database_url") or os.environ.get("DATABASE_URL")
+# config.attributes, then a dedicated migration URL (env var or file-backed
+# secret, mirroring Settings.migration_database_url), then the DATABASE_URL env
+# var (or its file-backed secret) for plain CLI usage.
+def _resolve_migration_database_url() -> str | None:
+    from_attributes = config.attributes.get("database_url")
+    if from_attributes:
+        return from_attributes
+    for env_var, file_env_var in (
+        ("MIGRATION_DATABASE_URL", "MIGRATION_DATABASE_URL_FILE"),
+        ("DATABASE_URL", "DATABASE_URL_FILE"),
+    ):
+        value = os.environ.get(env_var)
+        if value:
+            return value
+        file_path = os.environ.get(file_env_var)
+        if file_path:
+            return Path(file_path).read_text(encoding="utf-8").strip()
+    return None
+
+
+database_url = _resolve_migration_database_url()
 if not database_url:
     raise RuntimeError(
-        "DATABASE_URL is not set. Provide it via the DATABASE_URL environment "
-        "variable or config.attributes['database_url'] before running migrations."
+        "No migration database URL is set. Provide it via config.attributes"
+        "['database_url'], the MIGRATION_DATABASE_URL / DATABASE_URL environment "
+        "variable, or their *_FILE file-backed secret variants before running "
+        "migrations."
     )
 
 if database_url.startswith("postgresql://"):
