@@ -1,24 +1,39 @@
-"""One-time backfill of on-disk product media to Cloudflare R2.
+"""One-time backfill of on-disk media to Cloudflare R2.
 
-Iterates every ``product_images`` and ``product_videos`` row, and for each URL
-column still pointing at the legacy ``/static/products/...`` scheme:
+Handles two media shapes:
+
+1. URL-backed rows (for example ``product_images`` / ``site_media_assets``)
+   where the database stores a concrete media URL.
+2. Image-id-backed rows (for example ``about_sections`` / ``home_items``)
+   where the app reconstructs the public R2 URL from an ``image_id`` and a
+   deterministic owner slug, without storing the URL in the table.
+
+For URL-backed rows that still point at ``/static/products/...`` the script:
 
   1. Resolves the backing file on local disk (``{static_file_path}/products/X``).
-  2. Uploads it to R2 under the derived key (``products/X`` — the same filename
-     stem, mechanical mapping — see design.md Decision 6).
+  2. Uploads it to R2 under the derived key (``products/X``).
   3. Rewrites the DB column to the R2 public URL.
 
+For image-id-backed rows the script derives the same object key the app uses at
+read time (for example ``products/about-hero_<image_id>.webp``), uploads the
+matching on-disk file when present, and leaves the DB row unchanged because the
+public URL is already computed from ``image_id``.
+
 Properties:
-  - **Idempotent:** rows whose URLs already point at the R2 public base are
-    skipped, so re-running after a partial run only processes what remains.
-  - **Resumable:** each row is committed on its own (per-row commit), so an
-    interruption never loses completed work and a re-run picks up cleanly.
+  - **Safe to re-run:** URL-backed rows skip already-R2 URLs by default, and
+    image-id-backed rows overwrite the same deterministic object key if run
+    again.
+  - **``--force``:** re-upload URL-backed rows that already point at the R2
+    public base. Use this when the DB references R2 objects but the bucket was
+    emptied and must be repopulated from local files.
+  - **Resumable:** each DB rewrite is committed independently, so an
+    interruption never loses completed rewrites and a re-run picks up cleanly.
   - **``--dry-run``:** reports exactly what *would* happen (upload/skip/missing
     counts) without uploading anything or writing the DB.
   - **External URLs untouched:** absolute ``http(s)`` URLs that are not under the
     R2 public base (e.g. CSV-imported product images) are left exactly as-is.
-  - **Missing files are non-fatal:** a ``/static/...`` URL with no file on disk
-    is logged and counted, and the run continues.
+  - **Missing files are non-fatal:** a referenced object with no file on disk is
+    logged and counted, and the run continues.
   - **Rewrite log:** every DB rewrite (old URL -> new URL, keyed by table + row
     id + column) is appended to a JSONL log so a rollback can reverse-map R2
     URLs back to their original ``/static/...`` values.
@@ -38,6 +53,7 @@ import argparse
 import json
 import mimetypes
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -60,11 +76,46 @@ _R2_KEY_PREFIX = "products/"
 
 _DEFAULT_REWRITE_LOG = "backfill_r2_rewrites.jsonl"
 
-# The URL columns to migrate, per table. The row ``id`` is always selected too.
-_TARGETS: dict[str, tuple[str, ...]] = {
-    "product_images": ("image_url", "thumbnail_url", "zoom_url"),
-    "product_videos": ("video_url", "poster_url"),
-}
+
+@dataclass(frozen=True)
+class UrlTarget:
+    table: str
+    id_column: str
+    columns: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class DerivedImageTarget:
+    table: str
+    id_column: str
+    image_id_column: str
+    owner_slug: Callable[[dict], str]
+
+
+# Tables that store concrete URL columns.
+_URL_TARGETS: tuple[UrlTarget, ...] = (
+    UrlTarget("product_images", "id", ("image_url", "thumbnail_url", "zoom_url")),
+    UrlTarget("product_videos", "id", ("video_url", "poster_url")),
+    UrlTarget("site_media_assets", "key", ("image_url", "thumbnail_url", "zoom_url")),
+)
+
+# Tables that store image_id only; the app derives the object key at read time.
+_DERIVED_IMAGE_TARGETS: tuple[DerivedImageTarget, ...] = (
+    DerivedImageTarget(
+        "about_sections",
+        "slug",
+        "image_id",
+        lambda row: f"about-{row['slug'].replace('_', '-')}",
+    ),
+    DerivedImageTarget("about_items", "id", "image_id", lambda row: f"about-item-{row['id']}"),
+    DerivedImageTarget(
+        "home_sections",
+        "slug",
+        "image_id",
+        lambda row: f"home-{row['slug'].replace('_', '-')}",
+    ),
+    DerivedImageTarget("home_items", "id", "image_id", lambda row: f"home-item-{row['id']}"),
+)
 
 
 @dataclass
@@ -133,6 +184,28 @@ def _derive_key(static_url: str) -> str:
     return _R2_KEY_PREFIX + filename
 
 
+def _derive_key_from_r2_url(url: str, public_base: str) -> str:
+    """Return the object key portion of an R2 public URL."""
+    prefix = public_base.rstrip("/") + "/"
+    if not url.startswith(prefix):
+        msg = f"URL is not under the configured R2 public base: {url!r}"
+        raise ValueError(msg)
+    key = url[len(prefix) :]
+    if not key or "/" not in key or not key.startswith(_R2_KEY_PREFIX):
+        msg = f"Refusing to derive object key from unexpected R2 URL: {url!r}"
+        raise ValueError(msg)
+    return key
+
+
+def _filename_for_key(key: str) -> str:
+    """Return the leaf filename for a products/* object key."""
+    filename = key.rsplit("/", 1)[-1]
+    if not filename or "/" in filename or "\\" in filename or ".." in filename:
+        msg = f"Refusing to derive local filename from unsafe key: {key!r}"
+        raise ValueError(msg)
+    return filename
+
+
 class _RewriteLog:
     """Append-only JSONL log of DB rewrites for rollback reverse-mapping."""
 
@@ -158,12 +231,14 @@ class _RewriteLog:
 def _process_url(
     *,
     table: str,
+    id_column: str,
     row_id: str,
     column: str,
     url: str | None,
     static_products_root: Path,
     public_base: str,
     dry_run: bool,
+    force: bool,
     rewrite_log: _RewriteLog,
     summary: Summary,
 ) -> None:
@@ -178,27 +253,43 @@ def _process_url(
         return
 
     if _is_r2_url(url, public_base):
-        summary.skipped_already_r2 += 1
-        return
+        if not force:
+            summary.skipped_already_r2 += 1
+            return
+        try:
+            key = _derive_key_from_r2_url(url, public_base)
+            filename = _filename_for_key(key)
+        except ValueError as exc:
+            summary.errors += 1
+            summary.error_details.append(f"{table}#{row_id}.{column}: {exc}")
+            logger.warning(
+                "backfill_bad_r2_url", table=table, row_id=row_id, column=column, url=url
+            )
+            return
+        new_url = url
+    else:
+        if not url.startswith(_STATIC_PREFIX):
+            # Absolute external URL (e.g. CSV-imported) or a legacy shape we do not
+            # own — leave it untouched.
+            summary.skipped_external += 1
+            logger.debug(
+                "backfill_skip_external", table=table, row_id=row_id, column=column, url=url
+            )
+            return
 
-    if not url.startswith(_STATIC_PREFIX):
-        # Absolute external URL (e.g. CSV-imported) or a legacy shape we do not
-        # own — leave it untouched.
-        summary.skipped_external += 1
-        logger.debug(
-            "backfill_skip_external", table=table, row_id=row_id, column=column, url=url
-        )
-        return
+        try:
+            key = _derive_key(url)
+        except ValueError as exc:
+            summary.errors += 1
+            summary.error_details.append(f"{table}#{row_id}.{column}: {exc}")
+            logger.warning(
+                "backfill_bad_url", table=table, row_id=row_id, column=column, url=url
+            )
+            return
 
-    try:
-        key = _derive_key(url)
-    except ValueError as exc:
-        summary.errors += 1
-        summary.error_details.append(f"{table}#{row_id}.{column}: {exc}")
-        logger.warning("backfill_bad_url", table=table, row_id=row_id, column=column, url=url)
-        return
+        filename = url[len(_STATIC_PREFIX) :]
+        new_url = None
 
-    filename = url[len(_STATIC_PREFIX) :]
     source_path = (static_products_root / filename).resolve()
     # Guard against a filename that escapes the products root.
     try:
@@ -240,7 +331,8 @@ def _process_url(
         )
         return
 
-    new_url = object_storage_service.public_url(key)
+    if new_url is None:
+        new_url = object_storage_service.public_url(key)
 
     try:
         data = source_path.read_bytes()
@@ -258,23 +350,102 @@ def _process_url(
         )
         return
 
-    # Per-row commit: rewrite the single column, log it, then let the get_db()
-    # context manager commit so an interruption never loses completed work.
-    with get_db() as conn:
-        conn.execute(
-            f"UPDATE {table} SET {column} = %s WHERE id = %s",  # noqa: S608 - table/column are from a fixed allowlist.
-            (new_url, row_id),
+    if new_url != url:
+        # Per-row commit: rewrite the single column, log it, then let the get_db()
+        # context manager commit so an interruption never loses completed work.
+        with get_db() as conn:
+            conn.execute(
+                f"UPDATE {table} SET {column} = %s WHERE {id_column} = %s",  # noqa: S608 - table/column are from a fixed allowlist.
+                (new_url, row_id),
+            )
+        rewrite_log.record(
+            table=table, row_id=row_id, column=column, old_url=url, new_url=new_url
         )
-    rewrite_log.record(
-        table=table, row_id=row_id, column=column, old_url=url, new_url=new_url
-    )
     summary.uploaded += 1
     logger.info(
         "backfill_uploaded", table=table, row_id=row_id, column=column, key=key, new_url=new_url
     )
 
 
-def backfill(*, dry_run: bool, rewrite_log_path: Path) -> Summary:
+def _process_derived_image(
+    *,
+    table: str,
+    row_id: str | int,
+    image_id: str | None,
+    owner_slug: str,
+    static_products_root: Path,
+    public_base: str,
+    dry_run: bool,
+    summary: Summary,
+) -> None:
+    """Upload a deterministic owner/image_id-derived object when the source file exists."""
+    if not image_id:
+        summary.skipped_empty += 1
+        return
+
+    filename = f"{owner_slug}_{image_id}.webp"
+    key = _R2_KEY_PREFIX + filename
+    source_path = (static_products_root / filename).resolve()
+    try:
+        source_path.relative_to(static_products_root)
+    except ValueError:
+        summary.errors += 1
+        summary.error_details.append(f"{table}#{row_id}.image_id: path escapes static root")
+        return
+
+    if not source_path.is_file():
+        summary.missing_files += 1
+        detail = f"{table}#{row_id}.image_id: {source_path}"
+        summary.missing_details.append(detail)
+        logger.warning(
+            "backfill_missing_file",
+            table=table,
+            row_id=row_id,
+            column="image_id",
+            path=str(source_path),
+        )
+        return
+
+    if dry_run:
+        summary.uploaded += 1
+        logger.info(
+            "backfill_would_upload",
+            table=table,
+            row_id=row_id,
+            column="image_id",
+            key=key,
+            new_url=f"{public_base.rstrip('/')}/{key}" if public_base else None,
+        )
+        return
+
+    try:
+        data = source_path.read_bytes()
+        new_url = object_storage_service.upload_bytes(key, data, _content_type_for(filename))
+    except (OSError, object_storage_service.MediaStorageError) as exc:
+        summary.errors += 1
+        summary.error_details.append(f"{table}#{row_id}.image_id: {exc}")
+        logger.warning(
+            "backfill_upload_failed",
+            table=table,
+            row_id=row_id,
+            column="image_id",
+            key=key,
+            error=str(exc),
+        )
+        return
+
+    summary.uploaded += 1
+    logger.info(
+        "backfill_uploaded",
+        table=table,
+        row_id=row_id,
+        column="image_id",
+        key=key,
+        new_url=new_url,
+    )
+
+
+def backfill(*, dry_run: bool, rewrite_log_path: Path, force: bool = False) -> Summary:
     """Run the disk->R2 backfill across all target tables/columns."""
     settings = get_settings()
     public_base = settings.r2_public_base_url
@@ -287,26 +458,47 @@ def backfill(*, dry_run: bool, rewrite_log_path: Path) -> Summary:
     summary = Summary()
     rewrite_log = _RewriteLog(rewrite_log_path, enabled=not dry_run)
 
-    for table, columns in _TARGETS.items():
-        select_cols = ", ".join(("id", *columns))
+    for target in _URL_TARGETS:
+        select_cols = ", ".join((target.id_column, *target.columns))
         with get_db() as conn:
             rows = conn.execute(
-                f"SELECT {select_cols} FROM {table}"  # noqa: S608 - table/columns from a fixed allowlist.
+                f"SELECT {select_cols} FROM {target.table}"  # noqa: S608 - table/columns from a fixed allowlist.
             ).fetchall()
 
         for row in rows:
-            for column in columns:
+            for column in target.columns:
                 _process_url(
-                    table=table,
-                    row_id=row["id"],
+                    table=target.table,
+                    id_column=target.id_column,
+                    row_id=row[target.id_column],
                     column=column,
                     url=row[column],
                     static_products_root=static_products_root,
                     public_base=public_base,
                     dry_run=dry_run,
+                    force=force,
                     rewrite_log=rewrite_log,
                     summary=summary,
                 )
+
+    for target in _DERIVED_IMAGE_TARGETS:
+        select_cols = ", ".join((target.id_column, target.image_id_column))
+        with get_db() as conn:
+            rows = conn.execute(
+                f"SELECT {select_cols} FROM {target.table}"  # noqa: S608 - table/columns from a fixed allowlist.
+            ).fetchall()
+
+        for row in rows:
+            _process_derived_image(
+                table=target.table,
+                row_id=row[target.id_column],
+                image_id=row[target.image_id_column],
+                owner_slug=target.owner_slug(row),
+                static_products_root=static_products_root,
+                public_base=public_base,
+                dry_run=dry_run,
+                summary=summary,
+            )
 
     return summary
 
@@ -326,6 +518,14 @@ def main() -> int:
             f"Default: {_DEFAULT_REWRITE_LOG} (only written on a live run)."
         ),
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "Re-upload URL-backed rows that already point at the configured R2 public base. "
+            "Use this when the bucket was emptied but the DB still references R2 URLs."
+        ),
+    )
     args = parser.parse_args()
 
     settings = get_settings()
@@ -339,6 +539,7 @@ def main() -> int:
         summary = backfill(
             dry_run=args.dry_run,
             rewrite_log_path=Path(args.rewrite_log),
+            force=args.force,
         )
     finally:
         close_db()

@@ -222,3 +222,87 @@ def test_external_urls_are_untouched(fake_storage, static_root, tmp_path):
     row = _image_row(image_id)
     assert row["image_url"] == external_main
     assert row["thumbnail_url"] == external_thumb
+
+
+def test_derived_about_and_home_images_upload_without_db_rewrites(
+    fake_storage, static_root, tmp_path
+):
+    about_image_id = "d" * 32
+    home_image_id = "e" * 32
+    about_filename = f"about-hero_{about_image_id}.webp"
+    (static_root / about_filename).write_bytes(b"about-hero")
+
+    with get_db() as conn:
+        home_item_id = conn.execute(
+            "SELECT id FROM home_items ORDER BY id LIMIT 1"
+        ).fetchone()["id"]
+        conn.execute(
+            "UPDATE about_sections SET image_id = %s WHERE slug = 'hero'",
+            (about_image_id,),
+        )
+        conn.execute(
+            "UPDATE home_items SET image_id = %s WHERE id = %s",
+            (home_image_id, home_item_id),
+        )
+
+    home_filename = f"home-item-{home_item_id}_{home_image_id}.webp"
+    (static_root / home_filename).write_bytes(b"home-item")
+
+    summary = backfill_module.backfill(dry_run=False, rewrite_log_path=tmp_path / "log.jsonl")
+
+    assert summary.uploaded == 2
+    assert f"products/{about_filename}" in fake_storage.objects
+    assert f"products/{home_filename}" in fake_storage.objects
+
+
+def test_force_reuploads_site_media_rows_already_pointing_at_r2(
+    fake_storage, static_root, tmp_path
+):
+    image_id = "f" * 32
+    variants = {
+        "image_url": f"site-media-home-hero_{image_id}.webp",
+        "thumbnail_url": f"site-media-home-hero_{image_id}_thumb.webp",
+        "zoom_url": f"site-media-home-hero_{image_id}_zoom.webp",
+    }
+    for filename in variants.values():
+        (static_root / filename).write_bytes(b"site-media-" + filename.encode())
+
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO site_media_assets (key, image_id, image_url, thumbnail_url, zoom_url)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (key) DO UPDATE
+            SET image_id = EXCLUDED.image_id,
+                image_url = EXCLUDED.image_url,
+                thumbnail_url = EXCLUDED.thumbnail_url,
+                zoom_url = EXCLUDED.zoom_url
+            """,
+            (
+                "home_hero",
+                image_id,
+                f"{_R2_PUBLIC_BASE}/products/{variants['image_url']}",
+                f"{_R2_PUBLIC_BASE}/products/{variants['thumbnail_url']}",
+                f"{_R2_PUBLIC_BASE}/products/{variants['zoom_url']}",
+            ),
+        )
+
+    summary = backfill_module.backfill(
+        dry_run=False,
+        rewrite_log_path=tmp_path / "log.jsonl",
+        force=True,
+    )
+
+    assert summary.uploaded == 3
+    for filename in variants.values():
+        assert f"products/{filename}" in fake_storage.objects
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT image_url, thumbnail_url, zoom_url FROM site_media_assets "
+            "WHERE key = 'home_hero'"
+        ).fetchone()
+
+    assert row["image_url"] == f"{_R2_PUBLIC_BASE}/products/{variants['image_url']}"
+    assert row["thumbnail_url"] == f"{_R2_PUBLIC_BASE}/products/{variants['thumbnail_url']}"
+    assert row["zoom_url"] == f"{_R2_PUBLIC_BASE}/products/{variants['zoom_url']}"
