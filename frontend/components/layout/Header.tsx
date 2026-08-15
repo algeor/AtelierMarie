@@ -32,7 +32,7 @@ export function Header() {
   const t = useTranslations();
   const pathname = usePathname();
   const { item_count, openDrawer } = useCart();
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const closeMobileMenu = useCallback(() => setMobileMenuOpen(false), []);
@@ -46,6 +46,7 @@ export function Header() {
       ? t("header.cartLabelWithItems", { count: item_count })
       : t("header.cartLabel");
   const isAtelierPage = pathname === "/atelier" || pathname.startsWith("/atelier/");
+  const isAdmin = user?.is_admin ?? false;
 
   const isLinkActive = useCallback(
     (href: string) =>
@@ -104,6 +105,19 @@ export function Header() {
             <div className="hidden md:block">
               <LanguageToggle />
             </div>
+
+            {!authLoading && isAdmin ? (
+              <Link
+                href="/admin"
+                aria-current={isLinkActive("/admin") ? "page" : undefined}
+                className={cn(
+                  headerLinkClass,
+                  isLinkActive("/admin") && "text-text underline underline-offset-4"
+                )}
+              >
+                {t("admin.title")}
+              </Link>
+            ) : null}
 
             <div className="hidden md:block">{renderAuthControl()}</div>
 
@@ -247,6 +261,23 @@ export function Header() {
                       </span>
                       <LanguageToggle />
                     </div>
+                    {!authLoading && isAdmin ? (
+                      <div className="mt-5 border-t border-border/30 pt-5">
+                        <Link
+                          href="/admin"
+                          onClick={closeMobileMenu}
+                          aria-current={isLinkActive("/admin") ? "page" : undefined}
+                          className={cn(
+                            "block px-1 py-3 text-base font-semibold transition-colors duration-fast focus-visible:outline-none focus-visible:text-accent focus-visible:underline focus-visible:underline-offset-4",
+                            isLinkActive("/admin")
+                              ? "text-text underline underline-offset-4"
+                              : "text-muted hover:text-accent active:text-accent"
+                          )}
+                        >
+                          {t("admin.title")}
+                        </Link>
+                      </div>
+                    ) : null}
                     <div className="mt-5">{renderAuthControl()}</div>
                   </div>
                 </div>

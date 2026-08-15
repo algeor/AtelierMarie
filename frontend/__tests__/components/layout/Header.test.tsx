@@ -119,6 +119,50 @@ describe("Header", () => {
     expect(screen.queryByTestId("login-button")).not.toBeInTheDocument();
   });
 
+  it("shows an admin link only for admin users", () => {
+    mockedUseAuth.mockReturnValue({
+      user: {
+        id: "admin-001",
+        email: "admin@ateliermarie.com",
+        name: "Admin",
+        avatar_url: null,
+        is_admin: true,
+      },
+      isAuthenticated: true,
+      isLoading: false,
+      error: null,
+      login: vi.fn(),
+      logout: vi.fn(),
+      loginComplete: vi.fn(),
+    });
+
+    renderWithIntl(<Header />);
+
+    expect(screen.getByRole("link", { name: "Admin" })).toHaveAttribute("href", "/admin");
+  });
+
+  it("hides the admin link for non-admin users", () => {
+    mockedUseAuth.mockReturnValue({
+      user: {
+        id: "user-001",
+        email: "marie@ateliermarie.com",
+        name: "Marie",
+        avatar_url: null,
+        is_admin: false,
+      },
+      isAuthenticated: true,
+      isLoading: false,
+      error: null,
+      login: vi.fn(),
+      logout: vi.fn(),
+      loginComplete: vi.fn(),
+    });
+
+    renderWithIntl(<Header />);
+
+    expect(screen.queryByRole("link", { name: "Admin" })).not.toBeInTheDocument();
+  });
+
   it("shows skeleton circle while isLoading", () => {
     mockedUseAuth.mockReturnValue({
       user: null,
