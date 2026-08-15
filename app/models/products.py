@@ -67,6 +67,10 @@ class ProductResponse(BaseModel):
     primary_image_url: str | None = None
     primary_thumbnail_url: str | None = None
     stock: int
+    can_order: bool = True
+    available_now: bool = True
+    availability_status: Literal["in_stock", "crafted_later"] = "in_stock"
+    ships_when_complete: bool = True
     is_active: bool
     is_featured: bool
     created_at: str

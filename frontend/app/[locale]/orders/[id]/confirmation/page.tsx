@@ -160,6 +160,13 @@ export default function OrderConfirmationPage() {
           </div>
         )}
 
+        {order.fulfillment_status === "awaiting_production" && (
+          <div className="mb-6 rounded-brand border border-warning/25 bg-warning/10 px-4 py-3 text-sm leading-6 text-warning">
+            <p>{t("craftedLaterNotice")}</p>
+            <p>{t("shipsWhenCompleteNotice")}</p>
+          </div>
+        )}
+
         {/* Order items */}
         <div className="mb-6">
           <h2 className="mb-3 font-heading text-lg text-text">

@@ -185,9 +185,11 @@ from app.services.image_service import (
 from app.services.order_service import (
     ADMIN_ACCOUNTING_FILTERS,
     ADMIN_REVIEW_FILTERS,
+    InsufficientStockError,
     InvalidStateTransitionError,
     ManualPaymentActionError,
     OrderNotFoundError,
+    OrderNotReadyError,
     PaymentAlreadyPaidError,
     WrongPaymentMethodError,
     _fmt_ts,
@@ -197,6 +199,7 @@ from app.services.order_service import (
     list_orders_admin,
     list_payment_events,
     mark_bank_transfer_paid,
+    mark_order_fulfillment_ready,
     update_status,
     update_status_async,
 )
@@ -207,6 +210,7 @@ from app.services.product_service import (
     DuplicateError,
     LedgerManagedStockEditError,
     NotFoundError,
+    ProductDeleteConflictError,
 )
 from app.services.return_service import (
     InvalidRestockQuantityError,
@@ -2069,20 +2073,29 @@ async def admin_update_product(
 
 @router.delete(
     "/products/{product_id}",
-    response_model=ProductAdminResponse,
-    summary="Delete product (soft)",
-    description="Soft-delete a product by setting is_active=0. "
-    "The product remains in the database for order history integrity.",
-    responses={404: {"description": "Product not found"}},
+    response_model=None,
+    status_code=204,
+    summary="Delete product",
+    description="Permanently delete a product when no protected references remain.",
+    responses={
+        404: {"description": "Product not found"},
+        409: {"description": "Product still in use"},
+    },
 )
-async def admin_delete_product(product_id: str) -> ProductAdminResponse | JSONResponse:
-    """Soft-delete a product (set is_active=0)."""
+async def admin_delete_product(product_id: str) -> Response | JSONResponse:
+    """Permanently delete a product when allowed by its references."""
     try:
-        product = product_service.deactivate_product(product_id)
+        product_service.delete_product(product_id)
     except NotFoundError:
         return error_response(404, "NOT_FOUND", "Product not found")
+    except ProductDeleteConflictError:
+        return error_response(
+            409,
+            "PRODUCT_IN_USE",
+            "Product is still referenced by protected records and cannot be deleted",
+        )
 
-    return ProductAdminResponse(**product)
+    return Response(status_code=204)
 
 
 # Required CSV headers — accept both legacy (name/description) and new (name_en/description_en)
@@ -2963,6 +2976,37 @@ def admin_get_order_emails(order_id: str) -> OrderEmailAuditResponse:
     )
 
 
+@router.post(
+    "/orders/{order_id}/fulfillment-ready",
+    response_model=OrderResponse,
+    summary="Mark order ready for shipment (admin)",
+    description="Allocates all outstanding crafted-later quantities and marks the order ready.",
+)
+def admin_mark_order_fulfillment_ready(
+    order_id: str,
+    admin_user: Annotated[UserResponse | None, Depends(require_admin)],
+) -> OrderResponse | JSONResponse:
+    with get_db() as conn:
+        try:
+            order_data = mark_order_fulfillment_ready(
+                conn=conn,
+                order_id=order_id,
+                actor_user_id=admin_user.id if admin_user else None,
+                actor_email=admin_user.email if admin_user else None,
+            )
+        except OrderNotFoundError:
+            return error_response(404, "ORDER_NOT_FOUND", "Order not found")
+        except InsufficientStockError as exc:
+            return error_response(
+                422,
+                "ORDER_NOT_READY",
+                "Order cannot be marked ready until all outstanding quantities are available",
+                details={"failures": exc.failures},
+            )
+
+    return OrderResponse.model_validate(order_data)
+
+
 @router.patch(
     "/orders/{order_id}/status",
     response_model=OrderResponse,
@@ -3005,6 +3049,10 @@ async def admin_update_order_status(
                     }
                 },
             )
+        except OrderNotReadyError as exc:
+            return error_response(422, "ORDER_NOT_READY", str(exc))
+        except InvalidStateTransitionError as exc:
+            return error_response(422, "INVALID_TRANSITION", str(exc))
         # Durable outbox: queue the customer email for this transition in the
         # SAME connection/commit as the status UPDATE (email-notifications 8.3).
         # The map returns None for 'confirmed' (internal step — no email).

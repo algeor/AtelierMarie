@@ -9,7 +9,6 @@ import pytest
 from app.models.delivery import DeliveryInfo, DeliveryOffice
 from app.services.order_service import (
     EmptyCartError,
-    InsufficientStockError,
     InvalidDeliveryOfficeError,
     InvalidStateTransitionError,
     OrderNotFoundError,
@@ -285,30 +284,27 @@ class TestCheckoutInsufficientStock:
         )
         conn.commit()
 
-        with pytest.raises(InsufficientStockError) as exc_info:
-            checkout(
-                conn=conn,
-                session_id=session_a,
-                customer_email="test@example.com",
-                delivery=delivery,
-            )
+        order = checkout(
+            conn=conn,
+            session_id=session_a,
+            customer_email="test@example.com",
+            delivery=delivery,
+        )
 
-        assert exc_info.value.failures[0]["available"] == 5
-        assert exc_info.value.failures[0]["requested"] == 6
+        assert order["fulfillment_status"] == "awaiting_production"
+        assert order["items"][0]["allocated_quantity"] == 5
+        assert order["items"][0]["backordered_quantity"] == 1
 
-        # Cart unchanged
-        cart = conn.execute(
-            "SELECT quantity FROM cart_items "
-            "WHERE session_id = %s AND product_id = 'midnight-amber'",
+        # Cart cleared and stock only decremented by the allocatable quantity.
+        cart_count = conn.execute(
+            "SELECT COUNT(*) AS count FROM cart_items WHERE session_id = %s",
             (session_a,),
-        ).fetchone()
-        assert cart["quantity"] == 6
-
-        # Stock unchanged
+        ).fetchone()["count"]
+        assert cart_count == 0
         stock = conn.execute("SELECT stock FROM products WHERE id = 'midnight-amber'").fetchone()[
             "stock"
         ]
-        assert stock == 5
+        assert stock == 0
 
 
 class TestCheckoutDeactivatedProduct:
@@ -361,18 +357,17 @@ class TestCheckoutMultipleFailures:
         )
         conn.commit()
 
-        with pytest.raises(InsufficientStockError) as exc_info:
-            checkout(
-                conn=conn,
-                session_id=session_a,
-                customer_email="test@example.com",
-                delivery=delivery,
-            )
+        order = checkout(
+            conn=conn,
+            session_id=session_a,
+            customer_email="test@example.com",
+            delivery=delivery,
+        )
 
-        # Both failures reported
-        product_ids = [f["product_id"] for f in exc_info.value.failures]
-        assert "midnight-amber" in product_ids
-        assert "vanilla-brulee" in product_ids
+        assert order["fulfillment_status"] == "awaiting_production"
+        shortages = {item["product_id"]: item["backordered_quantity"] for item in order["items"]}
+        assert shortages["midnight-amber"] == 1
+        assert shortages["vanilla-brulee"] == 1
 
 
 class TestCheckoutIntegrityConstraint:
@@ -392,14 +387,16 @@ class TestCheckoutIntegrityConstraint:
         conn.execute("UPDATE products SET stock = 0 WHERE id = 'lavender-dream'")
         conn.commit()
 
-        # Now checkout will try to decrement from 0, triggering CHECK constraint
-        with pytest.raises(InsufficientStockError):
-            checkout(
-                conn=conn,
-                session_id=session_a,
-                customer_email="test@example.com",
-                delivery=delivery,
-            )
+        order = checkout(
+            conn=conn,
+            session_id=session_a,
+            customer_email="test@example.com",
+            delivery=delivery,
+        )
+
+        assert order["fulfillment_status"] == "awaiting_production"
+        assert order["items"][0]["allocated_quantity"] == 0
+        assert order["items"][0]["backordered_quantity"] == 1
 
 
 class TestPriceSnapshotImmutability:
@@ -465,7 +462,7 @@ class TestTotalCentsServerComputed:
 
 
 class TestConcurrentCheckoutLastUnit:
-    """4.10: Two sessions for last unit — one succeeds, one fails."""
+    """4.10: Two sessions for last unit — one allocates stock, one backorders."""
 
     def test_last_unit_race(self, conn, session_a, session_b, products, delivery):
         # Both sessions have the last unit of vanilla-brulee (stock=1)
@@ -486,11 +483,16 @@ class TestConcurrentCheckoutLastUnit:
         conn.commit()
         assert order["status"] == "pending"
 
-        # Second checkout fails — stock is now 0
-        with pytest.raises(InsufficientStockError):
-            checkout(
-                conn=conn, session_id=session_b, customer_email="b@example.com", delivery=delivery
-            )
+        # Second checkout still succeeds, but the item is fully backordered.
+        second_order = checkout(
+            conn=conn, session_id=session_b, customer_email="b@example.com", delivery=delivery
+        )
+        conn.commit()
+
+        assert second_order["status"] == "pending"
+        assert second_order["fulfillment_status"] == "awaiting_production"
+        assert second_order["items"][0]["allocated_quantity"] == 0
+        assert second_order["items"][0]["backordered_quantity"] == 1
 
         # Stock is 0
         stock = conn.execute("SELECT stock FROM products WHERE id = 'vanilla-brulee'").fetchone()[
@@ -595,13 +597,13 @@ class TestListOrders:
             (order2_id, session_a),
         )
         conn.execute(
-            "INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity) "
-            "VALUES (%s, 'lavender-dream', 'Lavender Dream', 2500, 1)",
+            "INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity, allocated_quantity, backordered_quantity) "
+            "VALUES (%s, 'lavender-dream', 'Lavender Dream', 2500, 1, 1, 0)",
             (order1_id,),
         )
         conn.execute(
-            "INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity) "
-            "VALUES (%s, 'midnight-amber', 'Midnight Amber', 3500, 1)",
+            "INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity, allocated_quantity, backordered_quantity) "
+            "VALUES (%s, 'midnight-amber', 'Midnight Amber', 3500, 1, 1, 0)",
             (order2_id,),
         )
         conn.commit()
@@ -740,17 +742,17 @@ def _create_order_with_status(conn, session_id, status="pending", products_in_or
     total = sum(p * q for _, _, p, q in products_in_order)
 
     conn.execute(
-        """INSERT INTO orders (id, session_id, status, total_cents, customer_email,
+        """INSERT INTO orders (id, session_id, status, fulfillment_status, total_cents, customer_email,
                               created_at, updated_at)
-           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+           VALUES (%s, %s, %s, 'ready', %s, %s, %s, %s)""",
         (order_id, session_id, status, total, "test@test.com", past, past),
     )
 
     for pid, pname, price, qty in products_in_order:
         conn.execute(
-            "INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity) "
-            "VALUES (%s, %s, %s, %s, %s)",
-            (order_id, pid, pname, price, qty),
+            "INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity, allocated_quantity, backordered_quantity) "
+            "VALUES (%s, %s, %s, %s, %s, %s, 0)",
+            (order_id, pid, pname, price, qty, qty),
         )
 
     conn.commit()

@@ -107,15 +107,14 @@ async def test_post_cart_product_not_found_404(client: AsyncClient):
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("_seed_products")
-async def test_post_cart_insufficient_stock_409(client: AsyncClient):
-    """POST /v1/cart — 409 for insufficient stock with correct error structure."""
+async def test_post_cart_allows_out_of_stock_active_product(client: AsyncClient):
+    """POST /v1/cart accepts active products even when requested quantity exceeds stock."""
     response = await client.post("/v1/cart", json={"product_id": "rose-garden", "quantity": 6})
-    assert response.status_code == 409
+    assert response.status_code == 201
     body = response.json()
-    assert body["error"]["code"] == "INSUFFICIENT_STOCK"
-    assert body["error"]["details"]["product_id"] == "rose-garden"
-    assert body["error"]["details"]["requested"] == 6
-    assert body["error"]["details"]["available"] == 5
+    assert body["items"][0]["product_id"] == "rose-garden"
+    assert body["items"][0]["quantity"] == 6
+    assert body["items"][0]["product"]["can_order"] is True
 
 
 @pytest.mark.asyncio
@@ -197,14 +196,14 @@ async def test_patch_cart_not_in_cart_404(client: AsyncClient):
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("_seed_products")
-async def test_patch_cart_insufficient_stock_409(client: AsyncClient):
-    """PATCH /v1/cart/{product_id} — 409 for stock exceeded."""
+async def test_patch_cart_allows_quantity_beyond_stock(client: AsyncClient):
+    """PATCH /v1/cart/{product_id} uses cart limits instead of stock caps."""
     await client.post("/v1/cart", json={"product_id": "rose-garden", "quantity": 2})
     response = await client.patch("/v1/cart/rose-garden", json={"quantity": 8})
-    assert response.status_code == 409
+    assert response.status_code == 200
     body = response.json()
-    assert body["error"]["code"] == "INSUFFICIENT_STOCK"
-    assert body["error"]["details"]["available"] == 5
+    assert body["items"][0]["product_id"] == "rose-garden"
+    assert body["items"][0]["quantity"] == 8
 
 
 @pytest.mark.asyncio

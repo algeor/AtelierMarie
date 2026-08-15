@@ -84,6 +84,10 @@ export interface ProductResponse {
   primary_image_url: string | null;
   primary_thumbnail_url: string | null;
   stock: number;
+  can_order: boolean;
+  available_now: boolean;
+  availability_status: "in_stock" | "crafted_later";
+  ships_when_complete: boolean;
   is_active: boolean;
   is_featured: boolean;
   created_at: string;
@@ -880,6 +884,8 @@ export type OrderStatus =
   | "returned"
   | "cancelled";
 
+export type FulfillmentStatus = "ready" | "awaiting_production";
+
 export type PaymentMethod = "cod" | "card" | "bank_transfer";
 export type PaymentStatus =
   | "pending"
@@ -902,9 +908,11 @@ export interface OrderItemResponse {
 }
 
 export interface AdminOrderItemResponse extends OrderItemResponse {
+  allocated_quantity?: number;
+  backordered_quantity?: number;
   inventory_mode?: "legacy" | "fallback" | "ledger_managed";
   ledger_managed?: boolean;
-  stock_issue_status?: "legacy" | "issued" | "missing" | "reversed";
+  stock_issue_status?: "legacy" | "issued" | "missing" | "reversed" | "awaiting_production";
   inventory_movement_ids?: string[];
   source_movement_id?: string | null;
   finished_batch_id?: string | null;
@@ -975,6 +983,7 @@ export interface OrderResponse {
   internal_sequence?: number | null;
   order_number?: string | null;
   status: OrderStatus;
+  fulfillment_status?: FulfillmentStatus;
   payment_method: PaymentMethod;
   payment_status: PaymentStatus;
   reserved_until?: string | null;
@@ -998,6 +1007,7 @@ export interface OrderResponse {
   blocking_exception_count?: number;
   finance_hub_links?: AccountingFinanceHubLinks | null;
   analytics_consent?: boolean;
+  ships_when_complete?: boolean;
   items_total_cents: number;
   shipping_cents: number;
   shipping_price_source: ShippingPriceSource;

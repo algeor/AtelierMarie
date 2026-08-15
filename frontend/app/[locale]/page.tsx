@@ -6,6 +6,7 @@ import { CategoryLineArt, type CategoryLineArtKind } from "@/components/rebrand"
 import { BodyRenderer } from "@/components/atelier/BodyRenderer";
 import { Link } from "@/i18n/navigation";
 import type { Locale } from "@/i18n/routing";
+import { resolveMediaUrl } from "@/lib/media";
 import { getLocalizedAlternates } from "@/lib/seo";
 import type { HomeSection, ProductResponse, SiteMediaMap } from "@/lib/types";
 
@@ -281,9 +282,9 @@ function HomeCategoryLinks({ section, categories, t }: { section: HomeSection; c
 
 function imageFor(section: HomeSection, itemImage?: string | null, siteMedia?: SiteMediaMap | null) {
   if (section.type === "collections") {
-    return itemImage || section.image || siteMedia?.home_collections_fallback || "/rebrand/error-candle.webp";
+    return resolveMediaUrl(itemImage || section.image || siteMedia?.home_collections_fallback || "/rebrand/error-candle.webp");
   }
-  return itemImage || section.image || siteMedia?.home_text_image_fallback || "/rebrand/error-candle.webp";
+  return resolveMediaUrl(itemImage || section.image || siteMedia?.home_text_image_fallback || "/rebrand/error-candle.webp");
 }
 
 function HomeTextImage({ section, siteMedia }: { section: HomeSection; siteMedia?: SiteMediaMap | null }) {
@@ -291,7 +292,7 @@ function HomeTextImage({ section, siteMedia }: { section: HomeSection; siteMedia
     <section id={section.slug} className="bg-page px-4 py-16 sm:px-6 sm:py-20 lg:px-8 lg:py-28">
       <div className="mx-auto grid max-w-7xl items-center gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:gap-16">
         <div className="editorial-image-settle overflow-hidden rounded-brand bg-surface shadow-sm shadow-border/10">
-          <img src={imageFor(section, null, siteMedia)} alt="" className="aspect-[4/5] w-full object-cover" />
+          <img src={imageFor(section, null, siteMedia) ?? undefined} alt="" className="aspect-[4/5] w-full object-cover" />
         </div>
         <HomeSectionHeader section={section} />
       </div>
@@ -340,7 +341,7 @@ function HomeCollections({ section, siteMedia }: { section: HomeSection; siteMed
           {section.items.map((item) => {
             const content = (
               <article className="group overflow-hidden rounded-brand bg-surface/45 shadow-sm shadow-border/10">
-                <img src={imageFor(section, item.image, siteMedia)} alt="" className="aspect-[4/3] w-full object-cover transition-transform duration-300 group-hover:scale-105 motion-reduce:transition-none motion-reduce:group-hover:scale-100" />
+                <img src={imageFor(section, item.image, siteMedia) ?? undefined} alt="" className="aspect-[4/3] w-full object-cover transition-transform duration-300 group-hover:scale-105 motion-reduce:transition-none motion-reduce:group-hover:scale-100" />
                 <div className="p-6">
                   <h3 className="font-heading text-2xl text-text">{item.title}</h3>
                   {item.text ? <p className="mt-3 text-sm leading-7 text-muted">{item.text}</p> : null}

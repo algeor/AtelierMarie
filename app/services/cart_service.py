@@ -48,6 +48,17 @@ def _localized_product_columns(locale: Locale) -> tuple[str, str]:
     )
 
 
+def _apply_orderability_fields(product: dict) -> dict:
+    """Annotate embedded cart product payloads with orderability metadata."""
+    stock = max(0, int(product.get("stock") or 0))
+    result = dict(product)
+    result["can_order"] = bool(product.get("is_active", True))
+    result["available_now"] = stock > 0
+    result["availability_status"] = "in_stock" if stock > 0 else "crafted_later"
+    result["ships_when_complete"] = True
+    return result
+
+
 # --- Custom Exceptions ---
 
 
@@ -255,7 +266,9 @@ def get_cart(conn: DbConnection, session_id: str, locale: Locale = "en") -> Cart
     for row, product_data in active_entries:
         # Public pricing: effective_price_cents + active display percent;
         # window timestamps are stripped and never returned to the client.
-        product_data = pricing.annotate_product_pricing(product_data, now, public=True)
+        product_data = _apply_orderability_fields(
+            pricing.annotate_product_pricing(product_data, now, public=True)
+        )
         effective_price = product_data["effective_price_cents"]
         product = cast(
             ProductDict,
@@ -305,7 +318,7 @@ def add_item(
         with conn.transaction():
             # Validate product exists and is active
             product = conn.execute(
-                "SELECT id, stock, is_active FROM products WHERE id = %s",
+                "SELECT id, is_active FROM products WHERE id = %s",
                 (product_id,),
             ).fetchone()
 
@@ -320,14 +333,6 @@ def add_item(
 
             existing_qty = existing["quantity"] if existing else 0
             new_total_qty = existing_qty + quantity
-
-            # Stock validation: total cart quantity vs available stock
-            if new_total_qty > product["stock"]:
-                raise InsufficientStockError(
-                    product_id=product_id,
-                    requested=new_total_qty,
-                    available=product["stock"],
-                )
 
             # Per-item quantity limit
             if new_total_qty > settings.cart_max_quantity_per_item:
@@ -404,19 +409,12 @@ def update_quantity(
 
             # Stock validation (absolute qty vs stock) — also reject deleted/inactive products
             product = conn.execute(
-                "SELECT stock, is_active FROM products WHERE id = %s",
+                "SELECT is_active FROM products WHERE id = %s",
                 (product_id,),
             ).fetchone()
 
             if not product or not product["is_active"]:
                 raise ProductNotFoundError(product_id)
-
-            if quantity > product["stock"]:
-                raise InsufficientStockError(
-                    product_id=product_id,
-                    requested=quantity,
-                    available=product["stock"],
-                )
 
             conn.execute(
                 "UPDATE cart_items SET quantity = %s WHERE session_id = %s AND product_id = %s",

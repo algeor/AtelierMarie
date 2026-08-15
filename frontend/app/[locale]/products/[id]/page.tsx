@@ -154,7 +154,12 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
           )}
 
           {/* Add to Cart section */}
-          <AddToCartSection productId={product.id} stock={product.stock} />
+          <AddToCartSection
+            productId={product.id}
+            canOrder={product.can_order}
+            availableNow={product.available_now}
+            shipsWhenComplete={product.ships_when_complete}
+          />
 
           <section
             className="editorial-paper-panel rounded-brand p-5"

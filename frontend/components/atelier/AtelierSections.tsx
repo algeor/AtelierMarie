@@ -1,4 +1,5 @@
 import { Link } from "@/i18n/navigation";
+import { resolveMediaUrl } from "@/lib/media";
 import type { AboutSection, SiteMediaKey, SiteMediaMap } from "@/lib/types";
 import { BodyRenderer } from "./BodyRenderer";
 
@@ -20,7 +21,7 @@ const FALLBACK_KEYS: Record<string, SiteMediaKey> = {
 
 function imageFor(section: AboutSection, itemImage?: string | null, siteMedia?: SiteMediaMap | null) {
   const mediaKey = FALLBACK_KEYS[section.slug];
-  return (
+  return resolveMediaUrl(
     itemImage ||
     section.image ||
     (mediaKey ? siteMedia?.[mediaKey] : null) ||
@@ -85,7 +86,7 @@ export function Hero({ section, siteMedia }: { section: AboutSection; siteMedia?
     >
       <div className="relative min-h-[82vh] overflow-hidden">
         <img
-          src={imageFor(section, null, siteMedia)}
+          src={imageFor(section, null, siteMedia) ?? undefined}
           alt=""
           className="absolute inset-0 h-full w-full object-cover object-center"
         />
@@ -126,7 +127,7 @@ export function TextImage({ section, siteMedia }: { section: AboutSection; siteM
       <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 sm:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:gap-16 lg:px-8">
         <div className="editorial-image-settle overflow-hidden rounded-brand bg-surface shadow-sm shadow-border/10">
           <img
-            src={imageFor(section, null, siteMedia)}
+            src={imageFor(section, null, siteMedia) ?? undefined}
             alt=""
             className="aspect-[4/5] w-full object-cover"
           />
@@ -258,7 +259,7 @@ export function CollectionsGrid({ section, siteMedia }: { section: AboutSection;
             const content = (
               <article className="group overflow-hidden rounded-brand bg-surface/45 shadow-sm shadow-border/10">
                 <img
-                  src={imageFor(section, item.image, siteMedia)}
+                  src={imageFor(section, item.image, siteMedia) ?? undefined}
                   alt=""
                   className="aspect-[4/3] w-full object-cover transition-transform duration-300 group-hover:scale-105 motion-reduce:transition-none motion-reduce:group-hover:scale-100"
                 />

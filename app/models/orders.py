@@ -16,6 +16,7 @@ OrderStatus = Literal[
     "returned",
     "cancelled",
 ]
+FulfillmentStatus = Literal["ready", "awaiting_production"]
 PaymentMethod = Literal["cod", "card", "bank_transfer"]
 PaymentStatus = Literal[
     "pending",
@@ -64,9 +65,13 @@ class OrderItemResponse(BaseModel):
 class AdminOrderItemResponse(OrderItemResponse):
     """Admin item snapshot with inventory and valuation review context."""
 
+    allocated_quantity: int = 0
+    backordered_quantity: int = 0
     inventory_mode: Literal["legacy", "fallback", "ledger_managed"] = "legacy"
     ledger_managed: bool = False
-    stock_issue_status: Literal["legacy", "issued", "missing", "reversed"] = "legacy"
+    stock_issue_status: Literal[
+        "legacy", "issued", "missing", "reversed", "awaiting_production"
+    ] = "legacy"
     inventory_movement_ids: list[str] = Field(default_factory=list)
     source_movement_id: str | None = None
     finished_batch_id: str | None = None
@@ -124,6 +129,7 @@ class OrderResponse(BaseModel):
     internal_sequence: int | None = None
     order_number: str | None = None
     status: OrderStatus
+    fulfillment_status: FulfillmentStatus = "ready"
     items_total_cents: int
     shipping_cents: int = 0
     shipping_price_source: Literal["live", "table", "flat"] = "live"
@@ -189,6 +195,7 @@ class OrderResponse(BaseModel):
     blocking_exception_count: int = 0
     finance_hub_links: dict[str, str | None] | None = None
     analytics_consent: bool = False
+    ships_when_complete: bool = True
     items: Sequence[OrderItemResponse]
     created_at: str
     updated_at: str

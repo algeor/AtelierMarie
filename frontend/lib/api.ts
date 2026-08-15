@@ -1435,9 +1435,9 @@ export async function updateProduct(
 
 export async function deleteProduct(
   productId: string,
-): Promise<AdminProductResponse> {
+): Promise<void> {
   if (USE_MOCK) return (await getMock()).deleteProduct(productId);
-  return apiClient.del<AdminProductResponse>(
+  return apiClient.del<void>(
     `/v1/admin/products/${encodeURIComponent(productId)}`,
   );
 }
@@ -2459,6 +2459,16 @@ export async function updateOrderStatus(
   return apiClient.patch<OrderResponse>(
     `/v1/admin/orders/${encodeURIComponent(orderId)}/status`,
     { status, ...tracking },
+  );
+}
+
+export async function markOrderFulfillmentReady(
+  orderId: string,
+): Promise<OrderResponse> {
+  if (USE_MOCK) return (await getMock()).markOrderFulfillmentReady(orderId);
+  return apiClient.post<OrderResponse>(
+    `/v1/admin/orders/${encodeURIComponent(orderId)}/fulfillment-ready`,
+    {},
   );
 }
 

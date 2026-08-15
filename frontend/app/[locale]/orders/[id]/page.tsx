@@ -162,6 +162,13 @@ export default function OrderDetailPage() {
             <OrderStatusBadge status={order.status} />
           </div>
 
+          {order.fulfillment_status === "awaiting_production" && (
+            <div className="mb-8 rounded-brand border border-warning/25 bg-warning/10 px-4 py-3 text-sm leading-6 text-warning">
+              <p>{t("craftedLaterNotice")}</p>
+              <p>{t("shipsWhenCompleteNotice")}</p>
+            </div>
+          )}
+
           {/* Status Timeline */}
           <div className="mb-8 border-b editorial-divider pb-8">
             <h2 className="mb-4 text-sm font-medium text-text">

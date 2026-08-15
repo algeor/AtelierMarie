@@ -10,19 +10,25 @@ import { QuantitySelector } from "./QuantitySelector";
 
 interface AddToCartSectionProps {
   productId: string;
-  stock: number;
+  canOrder?: boolean;
+  availableNow?: boolean;
+  shipsWhenComplete?: boolean;
 }
 
-export function AddToCartSection({ productId, stock }: AddToCartSectionProps) {
+export function AddToCartSection({
+  productId,
+  canOrder = true,
+  availableNow = true,
+  shipsWhenComplete = true,
+}: AddToCartSectionProps) {
   const t = useTranslations("products");
   const { addToCart, openDrawer } = useCart();
   const [quantity, setQuantity] = useState(1);
   const [status, setStatus] = useState<"idle" | "loading" | "success">("idle");
-
-  const isOutOfStock = stock === 0;
+  const isCraftedLater = canOrder && !availableNow;
 
   async function handleAddToCart() {
-    if (status !== "idle" || isOutOfStock) return;
+    if (status !== "idle" || !canOrder) return;
 
     setStatus("loading");
     try {
@@ -40,26 +46,27 @@ export function AddToCartSection({ productId, stock }: AddToCartSectionProps) {
 
   return (
     <div className="flex flex-col gap-4 border-t editorial-divider pt-5">
-      {!isOutOfStock && (
-        <QuantitySelector
-          quantity={quantity}
-          onQuantityChange={setQuantity}
-          maxQuantity={stock}
-        />
+      <QuantitySelector
+        quantity={quantity}
+        onQuantityChange={setQuantity}
+        maxQuantity={10}
+      />
+
+      {isCraftedLater && (
+        <div className="rounded-brand border border-border/40 bg-surface/70 px-4 py-3 text-sm leading-6 text-muted">
+          <p>{t("craftedLater")}</p>
+          {shipsWhenComplete && <p>{t("shipsWhenComplete")}</p>}
+        </div>
       )}
 
       <Button
         onClick={handleAddToCart}
-        disabled={isOutOfStock || status !== "idle"}
+        disabled={!canOrder || status !== "idle"}
         isLoading={status === "loading"}
         size="lg"
         className="w-full sm:w-auto"
       >
-        {isOutOfStock
-          ? t("outOfStock")
-          : status === "success"
-            ? `${t("added")} ✓`
-            : t("addToCart")}
+        {status === "success" ? `${t("added")} ✓` : t("addToCart")}
       </Button>
 
       <PurchaseAssurance />

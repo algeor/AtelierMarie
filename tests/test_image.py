@@ -157,9 +157,7 @@ class TestProcessImage:
         result = process_image(img_data, "landscape-candle")
 
         assert result["image_url"] == f"{_R2_PUBLIC_BASE}/products/landscape-candle.webp"
-        assert (
-            result["thumbnail_url"] == f"{_R2_PUBLIC_BASE}/products/landscape-candle_thumb.webp"
-        )
+        assert result["thumbnail_url"] == f"{_R2_PUBLIC_BASE}/products/landscape-candle_thumb.webp"
         assert result["zoom_url"] == f"{_R2_PUBLIC_BASE}/products/landscape-candle_zoom.webp"
 
         # Verify main image dimensions from the uploaded object bytes.
@@ -223,6 +221,29 @@ class TestProcessImage:
         with _open_variant(fake_storage, "products/thumb-size-test_thumb.webp") as img:
             assert img.width <= 400
             assert img.height <= 500
+
+    def test_falls_back_to_local_static_files_when_r2_is_unconfigured(self, tmp_path):
+        from app.config import get_settings
+
+        settings = get_settings()
+        original_static_path = settings.static_file_path
+        original_base = settings.r2_public_base_url
+        object_storage_service.set_backend(None)
+        settings.static_file_path = str(tmp_path / "static")
+        settings.r2_public_base_url = ""
+
+        try:
+            result = process_image(_make_jpeg(800, 600), "local-dev-image")
+        finally:
+            settings.static_file_path = original_static_path
+            settings.r2_public_base_url = original_base
+
+        assert result["image_url"] == "/static/products/local-dev-image.webp"
+        assert result["thumbnail_url"] == "/static/products/local-dev-image_thumb.webp"
+        assert result["zoom_url"] == "/static/products/local-dev-image_zoom.webp"
+        assert (tmp_path / "static/products/local-dev-image.webp").exists()
+        assert (tmp_path / "static/products/local-dev-image_thumb.webp").exists()
+        assert (tmp_path / "static/products/local-dev-image_zoom.webp").exists()
 
 
 class _FailOnNthPutBackend(_FakeStorageBackend):
@@ -291,9 +312,7 @@ class TestImageUploadRoute:
             )
 
     @pytest.mark.asyncio
-    async def test_upload_happy_path(
-        self, admin_client: AsyncClient, _product, fake_storage, app
-    ):
+    async def test_upload_happy_path(self, admin_client: AsyncClient, _product, fake_storage, app):
         """Admin + valid image -> 201 with gallery image."""
         img_data = _make_jpeg(800, 600)
 

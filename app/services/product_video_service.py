@@ -270,8 +270,6 @@ def delete_video(product_id: str) -> None:
         ).fetchone()
         if row is None:
             raise ProductVideoNotFoundError(f"Product video not found: {product_id}")
-        if row["status"] == "transcoding":
-            raise ProductVideoProcessingConflictError("video is still processing")
         conn.execute("DELETE FROM product_videos WHERE product_id = %s", (product_id,))
     video_service.unlink_video_files(row["video_url"], row["poster_url"], row["source_path"])
 

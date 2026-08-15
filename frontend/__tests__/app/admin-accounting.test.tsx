@@ -215,6 +215,7 @@ const api = vi.hoisted(() => ({
   createStripeRefund: vi.fn(),
   recordCodSettlement: vi.fn(),
   updateOrderStatus: vi.fn(),
+  markOrderFulfillmentReady: vi.fn(),
   createAndShipEcontOrder: vi.fn(),
 }));
 

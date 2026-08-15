@@ -281,6 +281,43 @@ class TestDeactivateProduct:
             product_service.deactivate_product("no-such-product")
 
 
+class TestDeleteProduct:
+    """Tests for delete_product."""
+
+    def test_deletes_product_row(self, _seeded_db):
+        product_service.delete_product("lavender-dream-300ml")
+
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM products WHERE id = %s", ("lavender-dream-300ml",)
+            ).fetchone()
+        assert row is None
+
+    def test_deletes_cart_rows_for_product(self, _seeded_db):
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO sessions (id, expires_at) VALUES (%s, CURRENT_TIMESTAMP + INTERVAL '1 day')",
+                ("sess-delete-product",),
+            )
+            conn.execute(
+                "INSERT INTO cart_items (session_id, product_id, quantity) VALUES (%s, %s, %s)",
+                ("sess-delete-product", "lavender-dream-300ml", 1),
+            )
+
+        product_service.delete_product("lavender-dream-300ml")
+
+        with get_db() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) AS count FROM cart_items WHERE product_id = %s",
+                ("lavender-dream-300ml",),
+            ).fetchone()["count"]
+        assert count == 0
+
+    def test_raises_not_found(self, _seeded_db):
+        with pytest.raises(NotFoundError):
+            product_service.delete_product("no-such-product")
+
+
 class TestSearchProducts:
     """Tests for search_products (FTS5)."""
 

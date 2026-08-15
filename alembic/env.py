@@ -2,6 +2,7 @@ import os
 from logging.config import fileConfig
 from pathlib import Path
 
+from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
 
 from alembic import context
@@ -18,6 +19,9 @@ config = context.config
 # config.attributes, then a dedicated migration URL (env var or file-backed
 # secret, mirroring Settings.migration_database_url), then the DATABASE_URL env
 # var (or its file-backed secret) for plain CLI usage.
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+
 def _resolve_migration_database_url() -> str | None:
     from_attributes = config.attributes.get("database_url")
     if from_attributes:

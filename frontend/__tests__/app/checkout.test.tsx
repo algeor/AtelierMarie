@@ -21,7 +21,7 @@ const mockCartState = {
   items: [
     {
       product_id: "lavender-dream",
-      product: { id: "lavender-dream", name: "Lavender Dream", price_cents: 2500, effective_price_cents: 2000, images: [], primary_image_url: "/img.jpg", primary_thumbnail_url: "/img.jpg", stock: 5 },
+      product: { id: "lavender-dream", name: "Lavender Dream", description: null, safety_warnings: null, care_instructions: null, materials: null, days_to_craft: null, price_cents: 2500, effective_price_cents: 2000, discount_percent: null, discount_active: false, category: null, category_name: null, product_type: "candles", product_type_name: "Candles", labels: [], images: [], video: null, primary_image_url: "/img.jpg", primary_thumbnail_url: "/img.jpg", stock: 5, can_order: true, available_now: true, availability_status: "in_stock", ships_when_complete: true, is_active: true, is_featured: false, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" },
       quantity: 1,
       added_at: "2026-01-01T00:00:00Z",
     },
@@ -153,7 +153,7 @@ describe("Checkout Page", () => {
     mockCartState.items = [
       {
         product_id: "lavender-dream",
-        product: { id: "lavender-dream", name: "Lavender Dream", price_cents: 2500, effective_price_cents: 2000, images: [], primary_image_url: "/img.jpg", primary_thumbnail_url: "/img.jpg", stock: 5 },
+        product: { id: "lavender-dream", name: "Lavender Dream", description: null, safety_warnings: null, care_instructions: null, materials: null, days_to_craft: null, price_cents: 2500, effective_price_cents: 2000, discount_percent: null, discount_active: false, category: null, category_name: null, product_type: "candles", product_type_name: "Candles", labels: [], images: [], video: null, primary_image_url: "/img.jpg", primary_thumbnail_url: "/img.jpg", stock: 5, can_order: true, available_now: true, availability_status: "in_stock", ships_when_complete: true, is_active: true, is_featured: false, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" },
         quantity: 1,
         added_at: "2026-01-01T00:00:00Z",
       },

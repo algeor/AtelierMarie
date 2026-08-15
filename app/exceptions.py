@@ -20,6 +20,7 @@ from app.services.cart_service import (
 from app.services.order_service import (
     InvalidStateTransitionError,
     OrderNotFoundError,
+    OrderNotReadyError,
     PaymentReviewRequiredError,
     TrackingRequiredError,
 )
@@ -268,6 +269,19 @@ def register_exception_handlers(app: FastAPI) -> None:
             content={
                 "error": {
                     "code": "PAYMENT_REVIEW_REQUIRED",
+                    "message": str(exc),
+                    "details": {"order_id": exc.order_id},
+                }
+            },
+        )
+
+    @app.exception_handler(OrderNotReadyError)
+    async def order_not_ready_handler(request: Request, exc: OrderNotReadyError) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "ORDER_NOT_READY",
                     "message": str(exc),
                     "details": {"order_id": exc.order_id},
                 }

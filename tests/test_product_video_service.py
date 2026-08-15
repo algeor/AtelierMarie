@@ -587,7 +587,7 @@ def test_expired_transcode_marked_failed(_video_product):
     assert not partial.exists()
 
 
-def test_delete_transcoding_video_returns_conflict(_video_product):
+def test_delete_transcoding_video_removes_row(_video_product):
     with get_db() as conn:
         conn.execute(
             """
@@ -599,11 +599,14 @@ def test_delete_transcoding_video_returns_conflict(_video_product):
             """
         )
 
-    with pytest.raises(product_video_service.ProductVideoProcessingConflictError):
-        product_video_service.delete_video("video-product")
+    product_video_service.delete_video("video-product")
+
+    with get_db() as conn:
+        count = conn.execute("SELECT COUNT(*) AS count FROM product_videos").fetchone()["count"]
+    assert count == 0
 
 
-def test_product_deactivate_transcoding_video_returns_conflict_before_deactivate(_video_product):
+def test_product_deactivate_removes_transcoding_video_and_soft_deletes(_video_product):
     with get_db() as conn:
         conn.execute(
             """
@@ -615,18 +618,19 @@ def test_product_deactivate_transcoding_video_returns_conflict_before_deactivate
             """
         )
 
-    with pytest.raises(product_video_service.ProductVideoProcessingConflictError):
-        product_service.deactivate_product("video-product")
+    product = product_service.deactivate_product("video-product")
 
     with get_db() as conn:
-        product = conn.execute(
+        stored_product = conn.execute(
             "SELECT is_active FROM products WHERE id = 'video-product'"
         ).fetchone()
         video = conn.execute(
             "SELECT status FROM product_videos WHERE product_id = %s", ("video-product",)
         ).fetchone()
-    assert product["is_active"] == 1
-    assert video["status"] == "transcoding"
+    assert product["is_active"] == 0
+    assert stored_product["is_active"] == 0
+    assert product["video"] is None
+    assert video is None
 
 
 def test_delete_video_unlinks_files(_video_product, monkeypatch):

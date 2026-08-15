@@ -36,6 +36,10 @@ const cartItem: CartItemResponse = {
     primary_image_url: "/img.jpg",
     primary_thumbnail_url: "/img.jpg",
     stock: 5,
+    can_order: true,
+    available_now: true,
+    availability_status: "in_stock",
+    ships_when_complete: true,
     is_active: true,
     is_featured: false,
     created_at: "2026-01-01T00:00:00Z",
@@ -207,6 +211,10 @@ function product(overrides: Partial<ProductResponse>): ProductResponse {
     primary_image_url: null,
     primary_thumbnail_url: null,
     stock: 3,
+    can_order: true,
+    available_now: true,
+    availability_status: "in_stock",
+    ships_when_complete: true,
     is_active: true,
     is_featured: false,
     created_at: "2026-01-01T00:00:00Z",
@@ -312,7 +320,7 @@ describe("storefront analytics instrumentation", () => {
       })
     ));
 
-    renderWithIntl(<AddToCartButton productId="lavender-dream" stock={5} />);
+    renderWithIntl(<AddToCartButton productId="lavender-dream" availableNow />);
     const addButtons = screen.getAllByRole("button", { name: "Add to Cart" });
     fireEvent.click(addButtons[addButtons.length - 1]!);
     await waitFor(() => expect(mockTrackAnalytics).toHaveBeenCalledWith(

@@ -116,6 +116,7 @@ export default function CheckoutPage() {
     useState<DeliverySettingsResponse | null>(null);
 
   const qualifiesForFreeShipping = total_cents >= FREE_SHIPPING_THRESHOLD_CENTS;
+  const craftedLaterItems = items.filter((item) => !item.product.available_now);
 
   const emailRef = useRef<HTMLInputElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -928,6 +929,13 @@ export default function CheckoutPage() {
                   );
                 })}
               </ul>
+
+              {craftedLaterItems.length > 0 && (
+                <div className="mt-4 rounded-brand border border-border/40 bg-surface/70 px-4 py-3 text-sm leading-6 text-muted">
+                  <p>{t("craftedLaterNotice")}</p>
+                  <p>{t("shipsWhenCompleteNotice")}</p>
+                </div>
+              )}
 
               <div className="mt-4 border-t editorial-divider pt-4">
                 <ShippingPriceSummary

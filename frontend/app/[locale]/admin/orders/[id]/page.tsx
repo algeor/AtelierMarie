@@ -13,6 +13,7 @@ import {
   getAdminOrder,
   inspectReturnCase,
   listOrderAccountingDocuments,
+  markOrderFulfillmentReady,
   receiveReturnCase,
   recordCodSettlement,
   updateAccountingDocument,
@@ -632,6 +633,7 @@ export default function AdminOrderDetailPage() {
   const showCodSettlement =
     order.payment_method === "cod" && (order.status === "delivered" || order.cod_settlement !== null);
   const personalizedRefundWarning = hasPersonalizedItem(order);
+  const isAwaitingProduction = order.fulfillment_status === "awaiting_production";
   const today = new Date().toISOString().slice(0, 10);
 
   return (
@@ -671,6 +673,12 @@ export default function AdminOrderDetailPage() {
                     </p>
                     <p className="mt-1 text-sm text-soft-brown">
                       {formatPrice(item.price_cents)} x {item.quantity}
+                    </p>
+                    <p className="mt-2 text-xs text-soft-brown">
+                      {tAdmin("allocatedQuantity", { count: item.allocated_quantity ?? item.quantity })}
+                    </p>
+                    <p className="mt-1 text-xs text-soft-brown">
+                      {tAdmin("backorderedQuantity", { count: item.backordered_quantity ?? 0 })}
                     </p>
                     {(item.ledger_managed || item.inventory_mode === "ledger_managed") && (
                       <div className="mt-3 flex flex-wrap gap-2 text-xs text-soft-brown">
@@ -830,6 +838,38 @@ export default function AdminOrderDetailPage() {
             trackingCarrier={order.tracking_carrier}
             trackingUrl={order.tracking_url}
           />
+        </section>
+
+        <section className="border-t border-champagne-beige py-6">
+          <div className="flex flex-col gap-4 rounded-brand border border-champagne-beige bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-sm font-medium text-charcoal">
+                {tAdmin("fulfillmentStatus")}
+              </h2>
+              <p className="mt-1 text-sm text-soft-brown">
+                {tAdmin(`fulfillment.${order.fulfillment_status}` as Parameters<typeof tAdmin>[0])}
+              </p>
+              {isAwaitingProduction && (
+                <p className="mt-2 text-sm leading-6 text-soft-brown">
+                  {tAdmin("fulfillment.awaitingProductionHelp")}
+                </p>
+              )}
+            </div>
+            {isAwaitingProduction && (
+              <Button
+                type="button"
+                onClick={() =>
+                  void runWorkflowAction(
+                    () => markOrderFulfillmentReady(order.id).then(() => undefined),
+                    tAdmin("fulfillment.saved"),
+                  )
+                }
+                disabled={isWorkflowSaving}
+              >
+                {tAdmin("fulfillment.markReady")}
+              </Button>
+            )}
+          </div>
         </section>
 
         <section className="border-t border-champagne-beige py-6">

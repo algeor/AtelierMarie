@@ -192,9 +192,9 @@ class TestOrderItemConstraints:
         with get_db() as conn:
             conn.execute(
                 "INSERT INTO order_items "
-                "(order_id, product_id, product_name, price_cents, quantity) "
-                "VALUES (%s, %s, %s, %s, %s)",
-                ("ord-1", "prod-1", "Lavender Dreams", 1500, 2),
+                "(order_id, product_id, product_name, price_cents, quantity, allocated_quantity, backordered_quantity) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                ("ord-1", "prod-1", "Lavender Dreams", 1500, 2, 2, 0),
             )
 
 

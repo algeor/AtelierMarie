@@ -25,7 +25,7 @@ from app.constants import (
 )
 from app.database import DbConnection, require_row
 from app.models.delivery import DeliveryInfo
-from app.models.orders import InvoiceProfile, OrderStatus
+from app.models.orders import FulfillmentStatus, InvoiceProfile, OrderStatus
 from app.services import (
     accounting_config_service,
     delivery_service,
@@ -200,6 +200,19 @@ def _decode_json_dict(value: str | None, *, order_id: str, field: str) -> dict |
 
 def _order_item_key(order_id: str, product_id: str) -> str:
     return f"{order_id}:{product_id}"
+
+
+def _allocation_quantities(*, quantity: int, stock: int) -> tuple[int, int]:
+    allocated_quantity = min(max(stock, 0), quantity)
+    return allocated_quantity, quantity - allocated_quantity
+
+
+def _fulfillment_status_for_items(items: list["OrderItemData"]) -> FulfillmentStatus:
+    return (
+        "awaiting_production"
+        if any(item["backordered_quantity"] > 0 for item in items)
+        else "ready"
+    )
 
 
 def _ledger_modes_for_products(conn: DbConnection, product_ids: list[str]) -> dict[str, str]:
@@ -710,6 +723,14 @@ class PaymentReviewRequiredError(OrderServiceError):
         )
 
 
+class OrderNotReadyError(OrderServiceError):
+    """Raised when shipment is attempted before production is complete."""
+
+    def __init__(self, order_id: str) -> None:
+        self.order_id = order_id
+        super().__init__("Order cannot ship until all items are ready")
+
+
 class OrderNotFoundError(OrderServiceError):
     """Raised when an order cannot be found (or access denied)."""
 
@@ -813,6 +834,8 @@ class OrderItemData(TypedDict):
     product_name: str
     price_cents: int
     quantity: int
+    allocated_quantity: int
+    backordered_quantity: int
 
 
 class OrderData(TypedDict):
@@ -822,6 +845,7 @@ class OrderData(TypedDict):
     session_id: str
     user_id: str | None
     status: str
+    fulfillment_status: FulfillmentStatus
     total_cents: int
     items_total_cents: int
     shipping_cents: int
@@ -871,6 +895,7 @@ class OrderData(TypedDict):
     blocking_exception_count: int
     finance_hub_links: dict[str, str | None] | None
     analytics_consent: bool
+    ships_when_complete: bool
     created_at: str
     updated_at: str
     items: list[OrderItemData]
@@ -995,6 +1020,7 @@ def checkout(
             FROM cart_items ci
             JOIN products p ON p.id = ci.product_id
             WHERE ci.session_id = %s
+            FOR UPDATE OF p
             """,  # noqa: S608 - locale selects a fixed SQL expression above.
             (session_id,),
         ).fetchall()
@@ -1007,8 +1033,6 @@ def checkout(
 
         # 2. Batch-validate all items (collect ALL failures)
         unavailable_failures: list[dict] = []
-        stock_failures: list[dict] = []
-
         for row in cart_rows:
             if not row["is_active"]:
                 unavailable_failures.append(
@@ -1017,20 +1041,10 @@ def checkout(
                         "product_name": row["name"],
                     }
                 )
-            elif row["stock"] < row["quantity"]:
-                stock_failures.append(
-                    {
-                        "product_id": row["product_id"],
-                        "requested": row["quantity"],
-                        "available": row["stock"],
-                    }
-                )
 
-        # Raise unavailable first (more severe), then stock issues
+        # Active products remain orderable even when stock is short.
         if unavailable_failures:
             raise ProductUnavailableError(unavailable_failures)
-        if stock_failures:
-            raise InsufficientStockError(stock_failures)
 
         # 3. Create order
         order_id = str(uuid.uuid4())
@@ -1157,10 +1171,28 @@ def checkout(
                 for row in cart_rows
             ],
         }
+        items = [
+            OrderItemData(
+                product_id=row["product_id"],
+                product_name=row["name"],
+                price_cents=effective_prices[row["product_id"]],
+                quantity=row["quantity"],
+                allocated_quantity=_allocation_quantities(
+                    quantity=row["quantity"],
+                    stock=row["stock"],
+                )[0],
+                backordered_quantity=_allocation_quantities(
+                    quantity=row["quantity"],
+                    stock=row["stock"],
+                )[1],
+            )
+            for row in cart_rows
+        ]
+        fulfillment_status = _fulfillment_status_for_items(items)
 
         conn.execute(
             """
-            INSERT INTO orders (id, session_id, user_id, status, total_cents,
+            INSERT INTO orders (id, session_id, user_id, status, fulfillment_status, total_cents,
                                internal_sequence, order_number,
                                customer_email, customer_name,
                                shipping_cents, shipping_price_source,
@@ -1177,7 +1209,7 @@ def checkout(
                                accounting_readiness_status,
                                analytics_consent, created_at, updated_at)
             VALUES (
-                %s, %s, %s, 'pending', %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, 'pending', %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s
@@ -1187,6 +1219,7 @@ def checkout(
                 order_id,
                 session_id,
                 user_id,
+                fulfillment_status,
                 total_cents,
                 internal_sequence,
                 order_number,
@@ -1240,36 +1273,44 @@ def checkout(
                 ),
             )
 
-        # 4. Insert order items (snapshot effective prices and names)
-        items: list[OrderItemData] = []
-        for row in cart_rows:
-            snapshot_price = effective_prices[row["product_id"]]
+        # 4. Insert order items (snapshot effective prices, names, and allocation state)
+        for item in items:
             conn.execute(
                 """
-                INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity)
-                VALUES (%s, %s, %s, %s, %s)
-                """,
-                (order_id, row["product_id"], row["name"], snapshot_price, row["quantity"]),
-            )
-            items.append(
-                OrderItemData(
-                    product_id=row["product_id"],
-                    product_name=row["name"],
-                    price_cents=snapshot_price,
-                    quantity=row["quantity"],
+                INSERT INTO order_items (
+                    order_id,
+                    product_id,
+                    product_name,
+                    price_cents,
+                    quantity,
+                    allocated_quantity,
+                    backordered_quantity
                 )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    order_id,
+                    item["product_id"],
+                    item["product_name"],
+                    item["price_cents"],
+                    item["quantity"],
+                    item["allocated_quantity"],
+                    item["backordered_quantity"],
+                ),
             )
 
         # 5. Decrement stock
-        for row in cart_rows:
+        for item in items:
+            if item["allocated_quantity"] <= 0:
+                continue
             try:
-                if _is_ledger_managed_mode(inventory_modes.get(row["product_id"], "legacy")):
-                    key = _order_item_key(order_id, row["product_id"])
+                if _is_ledger_managed_mode(inventory_modes.get(item["product_id"], "legacy")):
+                    key = _order_item_key(order_id, item["product_id"])
                     _record_finished_good_movement(
                         conn,
-                        product_id=row["product_id"],
+                        product_id=item["product_id"],
                         movement_type="sale_issue",
-                        quantity_delta=-row["quantity"],
+                        quantity_delta=-item["allocated_quantity"],
                         source_type="order_item",
                         source_id=key,
                         order_id=order_id,
@@ -1284,15 +1325,15 @@ def checkout(
                 else:
                     conn.execute(
                         "UPDATE products SET stock = stock - %s WHERE id = %s",
-                        (row["quantity"], row["product_id"]),
+                        (item["allocated_quantity"], item["product_id"]),
                     )
             except psycopg.errors.CheckViolation as e:
                 # CHECK (stock >= 0) constraint violated — race condition.
                 raise InsufficientStockError(
                     [
                         {
-                            "product_id": row["product_id"],
-                            "requested": row["quantity"],
+                            "product_id": item["product_id"],
+                            "requested": item["allocated_quantity"],
                             "available": 0,
                         }
                     ]
@@ -1333,6 +1374,7 @@ def checkout(
         session_id=session_id,
         user_id=user_id,
         status="pending",
+        fulfillment_status=fulfillment_status,
         total_cents=total_cents,
         items_total_cents=items_total_cents,
         shipping_cents=shipping_cents,
@@ -1384,6 +1426,7 @@ def checkout(
         blocking_exception_count=0,
         finance_hub_links=None,
         analytics_consent=analytics_consent,
+        ships_when_complete=True,
         created_at=now,
         updated_at=now,
         items=items,
@@ -1397,7 +1440,8 @@ def _fetch_order_with_items(conn: DbConnection, order_id: str) -> OrderData | No
         return None
 
     item_rows = conn.execute(
-        "SELECT product_id, product_name, price_cents, quantity"
+        "SELECT product_id, product_name, price_cents, quantity, allocated_quantity,"
+        " backordered_quantity"
         " FROM order_items WHERE order_id = %s",
         (order_id,),
     ).fetchall()
@@ -1408,6 +1452,12 @@ def _fetch_order_with_items(conn: DbConnection, order_id: str) -> OrderData | No
             product_name=ir["product_name"],
             price_cents=ir["price_cents"],
             quantity=ir["quantity"],
+            allocated_quantity=(
+                ir["allocated_quantity"] if "allocated_quantity" in ir.keys() else ir["quantity"]
+            ),
+            backordered_quantity=(
+                ir["backordered_quantity"] if "backordered_quantity" in ir.keys() else 0
+            ),
         )
         for ir in item_rows
     ]
@@ -1449,6 +1499,11 @@ def _fetch_order_with_items(conn: DbConnection, order_id: str) -> OrderData | No
     )
     payment_method = row["payment_method"] if "payment_method" in row_keys else "cod"
     payment_status = row["payment_status"] if "payment_status" in row_keys else "cod_pending"
+    fulfillment_status = (
+        row["fulfillment_status"]
+        if "fulfillment_status" in row_keys and row["fulfillment_status"]
+        else "ready"
+    )
     stripe_payment_intent_id = (
         row["stripe_payment_intent_id"] if "stripe_payment_intent_id" in row_keys else None
     )
@@ -1476,6 +1531,7 @@ def _fetch_order_with_items(conn: DbConnection, order_id: str) -> OrderData | No
         session_id=row["session_id"],
         user_id=row["user_id"],
         status=row["status"],
+        fulfillment_status=fulfillment_status,
         total_cents=total_cents,
         items_total_cents=items_total_cents,
         shipping_cents=shipping_cents,
@@ -1558,6 +1614,7 @@ def _fetch_order_with_items(conn: DbConnection, order_id: str) -> OrderData | No
         blocking_exception_count=accounting_admin_fields["blocking_exception_count"],
         finance_hub_links=accounting_admin_fields["finance_hub_links"],
         analytics_consent=bool(row["analytics_consent"] if "analytics_consent" in row_keys else 0),
+        ships_when_complete=True,
         created_at=_fmt_ts(row["created_at"]) or "",
         updated_at=_fmt_ts(row["updated_at"]) or "",
         items=items,
@@ -1567,7 +1624,8 @@ def _fetch_order_with_items(conn: DbConnection, order_id: str) -> OrderData | No
 def get_order_inventory_context(conn: DbConnection, order_id: str) -> dict[str, object]:
     """Return admin-only inventory context for one order."""
     item_rows = conn.execute(
-        "SELECT product_id, quantity FROM order_items WHERE order_id = %s ORDER BY product_id",
+        "SELECT product_id, quantity, allocated_quantity, backordered_quantity"
+        " FROM order_items WHERE order_id = %s ORDER BY product_id",
         (order_id,),
     ).fetchall()
     product_ids = [row["product_id"] for row in item_rows]
@@ -1669,12 +1727,20 @@ def get_order_inventory_context(conn: DbConnection, order_id: str) -> dict[str, 
         cancellation = next(
             (m for m in movements if m["movement_type"] == "cancellation_reversal"), None
         )
+        allocated_quantity = (
+            item["allocated_quantity"] if "allocated_quantity" in item.keys() else item["quantity"]
+        )
+        backordered_quantity = (
+            item["backordered_quantity"] if "backordered_quantity" in item.keys() else 0
+        )
         if not ledger_managed:
             stock_issue_status = "legacy"
         elif cancellation is not None:
             stock_issue_status = "reversed"
         elif sale_issue is not None:
             stock_issue_status = "issued"
+        elif allocated_quantity == 0 and backordered_quantity > 0:
+            stock_issue_status = "awaiting_production"
         else:
             stock_issue_status = "missing"
             missing_movement_count += 1
@@ -1682,6 +1748,8 @@ def get_order_inventory_context(conn: DbConnection, order_id: str) -> dict[str, 
         cogs = cogs_by_product.get(product_id)
         if cogs is not None:
             cogs_readiness = cogs["review_state"]
+        elif allocated_quantity == 0 and backordered_quantity > 0 and ledger_managed:
+            cogs_readiness = "awaiting_production"
         elif official_cogs_required and ledger_managed:
             cogs_readiness = "missing"
             missing_cogs_count += 1
@@ -1692,6 +1760,8 @@ def get_order_inventory_context(conn: DbConnection, order_id: str) -> dict[str, 
 
         batch = latest_batches.get(product_id)
         item_contexts[product_id] = {
+            "allocated_quantity": allocated_quantity,
+            "backordered_quantity": backordered_quantity,
             "inventory_mode": inventory_mode,
             "ledger_managed": ledger_managed,
             "stock_issue_status": stock_issue_status,
@@ -1721,6 +1791,104 @@ def get_order_inventory_context(conn: DbConnection, order_id: str) -> dict[str, 
             "exceptions_href": f"/admin/inventory/valuation/exceptions?order_id={order_id}",
         },
     }
+
+
+def mark_order_fulfillment_ready(
+    conn: DbConnection,
+    order_id: str,
+    *,
+    actor_user_id: str | None = None,
+    actor_email: str | None = None,
+) -> OrderData:
+    """Allocate outstanding quantities and mark an order ready for shipment."""
+    with conn.transaction():
+        order_row = conn.execute(
+            "SELECT id, fulfillment_status, updated_at FROM orders WHERE id = %s FOR UPDATE",
+            (order_id,),
+        ).fetchone()
+        if not order_row:
+            raise OrderNotFoundError(order_id)
+
+        if order_row["fulfillment_status"] == "ready":
+            order = _fetch_order_with_items(conn, order_id)
+            if order is None:
+                raise OrderNotFoundError(order_id)
+            return order
+
+        item_rows = conn.execute(
+            """
+            SELECT oi.product_id, oi.quantity, oi.allocated_quantity, oi.backordered_quantity, p.stock
+            FROM order_items oi
+            JOIN products p ON p.id = oi.product_id
+            WHERE oi.order_id = %s
+            FOR UPDATE OF oi, p
+            """,
+            (order_id,),
+        ).fetchall()
+
+        shortages = [
+            {
+                "product_id": row["product_id"],
+                "requested": row["backordered_quantity"],
+                "available": row["stock"],
+            }
+            for row in item_rows
+            if row["backordered_quantity"] > 0 and row["stock"] < row["backordered_quantity"]
+        ]
+        if shortages:
+            raise InsufficientStockError(shortages)
+
+        now = datetime.now(UTC).strftime(_DT_FMT)
+        inventory_modes = _ledger_modes_for_products(conn, [row["product_id"] for row in item_rows])
+
+        for row in item_rows:
+            outstanding_quantity = row["backordered_quantity"]
+            if outstanding_quantity <= 0:
+                continue
+
+            if _is_ledger_managed_mode(inventory_modes.get(row["product_id"], "legacy")):
+                key = _order_item_key(order_id, row["product_id"])
+                _record_finished_good_movement(
+                    conn,
+                    product_id=row["product_id"],
+                    movement_type="sale_issue",
+                    quantity_delta=-outstanding_quantity,
+                    source_type="order_item",
+                    source_id=key,
+                    order_id=order_id,
+                    order_item_key=key,
+                    actor_user_id=actor_user_id,
+                    actor_email=actor_email,
+                    notes="Fulfillment ready allocation",
+                    review_state="reviewed",
+                    occurred_at=now,
+                    metadata={"inventory_mode": _LEDGER_MANAGED_MODE},
+                )
+            else:
+                conn.execute(
+                    "UPDATE products SET stock = stock - %s WHERE id = %s",
+                    (outstanding_quantity, row["product_id"]),
+                )
+
+            conn.execute(
+                """
+                UPDATE order_items
+                SET allocated_quantity = allocated_quantity + %s,
+                    backordered_quantity = 0
+                WHERE order_id = %s AND product_id = %s
+                """,
+                (outstanding_quantity, order_id, row["product_id"]),
+            )
+
+        conn.execute(
+            "UPDATE orders SET fulfillment_status = 'ready', updated_at = %s WHERE id = %s",
+            (now, order_id),
+        )
+
+    order = _fetch_order_with_items(conn, order_id)
+    if order is None:
+        raise OrderNotFoundError(order_id)
+    return order
 
 
 def get_order(
@@ -2027,6 +2195,7 @@ def list_orders_admin(
                   ON pip.product_id = oi.product_id
                  AND pip.inventory_mode = 'ledger_managed'
                 WHERE oi.order_id = orders.id
+                  AND oi.allocated_quantity > 0
                   AND NOT EXISTS (
                     SELECT 1
                     FROM inventory_movements im
@@ -2059,6 +2228,7 @@ def list_orders_admin(
                   ON pip.product_id = oi.product_id
                  AND pip.inventory_mode = 'ledger_managed'
                 WHERE oi.order_id = orders.id
+                  AND oi.allocated_quantity > 0
                   AND NOT EXISTS (
                     SELECT 1
                     FROM cogs_ledger c
@@ -2173,7 +2343,8 @@ async def update_status_async(
     if new_status == "shipped" and not tracking_number:
         row = conn.execute(
             "SELECT id, status, payment_method, delivery_method, delivery_courier,"
-            " delivery_details, customer_name, total_cents, shipping_cents, payment_status"
+            " delivery_details, customer_name, total_cents, shipping_cents, payment_status,"
+            " fulfillment_status"
             ", tracking_number, tracking_carrier, tracking_url, courier_shipment_number"
             " FROM orders WHERE id = %s",
             (order_id,),
@@ -2186,6 +2357,8 @@ async def update_status_async(
             raise InvalidStateTransitionError(order_id, current_status, new_status)
         if row["payment_status"] == "review_required":
             raise PaymentReviewRequiredError(order_id)
+        if row["fulfillment_status"] != "ready":
+            raise OrderNotReadyError(order_id)
 
         delivery_courier = row["delivery_courier"] if "delivery_courier" in row.keys() else None
         if delivery_courier == "speedy":
@@ -2223,7 +2396,8 @@ def update_status(
     """
     row = conn.execute(
         "SELECT id, status, payment_method, delivery_method, delivery_courier,"
-        " delivery_details, customer_name, total_cents, shipping_cents, payment_status"
+        " delivery_details, customer_name, total_cents, shipping_cents, payment_status,"
+        " fulfillment_status"
         ", tracking_number, tracking_carrier, tracking_url, courier_shipment_number"
         " FROM orders WHERE id = %s",
         (order_id,),
@@ -2235,6 +2409,9 @@ def update_status(
     current_status = row["status"]
     payment_method = row["payment_method"] if "payment_method" in row.keys() else "cod"
     payment_status = row["payment_status"] if "payment_status" in row.keys() else "cod_pending"
+    fulfillment_status = (
+        row["fulfillment_status"] if "fulfillment_status" in row.keys() else "ready"
+    )
 
     # Validate transition
     if new_status not in VALID_TRANSITIONS.get(current_status, set()):
@@ -2242,6 +2419,8 @@ def update_status(
 
     if new_status == "shipped" and payment_status == "review_required":
         raise PaymentReviewRequiredError(order_id)
+    if new_status == "shipped" and fulfillment_status != "ready":
+        raise OrderNotReadyError(order_id)
 
     label_url: str | None = None
 
@@ -2329,11 +2508,18 @@ def update_status(
     # Restore stock on cancellation
     if new_status == "cancelled":
         item_rows = conn.execute(
-            "SELECT product_id, quantity FROM order_items WHERE order_id = %s",
+            "SELECT product_id, quantity, allocated_quantity FROM order_items WHERE order_id = %s",
             (order_id,),
         ).fetchall()
         for item in item_rows:
             product_id = item["product_id"]
+            allocated_quantity = (
+                item["allocated_quantity"]
+                if "allocated_quantity" in item.keys()
+                else item["quantity"]
+            )
+            if allocated_quantity <= 0:
+                continue
             if _is_ledger_managed_mode(_product_inventory_mode(conn, product_id)):
                 key = _order_item_key(order_id, product_id)
                 issue = _sale_issue_movement(conn, order_id=order_id, product_id=product_id)
@@ -2353,23 +2539,29 @@ def update_status(
                     conn,
                     product_id=product_id,
                     movement_type="cancellation_reversal",
-                    quantity_delta=abs(float(issue["quantity_delta"]))
-                    if issue
-                    else item["quantity"],
+                    quantity_delta=allocated_quantity,
                     source_type="order_cancellation",
                     source_id=order_id,
                     order_id=order_id,
                     order_item_key=key,
                     reason="order_cancelled",
                     notes="Cancellation stock reversal",
-                    reversal_of_movement_id=issue["id"] if issue else None,
-                    review_state="reviewed" if issue else "unreviewed",
+                    reversal_of_movement_id=(
+                        issue["id"]
+                        if issue and abs(float(issue["quantity_delta"])) == allocated_quantity
+                        else None
+                    ),
+                    review_state=(
+                        "reviewed"
+                        if issue and abs(float(issue["quantity_delta"])) == allocated_quantity
+                        else "unreviewed"
+                    ),
                     metadata={"inventory_mode": _LEDGER_MANAGED_MODE},
                 )
             else:
                 cursor = conn.execute(
                     "UPDATE products SET stock = stock + %s WHERE id = %s",
-                    (item["quantity"], product_id),
+                    (allocated_quantity, product_id),
                 )
                 if cursor.rowcount == 0:
                     logger.warning(

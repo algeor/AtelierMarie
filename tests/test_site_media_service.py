@@ -62,6 +62,30 @@ def test_upload_and_clear_asset_image(site_media_static_path, fake_storage):
     assert site_media_service.get_public_assets()["assets"]["home_hero"] is None
 
 
+def test_upload_asset_image_falls_back_to_local_static_when_r2_is_unconfigured(
+    site_media_static_path,
+):
+    from app.config import get_settings
+    from app.services import object_storage_service
+
+    settings = get_settings()
+    original_base = settings.r2_public_base_url
+    settings.r2_public_base_url = ""
+    object_storage_service.set_backend(None)
+
+    try:
+        uploaded = site_media_service.set_asset_image("home_hero", _make_jpeg())
+    finally:
+        settings.r2_public_base_url = original_base
+
+    assert uploaded["image_url"].startswith("/static/products/site-media-home-hero_")
+    assert uploaded["thumbnail_url"].startswith("/static/products/site-media-home-hero_")
+    assert uploaded["zoom_url"].startswith("/static/products/site-media-home-hero_")
+    assert site_media_static_path.joinpath(
+        "products", uploaded["image_url"].rsplit("/", 1)[-1]
+    ).exists()
+
+
 def test_unknown_asset_key_is_rejected(site_media_static_path):
     with pytest.raises(site_media_service.SiteMediaNotFoundError):
         site_media_service.set_asset_image("missing", _make_jpeg())

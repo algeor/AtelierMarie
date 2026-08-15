@@ -9,10 +9,12 @@ performs no local disk writes.
 import io
 import re
 import warnings
+from pathlib import Path
 
 import structlog
 from PIL import Image, ImageOps
 
+from app.config import get_settings
 from app.services import object_storage_service
 
 logger = structlog.get_logger(__name__)
@@ -121,6 +123,24 @@ def _encode_webp(img: Image.Image, max_size: tuple[int, int], quality: int) -> b
     return buffer.getvalue()
 
 
+def _write_local_variant(static_root: Path, filename: str, data: bytes) -> str:
+    """Persist a processed variant under ``/static/products`` for local dev."""
+    products_root = (static_root / "products").resolve()
+    try:
+        products_root.relative_to(static_root)
+    except ValueError as exc:
+        raise ImageProcessingError("invalid_static_storage_path") from exc
+
+    products_root.mkdir(parents=True, exist_ok=True)
+    target = (products_root / filename).resolve()
+    try:
+        target.relative_to(products_root)
+    except ValueError as exc:
+        raise ImageProcessingError("invalid_static_storage_target") from exc
+    target.write_bytes(data)
+    return f"/static/products/{filename}"
+
+
 def process_image(
     file_bytes: bytes,
     product_id: str,
@@ -214,13 +234,9 @@ def process_image(
     # the byte-for-byte uploaded original.
     zoom_bytes = _encode_webp(img, _ZOOM_MAX_SIZE, _ZOOM_QUALITY)
 
-    # Upload all variants to R2. Any botocore/config failure surfaces as a
-    # MediaStorageError (raised by the storage service), so the caller does not
-    # write a DB row referencing an object that failed to upload. The variants
-    # are uploaded sequentially, so a failure on the 2nd/3rd upload would leave
-    # the earlier objects orphaned in the bucket (no DB row references them).
-    # Compensate by best-effort deleting the keys written so far before
-    # re-raising, so a partial failure leaves nothing behind.
+    # Upload all variants to R2 when configured. In local development, where R2
+    # is often intentionally unset, fall back to writing the processed variants
+    # under ``STATIC_FILE_PATH/products`` so admin uploads still work.
     uploaded_keys: list[str] = []
     try:
         image_url = object_storage_service.upload_bytes(main_key, main_bytes, _WEBP_CONTENT_TYPE)
@@ -230,6 +246,14 @@ def process_image(
         )
         uploaded_keys.append(thumb_key)
         zoom_url = object_storage_service.upload_bytes(zoom_key, zoom_bytes, _WEBP_CONTENT_TYPE)
+    except object_storage_service.StorageConfigError:
+        static_root = Path(static_path or get_settings().static_file_path).resolve()
+        try:
+            image_url = _write_local_variant(static_root, Path(main_key).name, main_bytes)
+            thumbnail_url = _write_local_variant(static_root, Path(thumb_key).name, thumb_bytes)
+            zoom_url = _write_local_variant(static_root, Path(zoom_key).name, zoom_bytes)
+        except OSError as exc:
+            raise ImageProcessingError(f"Could not write local image variants: {exc}") from exc
     except object_storage_service.MediaStorageError:
         for key in uploaded_keys:
             try:

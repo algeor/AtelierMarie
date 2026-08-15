@@ -284,7 +284,7 @@ describe("Admin Products List", () => {
 
   it("soft deletes a product from the list action", async () => {
     mockedGetAdminProducts.mockResolvedValue(MOCK_PRODUCT_LIST);
-    mockedDeleteProduct.mockResolvedValue({ ...MOCK_PRODUCT, is_active: false });
+    mockedDeleteProduct.mockResolvedValue();
 
     const { AdminProvider } = await import("@/contexts/AdminContext");
     const { AdminGuard } = await import("@/components/admin/AdminGuard");

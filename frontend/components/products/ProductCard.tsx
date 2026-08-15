@@ -78,7 +78,8 @@ export function ProductCard({
       <div className="mt-3">
         <AddToCartButton
           productId={product.id}
-          stock={product.stock}
+          canOrder={product.can_order}
+          availableNow={product.available_now}
           className="w-full text-sm"
         />
       </div>

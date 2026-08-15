@@ -5,6 +5,14 @@ import { renderWithIntl } from "../../test-utils";
 import { AtelierAdminManager } from "@/components/admin/AtelierAdminManager";
 import type { AboutAdminResponse, AboutItemAdmin, AboutSectionAdmin, TaxonomyResponse } from "@/lib/types";
 
+const navigationState = {
+  searchParams: new URLSearchParams(),
+};
+
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => navigationState.searchParams,
+}));
+
 vi.mock("@/i18n/navigation", () => ({
   Link: ({ children, href, className }: { children: React.ReactNode; href: string; className?: string }) => (
     <a href={href} className={className}>{children}</a>
@@ -28,7 +36,7 @@ vi.mock("@/lib/api", () => ({
   uploadAboutSectionImage: vi.fn(),
 }));
 
-import { getAdminAbout, getTaxonomy, updateAboutSection } from "@/lib/api";
+import { createAboutItem, getAdminAbout, getTaxonomy, updateAboutItem, updateAboutSection } from "@/lib/api";
 
 const NOW = "2026-01-01T00:00:00Z";
 
@@ -119,6 +127,21 @@ function makeAbout(): AboutAdminResponse {
           }),
         ],
       }),
+      makeSection({
+        slug: "emotional",
+        type: "text_band",
+        heading_en: "A Little Beauty for Everyday Moments",
+        heading_bg: "Малко красота за ежедневните мигове",
+        subheading_en: "Designed to Become Part of Your Story",
+        subheading_bg: "Създадени да станат част от вашата история",
+        body_en: "We believe the most beautiful objects are the ones that create a feeling.",
+        body_bg: "Вярваме, че най-красивите предмети са тези, които създават усещане.",
+        cta_label_en: "Discover the collection",
+        cta_label_bg: "Открийте колекцията",
+        cta_href: "/products",
+        sort_order: 8,
+        items: [],
+      }),
     ],
   };
 }
@@ -131,15 +154,34 @@ const TAXONOMY: TaxonomyResponse = {
 
 const mockedGetAdminAbout = vi.mocked(getAdminAbout);
 const mockedGetTaxonomy = vi.mocked(getTaxonomy);
+const mockedCreateAboutItem = vi.mocked(createAboutItem);
+const mockedUpdateAboutItem = vi.mocked(updateAboutItem);
 const mockedUpdateAboutSection = vi.mocked(updateAboutSection);
 
 describe("AtelierAdminManager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    navigationState.searchParams = new URLSearchParams();
     mockedGetAdminAbout.mockImplementation(async () => makeAbout());
     mockedGetTaxonomy.mockResolvedValue(TAXONOMY);
+    mockedCreateAboutItem.mockImplementation(async (slug, data) =>
+      makeItem({
+        id: 99,
+        section: slug,
+        title_en: data.title_en,
+        title_bg: data.title_bg ?? null,
+        text_en: data.text_en ?? null,
+        text_bg: data.text_bg ?? null,
+        link_href: data.link_href ?? null,
+        is_published: data.is_published ?? true,
+      })
+    );
     mockedUpdateAboutSection.mockImplementation(async (_slug, data) => ({
       ...makeAbout().sections[0]!,
+      ...data,
+    }));
+    mockedUpdateAboutItem.mockImplementation(async (_slug, itemId, data) => ({
+      ...makeAbout().sections.flatMap((section) => section.items).find((item) => item.id === itemId)!,
       ...data,
     }));
   });
@@ -149,7 +191,7 @@ describe("AtelierAdminManager", () => {
 
     expect(await screen.findByRole("heading", { name: "Atelier story" })).toBeInTheDocument();
     expect(screen.getByText("Page sections")).toBeInTheDocument();
-    expect(screen.getByText("3 total")).toBeInTheDocument();
+    expect(screen.getByText("4 total")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /What Makes Our Candles Different/ }));
     expect(screen.queryByRole("button", { name: "Save item" })).not.toBeInTheDocument();
@@ -186,6 +228,22 @@ describe("AtelierAdminManager", () => {
     expect(screen.getByLabelText("Link href")).toHaveValue("/products?labels=floral");
   });
 
+  it("lets local section clicks override the initial URL-selected section", async () => {
+    navigationState.searchParams = new URLSearchParams("section=collections&part=content");
+
+    renderWithIntl(<AtelierAdminManager />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("CTA label EN")).toHaveValue("");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /A Little Beauty for Everyday Moments/ }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("CTA label EN")).toHaveValue("Discover the collection");
+    });
+  });
+
   it("saves the selected section content through the existing admin API", async () => {
     renderWithIntl(<AtelierAdminManager />);
     await screen.findAllByDisplayValue("The Atelier Marie");
@@ -200,6 +258,74 @@ describe("AtelierAdminManager", () => {
         "hero",
         expect.objectContaining({ heading_en: "Updated atelier hero" }),
       );
+    });
+  });
+
+  it("sends only patchable fields when saving a collection item", async () => {
+    renderWithIntl(<AtelierAdminManager />);
+    await screen.findByRole("heading", { name: "Atelier story" });
+
+    fireEvent.click(screen.getByRole("button", { name: /Our Collections/ }));
+    fireEvent.click(screen.getByRole("tab", { name: "Items" }));
+
+    const itemCard = screen.getByText("Floral Collection").closest("article");
+    expect(itemCard).not.toBeNull();
+    fireEvent.click(within(itemCard!).getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save item" }));
+
+    await waitFor(() => {
+      expect(mockedUpdateAboutItem).toHaveBeenCalledWith(
+        "collections",
+        20,
+        {
+          title_en: "Floral Collection",
+          title_bg: "Флорална колекция",
+          text_en: "Romantic designs inspired by nature.",
+          text_bg: "Романтични дизайни, вдъхновени от природата.",
+          link_href: "/products?category=floral",
+          is_published: true,
+        },
+      );
+    });
+
+    expect(mockedUpdateAboutItem.mock.calls[0]?.[2]).not.toHaveProperty("id");
+    expect(mockedUpdateAboutItem.mock.calls[0]?.[2]).not.toHaveProperty("section");
+    expect(mockedUpdateAboutItem.mock.calls[0]?.[2]).not.toHaveProperty("created_at");
+    expect(mockedUpdateAboutItem.mock.calls[0]?.[2]).not.toHaveProperty("updated_at");
+  });
+
+  it("creates a new collection link through the admin API", async () => {
+    renderWithIntl(<AtelierAdminManager />);
+    await screen.findByRole("heading", { name: "Atelier story" });
+
+    fireEvent.click(screen.getByRole("button", { name: /Our Collections/ }));
+    fireEvent.click(screen.getByRole("tab", { name: "Items" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Add link" })[0]!);
+
+    fireEvent.change(screen.getByLabelText("Title EN"), {
+      target: { value: "Seasonal Collection" },
+    });
+    fireEvent.change(screen.getByLabelText("Title BG"), {
+      target: { value: "Сезонна колекция" },
+    });
+    fireEvent.change(screen.getByLabelText("Product filter target"), {
+      target: { value: "labels:floral" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Create link" }));
+
+    await waitFor(() => {
+      expect(mockedCreateAboutItem).toHaveBeenCalledWith("collections", {
+        title_en: "Seasonal Collection",
+        title_bg: "Сезонна колекция",
+        text_en: null,
+        text_bg: null,
+        link_href: "/products?labels=floral",
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Create link" })).not.toBeInTheDocument();
     });
   });
 });

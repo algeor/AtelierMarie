@@ -63,7 +63,7 @@ def _image_url(owner_slug: str, image_id: str | None) -> str | None:
     try:
         return object_storage_service.public_url(key)
     except object_storage_service.StorageConfigError:
-        return None
+        return f"/static/products/{key.rsplit('/', 1)[-1]}"
 
 
 def _section_owner_slug(slug: str) -> str:

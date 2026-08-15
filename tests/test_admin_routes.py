@@ -2,6 +2,8 @@
 
 import pytest
 
+from app.database import get_db
+
 
 @pytest.fixture()
 def _products(db_path, app):
@@ -454,16 +456,37 @@ class TestAdminDeleteProduct:
     """Tests for DELETE /v1/admin/products/{product_id}."""
 
     @pytest.mark.asyncio
-    async def test_soft_deletes_product(self, admin_client, _products):
+    async def test_deletes_product(self, admin_client, _products):
         response = await admin_client.delete("/v1/admin/products/lavender-dream-300ml")
-        assert response.status_code == 200
-        body = response.json()
-        assert body["is_active"] is False
+        assert response.status_code == 204
+
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM products WHERE id = %s", ("lavender-dream-300ml",)
+            ).fetchone()
+        assert row is None
 
     @pytest.mark.asyncio
     async def test_returns_404_for_missing(self, admin_client, _products):
         response = await admin_client.delete("/v1/admin/products/no-such-product")
         assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_delete_succeeds_when_video_is_transcoding(self, admin_client, _products):
+        with get_db() as conn:
+            conn.execute(
+                """
+                INSERT INTO product_videos (id, product_id, status, source_path, duration_secs)
+                VALUES (
+                    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'lavender-dream-300ml', 'transcoding',
+                    '/tmp/source.upload', 8.0
+                )
+                """
+            )
+
+        response = await admin_client.delete("/v1/admin/products/lavender-dream-300ml")
+
+        assert response.status_code == 204
 
 
 class TestAdminCSVImport:

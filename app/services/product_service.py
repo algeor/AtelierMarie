@@ -71,6 +71,10 @@ class LedgerManagedStockEditError(Exception):
         super().__init__("Ledger-managed product stock must be changed through inventory movements")
 
 
+class ProductDeleteConflictError(Exception):
+    """Raised when a product cannot be permanently deleted due to protected references."""
+
+
 BULK_DISCOUNT_TARGET_LIMIT = 500
 
 
@@ -305,6 +309,18 @@ def _resolve_locale_fields(product: dict, locale: Locale) -> dict:
     result["description"] = description
     result["safety_warnings"] = safety_warnings
     result["care_instructions"] = care_instructions
+    return result
+
+
+def _apply_orderability_fields(product: dict) -> dict:
+    """Annotate a public product payload with orderability metadata."""
+    stock = max(0, int(product.get("stock") or 0))
+    is_active = bool(product.get("is_active", True))
+    result = dict(product)
+    result["can_order"] = is_active
+    result["available_now"] = stock > 0
+    result["availability_status"] = "in_stock" if stock > 0 else "crafted_later"
+    result["ships_when_complete"] = True
     return result
 
 
@@ -567,7 +583,10 @@ def list_products(
         products = [_resolve_locale_fields(_row_to_dict(r), locale) for r in rows]
         taxonomy_service.resolve_products_taxonomy(conn, products, locale)
 
-    products = [pricing.annotate_product_pricing(p, now, public=True) for p in products]
+    products = [
+        _apply_orderability_fields(pricing.annotate_product_pricing(p, now, public=True))
+        for p in products
+    ]
 
     if price_sort:
         products.sort(
@@ -598,7 +617,9 @@ def get_product(product_id: str, *, locale: Locale = "en") -> dict:
         product = _resolve_locale_fields(_row_to_dict(row), locale)
         taxonomy_service.resolve_products_taxonomy(conn, [product], locale)
 
-    product = pricing.annotate_product_pricing(product, pricing.now_utc(), public=True)
+    product = _apply_orderability_fields(
+        pricing.annotate_product_pricing(product, pricing.now_utc(), public=True)
+    )
     product = product_image_service.attach_image_fields_one(product)
     return product_video_service.attach_video_fields_one(product, public_only=True)
 
@@ -1091,6 +1112,34 @@ def deactivate_product(product_id: str) -> dict:
     return product_video_service.attach_video_fields_one(product, public_only=False)
 
 
+def delete_product(product_id: str) -> None:
+    """Permanently delete a product when no protected references remain.
+
+    Product media is cleaned up first, cart rows are removed explicitly, and the
+    product row is then deleted. Foreign-key-restricted references (for example
+    production records) surface as ProductDeleteConflictError so the route can
+    return a clear 409 instead of a generic 500.
+    """
+    with get_db() as conn:
+        row = conn.execute("SELECT 1 FROM products WHERE id = %s", (product_id,)).fetchone()
+        if row is None:
+            raise NotFoundError(f"Product not found: {product_id}")
+
+    product_video_service.delete_video_if_exists(product_id)
+    product_image_service.delete_images_for_product(product_id)
+
+    try:
+        with get_db() as conn:
+            conn.execute("DELETE FROM cart_items WHERE product_id = %s", (product_id,))
+            cursor = conn.execute("DELETE FROM products WHERE id = %s", (product_id,))
+            if cursor.rowcount == 0:
+                raise NotFoundError(f"Product not found: {product_id}")
+    except psycopg.errors.ForeignKeyViolation as exc:
+        raise ProductDeleteConflictError(
+            f"Product {product_id} is still referenced by protected records"
+        ) from exc
+
+
 def _fts_expression(locale: Locale) -> str:
     """Postgres tsvector expression matching the GIN search index for a locale.
 
@@ -1260,7 +1309,10 @@ def search_products(
         products = [_resolve_locale_fields(_row_to_dict(r), locale) for r in rows]
         taxonomy_service.resolve_products_taxonomy(conn, products, locale)
 
-    products = [pricing.annotate_product_pricing(p, now, public=True) for p in products]
+    products = [
+        _apply_orderability_fields(pricing.annotate_product_pricing(p, now, public=True))
+        for p in products
+    ]
 
     if price_sort:
         products.sort(

@@ -22,19 +22,18 @@ describe("AddToCartButton", () => {
   });
 
   it("shows 'Add to Cart' text when idle", () => {
-    renderWithIntl(<AddToCartButton productId="test-candle" stock={5} />);
+    renderWithIntl(<AddToCartButton productId="test-candle" availableNow />);
     expect(screen.getByRole("button")).toHaveTextContent("Add to Cart");
   });
 
-  it("shows 'Out of Stock' and is disabled when stock is 0", () => {
-    renderWithIntl(<AddToCartButton productId="test-candle" stock={0} />);
-    const button = screen.getByRole("button");
-    expect(button).toHaveTextContent("Out of Stock");
-    expect(button).toBeDisabled();
+  it("keeps ordering enabled and shows crafted-later copy when unavailable now", () => {
+    renderWithIntl(<AddToCartButton productId="test-candle" availableNow={false} />);
+    expect(screen.getByRole("button")).toHaveTextContent("Add to Cart");
+    expect(screen.getByText(/crafted and shipped once ready/i)).toBeInTheDocument();
   });
 
   it("calls addToCart and openDrawer on click", async () => {
-    renderWithIntl(<AddToCartButton productId="test-candle" stock={5} />);
+    renderWithIntl(<AddToCartButton productId="test-candle" availableNow />);
     fireEvent.click(screen.getByRole("button"));
     await waitFor(() => {
       expect(mockAddToCart).toHaveBeenCalledWith("test-candle", 1);
@@ -48,7 +47,7 @@ describe("AddToCartButton", () => {
     mockAddToCart.mockImplementation(
       () => new Promise((resolve) => setTimeout(resolve, 1000))
     );
-    renderWithIntl(<AddToCartButton productId="test-candle" stock={5} />);
+    renderWithIntl(<AddToCartButton productId="test-candle" availableNow />);
     fireEvent.click(screen.getByRole("button"));
     expect(screen.getByRole("button")).toBeDisabled();
   });

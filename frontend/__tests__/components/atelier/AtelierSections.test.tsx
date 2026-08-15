@@ -95,4 +95,26 @@ describe("renderAtelierSection", () => {
     const image = container.querySelector("img");
     expect(image).toHaveAttribute("src", "/rebrand/error-candle.webp");
   });
+
+  it("resolves backend static image URLs for text-image sections", () => {
+    const { container } = render(
+      <>
+        {renderAtelierSection(
+          section({
+            slug: "atelier",
+            type: "text_image",
+            heading: "Inside Our Atelier",
+            image: "/static/products/about-atelier-demo.webp",
+            items: [],
+          })
+        )}
+      </>
+    );
+
+    const image = container.querySelector("img");
+    expect(image).toHaveAttribute(
+      "src",
+      "http://localhost:8000/static/products/about-atelier-demo.webp"
+    );
+  });
 });

@@ -379,10 +379,8 @@ export default function AdminProductsPage() {
     setDeletingId(product.id);
     setError(null);
     try {
-      const updated = await deleteProduct(product.id);
-      setProducts((prev) =>
-        prev.map((p) => (p.id === updated.id ? updated : p))
-      );
+      await deleteProduct(product.id);
+      setProducts((prev) => prev.filter((p) => p.id !== product.id));
       setSelectedIds((prev) => {
         const next = new Set(prev);
         next.delete(product.id);

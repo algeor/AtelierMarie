@@ -57,6 +57,17 @@ function isEditorTab(value: string | null): value is EditorTab {
   return value === "content" || value === "items" || value === "settings";
 }
 
+function homeItemPatch(item: HomeItemAdmin): CreateHomeItemRequest {
+  return {
+    title_en: item.title_en,
+    title_bg: item.title_bg,
+    text_en: item.text_en,
+    text_bg: item.text_bg,
+    link_href: item.link_href,
+    is_published: item.is_published,
+  };
+}
+
 export function HomeAdminManager() {
   const searchParams = useSearchParams();
   const [sections, setSections] = useState<HomeSectionAdmin[]>([]);
@@ -90,18 +101,16 @@ export function HomeAdminManager() {
     const requestedPart = searchParams?.get("part") ?? null;
     const requestedSection = requestedSlug ? sections.find((section) => section.slug === requestedSlug) : null;
 
-    if (requestedSection) {
-      setSelectedSlug(requestedSection.slug);
-      if (isEditorTab(requestedPart)) {
-        setActiveTab(requestedPart === "items" && !supportsSectionItems(requestedSection) ? "content" : requestedPart);
-      }
-      return;
-    }
+    setSelectedSlug((current) => {
+      if (requestedSection) return requestedSection.slug;
+      if (!current || !sections.some((section) => section.slug === current)) return sections[0]!.slug;
+      return current;
+    });
 
-    if (!selectedSlug || !sections.some((section) => section.slug === selectedSlug)) {
-      setSelectedSlug(sections[0]!.slug);
+    if (requestedSection && isEditorTab(requestedPart)) {
+      setActiveTab(requestedPart === "items" && !supportsSectionItems(requestedSection) ? "content" : requestedPart);
     }
-  }, [sections, selectedSlug, searchParams]);
+  }, [sections, searchParams]);
 
   useEffect(() => {
     return () => {
@@ -304,7 +313,7 @@ export function HomeAdminManager() {
                 onMoveItem={(itemId, direction) => moveItem(selectedSection, itemId, direction)}
                 onToggleItem={(item) => run(`item-publish-${item.id}`, () => setHomeItemPublished(selectedSection.slug, item.id, !item.is_published))}
                 onDeleteItem={(item) => run(`item-delete-${item.id}`, () => deleteHomeItem(selectedSection.slug, item.id))}
-                onSaveItem={(item) => run(`item-save-${item.id}`, () => updateHomeItem(selectedSection.slug, item.id, item))}
+                onSaveItem={(item) => run(`item-save-${item.id}`, () => updateHomeItem(selectedSection.slug, item.id, homeItemPatch(item)))}
                 onUploadItemImage={(item, file) => run(`item-image-${item.id}`, () => uploadHomeItemImage(selectedSection.slug, item.id, file))}
                 onClearItemImage={(item) => run(`item-image-clear-${item.id}`, () => clearHomeItemImage(selectedSection.slug, item.id))}
                 onCreateItem={() => run(`item-create-${selectedSection.slug}`, async () => {

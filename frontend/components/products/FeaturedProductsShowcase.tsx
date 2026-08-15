@@ -226,7 +226,8 @@ function FeaturedProductCard({
         <div className="mt-3 flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-center">
           <AddToCartButton
             productId={product.id}
-            stock={product.stock}
+            canOrder={product.can_order}
+            availableNow={product.available_now}
             disabled={!active}
             tabIndex={inactiveTabIndex}
             className="min-h-[42px] text-sm min-[420px]:w-auto min-[420px]:flex-1"

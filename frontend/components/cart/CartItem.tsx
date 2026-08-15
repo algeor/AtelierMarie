@@ -21,9 +21,10 @@ export function CartItem({ item, onUpdateQuantity, onRemove }: CartItemProps) {
   const thumbnailUrl = resolveMediaUrl(
     product.primary_thumbnail_url ?? product.primary_image_url,
   );
-  const maxQuantity = Math.max(0, Math.min(10, product.stock));
+  const maxQuantity = 10;
   const canDecrement = quantity > 1;
   const canIncrement = quantity < maxQuantity;
+  const isCraftedLater = product.can_order && !product.available_now;
 
   return (
     <div className="flex gap-4 border-b editorial-divider py-4 last:border-b-0">
@@ -83,7 +84,7 @@ export function CartItem({ item, onUpdateQuantity, onRemove }: CartItemProps) {
             aria-label={t("increaseQuantity")}
             title={
               !canIncrement && maxQuantity > 0
-                ? t("stockLimit", { count: maxQuantity })
+                ? t("itemLimit", { count: maxQuantity })
                 : undefined
             }
             className={cn(
@@ -100,8 +101,11 @@ export function CartItem({ item, onUpdateQuantity, onRemove }: CartItemProps) {
         </div>
         {!canIncrement && maxQuantity > 0 && (
           <p className="mt-1 text-xs text-muted">
-            {t("stockLimit", { count: maxQuantity })}
+            {t("itemLimit", { count: maxQuantity })}
           </p>
+        )}
+        {isCraftedLater && (
+          <p className="mt-1 text-xs text-muted">{t("craftedLaterItem")}</p>
         )}
       </div>
 

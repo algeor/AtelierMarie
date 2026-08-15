@@ -32,6 +32,7 @@ vi.mock("@/lib/api", () => ({
   deleteEcontLabel: vi.fn(),
   refreshEcontTrace: vi.fn(),
   updateOrderStatus: vi.fn(),
+  markOrderFulfillmentReady: vi.fn(),
   listOrderAccountingDocuments: vi.fn(),
   createAccountingDocument: vi.fn(),
   updateAccountingDocument: vi.fn(),

@@ -697,10 +697,29 @@ const mockLedgerRows: Record<AccountingLedgerName, Record<string, unknown>[]> =
     product_costs: mockProductCosts as unknown as Record<string, unknown>[],
   };
 
-function withMockAccountingFlags(order: OrderResponse): OrderResponse {
+type MockOrderItem = OrderResponse["items"][number] & {
+  allocated_quantity?: number;
+  backordered_quantity?: number;
+};
+
+type MockOrder = Omit<OrderResponse, "items"> & {
+  items: MockOrderItem[];
+};
+
+function withMockAccountingFlags(order: MockOrder): MockOrder {
+  const baseOrder: MockOrder = {
+    ...order,
+    fulfillment_status: order.fulfillment_status ?? "ready",
+    ships_when_complete: order.ships_when_complete ?? true,
+    items: order.items.map((item) => ({
+      ...item,
+      allocated_quantity: item.allocated_quantity ?? item.quantity,
+      backordered_quantity: item.backordered_quantity ?? 0,
+    })),
+  };
   if (order.id === "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e") {
     return {
-      ...order,
+      ...baseOrder,
       order_number: order.order_number ?? "AM-COD01",
       finance_period_id: "period-2026-08",
       accounting_readiness_status: "blocked",
@@ -723,7 +742,7 @@ function withMockAccountingFlags(order: OrderResponse): OrderResponse {
   }
   if (order.id === "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f") {
     return {
-      ...order,
+      ...baseOrder,
       order_number: order.order_number ?? "AM-1001",
       finance_period_id: "period-2026-08",
       accounting_readiness_status: "review_required",
@@ -744,23 +763,26 @@ function withMockAccountingFlags(order: OrderResponse): OrderResponse {
     };
   }
   return {
-    ...order,
+    ...baseOrder,
     accounting_readiness_status:
-      order.accounting_readiness_status ?? "unreviewed",
+      baseOrder.accounting_readiness_status ?? "unreviewed",
     document_reference_status:
-      order.document_reference_status ?? "not_required",
+      baseOrder.document_reference_status ?? "not_required",
     payment_reconciliation_status:
-      order.payment_reconciliation_status ?? "not_applicable",
+      baseOrder.payment_reconciliation_status ?? "not_applicable",
     payout_reconciliation_status:
-      order.payout_reconciliation_status ?? "not_applicable",
-    cod_settlement_status: order.cod_settlement_status ?? "not_applicable",
-    blocking_exception_count: order.blocking_exception_count ?? 0,
-    finance_hub_links: order.finance_hub_links ?? null,
+      baseOrder.payout_reconciliation_status ?? "not_applicable",
+    cod_settlement_status: baseOrder.cod_settlement_status ?? "not_applicable",
+    blocking_exception_count: baseOrder.blocking_exception_count ?? 0,
+    finance_hub_links: baseOrder.finance_hub_links ?? null,
   };
 }
 
-// The mock store carries admin-only fields even though ProductResponse omits them.
-type MockProduct = ProductResponse & {
+// The mock store carries admin-only fields and derives crafted-later availability.
+type MockProduct = Omit<
+  ProductResponse,
+  "can_order" | "available_now" | "availability_status" | "ships_when_complete"
+> & {
   safety_warnings_en: string | null;
   safety_warnings_bg: string | null;
   care_instructions_en: string | null;
@@ -790,8 +812,14 @@ function toPublicProduct(product: MockProduct, locale = "en"): ProductResponse {
     locale === "bg" ? care_instructions_bg : care_instructions_en;
   const fallbackCare =
     locale === "bg" ? care_instructions_en : care_instructions_bg;
+  const canOrder = product.is_active;
+  const availableNow = product.stock > 0;
   return {
     ...pub,
+    can_order: canOrder,
+    available_now: availableNow,
+    availability_status: availableNow ? "in_stock" : "crafted_later",
+    ships_when_complete: true,
     safety_warnings: preferredWarnings ?? fallbackWarnings,
     care_instructions: preferredCare ?? fallbackCare,
   };
@@ -2025,7 +2053,7 @@ let mockIsAuthenticated = true;
 
 // --- In-Memory Order Store ---
 
-const mockOrders: OrderResponse[] = [];
+const mockOrders: MockOrder[] = [];
 const mockReturnCases: ReturnCaseResponse[] = [];
 const mockRefundRecords: PaymentRefundResponse[] = [];
 const mockCodSettlements: CodSettlementResponse[] = [];
@@ -2058,7 +2086,7 @@ function buildCartResponse(): CartResponse {
       if (!product?.is_active) return null;
       return {
         product_id: ci.product_id,
-        product,
+        product: toPublicProduct(product),
         quantity: ci.quantity,
         added_at: ci.added_at,
       };
@@ -2217,16 +2245,16 @@ export async function addToCart(
   const product = MOCK_PRODUCTS.find((p) => p.id === productId && p.is_active);
   if (!product) mockError("NOT_FOUND", `Product ${productId} not found`);
 
-  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) {
-    mockError("VALIDATION_ERROR", "Quantity must be between 1 and 99");
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10) {
+    mockError("VALIDATION_ERROR", "Quantity must be between 1 and 10");
   }
 
   const existing = mockCartItems.find((ci) => ci.product_id === productId);
   const currentQty = existing ? existing.quantity : 0;
   const requestedTotal = currentQty + quantity;
 
-  if (requestedTotal > product.stock) {
-    mockError("CONFLICT", `Insufficient stock for ${productId}`);
+  if (requestedTotal > 10) {
+    mockError("VALIDATION_ERROR", `Quantity limit exceeded for ${productId}`);
   }
 
   if (existing) {
@@ -2252,9 +2280,8 @@ export async function updateCartItem(
   if (quantity === 0) {
     mockCartItems = mockCartItems.filter((ci) => ci.product_id !== productId);
   } else {
-    const product = MOCK_PRODUCTS.find((p) => p.id === productId);
-    if (product && quantity > product.stock) {
-      mockError("CONFLICT", `Insufficient stock for ${productId}`);
+    if (!Number.isInteger(quantity) || quantity < 0 || quantity > 10) {
+      mockError("VALIDATION_ERROR", "Quantity must be between 0 and 10");
     }
     existing.quantity = quantity;
   }
@@ -2728,10 +2755,27 @@ export async function createOrder(
           invoiceProfile.billing_country.toUpperCase() !== "BG"
         ? "cross_border_candidate"
         : "domestic_default";
+  const orderItems: MockOrderItem[] = cart.items.map((item) => {
+    const product = MOCK_PRODUCTS.find((p) => p.id === item.product_id);
+    const availableStock = product?.stock ?? 0;
+    const allocatedQuantity = Math.min(availableStock, item.quantity);
+    return {
+      product_id: item.product_id,
+      product_name: item.product.name,
+      price_cents: item.product.effective_price_cents,
+      quantity: item.quantity,
+      allocated_quantity: allocatedQuantity,
+      backordered_quantity: item.quantity - allocatedQuantity,
+    };
+  });
+  const fulfillmentStatus = orderItems.some((item) => (item.backordered_quantity ?? 0) > 0)
+    ? "awaiting_production"
+    : "ready";
 
-  const order: OrderResponse = {
+  const order: MockOrder = {
     id: generateOrderId(),
     status: "pending",
+    fulfillment_status: fulfillmentStatus,
     payment_method: paymentMethod,
     payment_status: paymentMethod === "cod" ? "cod_pending" : "pending",
     stripe_checkout_url: null,
@@ -2768,6 +2812,7 @@ export async function createOrder(
     total_cents: cart.total_cents + shipping_cents,
     customer_email: data.customer_email,
     customer_name: customerName,
+    ships_when_complete: true,
     delivery_method: data.delivery.method,
     delivery_courier:
       data.delivery.method === "office"
@@ -2782,12 +2827,7 @@ export async function createOrder(
           ? (data.delivery.internal ?? null)
         : (data.delivery.door ?? null),
     notes: data.notes ?? null,
-    items: cart.items.map((item) => ({
-      product_id: item.product_id,
-      product_name: item.product.name,
-      price_cents: item.product.effective_price_cents,
-      quantity: item.quantity,
-    })),
+    items: orderItems,
     tracking_number: null,
     tracking_carrier: null,
     tracking_url: null,
@@ -2804,6 +2844,12 @@ export async function createOrder(
     created_at: now,
     updated_at: now,
   };
+
+  for (const item of orderItems) {
+    const product = MOCK_PRODUCTS.find((p) => p.id === item.product_id);
+    if (!product) continue;
+    product.stock = Math.max(0, product.stock - (item.allocated_quantity ?? item.quantity));
+  }
 
   mockOrders.push(order);
   mockCartItems = [];
@@ -3531,7 +3577,9 @@ export async function getOrders(
 
 export async function getOrder(orderId: string): Promise<OrderResponse> {
   await delay();
-  const order = mockOrders.find((o) => o.id === orderId);
+  const order = [...MOCK_ORDERS_SEEDED, ...mockOrders]
+    .map(withMockAccountingFlags)
+    .find((o) => o.id === orderId);
   if (!order) mockError("NOT_FOUND", `Order ${orderId} not found`);
   return order;
 }
@@ -3565,7 +3613,7 @@ export function mockLogin(): void {
 
 // --- Admin Functions ---
 
-const MOCK_ORDERS_SEEDED: OrderResponse[] = [
+const MOCK_ORDERS_SEEDED: MockOrder[] = [
   {
     id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
     status: "pending",
@@ -4057,14 +4105,11 @@ export async function updateProduct(
 
 export async function deleteProduct(
   productId: string,
-): Promise<AdminProductResponse> {
+): Promise<void> {
   await delay();
-  const product = MOCK_PRODUCTS.find((p) => p.id === productId);
-  if (!product) mockError("NOT_FOUND", `Product ${productId} not found`);
-  product.is_active = false;
-  product.video = null;
-  product.updated_at = new Date().toISOString();
-  return toAdminProduct(product);
+  const index = MOCK_PRODUCTS.findIndex((p) => p.id === productId);
+  if (index < 0) mockError("NOT_FOUND", `Product ${productId} not found`);
+  MOCK_PRODUCTS.splice(index, 1);
 }
 
 export async function uploadProductImage(
@@ -4310,6 +4355,11 @@ export async function getAdminOrder(
   if (!order) mockError("NOT_FOUND", `Order ${orderId} not found`);
   return {
     ...order,
+    items: order.items.map((item) => ({
+      ...item,
+      allocated_quantity: item.allocated_quantity ?? item.quantity,
+      backordered_quantity: item.backordered_quantity ?? 0,
+    })),
     payment_events: [
       {
         id: `evt-${order.id}`,
@@ -5344,6 +5394,13 @@ export async function updateOrderStatus(
     );
   }
 
+  if (status === "shipped" && order.fulfillment_status === "awaiting_production") {
+    mockError(
+      "ORDER_NOT_READY",
+      "Order cannot ship until all items are ready",
+    );
+  }
+
   if (status === "shipped") {
     if (!tracking?.tracking_number && order.delivery_courier === "speedy") {
       order.tracking_number = "63689182611";
@@ -5371,6 +5428,44 @@ export async function updateOrderStatus(
   }
 
   order.status = status;
+  order.updated_at = new Date().toISOString();
+  return order;
+}
+
+export async function markOrderFulfillmentReady(
+  orderId: string,
+): Promise<OrderResponse> {
+  await delay();
+  const allOrders = [...MOCK_ORDERS_SEEDED, ...mockOrders];
+  const order = allOrders.find((o) => o.id === orderId);
+  if (!order) mockError("NOT_FOUND", `Order ${orderId} not found`);
+  if (order.fulfillment_status !== "awaiting_production") {
+    return order;
+  }
+
+  for (const item of order.items) {
+    const outstanding = item.backordered_quantity ?? 0;
+    if (outstanding <= 0) continue;
+    const product = MOCK_PRODUCTS.find((p) => p.id === item.product_id);
+    if (!product || product.stock < outstanding) {
+      mockError(
+        "ORDER_NOT_READY",
+        "Order cannot be marked ready until all outstanding quantities are available",
+      );
+    }
+  }
+
+  for (const item of order.items) {
+    const outstanding = item.backordered_quantity ?? 0;
+    if (outstanding <= 0) continue;
+    const product = MOCK_PRODUCTS.find((p) => p.id === item.product_id);
+    if (!product) continue;
+    product.stock -= outstanding;
+    item.allocated_quantity = (item.allocated_quantity ?? 0) + outstanding;
+    item.backordered_quantity = 0;
+  }
+
+  order.fulfillment_status = "ready";
   order.updated_at = new Date().toISOString();
   return order;
 }

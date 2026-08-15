@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AdminMobileTargetSelect } from "@/components/admin/AdminMobileTargetSelect";
+import { ImageCropEditor } from "@/components/admin/ImageCropEditor";
 import { AdminTranslationGapButton, MissingBgLabel, isMissingTranslation, type AdminTranslationGap } from "@/components/admin/AdminTranslationGaps";
 import { SaveConfirmation } from "@/components/admin/SaveConfirmation";
 import { Button } from "@/components/ui/Button";
@@ -25,7 +26,7 @@ import {
   uploadAboutSectionImage,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { AboutItemAdmin, AboutSectionAdmin, CreateAboutItemRequest, TaxonomyResponse, TaxonomyTerm } from "@/lib/types";
+import type { AboutItemAdmin, AboutSectionAdmin, CreateAboutItemRequest, PatchAboutItemRequest, TaxonomyResponse, TaxonomyTerm } from "@/lib/types";
 
 type EditorTab = "content" | "items" | "settings";
 type ProductFilterKind = "product_type" | "category" | "labels";
@@ -62,6 +63,28 @@ function supportsSectionItems(section: AboutSectionAdmin) {
 
 function isEditorTab(value: string | null): value is EditorTab {
   return value === "content" || value === "items" || value === "settings";
+}
+
+function cropAspectForSectionType(type: AboutSectionAdmin["type"]) {
+  if (type === "hero") return 16 / 9;
+  if (type === "collections") return 4 / 3;
+  return 4 / 5;
+}
+
+function cropAspectForItemSectionType(type: AboutSectionAdmin["type"]) {
+  if (type === "collections") return 4 / 3;
+  return 4 / 5;
+}
+
+function aboutItemPatch(item: AboutItemAdmin): PatchAboutItemRequest {
+  return {
+    title_en: item.title_en,
+    title_bg: item.title_bg,
+    text_en: item.text_en,
+    text_bg: item.text_bg,
+    link_href: item.link_href,
+    is_published: item.is_published,
+  };
 }
 
 export function AtelierAdminManager() {
@@ -109,18 +132,16 @@ export function AtelierAdminManager() {
     const requestedPart = searchParams?.get("part") ?? null;
     const requestedSection = requestedSlug ? sections.find((section) => section.slug === requestedSlug) : null;
 
-    if (requestedSection) {
-      setSelectedSlug(requestedSection.slug);
-      if (isEditorTab(requestedPart)) {
-        setActiveTab(requestedPart === "items" && !supportsSectionItems(requestedSection) ? "content" : requestedPart);
-      }
-      return;
-    }
+    setSelectedSlug((current) => {
+      if (requestedSection) return requestedSection.slug;
+      if (!current || !sections.some((section) => section.slug === current)) return sections[0]!.slug;
+      return current;
+    });
 
-    if (!selectedSlug || !sections.some((section) => section.slug === selectedSlug)) {
-      setSelectedSlug(sections[0]!.slug);
+    if (requestedSection && isEditorTab(requestedPart)) {
+      setActiveTab(requestedPart === "items" && !supportsSectionItems(requestedSection) ? "content" : requestedPart);
     }
-  }, [sections, selectedSlug, searchParams]);
+  }, [sections, searchParams]);
 
   useEffect(() => {
     return () => {
@@ -218,6 +239,42 @@ export function AtelierAdminManager() {
       ...current,
       [slug]: { ...EMPTY_ITEM, ...(current[slug] ?? {}), ...patch },
     }));
+  }
+
+  function appendCreatedItem(slug: string, item: AboutItemAdmin) {
+    setSections((current) => current.map((section) => section.slug === slug ? {
+      ...section,
+      items: [...section.items, item],
+    } : section));
+    setDrafts((current) => current.map((section) => section.slug === slug ? {
+      ...section,
+      items: [...section.items, item],
+    } : section));
+  }
+
+  async function createItemForSection(section: AboutSectionAdmin) {
+    const key = `item-create-${section.slug}`;
+    setBusyKey(key);
+    setError(null);
+    try {
+      const newItem = newItems[section.slug] ?? EMPTY_ITEM;
+      const created = await createAboutItem(section.slug, {
+        ...newItem,
+        title_bg: newItem.title_bg || null,
+        text_en: newItem.text_en || null,
+        text_bg: newItem.text_bg || null,
+        link_href: section.type === "collections" ? newItem.link_href || null : null,
+      });
+      appendCreatedItem(section.slug, created);
+      setNewItems((current) => ({ ...current, [section.slug]: { ...EMPTY_ITEM } }));
+      setAddingItemForSlug(null);
+      showSaved();
+      void refresh().catch(() => undefined);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save atelier content.");
+    } finally {
+      setBusyKey(null);
+    }
   }
 
   async function run(key: string, action: () => Promise<unknown>) {
@@ -390,21 +447,10 @@ export function AtelierAdminManager() {
                   onMoveItem={(itemId, direction) => moveItem(selectedSection, itemId, direction)}
                   onToggleItem={(item) => run(`item-publish-${item.id}`, () => setAboutItemPublished(selectedSection.slug, item.id, !item.is_published))}
                   onDeleteItem={(item) => run(`item-delete-${item.id}`, () => deleteAboutItem(selectedSection.slug, item.id))}
-                  onSaveItem={(item) => run(`item-save-${item.id}`, () => updateAboutItem(selectedSection.slug, item.id, item))}
+                  onSaveItem={(item) => run(`item-save-${item.id}`, () => updateAboutItem(selectedSection.slug, item.id, aboutItemPatch(item)))}
                   onUploadItemImage={(item, file) => run(`item-image-${item.id}`, () => uploadAboutItemImage(selectedSection.slug, item.id, file))}
                   onClearItemImage={(item) => run(`item-image-clear-${item.id}`, () => clearAboutItemImage(selectedSection.slug, item.id))}
-                  onCreateItem={() => run(`item-create-${selectedSection.slug}`, async () => {
-                    const newItem = newItems[selectedSection.slug] ?? EMPTY_ITEM;
-                    await createAboutItem(selectedSection.slug, {
-                      ...newItem,
-                      title_bg: newItem.title_bg || null,
-                      text_en: newItem.text_en || null,
-                      text_bg: newItem.text_bg || null,
-                      link_href: selectedSection.type === "collections" ? newItem.link_href || null : null,
-                    });
-                    setNewItems((current) => ({ ...current, [selectedSection.slug]: { ...EMPTY_ITEM } }));
-                    setAddingItemForSlug(null);
-                  })}
+                  onCreateItem={() => void createItemForSection(selectedSection)}
                 />
               ) : null}
 
@@ -597,7 +643,7 @@ function ContentTab({ section, draft, busyKey, onSectionChange, onSave, onUpload
           <Link href="/admin/site-media" className="text-sm font-semibold text-charcoal underline underline-offset-4">Open media library</Link>
         </div>
         <div className="mt-3">
-          <ImageControl image={section.image} onUpload={onUploadImage} onClear={onClearImage} />
+          <ImageControl image={section.image} aspect={cropAspectForSectionType(section.type)} title={`Adjust ${section.heading_en} image`} hint={`Drag to reposition, zoom, or rotate. The frame matches the ${section.heading_en} layout on the public Atelier page.`} onUpload={onUploadImage} onClear={onClearImage} />
         </div>
       </div>
 
@@ -677,7 +723,7 @@ function ItemsTab({ section, draft, editingItemId, addingItemForSlug, newItem, t
                   <ItemFields sectionSlug={section.slug} sectionType={draft.type} item={item} taxonomy={taxonomy} onChange={(field, value) => onItemChange(section.slug, item.id, field, value)} />
                   <div className="flex flex-wrap items-center gap-3">
                     <Button type="button" isLoading={busyKey === `item-save-${item.id}`} onClick={() => onSaveItem(item)}>Save item</Button>
-                    <ImageControl image={item.image} onUpload={(file) => onUploadItemImage(item, file)} onClear={() => onClearItemImage(item)} />
+                    <ImageControl image={item.image} aspect={cropAspectForItemSectionType(draft.type)} title={`Adjust ${item.title_en || `Item #${item.id}`} image`} hint="Drag to reposition, zoom, or rotate. The frame matches the public item card preview." onUpload={(file) => onUploadItemImage(item, file)} onClear={() => onClearItemImage(item)} />
                   </div>
                 </div>
               ) : null}
@@ -941,22 +987,39 @@ function Area({ id, label, value, onChange }: { id?: string; label: React.ReactN
   );
 }
 
-function ImageControl({ image, onUpload, onClear }: { image: string | null; onUpload: (file: File) => void; onClear: () => void }) {
+function ImageControl({ image, aspect = 4 / 5, title, hint, onUpload, onClear }: { image: string | null; aspect?: number; title?: string; hint?: string; onUpload: (file: File) => void; onClear: () => void }) {
+  const [cropFile, setCropFile] = useState<File | null>(null);
+
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      {image ? <img src={image} alt="" className="h-14 w-14 rounded-brand border border-champagne-beige object-cover" /> : (
-        <div className="flex h-14 w-14 items-center justify-center rounded-brand border border-dashed border-champagne-beige bg-admin-surface px-2 text-center text-[11px] leading-4 text-soft-brown">No image</div>
-      )}
-      <label className="inline-flex min-h-10 cursor-pointer items-center rounded-brand border border-champagne-beige bg-admin-surface px-3 text-sm font-medium text-soft-brown hover:bg-champagne-beige/40">
-        Upload
-        <input type="file" accept="image/jpeg,image/png" className="sr-only" onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file) onUpload(file);
-          event.target.value = "";
-        }} />
-      </label>
-      {image ? <DeleteIconButton label="Clear image" onClick={onClear} /> : null}
-    </div>
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        {image ? <img src={image} alt="" className="h-14 w-14 rounded-brand border border-champagne-beige object-cover" /> : (
+          <div className="flex h-14 w-14 items-center justify-center rounded-brand border border-dashed border-champagne-beige bg-admin-surface px-2 text-center text-[11px] leading-4 text-soft-brown">No image</div>
+        )}
+        <label className="inline-flex min-h-10 cursor-pointer items-center rounded-brand border border-champagne-beige bg-admin-surface px-3 text-sm font-medium text-soft-brown hover:bg-champagne-beige/40">
+          Upload
+          <input type="file" accept="image/jpeg,image/png" className="sr-only" onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) setCropFile(file);
+            event.target.value = "";
+          }} />
+        </label>
+        {image ? <DeleteIconButton label="Clear image" onClick={onClear} /> : null}
+      </div>
+      {cropFile ? (
+        <ImageCropEditor
+          file={cropFile}
+          aspect={aspect}
+          title={title}
+          hint={hint}
+          onConfirm={(framedFile) => {
+            setCropFile(null);
+            onUpload(framedFile);
+          }}
+          onCancel={() => setCropFile(null)}
+        />
+      ) : null}
+    </>
   );
 }
 
