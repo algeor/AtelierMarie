@@ -1836,7 +1836,8 @@ def mark_order_fulfillment_ready(
     """Allocate outstanding quantities and mark an order ready for shipment."""
     with conn.transaction():
         order_row = conn.execute(
-            "SELECT id, status, fulfillment_status, updated_at FROM orders WHERE id = %s FOR UPDATE",
+            "SELECT id, status, fulfillment_status, updated_at FROM orders "
+            "WHERE id = %s FOR UPDATE",
             (order_id,),
         ).fetchone()
         if not order_row:
@@ -1853,7 +1854,8 @@ def mark_order_fulfillment_ready(
 
         item_rows = conn.execute(
             """
-            SELECT oi.product_id, oi.quantity, oi.allocated_quantity, oi.backordered_quantity, p.stock
+            SELECT oi.product_id, oi.quantity, oi.allocated_quantity,
+                   oi.backordered_quantity, p.stock
             FROM order_items oi
             JOIN products p ON p.id = oi.product_id
             WHERE oi.order_id = %s

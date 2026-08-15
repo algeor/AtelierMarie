@@ -599,12 +599,18 @@ class TestListOrders:
             (order2_id, session_a),
         )
         conn.execute(
-            "INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity, allocated_quantity, backordered_quantity) "
+            "INSERT INTO order_items ("
+            "order_id, product_id, product_name, price_cents, quantity, "
+            "allocated_quantity, backordered_quantity"
+            ") "
             "VALUES (%s, 'lavender-dream', 'Lavender Dream', 2500, 1, 1, 0)",
             (order1_id,),
         )
         conn.execute(
-            "INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity, allocated_quantity, backordered_quantity) "
+            "INSERT INTO order_items ("
+            "order_id, product_id, product_name, price_cents, quantity, "
+            "allocated_quantity, backordered_quantity"
+            ") "
             "VALUES (%s, 'midnight-amber', 'Midnight Amber', 3500, 1, 1, 0)",
             (order2_id,),
         )
@@ -744,15 +750,21 @@ def _create_order_with_status(conn, session_id, status="pending", products_in_or
     total = sum(p * q for _, _, p, q in products_in_order)
 
     conn.execute(
-        """INSERT INTO orders (id, session_id, status, fulfillment_status, total_cents, customer_email,
-                              created_at, updated_at)
-           VALUES (%s, %s, %s, 'ready', %s, %s, %s, %s)""",
+        """
+        INSERT INTO orders (
+            id, session_id, status, fulfillment_status, total_cents, customer_email,
+            created_at, updated_at
+        ) VALUES (%s, %s, %s, 'ready', %s, %s, %s, %s)
+        """,
         (order_id, session_id, status, total, "test@test.com", past, past),
     )
 
     for pid, pname, price, qty in products_in_order:
         conn.execute(
-            "INSERT INTO order_items (order_id, product_id, product_name, price_cents, quantity, allocated_quantity, backordered_quantity) "
+            "INSERT INTO order_items ("
+            "order_id, product_id, product_name, price_cents, quantity, "
+            "allocated_quantity, backordered_quantity"
+            ") "
             "VALUES (%s, %s, %s, %s, %s, %s, 0)",
             (order_id, pid, pname, price, qty, qty),
         )
