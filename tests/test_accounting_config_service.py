@@ -122,7 +122,7 @@ async def test_public_legal_identity_uses_latest_seller_profile(admin_client, cl
 
 
 @pytest.mark.asyncio
-async def test_public_legal_identity_returns_null_for_unfilled_optional_fields(admin_client, client):
+async def test_public_legal_identity_returns_null_for_unfilled_fields(admin_client, client):
     seller_resp = await admin_client.post(
         "/v1/admin/accounting/config/seller-profile",
         json={
