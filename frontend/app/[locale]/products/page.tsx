@@ -124,6 +124,17 @@ function titleForListing(query: ProductListQuery): string {
   return `${label} | Our Collection`;
 }
 
+function descriptionForListing(locale: Locale, query: ProductListQuery): string {
+  if (query.q) {
+    return locale === "bg"
+      ? `Разгледайте резултати за ${query.q} в ръчно изработената колекция на Ателие Мари.`
+      : `Browse results for ${query.q} in Atelier Marie's handmade collection.`;
+  }
+  return locale === "bg"
+    ? "Разгледайте ръчно изработени свещи, персонални подаръци, тефтери и сезонни изделия от Ателие Мари."
+    : "Shop handmade candles, custom gifts, notebooks, and seasonal pieces from Atelier Marie.";
+}
+
 export async function generateMetadata({
   params,
   searchParams,
@@ -132,6 +143,7 @@ export async function generateMetadata({
   const normalized = normalizeProductListingParams(await searchParams);
   return {
     title: titleForListing(normalized.query),
+    description: descriptionForListing(locale, normalized.query),
     alternates: getLocalizedAlternates(locale, normalized.path),
   };
 }

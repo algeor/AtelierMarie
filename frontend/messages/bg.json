@@ -21,6 +21,7 @@
   "nav": {
     "home": "Начало",
     "shop": "Магазин",
+    "handmadeCandles": "Ръчно изработени свещи",
     "atelier": "Ателие",
     "about": "За нас",
     "faq": "Въпроси",
@@ -1881,6 +1882,7 @@
     "paymentSettingsNav": "Плащания",
     "siteMediaNav": "Изображения",
     "homeNav": "Начална страница",
+    "seoPagesNav": "SEO страници",
     "atelierNav": "Ателие",
     "termsNav": "Общи условия",
     "privacyNav": "Поверителност",

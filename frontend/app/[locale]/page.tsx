@@ -7,7 +7,7 @@ import { BodyRenderer } from "@/components/atelier/BodyRenderer";
 import { Link } from "@/i18n/navigation";
 import type { Locale } from "@/i18n/routing";
 import { resolveMediaUrl } from "@/lib/media";
-import { getLocalizedAlternates } from "@/lib/seo";
+import { getLocalizedAlternates, SEO } from "@/lib/seo";
 import type { HomeSection, ProductResponse, SiteMediaMap } from "@/lib/types";
 
 type LandingCategoryKey = "christmasBalls" | "customBoxes" | "candles" | "notebooks";
@@ -160,6 +160,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: L
   const { locale } = await params;
   return {
     title: "Atelier Marie | Luxury Handcrafted Candles",
+    description: SEO.siteDescription,
     alternates: getLocalizedAlternates(locale, ""),
   };
 }

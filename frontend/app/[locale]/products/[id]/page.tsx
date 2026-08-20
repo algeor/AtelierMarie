@@ -28,9 +28,17 @@ export async function generateMetadata({
   const { id, locale } = await params;
   try {
     const product = await getProduct(id, locale);
+    const imageUrl = product.primary_image_url ?? product.images[0]?.image_url;
     return {
       title: product.name,
+      description: product.description ?? undefined,
       alternates: getLocalizedAlternates(locale, `/products/${id}`),
+      openGraph: {
+        type: "website",
+        title: product.name,
+        description: product.description ?? undefined,
+        images: imageUrl ? [{ url: imageUrl, alt: product.name }] : undefined,
+      },
     };
   } catch {
     const t = await getTranslations({ locale, namespace: "products" });

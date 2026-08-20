@@ -3,9 +3,20 @@
  */
 
 import { locales, type Locale } from "@/i18n/routing";
+import { INSTAGRAM_URL, TIKTOK_URL } from "@/lib/social";
 import type { FaqSectionResponse, ProductResponse } from "@/lib/types";
 
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://ateliermarie.com";
+const BRAND_NAME = "Atelier Marie";
+const DEFAULT_LOCALE: Locale = "en";
+const SITE_DESCRIPTION =
+  "Handmade candles, custom gifts, notebooks, and seasonal pieces prepared with care by Atelier Marie.";
+
+export const SEO = {
+  brandName: BRAND_NAME,
+  siteDescription: SITE_DESCRIPTION,
+  defaultLocale: DEFAULT_LOCALE,
+};
 
 /**
  * Generate hreflang alternate links for a given pathname.
@@ -17,11 +28,12 @@ const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://ateliermarie.com";
  */
 export function getAlternateLanguages(
   pathname: string
-): Record<Locale, string> {
-  const result = {} as Record<Locale, string>;
+): Record<string, string> {
+  const result: Record<string, string> = {};
   for (const locale of locales) {
     result[locale] = `${BASE_URL}/${locale}${pathname}`;
   }
+  result["x-default"] = `${BASE_URL}/${SEO.defaultLocale}${pathname}`;
   return result;
 }
 
@@ -36,6 +48,22 @@ export function getLocalizedAlternates(locale: Locale, pathname: string) {
   return {
     languages: getAlternateLanguages(pathname),
     canonical: getCanonicalUrl(locale, pathname),
+  };
+}
+
+export function getLocalizedPathAlternates(
+  locale: Locale,
+  paths: Record<Locale, string>,
+) {
+  const languages: Record<string, string> = {};
+  for (const altLocale of locales as readonly Locale[]) {
+    languages[altLocale] = `${BASE_URL}/${altLocale}${paths[altLocale]}`;
+  }
+  languages["x-default"] = `${BASE_URL}/${SEO.defaultLocale}${paths[SEO.defaultLocale]}`;
+
+  return {
+    languages,
+    canonical: `${BASE_URL}/${locale}${paths[locale]}`,
   };
 }
 
@@ -57,6 +85,32 @@ export function getAboutJsonLd(locale: Locale) {
         name: "The Atelier Marie Atelier Story",
         inLanguage: locale,
         about: { "@id": `${BASE_URL}/#organization` },
+      },
+    ],
+  };
+}
+
+export function getSiteJsonLd(locale: Locale) {
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": `${BASE_URL}/#organization`,
+        name: BRAND_NAME,
+        alternateName: "The Atelier Marie",
+        url: BASE_URL,
+        email: "contacts@theateliermarie.com",
+        sameAs: [INSTAGRAM_URL, TIKTOK_URL],
+      },
+      {
+        "@type": "WebSite",
+        "@id": `${BASE_URL}/#website`,
+        url: BASE_URL,
+        name: BRAND_NAME,
+        description: SITE_DESCRIPTION,
+        inLanguage: locale,
+        publisher: { "@id": `${BASE_URL}/#organization` },
       },
     ],
   };

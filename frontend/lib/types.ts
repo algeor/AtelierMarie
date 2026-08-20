@@ -595,6 +595,123 @@ export type UpdateTermsSectionRequest = Partial<
   >
 >;
 
+// --- SEO Landing Pages ---
+
+export interface SeoLandingFaqPublicResponse {
+  id: number;
+  question: string;
+  answer: string;
+}
+
+export interface SeoLandingPagePublicResponse {
+  slug: string;
+  product_type: string;
+  path: string;
+  meta_title: string;
+  meta_description: string;
+  eyebrow: string;
+  title: string;
+  intro: string;
+  note: string;
+  shop_all_label: string;
+  section_title: string;
+  empty_text: string;
+  benefits_title: string;
+  benefits: string[];
+  faq_title: string;
+  faq: SeoLandingFaqPublicResponse[];
+}
+
+export interface SeoLandingFaqAdminResponse {
+  id: number;
+  page_slug: string;
+  question_en: string;
+  question_bg: string | null;
+  answer_en: string;
+  answer_bg: string | null;
+  sort_order: number;
+  is_published: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SeoLandingPageAdminResponse {
+  slug: string;
+  product_type: string;
+  path_en: string;
+  path_bg: string;
+  meta_title_en: string;
+  meta_title_bg: string | null;
+  meta_description_en: string;
+  meta_description_bg: string | null;
+  eyebrow_en: string;
+  eyebrow_bg: string | null;
+  title_en: string;
+  title_bg: string | null;
+  intro_en: string;
+  intro_bg: string | null;
+  note_en: string;
+  note_bg: string | null;
+  shop_all_label_en: string;
+  shop_all_label_bg: string | null;
+  section_title_en: string;
+  section_title_bg: string | null;
+  empty_text_en: string;
+  empty_text_bg: string | null;
+  benefits_title_en: string;
+  benefits_title_bg: string | null;
+  faq_title_en: string;
+  faq_title_bg: string | null;
+  benefits_en: string[];
+  benefits_bg: string[] | null;
+  is_published: boolean;
+  created_at: string;
+  updated_at: string;
+  faq: SeoLandingFaqAdminResponse[];
+}
+
+export interface SeoLandingAdminResponse {
+  pages: SeoLandingPageAdminResponse[];
+}
+
+export type UpdateSeoLandingPageRequest = Partial<
+  Pick<
+    SeoLandingPageAdminResponse,
+    | "meta_title_en"
+    | "meta_title_bg"
+    | "meta_description_en"
+    | "meta_description_bg"
+    | "eyebrow_en"
+    | "eyebrow_bg"
+    | "title_en"
+    | "title_bg"
+    | "intro_en"
+    | "intro_bg"
+    | "note_en"
+    | "note_bg"
+    | "shop_all_label_en"
+    | "shop_all_label_bg"
+    | "section_title_en"
+    | "section_title_bg"
+    | "empty_text_en"
+    | "empty_text_bg"
+    | "benefits_title_en"
+    | "benefits_title_bg"
+    | "faq_title_en"
+    | "faq_title_bg"
+    | "benefits_en"
+    | "benefits_bg"
+    | "is_published"
+  >
+>;
+
+export type UpdateSeoLandingFaqRequest = Partial<
+  Pick<
+    SeoLandingFaqAdminResponse,
+    "question_en" | "question_bg" | "answer_en" | "answer_bg" | "is_published"
+  >
+>;
+
 // --- Privacy Policy ---
 
 export interface PrivacySectionResponse {

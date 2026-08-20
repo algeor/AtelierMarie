@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { useTranslations } from "next-intl";
 import { AddToCartButton } from "@/components/cart/AddToCartButton";
 import { Link } from "@/i18n/navigation";
@@ -19,6 +19,9 @@ interface FeaturedProductsShowcaseProps {
   section?: HomeSection | null;
 }
 
+const AUTO_ROTATE_MS = 10000;
+const SWIPE_THRESHOLD_PX = 48;
+
 function productDescriptor(product: ProductResponse) {
   return product.category_name || product.product_type_name || product.labels[0]?.name || "Atelier Marie";
 }
@@ -28,22 +31,59 @@ export function FeaturedProductsShowcase({ products, section }: FeaturedProducts
   const featuredProducts = products.slice(0, 3);
   const [activeIndex, setActiveIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
-  const [hasUserInteracted, setHasUserInteracted] = useState(false);
+  const [interactionNonce, setInteractionNonce] = useState(0);
+  const pointerStartRef = useRef<{ x: number; y: number; pointerId: number } | null>(null);
+  const suppressNextClickRef = useRef(false);
 
   useEffect(() => {
-    if (featuredProducts.length <= 1 || isPaused || hasUserInteracted) return;
+    if (featuredProducts.length <= 1 || isPaused) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
-    const interval = window.setInterval(() => {
+    const timeout = window.setTimeout(() => {
       setActiveIndex((current) => (current + 1) % featuredProducts.length);
-    }, 6500);
+    }, AUTO_ROTATE_MS);
 
-    return () => window.clearInterval(interval);
-  }, [featuredProducts.length, hasUserInteracted, isPaused]);
+    return () => window.clearTimeout(timeout);
+  }, [activeIndex, featuredProducts.length, interactionNonce, isPaused]);
 
   function chooseProduct(index: number, userInitiated = true) {
     setActiveIndex((index + featuredProducts.length) % featuredProducts.length);
-    if (userInitiated) setHasUserInteracted(true);
+    if (userInitiated) setInteractionNonce((current) => current + 1);
+  }
+
+  function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (featuredProducts.length <= 1) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    pointerStartRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      pointerId: event.pointerId,
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }
+
+  function handlePointerUp(event: PointerEvent<HTMLDivElement>) {
+    const pointerStart = pointerStartRef.current;
+    if (!pointerStart || pointerStart.pointerId !== event.pointerId) return;
+
+    pointerStartRef.current = null;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+
+    const deltaX = event.clientX - pointerStart.x;
+    const deltaY = event.clientY - pointerStart.y;
+    const isHorizontalSwipe = Math.abs(deltaX) >= SWIPE_THRESHOLD_PX && Math.abs(deltaX) > Math.abs(deltaY) * 1.25;
+
+    if (!isHorizontalSwipe) return;
+
+    event.preventDefault();
+    suppressNextClickRef.current = true;
+    chooseProduct(activeIndex + (deltaX < 0 ? 1 : -1));
+  }
+
+  function handlePointerCancel(event: PointerEvent<HTMLDivElement>) {
+    if (pointerStartRef.current?.pointerId === event.pointerId) {
+      pointerStartRef.current = null;
+    }
   }
 
   if (!featuredProducts.length) return null;
@@ -71,7 +111,18 @@ export function FeaturedProductsShowcase({ products, section }: FeaturedProducts
         </div>
 
         <div className="relative mt-8 lg:mt-12">
-          <div className="overflow-hidden pb-6 lg:pb-36">
+          <div
+            className="featured-carousel-viewport overflow-hidden pb-6 lg:pb-36"
+            onClickCapture={(event) => {
+              if (!suppressNextClickRef.current) return;
+              event.preventDefault();
+              event.stopPropagation();
+              suppressNextClickRef.current = false;
+            }}
+            onPointerDown={handlePointerDown}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerCancel}
+          >
             <div
               className="featured-carousel-track flex"
               style={{ transform: `translateX(-${activeIndex * 100}%)` }}
@@ -186,7 +237,7 @@ function FeaturedProductCard({
     <article
       ref={cardRef}
       className={cn(
-        "featured-preview-card landing-scroll-reveal group relative",
+        "featured-preview-card landing-scroll-reveal group relative h-full",
         active && "featured-preview-card--active",
         !active && "pointer-events-none",
         className
@@ -210,33 +261,37 @@ function FeaturedProductCard({
         />
       </Link>
 
-      <div className="featured-preview-card__panel mt-4 bg-[rgb(248_241_241)] p-3.5 shadow-xl shadow-text/10 backdrop-blur-md sm:p-4 lg:absolute lg:-bottom-28 lg:left-6 lg:right-6 lg:mt-0">
-        <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-accent">{descriptor}</p>
+      <div className="featured-preview-card__panel mt-4 flex flex-col bg-[rgb(248_241_241)] p-3.5 shadow-xl shadow-text/10 backdrop-blur-md sm:p-4 lg:absolute lg:-bottom-28 lg:left-6 lg:right-6 lg:mt-0">
+        <p className="featured-preview-card__descriptor text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-accent">
+          {descriptor}
+        </p>
         <Link
           href={`/products/${product.id}`}
           tabIndex={inactiveTabIndex}
           onClick={() => trackProductClick(product, discoveryContext, "featured_title")}
-          className="mt-1.5 block font-heading text-xl leading-tight text-text transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
+          className="featured-preview-card__title mt-1.5 block font-heading text-xl leading-tight text-text transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
         >
           {product.name}
         </Link>
-        <div className="mt-1.5 text-sm font-semibold text-text">
+        <div className="mt-1.5 truncate text-sm font-semibold text-text">
           <PriceDisplay product={product} />
         </div>
-        <div className="mt-3 flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-center">
-          <AddToCartButton
-            productId={product.id}
-            canOrder={product.can_order}
-            availableNow={product.available_now}
-            disabled={!active}
-            tabIndex={inactiveTabIndex}
-            className="min-h-[42px] text-sm min-[420px]:w-auto min-[420px]:flex-1"
-          />
+        <div className="mt-auto flex flex-col gap-2 pt-3 min-[420px]:flex-row min-[420px]:items-center">
+          <div className="min-w-0 min-[420px]:flex-1">
+            <AddToCartButton
+              productId={product.id}
+              canOrder={product.can_order}
+              availableNow={product.available_now}
+              disabled={!active}
+              tabIndex={inactiveTabIndex}
+              className="min-h-[42px] text-sm min-[420px]:w-full"
+            />
+          </div>
           <Link
             href={`/products/${product.id}`}
             tabIndex={inactiveTabIndex}
             onClick={() => trackProductClick(product, discoveryContext, "featured_cta")}
-            className="inline-flex min-h-[42px] items-center justify-center rounded-brand border border-border/70 bg-surface-elevated/80 px-4 py-2 text-sm font-semibold text-text transition-colors hover:bg-page focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page min-[420px]:shrink-0"
+            className="inline-flex min-h-[42px] min-w-0 items-center justify-center truncate rounded-brand border border-border/70 bg-surface-elevated/80 px-4 py-2 text-sm font-semibold text-text transition-colors hover:bg-page focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page min-[420px]:shrink-0"
           >
             {t("viewProduct")}
           </Link>

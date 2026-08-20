@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import { Link, usePathname } from "@/i18n/navigation";
 import { useAdmin } from "@/contexts/AdminContext";
-import { getAdminAbout, getAdminCookies, getAdminFaq, getAdminPrivacy, getAdminTerms } from "@/lib/api";
+import { getAdminAbout, getAdminCookies, getAdminFaq, getAdminPrivacy, getAdminSeoLandingPages, getAdminTerms } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 interface NavChild {
@@ -195,6 +195,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { labelKey: "siteMediaNav", href: "/admin/site-media", icon: <PagesIcon /> },
       { labelKey: "homeNav", href: "/admin/home", icon: <PagesIcon /> },
+      { labelKey: "seoPagesNav", href: "/admin/seo-pages", icon: <PagesIcon /> },
       { labelKey: "atelierNav", href: "/admin/atelier", icon: <PagesIcon /> },
       { labelKey: "termsNav", href: "/admin/terms", icon: <PagesIcon /> },
       { labelKey: "privacyNav", href: "/admin/privacy", icon: <PagesIcon /> },
@@ -233,12 +234,13 @@ export function AdminSidebar({ open, onOpenChange }: AdminSidebarProps = {}) {
     let cancelled = false;
 
     async function loadPageParts() {
-      const [about, faq, terms, privacy, cookies] = await Promise.allSettled([
+      const [about, faq, terms, privacy, cookies, seoPages] = await Promise.allSettled([
         getAdminAbout(),
         getAdminFaq(),
         getAdminTerms(),
         getAdminPrivacy(),
         getAdminCookies(),
+        getAdminSeoLandingPages(),
       ]);
 
       if (cancelled) return;
@@ -283,6 +285,12 @@ export function AdminSidebar({ open, onOpenChange }: AdminSidebarProps = {}) {
                 href: `/admin/cookies?target=section:${encodeURIComponent(section.slug)}`,
               })),
             ]
+          : [],
+        "/admin/seo-pages": seoPages.status === "fulfilled"
+          ? seoPages.value.pages.map((page) => ({
+              label: page.meta_title_en,
+              href: `/admin/seo-pages?page=${encodeURIComponent(page.slug)}`,
+            }))
           : [],
       });
     }

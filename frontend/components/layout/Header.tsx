@@ -25,6 +25,7 @@ const NAV_LINKS = [
   { href: "/products", labelKey: "nav.shop" },
   { href: "/atelier", labelKey: "nav.atelier" },
   { href: "/faq", labelKey: "nav.faq" },
+  { href: "/terms", labelKey: "terms.footerLink" },
   { href: "/contact", labelKey: "nav.contact" },
 ] as const;
 
@@ -83,8 +84,8 @@ export function Header() {
           </Link>
 
           {/* Navigation links - visible on tablet+ */}
-          <ul className="hidden md:flex items-center gap-8">
-            {NAV_LINKS.slice(0, 3).map((link) => (
+          <ul className="hidden md:flex items-center gap-5 lg:gap-8">
+            {NAV_LINKS.map((link) => (
               <li key={link.href}>
                 <Link
                   href={link.href}

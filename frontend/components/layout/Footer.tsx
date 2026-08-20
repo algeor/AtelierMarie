@@ -1,7 +1,9 @@
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { INSTAGRAM_URL, TIKTOK_URL } from "@/lib/social";
 import { policyPath } from "@/lib/legal";
+import { HANDMADE_CANDLES_PATHS } from "@/lib/seo-pages";
+import type { Locale } from "@/i18n/routing";
 import { CookieSettingsButton } from "@/components/layout/CookieSettingsButton";
 import { LoginButton } from "@/components/auth/LoginButton";
 import { BrandMark } from "@/components/rebrand";
@@ -46,6 +48,7 @@ function TikTokIcon({ className }: { className?: string }) {
 
 export function Footer({ isAtelierPage = false }: { isAtelierPage?: boolean }) {
   const t = useTranslations();
+  const locale = useLocale() as Locale;
   const currentYear = new Date().getFullYear();
 
   const linkGroups = [
@@ -54,6 +57,7 @@ export function Footer({ isAtelierPage = false }: { isAtelierPage?: boolean }) {
       links: [
         { href: "/" as const, label: t("nav.home") },
         { href: "/products" as const, label: t("nav.shop") },
+        { href: HANDMADE_CANDLES_PATHS[locale], label: t("nav.handmadeCandles") },
         { href: "/atelier" as const, label: t("nav.atelier") },
       ],
     },

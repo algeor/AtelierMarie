@@ -43,6 +43,7 @@ from app.routes import (
     products,
     promotions,
     reactions,
+    seo_pages,
     site_media,
     taxonomy,
     terms,
@@ -533,6 +534,12 @@ def create_app() -> FastAPI:
     application.include_router(about.admin_router, prefix="/v1/admin/about", tags=["admin-about"])
     application.include_router(home.public_router, prefix="/v1/home", tags=["home"])
     application.include_router(home.admin_router, prefix="/v1/admin/home", tags=["admin-home"])
+    application.include_router(
+        seo_pages.public_router, prefix="/v1/seo-pages", tags=["seo-pages"]
+    )
+    application.include_router(
+        seo_pages.admin_router, prefix="/v1/admin/seo-pages", tags=["admin-seo-pages"]
+    )
     application.include_router(taxonomy.public_router, prefix="/v1/taxonomy", tags=["taxonomy"])
     application.include_router(taxonomy.admin_router, prefix="/v1/admin/taxonomy", tags=["admin"])
     application.include_router(faq.public_router, prefix="/v1/faq", tags=["faq"])

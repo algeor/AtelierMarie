@@ -4,6 +4,7 @@ import { ContactForm } from "@/components/contact/ContactForm";
 import { BrandMark } from "@/components/rebrand";
 import { INSTAGRAM_URL, TIKTOK_URL } from "@/lib/social";
 import type { Locale } from "@/i18n/routing";
+import { getLocalizedAlternates } from "@/lib/seo";
 
 interface ContactPageProps {
   params: Promise<{ locale: Locale }>;
@@ -17,6 +18,7 @@ export async function generateMetadata({
   return {
     title: `${t("title")} | Atelier Marie`,
     description: t("intro"),
+    alternates: getLocalizedAlternates(locale, "/contact"),
   };
 }
 

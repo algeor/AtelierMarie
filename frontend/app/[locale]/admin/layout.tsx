@@ -8,6 +8,10 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: L
   const { locale } = await params;
   return {
     title: "Admin | Atelier Marie",
+    robots: {
+      index: false,
+      follow: false,
+    },
     alternates: getLocalizedAlternates(locale, "/admin"),
   };
 }

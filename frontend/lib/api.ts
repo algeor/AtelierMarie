@@ -107,6 +107,10 @@ import type {
   PublicSiteMediaResponse,
   SavedProductListResponse,
   SavedProductStatusResponse,
+  SeoLandingAdminResponse,
+  SeoLandingFaqAdminResponse,
+  SeoLandingPageAdminResponse,
+  SeoLandingPagePublicResponse,
   PrivacyAdminResponse,
   PrivacyPageAdminResponse,
   PrivacyResponse,
@@ -143,6 +147,8 @@ import type {
   UpdateFaqSectionRequest,
   UpdateProductRequest,
   UpdateReturnAccountingRequest,
+  UpdateSeoLandingFaqRequest,
+  UpdateSeoLandingPageRequest,
   UpdateTaxonomyTermRequest,
   UserResponse,
   VideoUploadResponse,
@@ -600,6 +606,49 @@ export async function clearHomeItemImage(slug: string, itemId: number): Promise<
   if (USE_MOCK) return (await getMock()).clearHomeItemImage(slug, itemId);
   return apiClient.del<HomeItemAdmin>(
     `/v1/admin/home/sections/${encodeURIComponent(slug)}/items/${itemId}/image`,
+  );
+}
+
+// --- SEO Landing Pages ---
+
+export async function getSeoLandingPage(
+  slug: string,
+  locale?: Locale,
+): Promise<SeoLandingPagePublicResponse> {
+  if (USE_MOCK) return (await getMock()).getSeoLandingPage(slug, locale);
+  const params = new URLSearchParams();
+  if (locale) params.set("locale", locale);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiClient.get<SeoLandingPagePublicResponse>(
+    `/v1/seo-pages/${encodeURIComponent(slug)}${query}`,
+  );
+}
+
+export async function getAdminSeoLandingPages(): Promise<SeoLandingAdminResponse> {
+  if (USE_MOCK) return (await getMock()).getAdminSeoLandingPages();
+  return apiClient.get<SeoLandingAdminResponse>("/v1/admin/seo-pages");
+}
+
+export async function updateSeoLandingPage(
+  slug: string,
+  data: UpdateSeoLandingPageRequest,
+): Promise<SeoLandingPageAdminResponse> {
+  if (USE_MOCK) return (await getMock()).updateSeoLandingPage(slug, data);
+  return apiClient.patch<SeoLandingPageAdminResponse>(
+    `/v1/admin/seo-pages/${encodeURIComponent(slug)}`,
+    data,
+  );
+}
+
+export async function updateSeoLandingFaqItem(
+  slug: string,
+  itemId: number,
+  data: UpdateSeoLandingFaqRequest,
+): Promise<SeoLandingFaqAdminResponse> {
+  if (USE_MOCK) return (await getMock()).updateSeoLandingFaqItem(slug, itemId, data);
+  return apiClient.patch<SeoLandingFaqAdminResponse>(
+    `/v1/admin/seo-pages/${encodeURIComponent(slug)}/faq/${itemId}`,
+    data,
   );
 }
 

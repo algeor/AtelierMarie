@@ -21,6 +21,7 @@
   "nav": {
     "home": "Home",
     "shop": "Shop",
+    "handmadeCandles": "Handmade candles",
     "atelier": "Atelier",
     "about": "About",
     "faq": "FAQ",
@@ -1884,6 +1885,7 @@
     "paymentSettingsNav": "Payments",
     "siteMediaNav": "Site media",
     "homeNav": "Homepage",
+    "seoPagesNav": "SEO pages",
     "atelierNav": "Atelier",
     "termsNav": "Terms",
     "privacyNav": "Privacy",

@@ -106,6 +106,10 @@ import type {
   ProductImage,
   SavedProductListResponse,
   SavedProductStatusResponse,
+  SeoLandingAdminResponse,
+  SeoLandingFaqAdminResponse,
+  SeoLandingPageAdminResponse,
+  SeoLandingPagePublicResponse,
   PrivacyAdminResponse,
   PrivacyPageAdminResponse,
   PrivacyResponse,
@@ -142,6 +146,8 @@ import type {
   UpdateFaqSectionRequest,
   UpdateProductRequest,
   UpdateReturnAccountingRequest,
+  UpdateSeoLandingFaqRequest,
+  UpdateSeoLandingPageRequest,
   UpdateTaxonomyTermRequest,
   UserResponse,
   VideoUploadResponse,
@@ -5784,6 +5790,147 @@ function findAboutItem(slug: string, itemId: number): AboutItemAdmin {
   const item = section.items.find((i) => i.id === itemId);
   if (!item) mockError("NOT_FOUND", `About item ${itemId} not found`);
   return item;
+}
+
+// --- SEO Landing Pages Mock ---
+
+const MOCK_SEO_LANDING_PAGES: SeoLandingPageAdminResponse[] = [
+  {
+    slug: "handmade-candles",
+    product_type: "candles",
+    path_en: "/handmade-candles",
+    path_bg: "/rachno-izraboteni-sveshti",
+    meta_title_en: "Handmade Candles | Atelier Marie",
+    meta_title_bg: "Ръчно изработени свещи | Ателие Мари",
+    meta_description_en:
+      "Shop handmade candles from Atelier Marie: small-batch scents, gift-ready presentation, and custom candle options.",
+    meta_description_bg:
+      "Разгледайте ръчно изработени свещи от Ателие Мари: малки серии, подаръчна визия и възможности за персонална поръчка.",
+    eyebrow_en: "Handmade candles",
+    eyebrow_bg: "Ръчно изработени свещи",
+    title_en: "Handmade candles for warm, thoughtful spaces",
+    title_bg: "Ръчно изработени свещи за уют и специални моменти",
+    intro_en:
+      "Discover Atelier Marie candles poured in small batches for quiet rituals, personal gifts, and seasonal moments. Each piece is finished with care, from scent and wax to packaging.",
+    intro_bg:
+      "Открийте свещи от Ателие Мари, изработени в малки серии за уютен дом, личен подарък и сезонни поводи. Всяко изделие е подготвено с внимание към аромат, финиш и представяне.",
+    note_en:
+      "Looking for something personal? Custom candles and gift sets can be prepared for birthdays, holidays, weddings, and intimate celebrations.",
+    note_bg:
+      "Търсите нещо лично? Можем да подготвим персонални свещи и подаръчни комплекти за рожден ден, празник, сватба или друг специален повод.",
+    shop_all_label_en: "Shop all products",
+    shop_all_label_bg: "Разгледай всички продукти",
+    section_title_en: "Current candle collection",
+    section_title_bg: "Актуална колекция свещи",
+    empty_text_en:
+      "The candle collection is being refreshed. Browse the full shop for available handmade pieces.",
+    empty_text_bg:
+      "Колекцията със свещи се обновява. Разгледайте магазина за налични ръчно изработени изделия.",
+    benefits_title_en: "Why choose Atelier Marie candles?",
+    benefits_title_bg: "Защо свещи от Ателие Мари?",
+    faq_title_en: "Handmade candle questions",
+    faq_title_bg: "Въпроси за ръчно изработени свещи",
+    benefits_en: [
+      "Small-batch handmade production",
+      "Gift-ready details and careful packaging",
+      "Custom options for personal occasions",
+    ],
+    benefits_bg: [
+      "Ръчна изработка в малки серии",
+      "Грижа към детайла и подаръчна визия",
+      "Персонални варианти за специални поводи",
+    ],
+    is_published: true,
+    created_at: nowIso(),
+    updated_at: nowIso(),
+    faq: [
+      {
+        id: 101,
+        page_slug: "handmade-candles",
+        question_en: "Are Atelier Marie candles handmade?",
+        question_bg: "Свещите на Ателие Мари ръчно изработени ли са?",
+        answer_en:
+          "Yes. Atelier Marie candles are prepared in small batches with attention to scent, finish, and presentation.",
+        answer_bg:
+          "Да. Свещите се подготвят в малки серии с внимание към аромат, финиш и представяне.",
+        sort_order: 0,
+        is_published: true,
+        created_at: nowIso(),
+        updated_at: nowIso(),
+      },
+      {
+        id: 102,
+        page_slug: "handmade-candles",
+        question_en: "Can I order a custom candle?",
+        question_bg: "Мога ли да поръчам персонална свещ?",
+        answer_en:
+          "Yes. Use the contact page to share the occasion, timing, preferred style, and any names or details you want included.",
+        answer_bg:
+          "Да. Изпратете ни повод, срок, предпочитан стил и детайли като име, цвят или тема чрез страницата за контакт.",
+        sort_order: 1,
+        is_published: true,
+        created_at: nowIso(),
+        updated_at: nowIso(),
+      },
+    ],
+  },
+];
+
+function publicSeoLandingPage(page: SeoLandingPageAdminResponse, locale?: string): SeoLandingPagePublicResponse {
+  const bg = locale === "bg";
+  return {
+    slug: page.slug,
+    product_type: page.product_type,
+    path: bg ? page.path_bg : page.path_en,
+    meta_title: (bg ? page.meta_title_bg : page.meta_title_en) || page.meta_title_en,
+    meta_description: (bg ? page.meta_description_bg : page.meta_description_en) || page.meta_description_en,
+    eyebrow: (bg ? page.eyebrow_bg : page.eyebrow_en) || page.eyebrow_en,
+    title: (bg ? page.title_bg : page.title_en) || page.title_en,
+    intro: (bg ? page.intro_bg : page.intro_en) || page.intro_en,
+    note: (bg ? page.note_bg : page.note_en) || page.note_en,
+    shop_all_label: (bg ? page.shop_all_label_bg : page.shop_all_label_en) || page.shop_all_label_en,
+    section_title: (bg ? page.section_title_bg : page.section_title_en) || page.section_title_en,
+    empty_text: (bg ? page.empty_text_bg : page.empty_text_en) || page.empty_text_en,
+    benefits_title: (bg ? page.benefits_title_bg : page.benefits_title_en) || page.benefits_title_en,
+    benefits: (bg ? page.benefits_bg : page.benefits_en) || page.benefits_en,
+    faq_title: (bg ? page.faq_title_bg : page.faq_title_en) || page.faq_title_en,
+    faq: page.faq
+      .filter((item) => item.is_published)
+      .map((item) => ({
+        id: item.id,
+        question: (bg ? item.question_bg : item.question_en) || item.question_en,
+        answer: (bg ? item.answer_bg : item.answer_en) || item.answer_en,
+      })),
+  };
+}
+
+export async function getSeoLandingPage(slug: string, locale?: string): Promise<SeoLandingPagePublicResponse> {
+  await delay();
+  const page = MOCK_SEO_LANDING_PAGES.find((item) => item.slug === slug && item.is_published);
+  if (!page) mockError("NOT_FOUND", `SEO landing page ${slug} not found`);
+  return publicSeoLandingPage(page, locale);
+}
+
+export async function getAdminSeoLandingPages(): Promise<SeoLandingAdminResponse> {
+  await delay();
+  return { pages: cloneMock(MOCK_SEO_LANDING_PAGES) };
+}
+
+export async function updateSeoLandingPage(slug: string, data: UpdateSeoLandingPageRequest): Promise<SeoLandingPageAdminResponse> {
+  await delay();
+  const page = MOCK_SEO_LANDING_PAGES.find((item) => item.slug === slug);
+  if (!page) mockError("NOT_FOUND", `SEO landing page ${slug} not found`);
+  Object.assign(page, data, { updated_at: nowIso() });
+  return cloneMock(page);
+}
+
+export async function updateSeoLandingFaqItem(slug: string, itemId: number, data: UpdateSeoLandingFaqRequest): Promise<SeoLandingFaqAdminResponse> {
+  await delay();
+  const page = MOCK_SEO_LANDING_PAGES.find((item) => item.slug === slug);
+  const faq = page?.faq.find((item) => item.id === itemId);
+  if (!faq) mockError("NOT_FOUND", `SEO landing FAQ item ${itemId} not found`);
+  Object.assign(faq, data, { updated_at: nowIso() });
+  return cloneMock(faq);
 }
 
 // --- Homepage Content Mock ---

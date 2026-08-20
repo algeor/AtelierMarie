@@ -2,16 +2,33 @@ import type { Metadata } from "next";
 import { getLocale } from "next-intl/server";
 import type { CSSProperties } from "react";
 import { getPublicSiteMedia } from "@/lib/api";
+import type { Locale } from "@/i18n/routing";
 import { resolveMediaUrl } from "@/lib/media";
+import { BASE_URL, getSiteJsonLd, SEO, serializeJsonLd } from "@/lib/seo";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(BASE_URL),
   title: {
-    template: "%s | Atelier Marie",
-    default: "Atelier Marie | Luxury Handcrafted Candles",
+    template: `%s | ${SEO.brandName}`,
+    default: `${SEO.brandName} | Handmade Candles and Custom Gifts`,
   },
-  description:
-    "Luxury handcrafted candles for your home. Artisan scents made with love.",
+  description: SEO.siteDescription,
+  applicationName: SEO.brandName,
+  openGraph: {
+    type: "website",
+    siteName: SEO.brandName,
+    title: `${SEO.brandName} | Handmade Candles and Custom Gifts`,
+    description: SEO.siteDescription,
+    url: BASE_URL,
+    locale: "en",
+    alternateLocale: ["bg"],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: `${SEO.brandName} | Handmade Candles and Custom Gifts`,
+    description: SEO.siteDescription,
+  },
   icons: {
     icon: "/favicon-atelier.svg",
   },
@@ -22,7 +39,7 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const locale = await getLocale();
+  const locale = (await getLocale()) as Locale;
   const siteMedia = await getPublicSiteMedia().catch(() => null);
   const pageBackground = resolveMediaUrl(siteMedia?.assets.page_background);
   const bodyStyle = pageBackground
@@ -31,7 +48,15 @@ export default async function RootLayout({
 
   return (
     <html lang={locale}>
-      <body className="font-sans" style={bodyStyle}>{children}</body>
+      <body className="font-sans" style={bodyStyle}>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: serializeJsonLd(getSiteJsonLd(locale)),
+          }}
+        />
+        {children}
+      </body>
     </html>
   );
 }

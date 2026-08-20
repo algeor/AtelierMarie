@@ -108,6 +108,8 @@ _SEED_TABLES: frozenset[str] = frozenset(
         "about_items",
         "home_sections",
         "home_items",
+        "seo_landing_pages",
+        "seo_landing_faq_items",
     }
 )
 
