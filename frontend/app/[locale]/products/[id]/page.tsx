@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import { getProduct } from "@/lib/api";
@@ -50,6 +51,7 @@ export async function generateMetadata({
 }
 
 export default async function ProductDetailPage({ params }: ProductPageProps) {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   const { id, locale } = await params;
   const t = await getTranslations({ locale, namespace: "products" });
   let product;
@@ -81,6 +83,7 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
   return (
     <main className="editorial-band px-4 py-10 text-text sm:px-6 lg:px-8 lg:py-16">
       <script
+        nonce={nonce}
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: serializeJsonLd(productJsonLd) }}
       />

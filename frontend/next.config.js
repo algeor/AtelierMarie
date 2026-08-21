@@ -3,6 +3,7 @@ const createNextIntlPlugin = require("next-intl/plugin");
 
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 const distDir = process.env.NEXT_DIST_DIR;
+const hstsHeaderValue = "max-age=31536000; includeSubDomains; preload";
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -14,10 +15,24 @@ const nextConfig = {
   // Two lockfiles exist (repo-root workspace wrapper + this app). Pin the trace
   // root to this directory so Next.js stops guessing and warning about it.
   outputFileTracingRoot: path.join(__dirname),
+  poweredByHeader: false,
   images: {
     // Disable optimization in dev — product images are placeholders.
     // Switch to optimized + remotePatterns when real backend serves images.
     unoptimized: true,
+  },
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          {
+            key: "Strict-Transport-Security",
+            value: hstsHeaderValue,
+          },
+        ],
+      },
+    ];
   },
   async redirects() {
     // 301 redirects from old non-prefixed URLs to /en/ equivalents.

@@ -2,7 +2,11 @@
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.models.terms import MAX_TERMS_LABEL_LENGTH, MAX_TERMS_PARAGRAPH_COUNT, MAX_TERMS_TEXT_LENGTH
+from app.models.terms import (
+    MAX_TERMS_LABEL_LENGTH,
+    MAX_TERMS_PARAGRAPH_COUNT,
+    MAX_TERMS_TEXT_LENGTH,
+)
 
 
 class SeoLandingFaqPublic(BaseModel):

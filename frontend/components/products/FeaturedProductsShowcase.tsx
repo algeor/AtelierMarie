@@ -218,8 +218,10 @@ function FeaturedProductCard({
   onActivate: () => void;
 }) {
   const t = useTranslations("home");
+  const productT = useTranslations("products");
   const descriptor = productDescriptor(product);
   const inactiveTabIndex = active ? undefined : -1;
+  const isCraftedLater = product.can_order && !product.available_now;
   const cardRef = useRef<HTMLElement>(null);
   const discoveryContext = useMemo<ProductDiscoveryContext>(
     () => ({
@@ -261,40 +263,51 @@ function FeaturedProductCard({
         />
       </Link>
 
-      <div className="featured-preview-card__panel mt-4 flex flex-col bg-[rgb(248_241_241)] p-3.5 shadow-xl shadow-text/10 backdrop-blur-md sm:p-4 lg:absolute lg:-bottom-28 lg:left-6 lg:right-6 lg:mt-0">
-        <p className="featured-preview-card__descriptor text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-accent">
-          {descriptor}
-        </p>
-        <Link
-          href={`/products/${product.id}`}
-          tabIndex={inactiveTabIndex}
-          onClick={() => trackProductClick(product, discoveryContext, "featured_title")}
-          className="featured-preview-card__title mt-1.5 block font-heading text-xl leading-tight text-text transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
-        >
-          {product.name}
-        </Link>
-        <div className="mt-1.5 truncate text-sm font-semibold text-text">
-          <PriceDisplay product={product} />
-        </div>
-        <div className="mt-auto flex flex-col gap-2 pt-3 min-[420px]:flex-row min-[420px]:items-center">
-          <div className="min-w-0 min-[420px]:flex-1">
-            <AddToCartButton
-              productId={product.id}
-              canOrder={product.can_order}
-              availableNow={product.available_now}
-              disabled={!active}
+      <div className="featured-preview-card__panel mt-4 bg-[rgb(248_241_241)] p-3.5 shadow-xl shadow-text/10 backdrop-blur-md sm:p-4 lg:absolute lg:-bottom-28 lg:left-6 lg:right-6 lg:mt-0">
+        <div className="grid h-full min-w-0 gap-4 min-[720px]:grid-cols-[minmax(0,1fr)_auto] min-[720px]:items-end">
+          <div className="min-w-0 self-start">
+            <p className="featured-preview-card__descriptor text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-accent">
+              {descriptor}
+            </p>
+            <Link
+              href={`/products/${product.id}`}
               tabIndex={inactiveTabIndex}
-              className="min-h-[42px] text-sm min-[420px]:w-full"
-            />
+              onClick={() => trackProductClick(product, discoveryContext, "featured_title")}
+              className="featured-preview-card__title mt-1.5 block max-w-2xl font-heading text-xl leading-tight text-text transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page sm:text-2xl"
+            >
+              {product.name}
+            </Link>
+            <div className="mt-1.5 truncate text-sm font-semibold text-text sm:text-base">
+              <PriceDisplay product={product} />
+            </div>
           </div>
-          <Link
-            href={`/products/${product.id}`}
-            tabIndex={inactiveTabIndex}
-            onClick={() => trackProductClick(product, discoveryContext, "featured_cta")}
-            className="inline-flex min-h-[42px] min-w-0 items-center justify-center truncate rounded-brand border border-border/70 bg-surface-elevated/80 px-4 py-2 text-sm font-semibold text-text transition-colors hover:bg-page focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page min-[420px]:shrink-0"
-          >
-            {t("viewProduct")}
-          </Link>
+
+          <div className="flex min-w-0 flex-col justify-end gap-2 min-[720px]:w-[19rem] min-[720px]:items-stretch">
+            {isCraftedLater ? (
+              <p className="rounded-brand border border-border/45 bg-page/60 px-3 py-2 text-xs leading-5 text-muted">
+                {productT("craftedLaterShort")}
+              </p>
+            ) : null}
+            <div className="grid gap-2 min-[420px]:grid-cols-2">
+              <AddToCartButton
+                productId={product.id}
+                canOrder={product.can_order}
+                availableNow={product.available_now}
+                disabled={!active}
+                tabIndex={inactiveTabIndex}
+                showCraftedLaterNote={false}
+                className="min-h-[42px] w-full text-sm"
+              />
+              <Link
+                href={`/products/${product.id}`}
+                tabIndex={inactiveTabIndex}
+                onClick={() => trackProductClick(product, discoveryContext, "featured_cta")}
+                className="inline-flex min-h-[42px] min-w-0 items-center justify-center truncate rounded-brand border border-border/70 bg-surface-elevated/80 px-4 py-2 text-sm font-semibold text-text transition-colors hover:bg-page focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
+              >
+                {t("viewProduct")}
+              </Link>
+            </div>
+          </div>
         </div>
       </div>
     </article>

@@ -67,6 +67,12 @@ describe("API locale contracts", () => {
     );
   });
 
+  it("treats 204 auth hydration as anonymous", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    await expect(getCurrentUser()).resolves.toBeNull();
+  });
+
   it("treats NOT_AUTHENTICATED as anonymous for auth hydration", async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(
       new Response(

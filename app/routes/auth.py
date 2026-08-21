@@ -156,17 +156,30 @@ async def callback(
         )
 
 
-@router.get("/me", summary="Get current authenticated user")
+@router.get(
+    "/me",
+    summary="Get current authenticated user",
+    response_model=None,
+    responses={
+        200: {"model": UserResponse, "description": "Authenticated user profile"},
+        204: {"description": "No authenticated user cookie is present"},
+        401: {"description": "Authentication cookie is present but invalid"},
+    },
+)
 async def get_me(
     request: Request,
     session_id: Annotated[str, Depends(require_session)],
     current_user: Annotated[UserResponse | None, Depends(get_current_user)],
-) -> JSONResponse:
+) -> Response:
     """Get the current authenticated user's profile.
 
     Reads the JWT cookie, validates it, and confirms the session still
     belongs to that user in the database.
     """
+    jwt_cookie_name = get_settings().jwt_cookie_name
+    if request.cookies.get(jwt_cookie_name) is None:
+        return Response(status_code=204)
+
     if current_user is None:
         return error_response(401, "NOT_AUTHENTICATED", "User not found")
 

@@ -1256,7 +1256,8 @@ export async function getOrder(
 export async function getCurrentUser(): Promise<UserResponse | null> {
   if (USE_MOCK) return (await getMock()).getCurrentUser();
   try {
-    return await apiClient.get<UserResponse>("/v1/auth/me");
+    const user = await apiClient.get<UserResponse | undefined>("/v1/auth/me");
+    return user ?? null;
   } catch (error) {
     // Only treat auth failures as "not logged in" — re-throw network errors
     if (

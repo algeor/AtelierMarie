@@ -345,9 +345,8 @@ def _migrate_template(base_url: str) -> str:
 
 def _alembic_upgrade_head(database_url: str) -> None:
     """Run ``alembic upgrade head`` against ``database_url`` in-process."""
-    from alembic.config import Config
-
     from alembic import command
+    from alembic.config import Config
 
     alembic_ini = Path(__file__).resolve().parent / "alembic.ini"
     config = Config(str(alembic_ini))

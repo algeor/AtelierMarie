@@ -15,6 +15,7 @@ interface AddToCartButtonProps {
   className?: string;
   disabled?: boolean;
   tabIndex?: number;
+  showCraftedLaterNote?: boolean;
 }
 
 export function AddToCartButton({
@@ -25,6 +26,7 @@ export function AddToCartButton({
   className,
   disabled = false,
   tabIndex,
+  showCraftedLaterNote = true,
 }: AddToCartButtonProps) {
   const t = useTranslations("products");
   const { addToCart, openDrawer } = useCart();
@@ -81,7 +83,7 @@ export function AddToCartButton({
           t("addToCart")
         )}
       </Button>
-      {isCraftedLater && (
+      {showCraftedLaterNote && isCraftedLater && (
         <p className="text-xs leading-5 text-muted">{t("craftedLaterShort")}</p>
       )}
     </div>

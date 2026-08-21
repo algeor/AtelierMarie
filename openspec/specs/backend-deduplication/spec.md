@@ -23,10 +23,10 @@ The `CreateProductRequest` and `UpdateProductRequest` models SHALL share field v
 - **THEN** validation SHALL reject it identically to current behavior
 
 ### Requirement: Unauthorized response helper in auth routes
-The `/v1/auth/me` endpoint SHALL use a shared helper function to construct 401 JSON responses, eliminating duplicated JSONResponse construction.
+The `/v1/auth/me` endpoint SHALL use a shared helper function to construct 401 JSON responses for invalid authentication cookies, eliminating duplicated JSONResponse construction.
 
-#### Scenario: Multiple 401 paths in /auth/me
-- **WHEN** any of the four authentication checks fail in the `/auth/me` handler
+#### Scenario: Invalid authentication in /auth/me
+- **WHEN** an authentication cookie is present but cannot be resolved to the current user
 - **THEN** the response SHALL be constructed via a single `_unauthorized(message)` helper
 
 ### Requirement: Session user-ID FastAPI dependency

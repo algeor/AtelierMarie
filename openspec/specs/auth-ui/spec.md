@@ -9,7 +9,7 @@ The system SHALL provide an `AuthContext` React context that tracks the current 
 
 #### Scenario: Initial hydration — anonymous user
 - **WHEN** the app mounts and there is no JWT cookie (or it's expired)
-- **THEN** AuthContext SHALL call `GET /v1/auth/me`, receive a 401/null, and set `user` to null, `isAuthenticated` to false, and `isLoading` to false
+- **THEN** AuthContext SHALL call `GET /v1/auth/me`, receive a 204/null, and set `user` to null, `isAuthenticated` to false, and `isLoading` to false
 
 #### Scenario: Hydration loading state
 - **WHEN** AuthContext is hydrating (between mount and API response)

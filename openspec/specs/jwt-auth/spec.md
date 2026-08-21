@@ -50,15 +50,19 @@ The `require_admin` dependency SHALL verify the user's `is_admin` flag against t
 - **THEN** the `require_admin` dependency SHALL return 403 Forbidden (DB is authoritative, not the JWT claim)
 
 ### Requirement: Current user endpoint
-The system SHALL provide `GET /v1/auth/me` that returns the authenticated user's profile or 401 if not logged in.
+The system SHALL provide `GET /v1/auth/me` that returns the authenticated user's profile, 204 when no auth cookie is present, or 401 when an auth cookie is present but invalid.
 
 #### Scenario: Authenticated user
 - **WHEN** a request to `GET /v1/auth/me` includes a valid JWT cookie
 - **THEN** the system returns 200 with `UserResponse` (id, email, name, avatar_url, is_admin)
 
 #### Scenario: Unauthenticated user
-- **WHEN** a request to `GET /v1/auth/me` has no valid JWT cookie
-- **THEN** the system returns 401 with error `"not_authenticated"`
+- **WHEN** a request to `GET /v1/auth/me` has no JWT cookie
+- **THEN** the system returns 204 with no response body
+
+#### Scenario: Invalid authentication cookie
+- **WHEN** a request to `GET /v1/auth/me` has an invalid JWT cookie
+- **THEN** the system returns 401 with error `"NOT_AUTHENTICATED"`
 
 ### Requirement: JWT cleared on logout
 The system SHALL provide `POST /v1/auth/logout` that clears the JWT cookie and rotates the session.

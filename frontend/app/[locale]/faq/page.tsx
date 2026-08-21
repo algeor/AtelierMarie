@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import type { Locale } from "@/i18n/routing";
@@ -27,6 +28,7 @@ export async function generateMetadata({
 }
 
 export default async function FaqPage({ params }: FaqPageProps) {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "faq" });
   const faq = await getFaq(locale);
@@ -35,6 +37,7 @@ export default async function FaqPage({ params }: FaqPageProps) {
   return (
     <main className="bg-page">
       <script
+        nonce={nonce}
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: serializeJsonLd(jsonLd) }}
       />

@@ -28,12 +28,11 @@ async def test_admin_routes_reject_unauthenticated(client, method, path):
 
 
 @pytest.mark.asyncio
-async def test_auth_me_returns_401_when_not_authenticated(client):
-    """GET /v1/auth/me returns 401 when no JWT cookie is present."""
+async def test_auth_me_returns_204_when_not_authenticated(client):
+    """GET /v1/auth/me returns 204 when no JWT cookie is present."""
     response = await client.get("/v1/auth/me")
-    assert response.status_code == 401
-    body = response.json()
-    assert body["error"]["code"] == "NOT_AUTHENTICATED"
+    assert response.status_code == 204
+    assert response.content == b""
 
 
 @pytest.mark.asyncio

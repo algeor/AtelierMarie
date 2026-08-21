@@ -91,7 +91,7 @@ async def client(app) -> AsyncGenerator[AsyncClient, None]:
 
 
 class TestOAuthSmokeTest:
-    """Full flow: login → callback (mocked) → me(200) → logout → me(401)."""
+    """Full flow: login -> callback (mocked) -> me(200) -> logout -> me(204)."""
 
     @pytest.mark.asyncio
     async def test_full_oauth_flow(self, client: AsyncClient, db_path):
@@ -182,12 +182,12 @@ class TestOAuthSmokeTest:
         # Verify X-Session-Rotated header
         assert logout_resp.headers.get("X-Session-Rotated") == "true"
 
-        # Step 5: me(401) after logout — JWT cookie was cleared
+        # Step 5: me(204) after logout — JWT cookie was cleared
         # Clear cookies and use new session
         client.cookies.clear()
         _set_client_cookie(client, settings.session_cookie_name, new_session)
         me_after_resp = await client.get("/v1/auth/me")
-        assert me_after_resp.status_code == 401
+        assert me_after_resp.status_code == 204
 
 
 # --- Task 71: JWT cookie attributes ---

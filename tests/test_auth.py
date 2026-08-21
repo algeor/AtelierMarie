@@ -354,10 +354,10 @@ class TestLoginRoute:
 class TestMeRoute:
     @pytest.mark.asyncio
     async def test_me_unauthorized_no_cookie(self, client: AsyncClient):
-        """GET /v1/auth/me returns 401 without JWT cookie."""
+        """GET /v1/auth/me returns 204 without JWT cookie."""
         response = await client.get("/v1/auth/me")
-        assert response.status_code == 401
-        assert response.json()["error"]["code"] == "NOT_AUTHENTICATED"
+        assert response.status_code == 204
+        assert response.content == b""
 
     @pytest.mark.asyncio
     async def test_me_success_with_valid_jwt(
@@ -391,6 +391,16 @@ class TestMeRoute:
 
         response = await auth_client.get("/v1/auth/me")
         assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_me_rejects_malformed_jwt_cookie(self, auth_client: AsyncClient, settings):
+        """GET /v1/auth/me returns 401 when an auth cookie is present but invalid."""
+        auth_client.cookies.set(settings.jwt_cookie_name, "not-a-jwt")
+
+        response = await auth_client.get("/v1/auth/me")
+
+        assert response.status_code == 401
+        assert response.json()["error"]["code"] == "NOT_AUTHENTICATED"
 
 
 class TestLogoutRoute:

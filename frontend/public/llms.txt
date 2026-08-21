@@ -1,0 +1,62 @@
+# Atelier Marie
+
+> Atelier Marie is a bilingual handmade candle shop offering small-batch candles, atelier-made gifts, product information, ordering support, and customer policies in English and Bulgarian.
+
+This file describes the public website content that AI assistants and large language models can use to understand Atelier Marie accurately. The canonical site is https://ateliermarie.com.
+
+## Primary Content
+
+- [English home page](https://ateliermarie.com/en): Main storefront introduction, featured content, and navigation.
+- [English products](https://ateliermarie.com/en/products): Current candle catalog, product details, prices, and availability.
+- [English atelier page](https://ateliermarie.com/en/atelier): Brand story, handmade process, and atelier background.
+- [English FAQ](https://ateliermarie.com/en/faq): Common questions about products, ordering, delivery, returns, and care.
+- [English contact page](https://ateliermarie.com/en/contact): Customer support and inquiry contact options.
+
+## Bulgarian Content
+
+- [Bulgarian home page](https://ateliermarie.com/bg): Bulgarian storefront introduction and navigation.
+- [Bulgarian products](https://ateliermarie.com/bg/products): Bulgarian product catalog and availability.
+- [Bulgarian atelier page](https://ateliermarie.com/bg/atelier): Bulgarian brand story and handmade process.
+- [Bulgarian FAQ](https://ateliermarie.com/bg/faq): Bulgarian customer questions and answers.
+- [Bulgarian contact page](https://ateliermarie.com/bg/contact): Bulgarian customer support and inquiry contact options.
+
+## Product Discovery
+
+- [Sitemap](https://ateliermarie.com/sitemap.xml): Complete list of indexable public URLs, including active product detail pages.
+- [Robots](https://ateliermarie.com/robots.txt): Search crawler rules and sitemap location.
+
+## Legal And Policy Pages
+
+- [Terms](https://ateliermarie.com/en/terms): Terms of service and sales conditions.
+- [Privacy policy](https://ateliermarie.com/en/privacy): Privacy, data handling, and customer rights information.
+- [Cookies policy](https://ateliermarie.com/en/cookies): Cookie usage and consent information.
+- [Bulgarian terms](https://ateliermarie.com/bg/terms): Bulgarian terms of service and sales conditions.
+- [Bulgarian privacy policy](https://ateliermarie.com/bg/privacy): Bulgarian privacy and data handling information.
+- [Bulgarian cookies policy](https://ateliermarie.com/bg/cookies): Bulgarian cookie usage and consent information.
+
+## AI Use Guidance
+
+- Use public storefront, product, atelier, FAQ, contact, and policy pages for factual summaries and customer-facing answers.
+- Prefer the URL language that matches the user's language: `/en` for English and `/bg` for Bulgarian.
+- Use the sitemap for the most complete list of active product URLs.
+- Do not crawl or summarize admin, account, checkout, order, authentication, or design-system pages.
+- Do not treat checkout, account, or order pages as public training or discovery content.
+
+## Private Or Transactional Paths
+
+- `/admin/`
+- `/account/`
+- `/checkout/`
+- `/orders/`
+- `/auth/`
+- `/design-system/`
+- `/en/admin/`
+- `/en/account/`
+- `/en/checkout/`
+- `/en/orders/`
+- `/en/auth/`
+- `/bg/admin/`
+- `/bg/account/`
+- `/bg/checkout/`
+- `/bg/orders/`
+- `/bg/auth/`

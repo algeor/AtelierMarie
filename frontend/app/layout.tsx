@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { getLocale } from "next-intl/server";
 import type { CSSProperties } from "react";
 import { getPublicSiteMedia } from "@/lib/api";
@@ -39,6 +40,7 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   const locale = (await getLocale()) as Locale;
   const siteMedia = await getPublicSiteMedia().catch(() => null);
   const pageBackground = resolveMediaUrl(siteMedia?.assets.page_background);
@@ -50,6 +52,7 @@ export default async function RootLayout({
     <html lang={locale}>
       <body className="font-sans" style={bodyStyle}>
         <script
+          nonce={nonce}
           type="application/ld+json"
           dangerouslySetInnerHTML={{
             __html: serializeJsonLd(getSiteJsonLd(locale)),

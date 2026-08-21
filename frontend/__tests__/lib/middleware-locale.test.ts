@@ -15,7 +15,7 @@ import { locales, routing } from "@/i18n/routing";
 // Middleware config is co-located with createMiddleware which requires next/server.
 // We hardcode the expected matcher here (matching middleware.ts) to verify the pattern.
 const config = {
-  matcher: ["/((?!api|_next|.*\\..*).*)"],
+  matcher: ["/((?!api|_next|design-system|.*\\..*).*)"],
 };
 
 describe("Locale routing configuration", () => {
@@ -51,6 +51,10 @@ describe("Middleware matcher config", () => {
 
   it("excludes API routes (api)", () => {
     expect(matcher).toContain("api");
+  });
+
+  it("excludes the design-system gallery", () => {
+    expect(matcher).toContain("design-system");
   });
 
   it("excludes static files (dot-extension pattern)", () => {

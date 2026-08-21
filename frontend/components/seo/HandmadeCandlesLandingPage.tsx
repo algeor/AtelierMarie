@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { Link } from "@/i18n/navigation";
 import { ProductCard } from "@/components/products/ProductCard";
 import { ProductGrid } from "@/components/products/ProductGrid";
@@ -220,6 +221,7 @@ function buildJsonLd(
 }
 
 export async function HandmadeCandlesLandingPage({ locale }: { locale: Locale }) {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   const copy = await loadContent(locale);
   const { products, total } = await getProducts(1, 24, locale, {
     product_type: copy.product_type,
@@ -230,6 +232,7 @@ export async function HandmadeCandlesLandingPage({ locale }: { locale: Locale })
   return (
     <main className="bg-page text-text">
       <script
+        nonce={nonce}
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: serializeJsonLd(jsonLd) }}
       />
