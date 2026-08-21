@@ -2,6 +2,7 @@ import { getHome, getProducts, getPublicSiteMedia } from "@/lib/api";
 import { getTranslations } from "next-intl/server";
 import { FeaturedProductsShowcase } from "@/components/products/FeaturedProductsShowcase";
 import { HeroSection } from "@/components/products/HeroSection";
+import { ScrollReveal } from "@/components/motion";
 import { CategoryLineArt, type CategoryLineArtKind } from "@/components/rebrand";
 import { BodyRenderer } from "@/components/atelier/BodyRenderer";
 import { Link } from "@/i18n/navigation";
@@ -218,11 +219,11 @@ export default async function HomePage({ params }: { params: Promise<{ locale: L
 
 function HomeSectionHeader({ section }: { section: HomeSection }) {
   return (
-    <div className="landing-scroll-reveal max-w-2xl">
+    <ScrollReveal className="max-w-2xl">
       {section.subheading ? <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">{section.subheading}</p> : null}
       <h2 className="mt-3 font-heading text-3xl text-text sm:text-4xl">{section.heading}</h2>
       {section.body ? <BodyRenderer body={section.body} className="mt-4 text-base leading-7 text-muted" /> : null}
-    </div>
+    </ScrollReveal>
   );
 }
 
@@ -233,14 +234,14 @@ function HomeCardsSection({ section }: { section: HomeSection }) {
         <HomeSectionHeader section={section} />
         <div className="grid gap-3 sm:grid-cols-2">
           {section.items.map((item, index) => (
-            <div
+            <ScrollReveal
               key={item.id}
-              className="landing-scroll-reveal rounded-brand bg-[rgb(248_241_241)] p-4 shadow-lg shadow-border/10 ring-1 ring-border/25 transition-all duration-300 motion-safe:hover:-translate-y-0.5 motion-safe:hover:shadow-xl motion-safe:hover:shadow-border/15"
-              style={{ animationDelay: `${index * 90}ms` }}
+              index={index}
+              className="rounded-brand bg-[rgb(248_241_241)] p-4 shadow-lg shadow-border/10 ring-1 ring-border/25 transition-all duration-300 motion-safe:hover:-translate-y-0.5 motion-safe:hover:shadow-xl motion-safe:hover:shadow-border/15"
             >
               <h3 className="font-heading text-lg text-text">{item.title}</h3>
               {item.text ? <p className="mt-2 text-sm leading-6 text-muted">{item.text}</p> : null}
-            </div>
+            </ScrollReveal>
           ))}
         </div>
       </div>
@@ -257,23 +258,27 @@ function HomeCategoryLinks({ section, categories, t }: { section: HomeSection; c
         </div>
         <div className="-mx-4 flex gap-4 overflow-x-auto px-4 pb-3 sm:mx-0 sm:grid sm:grid-cols-2 sm:px-0 lg:grid-cols-4">
           {categories.map((category, index) => (
-            <Link
+            <ScrollReveal
               key={category.key}
-              href={category.href}
-              className="landing-scroll-reveal group flex min-h-[236px] w-[76vw] max-w-[20rem] shrink-0 flex-col justify-between rounded-brand bg-[rgb(248_241_241)] p-5 text-left shadow-lg shadow-border/10 ring-1 ring-border/30 transition-all duration-300 motion-safe:hover:-translate-y-1 motion-safe:hover:shadow-xl motion-safe:hover:shadow-border/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page sm:w-auto sm:max-w-none"
-              style={{ animationDelay: `${index * 100}ms` }}
+              index={index}
+              className="w-[76vw] max-w-[20rem] shrink-0 sm:w-auto sm:max-w-none"
             >
-              <CategoryLineArt
-                kind={category.art}
-                title={t(`categories.${category.key}`)}
-                className="h-24 w-full text-accent transition-colors group-hover:text-text"
-              />
-              <span>
-                <span className="block font-heading text-xl text-text">{t(`categories.${category.key}`)}</span>
-                <span className="mt-2 block text-sm leading-6 text-muted">{t(`categoryDescriptions.${category.key}`)}</span>
-                <span className="mt-4 inline-flex text-sm font-semibold text-accent">{t("categoryCta", { count: category.count })}</span>
-              </span>
-            </Link>
+              <Link
+                href={category.href}
+                className="group flex min-h-[236px] h-full flex-col justify-between rounded-brand bg-[rgb(248_241_241)] p-5 text-left shadow-lg shadow-border/10 ring-1 ring-border/30 transition-all duration-300 motion-safe:hover:-translate-y-1 motion-safe:hover:shadow-xl motion-safe:hover:shadow-border/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-page"
+              >
+                <CategoryLineArt
+                  kind={category.art}
+                  title={t(`categories.${category.key}`)}
+                  className="h-24 w-full text-accent transition-colors group-hover:text-text"
+                />
+                <span>
+                  <span className="block font-heading text-xl text-text">{t(`categories.${category.key}`)}</span>
+                  <span className="mt-2 block text-sm leading-6 text-muted">{t(`categoryDescriptions.${category.key}`)}</span>
+                  <span className="mt-4 inline-flex text-sm font-semibold text-accent">{t("categoryCta", { count: category.count })}</span>
+                </span>
+              </Link>
+            </ScrollReveal>
           ))}
         </div>
       </div>
@@ -292,9 +297,9 @@ function HomeTextImage({ section, siteMedia }: { section: HomeSection; siteMedia
   return (
     <section id={section.slug} className="bg-page px-4 py-16 sm:px-6 sm:py-20 lg:px-8 lg:py-28">
       <div className="mx-auto grid max-w-7xl items-center gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:gap-16">
-        <div className="editorial-image-settle overflow-hidden rounded-brand bg-surface shadow-sm shadow-border/10">
+        <ScrollReveal className="editorial-image-settle overflow-hidden rounded-brand bg-surface shadow-sm shadow-border/10">
           <img src={imageFor(section, null, siteMedia) ?? undefined} alt="" className="aspect-[4/5] w-full object-cover" />
-        </div>
+        </ScrollReveal>
         <HomeSectionHeader section={section} />
       </div>
     </section>
@@ -319,13 +324,13 @@ function HomeTimeline({ section }: { section: HomeSection }) {
         <HomeSectionHeader section={section} />
         <div className="space-y-5 border-l editorial-divider pl-5 sm:pl-7">
           {section.items.map((item, index) => (
-            <article key={item.id} className="grid grid-cols-[3rem_1fr] gap-4 bg-page/35 py-2">
+            <ScrollReveal key={item.id} index={index} className="grid grid-cols-[3rem_1fr] gap-4 bg-page/35 py-2">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-accent text-sm font-semibold text-accent-foreground shadow-sm shadow-accent/15">{String(index + 1).padStart(2, "0")}</div>
               <div>
                 <h3 className="font-heading text-2xl text-text">{item.title}</h3>
                 {item.text ? <p className="mt-2 text-sm leading-7 text-muted">{item.text}</p> : null}
               </div>
-            </article>
+            </ScrollReveal>
           ))}
         </div>
       </div>
@@ -339,7 +344,7 @@ function HomeCollections({ section, siteMedia }: { section: HomeSection; siteMed
       <div className="mx-auto max-w-7xl">
         <HomeSectionHeader section={section} />
         <div className="mt-10 grid gap-6 md:grid-cols-3">
-          {section.items.map((item) => {
+          {section.items.map((item, index) => {
             const content = (
               <article className="group overflow-hidden rounded-brand bg-surface/45 shadow-sm shadow-border/10">
                 <img src={imageFor(section, item.image, siteMedia) ?? undefined} alt="" className="aspect-[4/3] w-full object-cover transition-transform duration-300 group-hover:scale-105 motion-reduce:transition-none motion-reduce:group-hover:scale-100" />
@@ -349,7 +354,11 @@ function HomeCollections({ section, siteMedia }: { section: HomeSection; siteMed
                 </div>
               </article>
             );
-            return item.link ? <Link key={item.id} href={normalizeInternalHref(item.link)}>{content}</Link> : <div key={item.id}>{content}</div>;
+            return (
+              <ScrollReveal key={item.id} index={index}>
+                {item.link ? <Link href={normalizeInternalHref(item.link)}>{content}</Link> : content}
+              </ScrollReveal>
+            );
           })}
         </div>
       </div>

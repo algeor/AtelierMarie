@@ -85,6 +85,7 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
       <script
         nonce={nonce}
         type="application/ld+json"
+        suppressHydrationWarning
         dangerouslySetInnerHTML={{ __html: serializeJsonLd(productJsonLd) }}
       />
       <ProductViewTracker

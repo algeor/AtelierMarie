@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { CountUpMetric } from "@/components/motion";
 import { Skeleton } from "@/components/ui/Skeleton";
 
 interface StatsCardProps {
@@ -6,9 +7,11 @@ interface StatsCardProps {
   value: string;
   icon: React.ReactNode;
   className?: string;
+  countValue?: number;
+  valueFormatter?: (value: number) => string;
 }
 
-export function StatsCard({ label, value, icon, className }: StatsCardProps) {
+export function StatsCard({ label, value, icon, className, countValue, valueFormatter }: StatsCardProps) {
   return (
     <div
       className={cn(
@@ -19,7 +22,9 @@ export function StatsCard({ label, value, icon, className }: StatsCardProps) {
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm font-medium text-soft-brown">{label}</p>
-          <p className="mt-2 text-2xl font-semibold text-charcoal">{value}</p>
+          <p className="mt-2 text-2xl font-semibold text-charcoal">
+            <CountUpMetric value={value} countTo={countValue} formatter={valueFormatter} />
+          </p>
         </div>
         <div className="flex h-12 w-12 items-center justify-center rounded-brand bg-muted-gold/10 text-muted-gold">
           {icon}

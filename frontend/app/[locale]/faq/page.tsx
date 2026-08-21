@@ -39,6 +39,7 @@ export default async function FaqPage({ params }: FaqPageProps) {
       <script
         nonce={nonce}
         type="application/ld+json"
+        suppressHydrationWarning
         dangerouslySetInnerHTML={{ __html: serializeJsonLd(jsonLd) }}
       />
 

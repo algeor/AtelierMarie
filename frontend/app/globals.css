@@ -339,6 +339,24 @@
     will-change: transform, opacity;
   }
 
+  .scroll-reveal {
+    opacity: 0;
+    transform: translateY(18px);
+    transition:
+      opacity 620ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 620ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 300ms ease,
+      border-color 300ms ease,
+      background-color 300ms ease;
+    transition-delay: var(--scroll-reveal-delay, 0ms);
+    will-change: transform, opacity;
+  }
+
+  .scroll-reveal--visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
   .landing-wave-accent {
     display: block;
     height: clamp(5rem, 9vw, 8.25rem);
@@ -447,12 +465,12 @@
   .featured-preview-card__title {
     display: -webkit-box;
     overflow: hidden;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
   }
 
-  @media (min-width: 420px) {
+  @media (min-width: 1024px) {
     .featured-preview-card__panel {
       height: 10.75rem;
       min-height: 10.75rem;
@@ -916,11 +934,13 @@
   .rebrand-slow-reveal,
   .rebrand-soft-panel-expand,
   .rebrand-footer-wordmark-reveal,
+  .scroll-reveal,
   .landing-scroll-reveal,
   .landing-footer-panel {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
+    transition: none !important;
   }
 
   .landing-hero-media img,

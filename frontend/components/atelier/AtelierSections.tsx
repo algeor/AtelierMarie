@@ -1,4 +1,5 @@
 import { Link } from "@/i18n/navigation";
+import { ScrollReveal } from "@/components/motion";
 import { resolveMediaUrl } from "@/lib/media";
 import type { AboutSection, SiteMediaKey, SiteMediaMap } from "@/lib/types";
 import { BodyRenderer } from "./BodyRenderer";
@@ -125,14 +126,14 @@ export function TextImage({ section, siteMedia }: { section: AboutSection; siteM
   return (
     <SectionShell section={section} className="bg-page">
       <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 sm:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:gap-16 lg:px-8">
-        <div className="editorial-image-settle overflow-hidden rounded-brand bg-surface shadow-sm shadow-border/10">
+        <ScrollReveal className="editorial-image-settle overflow-hidden rounded-brand bg-surface shadow-sm shadow-border/10">
           <img
             src={imageFor(section, null, siteMedia) ?? undefined}
             alt=""
             className="aspect-[4/5] w-full object-cover"
           />
-        </div>
-        <div>
+        </ScrollReveal>
+        <ScrollReveal>
           <Eyebrow>{null}</Eyebrow>
           <h2 className="font-heading text-4xl text-text sm:text-5xl">
             {section.heading}
@@ -141,7 +142,7 @@ export function TextImage({ section, siteMedia }: { section: AboutSection; siteM
             <p className="mt-4 text-lg text-accent">{section.subheading}</p>
           )}
           <BodyRenderer body={section.body} className="mt-8" />
-        </div>
+        </ScrollReveal>
       </div>
     </SectionShell>
   );
@@ -150,7 +151,7 @@ export function TextImage({ section, siteMedia }: { section: AboutSection; siteM
 export function TextBand({ section }: { section: AboutSection }) {
   return (
     <SectionShell section={section} className="bg-surface">
-      <div className="mx-auto max-w-4xl px-4 text-center sm:px-6 lg:px-8">
+      <ScrollReveal className="mx-auto max-w-4xl px-4 text-center sm:px-6 lg:px-8">
         <div className="mx-auto mb-5 h-0.5 w-14 bg-accent" aria-hidden="true" />
         <h2 className="font-heading text-4xl text-text sm:text-5xl">
           {section.heading}
@@ -162,7 +163,7 @@ export function TextBand({ section }: { section: AboutSection }) {
         <div className="mt-9">
           <Cta section={section} />
         </div>
-      </div>
+      </ScrollReveal>
     </SectionShell>
   );
 }
@@ -171,7 +172,7 @@ export function CardGrid({ section }: { section: AboutSection }) {
   return (
     <SectionShell section={section} className="bg-page">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="max-w-3xl">
+        <ScrollReveal className="max-w-3xl">
           <Eyebrow>{null}</Eyebrow>
           <h2 className="font-heading text-4xl text-text sm:text-5xl">
             {section.heading}
@@ -179,18 +180,19 @@ export function CardGrid({ section }: { section: AboutSection }) {
           {section.subheading && (
             <p className="mt-4 text-lg text-accent">{section.subheading}</p>
           )}
-        </div>
+        </ScrollReveal>
         <div className="mt-10 grid gap-7 sm:grid-cols-2 lg:grid-cols-4">
-          {section.items.map((item) => (
-            <article
+          {section.items.map((item, index) => (
+            <ScrollReveal
               key={item.id}
+              index={index}
               className="border-l border-accent/35 bg-surface-elevated/30 px-5 py-2"
             >
               <h3 className="font-heading text-2xl text-text">{item.title}</h3>
               {item.text && (
                 <p className="mt-4 text-sm leading-7 text-muted">{item.text}</p>
               )}
-            </article>
+            </ScrollReveal>
           ))}
         </div>
       </div>
@@ -203,7 +205,7 @@ export function ProcessTimeline({ section }: { section: AboutSection }) {
     <SectionShell section={section} className="bg-surface">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="grid gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:gap-16">
-          <div>
+          <ScrollReveal>
             <Eyebrow>{null}</Eyebrow>
             <h2 className="font-heading text-4xl text-text sm:text-5xl">
               {section.heading}
@@ -212,11 +214,12 @@ export function ProcessTimeline({ section }: { section: AboutSection }) {
               <p className="mt-4 text-lg text-accent">{section.subheading}</p>
             )}
             <BodyRenderer body={section.body} className="mt-8" />
-          </div>
+          </ScrollReveal>
           <div className="space-y-5 border-l editorial-divider pl-5 sm:pl-7">
             {section.items.map((item, index) => (
-              <article
+              <ScrollReveal
                 key={item.id}
+                index={index}
                 className="grid grid-cols-[3rem_1fr] gap-4 bg-page/35 py-2"
               >
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-accent text-sm font-semibold text-accent-foreground shadow-sm shadow-accent/15">
@@ -232,7 +235,7 @@ export function ProcessTimeline({ section }: { section: AboutSection }) {
                     </p>
                   )}
                 </div>
-              </article>
+              </ScrollReveal>
             ))}
           </div>
         </div>
@@ -245,7 +248,7 @@ export function CollectionsGrid({ section, siteMedia }: { section: AboutSection;
   return (
     <SectionShell section={section} className="bg-page">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="max-w-3xl">
+        <ScrollReveal className="max-w-3xl">
           <Eyebrow>{null}</Eyebrow>
           <h2 className="font-heading text-4xl text-text sm:text-5xl">
             {section.heading}
@@ -253,9 +256,9 @@ export function CollectionsGrid({ section, siteMedia }: { section: AboutSection;
           {section.subheading && (
             <p className="mt-4 text-lg text-accent">{section.subheading}</p>
           )}
-        </div>
+        </ScrollReveal>
         <div className="mt-10 grid gap-6 md:grid-cols-3">
-          {section.items.map((item) => {
+          {section.items.map((item, index) => {
             const content = (
               <article className="group overflow-hidden rounded-brand bg-surface/45 shadow-sm shadow-border/10">
                 <img
@@ -275,12 +278,10 @@ export function CollectionsGrid({ section, siteMedia }: { section: AboutSection;
                 </div>
               </article>
             );
-            return item.link ? (
-              <Link key={item.id} href={item.link}>
-                {content}
-              </Link>
-            ) : (
-              <div key={item.id}>{content}</div>
+            return (
+              <ScrollReveal key={item.id} index={index}>
+                {item.link ? <Link href={item.link}>{content}</Link> : content}
+              </ScrollReveal>
             );
           })}
         </div>
@@ -292,7 +293,7 @@ export function CollectionsGrid({ section, siteMedia }: { section: AboutSection;
 export function CtaBand({ section }: { section: AboutSection }) {
   return (
     <SectionShell section={section} className="bg-text text-page">
-      <div className="mx-auto max-w-4xl px-4 text-center sm:px-6 lg:px-8">
+      <ScrollReveal className="mx-auto max-w-4xl px-4 text-center sm:px-6 lg:px-8">
         <h2 className="font-heading text-4xl text-page sm:text-5xl">
           {section.heading}
         </h2>
@@ -300,7 +301,7 @@ export function CtaBand({ section }: { section: AboutSection }) {
         <div className="mt-9">
           <Cta section={section} />
         </div>
-      </div>
+      </ScrollReveal>
     </SectionShell>
   );
 }

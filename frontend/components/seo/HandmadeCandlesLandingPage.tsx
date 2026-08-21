@@ -234,6 +234,7 @@ export async function HandmadeCandlesLandingPage({ locale }: { locale: Locale })
       <script
         nonce={nonce}
         type="application/ld+json"
+        suppressHydrationWarning
         dangerouslySetInnerHTML={{ __html: serializeJsonLd(jsonLd) }}
       />
 

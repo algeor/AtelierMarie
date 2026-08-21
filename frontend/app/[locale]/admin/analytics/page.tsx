@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
+import { CountUpMetric } from "@/components/motion";
 import {
   getAdminAnalyticsCheckout,
   getAdminAnalyticsExportUrl,
@@ -71,11 +72,33 @@ export default function AdminAnalyticsPage() {
 
   const metricCards = summary
     ? [
-        { label: t("metrics.sessions"), value: summary.consented_sessions.toLocaleString() },
-        { label: t("metrics.events"), value: summary.accepted_events.toLocaleString() },
-        { label: t("metrics.conversion"), value: `${summary.conversion_rate}%` },
-        { label: t("metrics.orders"), value: summary.backend_order_count.toLocaleString() },
-        { label: t("metrics.revenue"), value: formatPrice(summary.backend_revenue_cents) },
+        {
+          label: t("metrics.sessions"),
+          value: summary.consented_sessions.toLocaleString(),
+          countValue: summary.consented_sessions,
+        },
+        {
+          label: t("metrics.events"),
+          value: summary.accepted_events.toLocaleString(),
+          countValue: summary.accepted_events,
+        },
+        {
+          label: t("metrics.conversion"),
+          value: `${summary.conversion_rate}%`,
+          countValue: summary.conversion_rate,
+          formatter: (value: number) => `${Number(value.toFixed(2))}%`,
+        },
+        {
+          label: t("metrics.orders"),
+          value: summary.backend_order_count.toLocaleString(),
+          countValue: summary.backend_order_count,
+        },
+        {
+          label: t("metrics.revenue"),
+          value: formatPrice(summary.backend_revenue_cents),
+          countValue: summary.backend_revenue_cents,
+          formatter: (value: number) => formatPrice(Math.round(value)),
+        },
         { label: t("metrics.health"), value: summary.health.duckdb_load_status },
       ]
     : [];
@@ -127,7 +150,9 @@ export default function AdminAnalyticsPage() {
             {metricCards.map((metric) => (
               <div key={metric.label} className="rounded-brand border border-champagne-beige bg-cream p-4">
                 <p className="text-xs uppercase tracking-wide text-soft-brown">{metric.label}</p>
-                <p className="mt-2 break-words font-heading text-2xl text-charcoal">{metric.value}</p>
+                <p className="mt-2 break-words font-heading text-2xl text-charcoal">
+                  <CountUpMetric value={metric.value} countTo={metric.countValue} formatter={metric.formatter} />
+                </p>
               </div>
             ))}
           </section>

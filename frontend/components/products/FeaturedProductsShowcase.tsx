@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { useTranslations } from "next-intl";
 import { AddToCartButton } from "@/components/cart/AddToCartButton";
+import { ScrollReveal } from "@/components/motion";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
 import type { HomeSection, ProductResponse } from "@/lib/types";
@@ -98,7 +99,7 @@ export function FeaturedProductsShowcase({ products, section }: FeaturedProducts
       onBlur={() => setIsPaused(false)}
     >
       <div className="relative z-10 mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="landing-scroll-reveal mb-10 max-w-2xl lg:mb-0">
+        <ScrollReveal className="mb-10 max-w-2xl lg:mb-0">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
             {section?.subheading ?? t("featuredEyebrow")}
           </p>
@@ -108,7 +109,7 @@ export function FeaturedProductsShowcase({ products, section }: FeaturedProducts
           <p className="mt-4 max-w-xl text-base leading-7 text-muted">
             {section?.body ?? t("featuredIntro")}
           </p>
-        </div>
+        </ScrollReveal>
 
         <div className="relative mt-8 lg:mt-12">
           <div
@@ -236,19 +237,22 @@ function FeaturedProductCard({
   useProductImpression(cardRef, product, discoveryContext);
 
   return (
-    <article
-      ref={cardRef}
+    <ScrollReveal
+      index={index}
       className={cn(
-        "featured-preview-card landing-scroll-reveal group relative h-full",
+        "featured-preview-card group relative h-full",
         active && "featured-preview-card--active",
         !active && "pointer-events-none",
         className
       )}
-      aria-hidden={!active ? true : undefined}
-      style={{ animationDelay: `${index * 110}ms` }}
-      onMouseEnter={onActivate}
-      onFocus={onActivate}
     >
+      <article
+        ref={cardRef}
+        aria-hidden={!active ? true : undefined}
+        className={cn("h-full", !active && "pointer-events-none")}
+        onMouseEnter={onActivate}
+        onFocus={onActivate}
+      >
       <Link
         href={`/products/${product.id}`}
         tabIndex={inactiveTabIndex}
@@ -263,8 +267,8 @@ function FeaturedProductCard({
         />
       </Link>
 
-      <div className="featured-preview-card__panel mt-4 bg-[rgb(248_241_241)] p-3.5 shadow-xl shadow-text/10 backdrop-blur-md sm:p-4 lg:absolute lg:-bottom-28 lg:left-6 lg:right-6 lg:mt-0">
-        <div className="grid h-full min-w-0 gap-4 min-[720px]:grid-cols-[minmax(0,1fr)_auto] min-[720px]:items-end">
+      <div className="featured-preview-card__panel mt-4 flex flex-col bg-[rgb(248_241_241)] p-3.5 shadow-xl shadow-text/10 backdrop-blur-md sm:p-4 lg:absolute lg:-bottom-28 lg:left-6 lg:right-6 lg:mt-0">
+        <div className="grid h-full min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
           <div className="min-w-0 self-start">
             <p className="featured-preview-card__descriptor text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-accent">
               {descriptor}
@@ -282,7 +286,7 @@ function FeaturedProductCard({
             </div>
           </div>
 
-          <div className="flex min-w-0 flex-col justify-end gap-2 min-[720px]:w-[19rem] min-[720px]:items-stretch">
+          <div className="flex min-w-0 flex-col justify-end gap-2 lg:w-[19rem] lg:items-stretch">
             {isCraftedLater ? (
               <p className="rounded-brand border border-border/45 bg-page/60 px-3 py-2 text-xs leading-5 text-muted">
                 {productT("craftedLaterShort")}
@@ -310,6 +314,7 @@ function FeaturedProductCard({
           </div>
         </div>
       </div>
-    </article>
+      </article>
+    </ScrollReveal>
   );
 }

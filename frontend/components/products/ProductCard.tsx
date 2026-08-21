@@ -2,6 +2,7 @@
 
 import { useMemo, useRef } from "react";
 import { Link } from "@/i18n/navigation";
+import { ScrollReveal } from "@/components/motion";
 import { ProductImage } from "./ProductImage";
 import { PriceDisplay } from "./PriceDisplay";
 import { SaveProductButton } from "./SaveProductButton";
@@ -48,7 +49,8 @@ export function ProductCard({
   useProductImpression(cardRef, product, discoveryContext);
 
   return (
-    <div ref={cardRef} className="group relative">
+    <ScrollReveal index={index ?? 0} className="group relative">
+    <div ref={cardRef}>
       <Link
         href={`/products/${product.id}`}
         onClick={() => trackProductClick(product, discoveryContext, "card")}
@@ -84,5 +86,6 @@ export function ProductCard({
         />
       </div>
     </div>
+    </ScrollReveal>
   );
 }
